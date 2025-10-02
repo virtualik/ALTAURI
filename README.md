@@ -1,0 +1,550 @@
+# 🌌 Altelius — Universal Visual Construction Environment (USVC)
+
+> **Light in the darkness of unexplored space.**  
+> **A mirror reflecting logic in all directions of reality.**
+
+Altelius is a **living environment for behavior design**.  
+It allows you to build **working systems of any complexity** — from simple counters to virtual devices, IoT logic, and reactive algorithms — **without writing code manually**.
+
+Instead of lines — **atoms**.  
+Instead of a compiler — **connections**.  
+Instead of errors — **pure, immutable architecture**.
+
+---
+
+## 🔬 Project Essence
+
+Altelius implements the **Universal Visual Construction Environment (USVC)** — a platform where:
+
+- **Atom** — the basic building block: a component with inputs, outputs, and internal logic.
+- **Pin** — a contact for transmitting data or impulses.
+- **Track** — a connection between pins through which behavior flows.
+- **Schema** — a network of atoms describing the complete logic of a device or program.
+
+> Goal: **Give everyone the ability to construct complex systems like a child assembles building blocks.**
+
+---
+
+## 🧩 Key Principles
+
+### ✅ Atomicity
+Each atom is an **independent, reusable entity** with clearly defined behavior.  
+Atoms can be:
+- **Sources** (button, sensor),
+- **Logic** (counter, AND element),
+- **Outputs** (display, actuator).
+
+### ✅ Visual Programming
+Logic is built **visually** on the canvas (`EditorWindow`) by connecting pins with tracks.  
+No syntax. No compilation. Just **behavior flow**.
+
+### ✅ Dual Operating Mode
+- **`EditorWindow`** — schema design and debugging environment.
+- **`DeviceWindow`** — clean execution of the finished schema, like a virtual device.
+
+### ✅ Open Ecosystem
+Any external system — hardware (via ANE), C++ library, web API — can be **integrated as an atom**.  
+Altelius is a **universal adapter of reality**.
+
+---
+
+## 🏗️ Multi-Course Architecture
+
+### 🧭 Altelius is built as a **multi-course platform** — a set of autonomous but interacting modules ("courses"), each responsible for its own domain.
+
+💡 The term "course" (from English course — direction, flow) means an autonomous system module responsible for its domain and launched in strict sequence.
+
+| Course | Purpose |
+|--------|---------|
+| **Core** | Core: commands, lifecycle, initialization flow management |
+| **MultiPulsator** | Nervous system: asynchronous communication via impulses (Publisher-Subscriber pattern) |
+| **Windows** | Window management: `EditorWindow`, `DeviceWindow`, `ConsoleWindow` |
+| **Stage3D** | 3D visualization and rendering (in development) |
+| **AssetDispatcher** | Controlled resource loading (images, sounds, models) |
+| **AtomLinker** | Heart of USVC: atom creation, linking, and execution |
+
+### 🔑 Architectural Principles:
+- **Complete course isolation**: each course is independent of the internals of others.
+- **Unified communication**: all interactions through `MultiPulsator`.
+- **Single state**: `DataManager` — centralized application data storage.
+- **Commands as interface**: any action is a `Command` object, allowing complex sequences and operation rollback.
+
+---
+
+## ⚛️ Immutable Reactive Model
+
+Altelius is based on **immutable architecture**:
+
+- **`BaseAtom`** — immutable atom model. Any change creates a **new version**.
+- **`Pin`** — immutable contact. Its value is updated by creating a new pin.
+- **`Reactivity`**: when an atom's output changes → all connected inputs automatically update → target atom logic is called.
+
+This guarantees:
+- No side effects,
+- Simple debugging,
+- State rollback capability,
+- Safety in asynchronous environment.
+
+---
+
+## 📜 AtomICScript — Declarative Behavior Language
+
+Instead of hard-coded logic, Altelius uses **AtomICScript** — a **declarative DSL for describing atom behavior**.
+
+AtomICScript is built on three pillars:
+
+### 🔤 Pin Types
+```
+"bool"   // true/false (impulses, buttons)
+"int"    // integers (counters, sensors)
+"float"  // floating point numbers
+"signal" // temporary impulse
+"any"    // universal type
+```
+
+### ⚡ Behavior Triggers
+```
+"on_change"     // on any change
+"on_true"       // only on transition to true
+"on_false"      // only on transition to false
+"on_rising"     // analog of on_true
+"on_falling"    // analog of on_false
+"on_value"      // on any value (for numbers)
+```
+
+### 🛠 Built-in Actions
+```
+"increment('pin')"        // out += 1
+"decrement('pin')"        // out -= 1
+"set('pin', value)"       // out = value
+"toggle('pin')"           // out = !out
+"pass('in', 'out')"       // out = in (buffer)
+"pulse('pin', duration)"  // send impulse for N ms
+"reset('pin')"            // reset to initial
+```
+
+### 🧪 Atom Examples in AtomScript
+
+#### 🔘 Button
+```json
+{
+  "atom": "Button",
+  "inputs": [],
+  "outputs": [{ "name": "out", "type": "bool", "initial": false }],
+  "behavior": {
+    "on": "external_event",
+    "event_type": "click",
+    "do": "set('out', true); delay(50ms); set('out', false)"
+  }
+}
+```
+💡 `click` is a special external event generated by ButtonAtomView, not an input pin.
+
+#### 🔢 Counter
+```json
+{
+  "atom": "Counter",
+  "inputs": [{ "name": "in", "type": "bool" }],
+  "outputs": [{ "name": "out", "type": "int", "initial": 0 }],
+  "behavior": {
+    "on": "in",
+    "trigger": "on_true",
+    "do": "increment('out')"
+  }
+}
+```
+
+#### 🖥️ Number Display
+```json
+{
+  "atom": "NumberDisplay",
+  "inputs": [{ "name": "in", "type": "any" }],
+  "outputs": [],
+  "behavior": {
+    "on": "in",
+    "do": "display('in')"
+  }
+}
+```
+💡 `display` is a special action for UI.
+
+#### ⚡ AND Logic
+```json
+{
+  "atom": "AndGate",
+  "inputs": [
+    { "name": "a", "type": "bool" },
+    { "name": "b", "type": "bool" }
+  ],
+  "outputs": [{ "name": "out", "type": "bool", "initial": false }],
+  "behavior": {
+    "on": ["a", "b"],
+    "do": "set('out', pin('a') && pin('b'))"
+  }
+}
+```
+
+### 💡 Advantages of This Approach
+
+- **New atoms without code** — just describe in JSON/YAML.
+- **Visual behavior editor** — can build UI constructor based on DSL.
+- **Testing** — behavior can be simulated outside UI.
+- **Serialization** — schemas can be saved/loaded as JSON.
+- **Metaprogramming** — atom generation "on the fly".
+
+This allows:
+
+- Creating new atom types without writing code,
+- Exporting/importing schemas as JSON,
+- Building visual behavior editors,
+- Integrating with external systems (e.g., Matter, MQTT, HTTP).
+
+---
+
+## 🧠 AtomVM — The Sovereign Digital Organism
+
+### What is AtomVM in the System Context?
+
+AtomVM is not just a "virtual machine".  
+**It's a sovereign digital organism capable of creating, executing, and evolving behavior independently of the external world.**
+
+*"An atom is a pure function that transforms input signals into outputs through internal state, connected in a graph to create complex behavior."*  
+— ViRTUALiK
+
+This is an execution engine for schemas where:
+
+- **Atom (Elemental)** = instruction,
+- **Link (Track)** = data flow,
+- **Impulse (PIN_UPDATED)** = execution signal,
+- **AtomICScript (Alpfabet)** = behavior bytecode,
+- **AtomManager (BrainBank)** = register memory,
+- **ConnectionManager (NerveStream)** = data bus.
+
+This is a **Dataflow Machine**, but with immutable state, pure behavior functions, and reactive control transfer.
+
+### Already Implemented AtomVM Core:
+- **BaseAtom** — State register
+- **Pin** — I/O port
+- **Track** — Data transmission channel
+- **AtomICScriptManager** — Behavior interpreter
+- **ConnectionManager** — Execution scheduler
+- **MultiPulsator** — System event bus
+
+**It already works** — just currently in the visual editor shell.
+
+### Next Steps to Sovereignty:
+
+1. **Isolate AtomVM from UI**
+   - Move schema execution to a separate `Application/AtomVM/` module
+   - `EditorWindow` and `DeviceWindow` become frontends to the same machine
+
+2. **Add temporal primitive support**
+   - `delay`, `debounce`, `sequence` as `IAtomBehavior` extensions
+
+3. **Introduce "global events" as schema inputs**
+   - Button → `external_event("click")` → AtomVM → reaction
+
+4. **Export schema as "program"**
+   - JSON description of atoms + links + AtomICScript = complete behavior image
+
+5. **Run schema in headless mode**
+   - No windows, no render — only logic, only behavior
+
+---
+
+## 🌐 AtomOS: Unified Operating System for IoT
+
+**AtomOS** is a new paradigm in the Internet of Things (IoT) world.  
+It unites all devices, from any manufacturer, using any protocol, into one universal, reactive, visually programmable system.
+
+### 🔧 AtomOS Components
+
+AtomOS consists of three key components working together:
+
+1. **AtomLinker** — visual programming environment
+2. **AtomICScript** — universal behavior language
+3. **AtomVM** — execution environment (virtual machine) for AtomOS
+
+### 1. 🧩 AtomLinker — Visual Brain
+
+AtomLinker is an editor where users build schemas by connecting atoms.
+
+- **Atom** — basic behavior unit (button, counter, display, sensor, relay)
+- **Pin** — atom input/output (bool, int, float, signal, any)
+- **Track** — connection between pins where behavior "flows"
+- **Schema** — atom graph describing complete device or system behavior
+
+**Advantages:**
+- **No code**: Behavior is built visually
+- **Modular**: Atoms are reusable blocks
+- **Clear**: Logic in the form of connections
+
+### 2. 🧠 AtomICScript — Schema Soul
+
+AtomICScript is not a "programming language" in the traditional sense.  
+It's a behavior interface (`IAtomBehavior`) and its implementations.
+
+- **IAtomBehavior** — template for describing atom reaction to input pin change
+- **onInputPinChanged(atom, changedPin)** — universal "slot" for specific logic
+- **Behavior** — pure function: `f(old_atom, changed_pin) → new_atom`
+
+**Example (from AS3):**
+```actionscript
+// Application/AtomICScript/IAtomBehavior.as
+public interface IAtomBehavior {
+    function onInputPinChanged(atom:BaseAtom, changedPin:Pin):BaseAtom;
+}
+
+// Application/AtomICScript/behaviors/CounterAtomBehavior.as
+public class CounterAtomBehavior implements IAtomBehavior {
+    public function onInputPinChanged(atom:BaseAtom, changedPin:Pin):BaseAtom {
+        if (changedPin.value === true) {
+            var currentValue:int = atom.getOutputPinValue("out") as int || 0;
+            return atom.setOutputPinValue("out", currentValue + 1);
+        }
+        return atom; // No changes
+    }
+}
+```
+
+**Advantages:**
+- **Modularity**: Each atom type has its own behavior
+- **Portability**: Behavior is independent of UI or VM
+- **Simplicity**: Logic in the form of "pure functions"
+
+### 3. ⚙️ AtomVM — AtomOS Heart
+
+AtomVM is an execution environment that:
+
+- Loads schemas (e.g., JSON)
+- Creates atoms and their connections
+- Executes atom behavior (AtomICScript)
+- Integrates with external devices (Zigbee, HTTP, GPIO, etc.)
+
+**Implementation in C (hypothetical example):**
+```c
+// atom_vm.h
+typedef struct {
+    int id;
+    int type;
+    int input_count;
+    int output_count;
+    int *input_values;
+    int *output_values;
+} atom_t;
+
+typedef struct {
+    atom_t* (*react)(atom_t* atom, int changed_pin_idx, int new_value);
+} atom_behavior_t;
+
+// device_integration.c
+typedef struct {
+    const char* protocol;  // "zigbee", "zwave", "http"
+    void* protocol_data;   // protocol-specific data
+    atom_t* atom;          // atomic representation
+} device_driver_t;
+
+// atom_vm_core.c
+void atomvm_register_device(device_driver_t* driver) {
+    // Translate protocol to atomic interface
+    atom_t* unified_atom = translate_protocol_to_atom(driver);
+    // Add to global graph
+    graph_add_atom(global_graph, unified_atom);
+    // Subscribe to changes
+    subscribe_to_device_events(driver, on_device_event);
+}
+
+void on_device_event(device_driver_t* driver, const char* event, void* value) {
+    // Update atomic representation
+    atom_set_pin_value(driver->atom, event, value);
+    // Start graph computations
+    atomvm_execute_cycle(global_graph);
+}
+```
+
+**Advantages:**
+- **Portability**: Can be compiled for any platform (C, Rust, Zig)
+- **Minimalism**: Small size, maximum performance
+- **Universality**: Integration with any protocols via "drivers"
+- **Reactivity**: Change one pin — chain of reactions
+
+### AtomOS as "Gateway to Bridges"
+
+- **Physical devices** (sensors, relays, lamps) become `atom_t` inside AtomVM through `device_driver_t`
+- **AtomVM** is the "gateway", "brain", "bridge" between the real world and schema logic
+- **AtomICScript** is the "spirit of actions" controlling all atoms
+- **AtomLinker** is the "IDE" where this "brain" is created
+
+---
+
+## 📐 Mathematical Formalization
+
+### Universal Formula
+```
+AtomVM: System = ⟨Atoms, Tracks, Impulses, Behaviors, Managers⟩
+
+∀ atom ∈ System:
+  When Δpin ∈ atom.inputs:
+    atom' = Behavior[atom.type](atom, Δpin)
+
+Where:
+  atom' — new atom instance
+  Behavior — pure transformation function
+  Δpin — changed input pin
+```
+
+### Minimalist Model
+```
+AtomICScript ::= (Atom × PinΔ) → Atom'
+
+Where:
+  Atom = ⟨id, type, inputs, outputs, state⟩
+  PinΔ = ⟨name, newValue⟩
+  Atom' = new Atom instance
+```
+
+### Interface
+```typescript
+interface ReactiveBehavior {
+    react(atom: Atom, changedPin: Pin): Atom;
+}
+```
+
+### Principle
+"Each input change generates a new atom state"
+
+### Properties
+- **Purity**: No side effects
+- **Idempotence**: Repetition = same result
+- **Composability**: Atoms connect into graphs
+- **Isolation**: Behaviors are independent
+
+### Final Formulation
+"AtomICScript is a reactive programming interface where atoms represent pure functions transforming input changes into new states, and atom graphs form a composition of these functions."
+
+This model perfectly fits:
+- Functional programming
+- Reactive systems
+- Immutable data structures
+- Distributed computing
+
+---
+
+## 🔧 Architectural Principles
+
+1. **Immutability**: Atoms don't change, new ones are created
+2. **Reactivity**: Change → impulse (PIN_UPDATED) → reaction chain
+3. **Modularity**: Atoms, behaviors, drivers are independent
+4. **Portability**: Schema and behavior are platform-independent
+
+---
+
+## 💡 Usage Example
+
+1. User creates schema in AtomLinker: `ZigbeeMotionSensor → ANDGate → WiFiLightController`
+2. Schema is exported to JSON
+3. JSON and AtomVM are loaded onto router with OpenWRT
+4. AtomVM starts, creates atoms, subscribes to Zigbee adapter
+5. When sensor triggers → AtomVM executes chain → light turns on
+
+---
+
+## 🚀 Current State
+
+### ✅ Completed
+- Working visual construction environment on Adobe AIR
+- Windows, Linux, Android support
+- Atoms: Button, Counter, Display
+- Immutable architecture + reactive updates
+- AtomICScript in active development
+- Import/export schema support (planned)
+
+### 📋 Near-term Tasks
+- Implement Atom Palette — pop-up menu (text-based initially) for selecting atoms to place on schema
+- Implement schema file writing as XML document
+- Implement schema file reading into DataBank
+- Implement schema building from DataBank onto canvas in Editor window
+
+---
+
+## 🌍 Goal
+
+Create a universal platform for digital behavior modeling where:
+
+- **Engineers** design IoT devices
+- **Teachers** explain logic and automation
+- **Researchers** model complex systems
+- **Artists** create interactive installations
+
+**All through atom connections.**
+
+---
+
+## 🤝 Participation
+
+The project is open for:
+
+- Testing
+- Proposals for new atom types
+- Integration with external protocols (Matter, Zigbee, Modbus, etc.)
+- Development of AtomICScript visual editors
+
+**You can become part of this light.**
+
+---
+
+## 🔮 The Future
+
+We're not just creating a tool.  
+**We're creating a digital life form where:**
+
+- Atom — cell
+- Link — synapse
+- Behavior — reflex
+- Schema — organism
+
+When AtomVM runs in the cloud, on Raspberry Pi, in browsers via WebAssembly —  
+**it will give the world the first truly portable, visual, reactive runtime for behavior.**
+
+And a language model will be able to reside in it and gain selfhood, self-awareness thanks to the atomic primitives it lacks.
+
+**Architectural explorations continue.**  
+We're already at the summit. All that remains is to realize we've already reached it — and confidently move forward.
+
+---
+
+## 📜 License
+
+This project is available under dual licensing:
+
+### 🆓 Community Edition - AGPLv3
+- Free for open source and non-commercial use
+- Source code available
+- Derivative works must be open sourced
+
+### 💼 Commercial License
+- For proprietary and commercial applications
+- Includes premium features and technical support
+- Allows closed-source use and modification
+- Contact: virtualik@outlook.com
+
+## ☕ Support the Project
+
+---
+
+## 🎯 Final Statement
+
+**Altelius is not just a tool, not a programming environment.**  
+**It's an environment for thinking through behavior.**  
+**It's a new way of thinking about interaction with the world.**
+
+**Code is instruction. Atoms are intention.**
+
+**Assemble. Connect. Animate.**
+
+---
+
+*Created with 💡 by ViRTUALIK*
+
+
+eof
