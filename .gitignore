@@ -1,5 +1,3 @@
 # .gitignore
-AtomVM.as
-FileScanner.exe.lnk
-MultiTracker.swf
-RECOVER_MultiTracker.fla
+Main.swf
+RECOVER_Main.fla
