@@ -1,0 +1,45 @@
+<signatures>
+  <Signature xmlns="http://www.w3.org/2000/09/xmldsig#" Id="PackageSignature">
+    <SignedInfo>
+      <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+      <SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+      <Reference URI="#PackageContents">
+        <Transforms>
+          <Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+        </Transforms>
+        <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+        <DigestValue>ktRbPDUGNanlZQNuAWsXLiKHqd+2jn3BnBtmMgJc6II=</DigestValue>
+      </Reference>
+    </SignedInfo>
+    <SignatureValue Id="PackageSignatureValue">n17GiUhQ6bNjkX8w3a+0dPQhOwbC++M5zusLees0OuhDyG9yZTi9V2oxCYL3jqgx0z7hqYwKaFnf
+O2r0AnIQUyrlMa2Ya+JqLr4weflaioW3z+jicWV28AGtWanVvE+/EEr2CdTBP1bXVeM6r8uSO6jH
+V3rcXKU9VqfkIvUoi3LUfFpSdwqrIISR+dD2R1rG2ruwTJsodbPdJz2ivK67ORpTFVJf0o8e6dyO
+2I9ZI9oKnfy8aJ7j/5W/EMFM9ivUOgTD6OXsonWOf/gBGyI3DL083u1X6m/PShcFflvLqeivxASv
+MHqGtnrR87NYSkINRe3yLkZSN9bDp7e3ewyZ7A==</SignatureValue>
+    <KeyInfo>
+      <X509Data>
+        <X509Certificate>MIIDRTCCAi2gAwIBAgIaNGNhNmZkMTI6MTlhMTJhYjg3Nzk6LTgwMDAwDQYJKoZIhvcNAQELBQAw
+SzELMAkGA1UEBhMCVUExETAPBgNVBAoTCEdBTEFYWUNPMRUwEwYDVQQLEwxHQUxBWFlDTyBMQUIx
+EjAQBgNVBAMTCVZpUlRVQUxJSzAiGA8yMDI1MTAyMjIwMDM0MloYDzIwNzUxMDIzMjAwMzQyWjBL
+MQswCQYDVQQGEwJVQTERMA8GA1UEChMIR0FMQVhZQ08xFTATBgNVBAsTDEdBTEFYWUNPIExBQjES
+MBAGA1UEAxMJVmlSVFVBTElLMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq8rJmDg0
+v6czdz97CGIOBOzP7sKarJPflbZ64oGDzykMWmAPrMRqmHLxNayNG33xFVL9DdGhY6ejug9+Blco
+VFNlsfQeI6jby3YHYOgpeB6YCAzpFw/4v7n43zY2/TUIVYxSXZxl0bb6SBRu41HRa8FyFNiGeAH8
+qLkL8tubygzfkzpSjtYQ+eWxvPcrPt6buKtfPSDWLucZfcGX6mj/qnzcxSSdlFJrKndMoE+HpcFu
+HtIm2qJnZwOFlebzog9VuJvKYhy87S/nNPj2eJif8SgIuDwAaE4TMiC6UTLOgf0r9vqsRoFwrZ3c
+8OMFFCWayDEZEc+PTBV3TQb+WRWCTwIDAQABoxcwFTATBgNVHSUEDDAKBggrBgEFBQcDAzANBgkq
+hkiG9w0BAQsFAAOCAQEAMwgxOTU29uWPF5El3lEhycwz6cqwaxTGazmiVR1IEUToc5ts6Xz0r7Ql
+Ap82rbCKq40HUHlNOhFnVAdVpRBo0cvqTnumXV8uko/Vmi0fZuSHYw4eZiN+lmteSJRx1lLVyGaR
+hnsKHxQ2wGJ/T3FIMTfFOsNaOCZI/nzNe5Q9m5hVcGGwyibFNMNAO1pwpKV3ay/aCg0rXlzOBoOt
+Fzs45HCbwieuXmLowXKHu5ZkaAFVgjbFphzYNlC/dMuidc8dYIByRFiC8u+SCR3lB9pBljFrrkLt
+A4qmVbQcJk/StlnQizkp+yuVbULwMU52H3xAz6R4cqjf28yeGBtt/vcmMA==</X509Certificate>
+      </X509Data>
+    </KeyInfo>
+    <Object>
+      <Manifest Id="PackageContents">
+        <Reference URI="META-INF/AIR/application.xml"><DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"></DigestMethod><DigestValue>Xr8drvpvNDql4EbnrFCfbwYHeyG6sKOS1TIHagJrMWc=</DigestValue></Reference><Reference URI="META-INF/AIR/license.txt"><DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"></DigestMethod><DigestValue>WauGyUFXrCwz3jm4bTZg6EypBEoKo5baceyrim4oiSw=</DigestValue></Reference><Reference URI="Main.swf"><DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"></DigestMethod><DigestValue>WOUKlJccjXU+K/GUgDiN4IUcSW23jGpIIIrgwP3FeBg=</DigestValue></Reference><Reference URI="mimetype"><DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"></DigestMethod><DigestValue>0/oCb84THKMagtI0Dy0KogEu92TegdesqRr/clXct1c=</DigestValue></Reference>
+      </Manifest>
+    </Object>
+    
+  </Signature>
+</signatures>
