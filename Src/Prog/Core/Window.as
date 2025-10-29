@@ -22,12 +22,13 @@
 
     /**
      * Universal Window - configurable window system with built-in event to impulse transformation
-     * Transforms native Flash events into MultiPulsator impulses for unified application communication
+     * AND integrated canvas with pan/zoom functionality and layered content system
      *
      * Key features:
      * - Platform-aware window creation (Desktop vs Mobile)
      * - Built-in content types (Editor, Device, Default)
-     * - Integrated zoom/pan for editor-type windows
+     * - Integrated zoom/pan for canvas manipulation
+     * - Two-layer canvas system (background + dynamic content)
      * - Automatic event-to-impulse transformation
      * - MultiPulsator event system integration
      * - Proper resource management and cleanup
@@ -39,20 +40,35 @@
         /** Main content container sprite */
         private var _content:Sprite;
 
-        /** Drawing surface for editor-type windows */
-        private var _drawingSurface:Sprite;
-
-        /** Current viewport position for panning */
+        // =========================================================================
+        // CANVAS SYSTEM - Integrated pan/zoom functionality
+        // =========================================================================
+        
+        /** Main canvas for pan/zoom operations */
+        private var _canvas:Sprite;
+        
+        /** Background layer - static background elements */
+        private var _backgroundLayer:Sprite;
+        
+        /** Content layer - dynamic elements that move with canvas */
+        private var _contentLayer:Sprite;
+        
+        /** Current viewport position for panning operations */
         private var _viewPoint:Point = new Point(0, 0);
-
-        /** Current zoom level for editor-type windows */
-        private var _zoom:Number = 0.5;
-
+        
+        /** Current zoom level for canvas scaling */
+        private var _zoomLevel:Number = 1.0;
+        
         /** Dragging state flag for panning operations */
         private var _isDragging:Boolean = false;
-
+        
         /** Last mouse position for movement calculations */
         private var _lastMousePos:Point = new Point();
+        
+        /** Zoom constraints */
+        private static const ZOOM_MIN:Number = 0.1;
+        private static const ZOOM_MAX:Number = 2.0;
+        private static const ZOOM_STEP:Number = 0.1;
 
         /** Platform detection flag - true for desktop OS */
         private static var _isDesktop:Boolean = Capabilities.os.indexOf("Windows") >= 0 ||
@@ -164,6 +180,9 @@
                 stage.quality = StageQuality.BEST;
                 stage.addChild(_content);
 
+                // Initialize canvas system with pan/zoom functionality
+                initializeCanvasSystem();
+
                 // Type-specific content initialization
                 switch(_type) {
                     case "Editor":
@@ -181,43 +200,194 @@
         }
 
         /**
-         * Set up editor-specific content with drawing surface and interactions
-         * Includes zoom/pan capabilities and mouse event handling
-         * Features professional styling with information display
+         * Initialize canvas system with pan/zoom functionality
+         * Creates the layered canvas structure and sets up viewport controls
+         */
+        private function initializeCanvasSystem():void {
+            // Create main canvas container
+            _canvas = new Sprite();
+            _canvas.name = "Canvas";
+            _content.addChild(_canvas);
+            
+            // Create background layer for static elements
+            _backgroundLayer = new Sprite();
+            _backgroundLayer.name = "BackgroundLayer";
+            _canvas.addChild(_backgroundLayer);
+            
+            // Create content layer for dynamic elements
+            _contentLayer = new Sprite();
+            _contentLayer.name = "ContentLayer";
+            _canvas.addChild(_contentLayer);
+            
+            // Setup viewport controls
+            setupViewportControls();
+            
+            // Center canvas initially
+            centerCanvas();
+        }
+
+        /**
+         * Setup viewport controls for pan/zoom operations
+         * Configures mouse wheel zoom and middle mouse button panning
+         */
+        private function setupViewportControls():void {
+            stage.addEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
+            stage.addEventListener(MouseEvent.MIDDLE_MOUSE_DOWN, onMiddleMouseDown);
+            stage.addEventListener(MouseEvent.MIDDLE_MOUSE_UP, onMiddleMouseUp);
+            stage.addEventListener(Event.MOUSE_LEAVE, onMouseLeave);
+            stage.addEventListener(Event.RESIZE, onStageResize);
+        }
+
+        /**
+         * Center canvas on stage and reset viewport
+         * Useful for resetting the view or initial setup
+         */
+        private function centerCanvas():void {
+            _canvas.x = stage.stageWidth / 2;
+            _canvas.y = stage.stageHeight / 2;
+            _viewPoint.setTo(0, 0);
+            _zoomLevel = 1.0;
+            updateViewport();
+        }
+
+        /**
+         * Mouse wheel handler for zoom operations
+         * Provides smooth zooming centered on mouse position
+         * @param event - Mouse wheel event
+         */
+        private function onMouseWheel(event:MouseEvent):void {
+            var mouseStageX:Number = stage.mouseX;
+            var mouseStageY:Number = stage.mouseY;
+            var mouseLocalBefore:Point = _canvas.globalToLocal(new Point(mouseStageX, mouseStageY));
+            
+            var oldZoom:Number = _zoomLevel;
+            _zoomLevel += (event.delta > 0) ? ZOOM_STEP : -ZOOM_STEP;
+            _zoomLevel = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, _zoomLevel));
+            
+            updateViewport();
+            
+            var mouseLocalAfter:Point = _canvas.globalToLocal(new Point(mouseStageX, mouseStageY));
+            var scaleRatio:Number = _zoomLevel / oldZoom;
+            _viewPoint.x += (mouseLocalAfter.x - mouseLocalBefore.x) * scaleRatio;
+            _viewPoint.y += (mouseLocalAfter.y - mouseLocalBefore.y) * scaleRatio;
+            
+            updateViewport();
+            
+            // Emit zoom impulse for external listeners
+            MultiPulsator.emit(new Impulse("CANVAS_ZOOM_CHANGED", {
+                windowType: _type,
+                zoomLevel: _zoomLevel,
+                viewPoint: _viewPoint.clone()
+            }));
+        }
+
+        /**
+         * Middle mouse down handler - start panning operation
+         * @param event - Middle mouse button down event
+         */
+        private function onMiddleMouseDown(event:MouseEvent):void {
+            _isDragging = true;
+            _lastMousePos.setTo(stage.mouseX, stage.mouseY);
+            stage.addEventListener(MouseEvent.MOUSE_MOVE, onMouseDrag);
+        }
+
+        /**
+         * Mouse drag handler - update panning position
+         * @param event - Mouse move event during drag
+         */
+        private function onMouseDrag(event:MouseEvent):void {
+            if (_isDragging) {
+                var currentMousePos:Point = new Point(stage.mouseX, stage.mouseY);
+                var dx:Number = currentMousePos.x - _lastMousePos.x;
+                var dy:Number = currentMousePos.y - _lastMousePos.y;
+                
+                _viewPoint.x += dx / _zoomLevel;
+                _viewPoint.y += dy / _zoomLevel;
+                
+                updateViewport();
+                _lastMousePos = currentMousePos;
+                
+                // Emit pan impulse for external listeners
+                MultiPulsator.emit(new Impulse("CANVAS_PANNED", {
+                    windowType: _type,
+                    viewPoint: _viewPoint.clone(),
+                    movement: new Point(dx, dy)
+                }));
+            }
+        }
+
+        /**
+         * Middle mouse up handler - end panning operation
+         * @param event - Middle mouse button up event
+         */
+        private function onMiddleMouseUp(event:MouseEvent):void {
+            _isDragging = false;
+            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseDrag);
+        }
+
+        /**
+         * Mouse leave handler - cancel ongoing operations
+         * @param event - Mouse leave event
+         */
+        private function onMouseLeave(event:Event):void {
+            _isDragging = false;
+            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseDrag);
+        }
+
+        /**
+         * Stage resize handler - maintain canvas positioning
+         * @param event - Stage resize event
+         */
+        private function onStageResize(event:Event):void {
+            updateViewport();
+            
+            MultiPulsator.emit(new Impulse("CANVAS_RESIZED", {
+                windowType: _type,
+                stageWidth: stage.stageWidth,
+                stageHeight: stage.stageHeight
+            }));
+        }
+
+        /**
+         * Update viewport transformation based on current zoom and position
+         * Applies scale and translation to canvas for zoom/pan operations
+         */
+        private function updateViewport():void {
+            _canvas.scaleX = _canvas.scaleY = _zoomLevel;
+            _canvas.x = stage.stageWidth / 2 + _viewPoint.x * _zoomLevel;
+            _canvas.y = stage.stageHeight / 2 + _viewPoint.y * _zoomLevel;
+        }
+
+        /**
+         * Set up editor-specific content with professional styling
+         * Includes canvas background and information display
          */
         private function setupEditorContent():void {
-            // Background styling
-            _content.graphics.lineStyle(3, 0xffffcc, 0.0);
-            _content.graphics.beginFill(0x006699, 1.0);
-            _content.graphics.drawRect(0, 0, stage.stageWidth, stage.stageHeight);
-            _content.graphics.endFill();
+            // Background styling for editor
+            _backgroundLayer.graphics.lineStyle(3, 0xffffcc, 0.0);
+            _backgroundLayer.graphics.beginFill(0x006699, 1.0);
+            _backgroundLayer.graphics.drawRect(-1000, -500, 2000, 1000);
+            _backgroundLayer.graphics.endFill();
 
             // Information label
-            var info:TextField = createLabel("Editor", 10, 10);
-            _content.addChild(info);
-
-            // Drawing surface for graphical elements
-            _drawingSurface = new Sprite();
-            _drawingSurface.cacheAsBitmap = true;
-            _drawingSurface.name = "DrawingSurface";
-            _content.addChild(_drawingSurface);
+            var info:TextField = createLabel("Editor Canvas", 10, 10);
+            _contentLayer.addChild(info);
         }
 
         /**
          * Set up device-specific content with status display
-         * Includes device information panel and control elements
-         * Optimized for mobile platform constraints when applicable
+         * Optimized for device simulation and monitoring
          */
         private function setupDeviceContent():void {
-            // Background styling
-            _content.graphics.lineStyle(3, 0xffffcc, 0.0);
-            _content.graphics.beginFill(0x077770, 1.0);
-            _content.graphics.drawRect(0, 0, stage.stageWidth, stage.stageHeight);
-            _content.graphics.endFill();
+            // Background styling for device
+            _backgroundLayer.graphics.lineStyle(3, 0xffffcc, 0.0);
+            _backgroundLayer.graphics.beginFill(0x077770, 1.0);
+            _backgroundLayer.graphics.drawRect(-1000, -500, 2000, 1000);
+            _backgroundLayer.graphics.endFill();
 
             // Information label
-            var info:TextField = createLabel("Device", 10, 10);
-            _content.addChild(info);
+            var info:TextField = createLabel("Device Canvas", 10, 10);
+            _contentLayer.addChild(info);
 
             // Fixed positioning for mobile platforms
             if (!_isDesktop) {
@@ -228,15 +398,14 @@
         /**
          * Set up default content for unknown window types
          * Provides basic fallback UI with neutral styling
-         * Ensures all window types have functional content
          */
         private function setupDefaultContent():void {
-            _content.graphics.beginFill(0x333333, 1.0);
-            _content.graphics.drawRect(0, 0, stage.stageWidth, stage.stageHeight);
-            _content.graphics.endFill();
+            _backgroundLayer.graphics.beginFill(0x333333, 1.0);
+            _backgroundLayer.graphics.drawRect(-1000, -500, 2000, 1000);
+            _backgroundLayer.graphics.endFill();
 
-            var info:TextField = createLabel(_type, 10, 10);
-            _content.addChild(info);
+            var info:TextField = createLabel(_type + " Canvas", 10, 10);
+            _contentLayer.addChild(info);
         }
 
         /**
@@ -266,30 +435,117 @@
             return label;
         }
 
+        // =========================================================================
+        // PUBLIC API METHODS - Canvas Access and Control
+        // =========================================================================
+
         /**
-         * Update viewport transformation based on current zoom and position
-         * Applies scale and translation to drawing surface for zoom/pan operations
-         * Maintains visual center while adjusting viewport
+         * Get main canvas reference
+         * @return Sprite - Main canvas container with pan/zoom transformation
          */
-        private function updateViewport():void {
-            if (!_drawingSurface) return;
-            _drawingSurface.scaleX = _drawingSurface.scaleY = _zoom;
-            _drawingSurface.x = stage.stageWidth / 2 + _viewPoint.x * _zoom;
-            _drawingSurface.y = stage.stageHeight / 2 + _viewPoint.y * _zoom;
+        public function get canvas():Sprite {
+            return _canvas;
         }
 
         /**
-         * Handle editor-specific zoom functionality
-         * Provides smooth zooming with mouse wheel input
-         * Maintains zoom level constraints for usability
-         * @param event - Mouse wheel event containing delta information
+         * Get background layer reference
+         * @return Sprite - Background layer for static elements
          */
-        private function handleEditorZoom(event:MouseEvent):void {
-            var oldZoom:Number = _zoom;
-            _zoom += event.delta > 0 ? 0.1 : -0.1;
-            _zoom = Math.max(0.4, Math.min(1.0, _zoom));
+        public function get backgroundLayer():Sprite {
+            return _backgroundLayer;
+        }
 
+        /**
+         * Get content layer reference
+         * @return Sprite - Content layer for dynamic elements
+         */
+        public function get contentLayer():Sprite {
+            return _contentLayer;
+        }
+
+        /**
+         * Get current zoom level
+         * @return Number - Current zoom level (0.1 to 2.0)
+         */
+        public function get zoomLevel():Number {
+            return _zoomLevel;
+        }
+
+        /**
+         * Set zoom level with bounds checking
+         * @param level - New zoom level
+         */
+        public function set zoomLevel(level:Number):void {
+            _zoomLevel = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, level));
             updateViewport();
+        }
+
+        /**
+         * Get current viewport position
+         * @return Point - Current viewport position
+         */
+        public function get viewPoint():Point {
+            return _viewPoint.clone();
+        }
+
+        /**
+         * Set viewport position
+         * @param point - New viewport position
+         */
+        public function set viewPoint(point:Point):void {
+            _viewPoint = point.clone();
+            updateViewport();
+        }
+
+        /**
+         * Reset viewport to default position and zoom
+         * Centers canvas and sets zoom to 1.0
+         */
+        public function resetViewport():void {
+            centerCanvas();
+            
+            MultiPulsator.emit(new Impulse("CANVAS_RESET", {
+                windowType: _type,
+                zoomLevel: _zoomLevel,
+                viewPoint: _viewPoint.clone()
+            }));
+        }
+
+        /**
+         * Convert global coordinates to canvas-local coordinates
+         * Useful for positioning elements relative to canvas
+         * @param globalPoint - Global stage coordinates
+         * @return Point - Canvas-local coordinates
+         */
+        public function globalToCanvas(globalPoint:Point):Point {
+            return _canvas.globalToLocal(globalPoint);
+        }
+
+        /**
+         * Convert canvas-local coordinates to global coordinates
+         * Useful for UI elements that need stage positioning
+         * @param localPoint - Canvas-local coordinates
+         * @return Point - Global stage coordinates
+         */
+        public function canvasToGlobal(localPoint:Point):Point {
+            return _canvas.localToGlobal(localPoint);
+        }
+
+        /**
+         * Get window type identifier
+         * @return String - Window type as specified during construction
+         */
+        public function get windowType():String {
+            return _type;
+        }
+
+        /**
+         * Get window content reference
+         * Returns main content container (not canvas)
+         * @return Sprite - Primary content container for this window
+         */
+        public function get content():Sprite {
+            return _content;
         }
 
         // =========================================================================
@@ -376,7 +632,7 @@
          */
         private function transformMouseClick(event:MouseEvent):void {
             if (!_content) return;
-            
+
             MultiPulsator.emit(new Impulse("WINDOW_MOUSE_CLICK", {
                 windowType: _type,
                 window: this,
@@ -399,7 +655,7 @@
          */
         private function transformMouseDoubleClick(event:MouseEvent):void {
             if (!_content) return;
-            
+
             MultiPulsator.emit(new Impulse("WINDOW_MOUSE_DOUBLE_CLICK", {
                 windowType: _type,
                 window: this,
@@ -418,7 +674,7 @@
          */
         private function transformMouseDown(event:MouseEvent):void {
             if (!_content) return;
-            
+
             MultiPulsator.emit(new Impulse("WINDOW_MOUSE_DOWN", {
                 windowType: _type,
                 window: this,
@@ -438,7 +694,7 @@
          */
         private function transformMouseUp(event:MouseEvent):void {
             if (!_content) return;
-            
+
             MultiPulsator.emit(new Impulse("WINDOW_MOUSE_UP", {
                 windowType: _type,
                 window: this,
@@ -459,7 +715,7 @@
          */
         private function transformMouseMove(event:MouseEvent):void {
             if (!_content) return;
-            
+
             MultiPulsator.emit(new Impulse("WINDOW_MOUSE_MOVE", {
                 windowType: _type,
                 window: this,
@@ -482,7 +738,7 @@
          */
         private function transformMouseOver(event:MouseEvent):void {
             if (!_content) return;
-            
+
             MultiPulsator.emit(new Impulse("WINDOW_MOUSE_OVER", {
                 windowType: _type,
                 window: this,
@@ -501,7 +757,7 @@
          */
         private function transformMouseOut(event:MouseEvent):void {
             if (!_content) return;
-            
+
             MultiPulsator.emit(new Impulse("WINDOW_MOUSE_OUT", {
                 windowType: _type,
                 window: this,
@@ -516,12 +772,12 @@
         /**
          * Mouse wheel event transformer
          * Emits WINDOW_MOUSE_WHEEL impulse with scroll delta
-         * Handles editor-specific zoom functionality
+         * Note: Actual zoom handling is in onMouseWheel method
          * @param event - Native mouse wheel event
          */
         private function transformMouseWheel(event:MouseEvent):void {
             if (!_content) return;
-            
+
             MultiPulsator.emit(new Impulse("WINDOW_MOUSE_WHEEL", {
                 windowType: _type,
                 window: this,
@@ -532,11 +788,6 @@
                 stageY: event.stageY,
                 timestamp: new Date().getTime()
             }));
-
-            // Editor-specific zoom handling
-            if (_type == "Editor") {
-                handleEditorZoom(event);
-            }
         }
 
         /**
@@ -546,7 +797,7 @@
          */
         private function transformMouseRightClick(event:MouseEvent):void {
             if (!_content) return;
-            
+
             MultiPulsator.emit(new Impulse("WINDOW_MOUSE_RIGHT_CLICK", {
                 windowType: _type,
                 window: this,
@@ -565,7 +816,7 @@
          */
         private function transformMouseRightDown(event:MouseEvent):void {
             if (!_content) return;
-            
+
             MultiPulsator.emit(new Impulse("WINDOW_MOUSE_RIGHT_DOWN", {
                 windowType: _type,
                 window: this,
@@ -584,7 +835,7 @@
          */
         private function transformMouseRightUp(event:MouseEvent):void {
             if (!_content) return;
-            
+
             MultiPulsator.emit(new Impulse("WINDOW_MOUSE_RIGHT_UP", {
                 windowType: _type,
                 window: this,
@@ -661,25 +912,8 @@
         }
 
         // =========================================================================
-        // PUBLIC API METHODS
+        // CLEANUP AND DISPOSAL
         // =========================================================================
-
-        /**
-         * Get window content reference
-         * Returns drawing surface for editor windows, main content for others
-         * @return Sprite - Primary content container for this window
-         */
-        public function get content():Sprite {
-            return _drawingSurface || _content;
-        }
-
-        /**
-         * Get window type identifier
-         * @return String - Window type as specified during construction
-         */
-        public function get windowType():String {
-            return _type;
-        }
 
         /**
          * Clean up window resources and event listeners
@@ -689,14 +923,24 @@
         public function dispose():void {
             // Remove internal event listeners
             removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
-            
+
+            // Remove viewport control listeners
+            if (stage) {
+                stage.removeEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
+                stage.removeEventListener(MouseEvent.MIDDLE_MOUSE_DOWN, onMiddleMouseDown);
+                stage.removeEventListener(MouseEvent.MIDDLE_MOUSE_UP, onMiddleMouseUp);
+                stage.removeEventListener(Event.MOUSE_LEAVE, onMouseLeave);
+                stage.removeEventListener(Event.RESIZE, onStageResize);
+                stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseDrag);
+            }
+
             // Remove all impulse transformer listeners
             removeEventListener(Event.ACTIVATE, transformWindowActivate);
             removeEventListener(Event.DEACTIVATE, transformWindowDeactivate);
             removeEventListener(Event.CLOSING, transformWindowClosing);
             removeEventListener(Event.RESIZE, transformWindowResize);
             removeEventListener(NativeWindowDisplayStateEvent.DISPLAY_STATE_CHANGE, transformDisplayStateChange);
-            
+
             // Remove mouse event listeners
             removeEventListener(MouseEvent.CLICK, transformMouseClick);
             removeEventListener(MouseEvent.DOUBLE_CLICK, transformMouseDoubleClick);
@@ -709,11 +953,11 @@
             removeEventListener(MouseEvent.RIGHT_CLICK, transformMouseRightClick);
             removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, transformMouseRightDown);
             removeEventListener(MouseEvent.RIGHT_MOUSE_UP, transformMouseRightUp);
-            
+
             // Remove keyboard event listeners
             removeEventListener(KeyboardEvent.KEY_DOWN, transformKeyDown);
             removeEventListener(KeyboardEvent.KEY_UP, transformKeyUp);
-            
+
             // Remove focus event listeners
             removeEventListener(FocusEvent.FOCUS_IN, transformFocusIn);
             removeEventListener(FocusEvent.FOCUS_OUT, transformFocusOut);
@@ -722,10 +966,12 @@
             if (_content && stage && stage.contains(_content)) {
                 stage.removeChild(_content);
             }
-            
+
             // Clear references
             _content = null;
-            _drawingSurface = null;
+            _canvas = null;
+            _backgroundLayer = null;
+            _contentLayer = null;
         }
     }
 }
