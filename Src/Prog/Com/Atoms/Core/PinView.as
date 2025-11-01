@@ -36,7 +36,7 @@
 
         private function onMouseDown(event:MouseEvent):void {
             event.stopPropagation(); // Important: prevent atom from handling this event
-            
+
             MultiPulsator.emit(new Impulse("PIN_DRAG_START", {
                 pin: _pin,
                 startX: event.stageX,
@@ -58,9 +58,9 @@
         }
 
         private function on_MouseUp(event:MouseEvent):void {
-            // Find if we're over another pin
+            // Find if we're over another pin (улучшенный поиск)
             var targetPin:Pin = findPinUnderMouse(event.stageX, event.stageY);
-            
+
             MultiPulsator.emit(new Impulse("PIN_DRAG_END", {
                 pin: _pin,
                 toPin: targetPin,
@@ -74,16 +74,26 @@
         }
 
         /**
-         * Find a pin under mouse coordinates
+         * Find a pin under mouse coordinates (улучшенная версия)
          */
         private function findPinUnderMouse(stageX:Number, stageY:Number):Pin {
             var objects:Array = stage.getObjectsUnderPoint(new Point(stageX, stageY));
+
+            trace("Objects under mouse: " + objects.length);
             
             for each (var obj:DisplayObject in objects) {
+                // Пропускаем временные дорожки и другие не-pin объекты
+                if (obj is TempTrack) continue;
+                if (obj is Track) continue;
+                if (obj is Sprite && (obj as Sprite).name == "BackgroundLayer") continue;
+                
                 if (obj is PinView && obj != this) {
+                    trace("Found target pin: " + (obj as PinView).pin.name);
                     return (obj as PinView).pin;
                 }
             }
+            
+            trace("No target pin found in exact search");
             return null;
         }
 

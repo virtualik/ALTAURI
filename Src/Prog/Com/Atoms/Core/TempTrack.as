@@ -11,6 +11,10 @@
         public function TempTrack(startPos:Point) {
             _startPos = startPos;
             super();
+			
+			this.mouseEnabled = false;
+			this.mouseChildren = false;
+ 
         }
         
         public function update(currentPos:Point):void {

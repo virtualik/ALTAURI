@@ -5,11 +5,12 @@
     import Src.Prog.Core.MultiPulsator.Impulse;
     import Src.Prog.Core.Managers.AtomManager;
     import flash.utils.setTimeout;
+    import flash.events.Event;
 
     /**
      * Track - Visual and logical connection between two pins in data-driven architecture.
      * Handles data flow between output and input pins with automatic updates.
-     * 
+     *
      * @class Track
      * @public
      */
@@ -39,8 +40,10 @@
             _toPin = toPin;
             _connectionId = generateConnectionId();
 
-            drawTrack();
             setupImpulseListeners();
+            
+            // Отрисовка при добавлении на сцену
+            this.addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
         }
 
         // =========================================================================
@@ -55,11 +58,11 @@
         private function generateConnectionId():String {
             var fromAtom:Atom = getAtomByPin(_fromPin);
             var toAtom:Atom = getAtomByPin(_toPin);
-            
+
             if (!fromAtom || !toAtom) {
                 return "track_invalid_" + Math.random();
             }
-            
+
             return "track_" + fromAtom.id + "_" + _fromPin.name +
                    "_to_" + toAtom.id + "_" + _toPin.name;
         }
@@ -77,6 +80,15 @@
 
             // Listen for track-specific impulses
             MultiPulsator.subscribeToImpulse("TRACK_UPDATE_REQUEST", onTrackUpdateRequest);
+        }
+
+        /**
+         * Handler when track is added to stage
+         * @param {Event} event - ADDED_TO_STAGE event
+         */
+        private function onAddedToStage(event:Event):void {
+            this.removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
+            drawTrack();
         }
 
         /**
@@ -109,10 +121,10 @@
         private function onAtomMoved(impulse:Impulse):void {
             var movedAtom:Atom = impulse.data.newAtom;
             var atomId:String = movedAtom.id;
-            
+
             var fromAtom:Atom = getAtomByPin(_fromPin);
             var toAtom:Atom = getAtomByPin(_toPin);
-            
+
             if ((fromAtom && fromAtom.id == atomId) || (toAtom && toAtom.id == atomId)) {
                 drawTrack();
 
@@ -131,13 +143,13 @@
             var atomId:String = impulse.data.atomId;
             var pinName:String = impulse.data.pinName;
             var newValue:* = impulse.data.newValue;
-            
+
             var fromAtom:Atom = getAtomByPin(_fromPin);
-            
+
             // Check if this value change is from our source pin
             if (fromAtom && fromAtom.id == atomId && _fromPin.name == pinName) {
                 transferValue(newValue);
-                
+
                 // Visual feedback for active data transfer
                 showDataFlowFeedback();
             }
@@ -165,7 +177,7 @@
         private function transferValue(value:*):void {
             // Update the target pin value directly
             _toPin.value = value;
-            
+
             // Notify the target atom about input change via AtomManager
             var toAtom:Atom = getAtomByPin(_toPin);
             if (toAtom) {
@@ -199,46 +211,56 @@
         // VISUALIZATION METHODS
         // =========================================================================
 
-		/**
-		 * Draw or update track visual representation
-		 */
-		public function drawTrack():void {
+        /**
+         * Draw or update track visual representation
+         */
+        public function drawTrack():void {
+            trace("=== DRAW TRACK (NEW APPROACH) ===");
+            
+            this.graphics.clear();
 
-	trace("=== DRAW TRACK ===");
-    trace("Track parent: " + (this.parent ? this.parent.name : "null"));
-			
-			this.graphics.clear();
+            var fromPos:Point = getGlobalPinPosition(_fromPin);
+            var toPos:Point = getGlobalPinPosition(_toPin);
 
-			var fromPos:Point = getGlobalPinPosition(_fromPin);
-			var toPos:Point = getGlobalPinPosition(_toPin);
-			
-    trace("From pin global: " + fromPos);
-    trace("To pin global: " + toPos);			
-			
-			// ВАЖНО: Преобразуем глобальные координаты в координаты tracksLayer
-			var localFrom:Point;
-			var localTo:Point
-			if (this.parent) {
-				localFrom = this.parent.globalToLocal(fromPos);
-				localTo = this.parent.globalToLocal(toPos);
-			} else {
-				// Fallback если трек еще не добавлен в родителя
-				localFrom = fromPos;
-				localTo = toPos;
-			}
+            trace("From pin global: " + fromPos);
+            trace("To pin global: " + toPos);
 
-			// Draw track line
-			var lineColor:uint = _isActive ? 0x00FF00 : 0x666666;
-			var lineAlpha:Number = _isActive ? 0.7 : 0.4;
-			var lineThickness:Number = _isActive ? 2 : 1;
+            // Если трек еще не добавлен на сцену, откладываем отрисовку
+            if (!this.parent) {
+                trace("Track not yet added to parent - will draw when added");
+                this.addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
+                return;
+            }
 
-			this.graphics.lineStyle(lineThickness, lineColor, lineAlpha);
-			this.graphics.moveTo(localFrom.x, localFrom.y);
-			this.graphics.lineTo(localTo.x, localTo.y);
+            trace("Track parent: " + this.parent.name);
+            trace("Parent stage: " + (this.parent.stage ? "exists" : "null"));
 
-			// Add arrowhead for direction indication
-			drawArrowhead(localFrom, localTo);
-		}
+            // Преобразуем глобальные координаты в локальные координаты tracksLayer
+            var localFrom:Point = this.parent.globalToLocal(fromPos);
+            var localTo:Point = this.parent.globalToLocal(toPos);
+
+            trace("Local in tracksLayer - from: " + localFrom + ", to: " + localTo);
+
+            // Проверяем, что координаты валидны
+            if (isNaN(localFrom.x) || isNaN(localFrom.y) || isNaN(localTo.x) || isNaN(localTo.y)) {
+                trace("ERROR: Invalid coordinates detected!");
+                return;
+            }
+
+            // Draw track line
+            var lineColor:uint = _isActive ? 0x00FF00 : 0x666666;
+            var lineAlpha:Number = _isActive ? 0.7 : 0.4;
+            var lineThickness:Number = _isActive ? 2 : 1;
+
+            this.graphics.lineStyle(lineThickness, lineColor, lineAlpha);
+            this.graphics.moveTo(localFrom.x, localFrom.y);
+            this.graphics.lineTo(localTo.x, localTo.y);
+
+            // Add arrowhead for direction indication
+            drawArrowhead(localFrom, localTo);
+            
+            trace("Track drawn successfully");
+        }
 
         /**
          * Draw direction arrowhead on track
@@ -282,36 +304,44 @@
         // PIN POSITION CALCULATION METHODS
         // =========================================================================
 
-		/**
-		 * Get global position of a pin
-		 * @private
-		 * @param {Pin} pin - Pin to get position for
-		 * @return {Point} Global position point
-		 */
-		private function getGlobalPinPosition(pin:Pin):Point {
-			// Find the PinView in the display hierarchy
-			var pinView:PinView = findPinView(pin);
-			if (pinView) {
-				// Получаем глобальную позицию пина
-				return pinView.localToGlobal(new Point(0, 0));
-			}
+        /**
+         * Get global position of a pin
+         * @private
+         * @param {Pin} pin - Pin to get position for
+         * @return {Point} Global position point
+         */
+        private function getGlobalPinPosition(pin:Pin):Point {
+            // Используем локальную реализацию того же алгоритма
+            return getGlobalPinPositionInternal(pin);
+        }
 
-			// Fallback: если PinView не найден, используем позицию атома
-			var atom:Atom = getAtomByPin(pin);
-			var atomView:AtomView = getAtomView(atom);
-			if (atomView && atomView.stage) {
-				var pinIndex:int = getPinIndex(atom, pin);
-				var totalPins:int = pin.type == Pin.TYPE_INPUT ? atom.inputs.length : atom.outputs.length;
-				var pinY:Number = atomView.height * (pinIndex + 1) / (totalPins + 1);
-				var pinX:Number = pin.type == Pin.TYPE_INPUT ? 0 : atomView.width;
-				
-				// Получаем глобальную позицию атома и добавляем смещение пина
-				var atomGlobal:Point = atomView.localToGlobal(new Point(pinX, pinY));
-				return atomGlobal;
-			}
-
-			return new Point(100, 100); // Fallback с видимой позицией
-		}
+        /**
+         * Внутренняя реализация получения позиции пина
+         */
+        private function getGlobalPinPositionInternal(pin:Pin):Point {
+            // Находим PinView
+            var pinView:PinView = findPinView(pin);
+            if (pinView && pinView.stage) {
+                // Получаем глобальную позицию центра пина
+                return pinView.localToGlobal(new Point(0, 0));
+            }
+            
+            // Fallback: используем позицию атома
+            var atom:Atom = getAtomByPin(pin);
+            var atomView:AtomView = getAtomView(atom);
+            if (atomView && atomView.stage) {
+                var pinIndex:int = getPinIndex(atom, pin);
+                var totalPins:int = pin.type == Pin.TYPE_INPUT ? atom.inputs.length : atom.outputs.length;
+                var pinY:Number = atomView.height * (pinIndex + 1) / (totalPins + 1);
+                var pinX:Number = pin.type == Pin.TYPE_INPUT ? 0 : atomView.width;
+                
+                // Получаем глобальную позицию пина относительно атома
+                var atomGlobal:Point = atomView.localToGlobal(new Point(pinX, pinY));
+                return atomGlobal;
+            }
+            
+            return new Point(100, 100); // Fallback
+        }
 
         /**
          * Find the PinView for a given Pin
@@ -322,7 +352,7 @@
         private function findPinView(pin:Pin):PinView {
             var atomManager:AtomManager = AtomManager.getInstance();
             var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
-            
+
             for each (var atomData:Object in allAtoms) {
                 var atomView:AtomView = atomData.view;
                 for (var i:int = 0; i < atomView.numChildren; i++) {
@@ -344,7 +374,7 @@
         private function getAtomByPin(pin:Pin):Atom {
             var atomManager:AtomManager = AtomManager.getInstance();
             var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
-            
+
             for each (var atomData:Object in allAtoms) {
                 var atom:Atom = atomData.atom;
                 // Check input pins
@@ -368,7 +398,7 @@
         private function getAtomView(atom:Atom):AtomView {
             var atomManager:AtomManager = AtomManager.getInstance();
             var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
-            
+
             for each (var atomData:Object in allAtoms) {
                 if (atomData.atom === atom) {
                     return atomData.view;
@@ -406,7 +436,7 @@
         public function isConnectedToAtom(atomId:String):Boolean {
             var fromAtom:Atom = getAtomByPin(_fromPin);
             var toAtom:Atom = getAtomByPin(_toPin);
-            
+
             return (fromAtom && fromAtom.id == atomId) || (toAtom && toAtom.id == atomId);
         }
 
@@ -426,7 +456,7 @@
         public function getConnectionInfo():Object {
             var fromAtom:Atom = getAtomByPin(_fromPin);
             var toAtom:Atom = getAtomByPin(_toPin);
-            
+
             return {
                 fromAtom: fromAtom ? fromAtom.id : "unknown",
                 fromPin: _fromPin.name,

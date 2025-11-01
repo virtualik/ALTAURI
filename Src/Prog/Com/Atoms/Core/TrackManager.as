@@ -10,23 +10,23 @@
     /**
      * TrackManager - Centralized manager for track creation and lifecycle management.
      * Updated for data-driven architecture to work with Atom and Pin classes.
-     * 
+     *
      * @class TrackManager
      * @public
      */
     public class TrackManager {
         /** Singleton instance */
         private static var _instance:TrackManager;
-        
+
         /** Active tracks storage */
         private var _activeTracks:Object;
-        
+
         /** Temporary track during drag operations */
         private var _tempTrack:Sprite;
-        
+
         /** Currently dragging pin reference */
         private var _currentDragPin:Pin;
-        
+
         /** Current window context */
         private var _currentWindow:Window;
 
@@ -63,13 +63,13 @@
             // Track creation process
             MultiPulsator.subscribeToImpulse("PIN_DRAG_START", onPinDragStart);
             MultiPulsator.subscribeToImpulse("PIN_DRAG_UPDATE", onPinDragUpdate);
-            MultiPulsator.subscribeToImpulse("PIN_DRAG_END", onPinDragEnd);            
+            MultiPulsator.subscribeToImpulse("PIN_DRAG_END", onPinDragEnd);
 
             // System events for track updates
             MultiPulsator.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
             MultiPulsator.subscribeToImpulse("WINDOW_ACTIVATED", onWindowActivated);
             MultiPulsator.subscribeToImpulse("WINDOW_CLOSING", onWindowClosing);
-            
+
             // Track management commands
             MultiPulsator.subscribeToImpulse("TRACK_DISCONNECT", onTrackDisconnect);
             MultiPulsator.subscribeToImpulse("TRACK_UPDATE_ALL", onTrackUpdateAll);
@@ -84,12 +84,18 @@
          * @param {Impulse} impulse - PIN_DRAG_START impulse
          */
         private function onPinDragStart(impulse:Impulse):void {
-			trace("onPinDragStart event handler here!")
+            trace("=== PIN DRAG START ===");
             _currentDragPin = impulse.data.pin;
             _currentWindow = findWindowByType(impulse.data.windowType);
-            
+
+            trace("Current window: " + (_currentWindow ? _currentWindow.windowType : "null"));
+            trace("TracksLayer: " + (_currentWindow && _currentWindow.tracksLayer ? "exists" : "null"));
+            trace("ContentLayer: " + (_currentWindow && _currentWindow.contentLayer ? "exists" : "null"));
+
             if (_currentWindow && _currentDragPin) {
                 startTempTrack(impulse.data.startX, impulse.data.startY);
+            } else {
+                trace("Missing window or drag pin!");
             }
         }
 
@@ -112,15 +118,103 @@
 
             var fromPin:Pin = _currentDragPin;
             var toPin:Pin = impulse.data.toPin;
-            
+
+            trace("=== PIN DRAG END ===");
+            trace("From pin: " + fromPin.name + " (type: " + fromPin.type + ")");
+            trace("Initial to pin: " + (toPin ? toPin.name + " (type: " + toPin.type + ")" : "null"));
+
+            // Если точный поиск не нашел пин, используем поиск по радиусу
+            if (!toPin) {
+                trace("Exact pin search failed, trying radius search...");
+                toPin = findPinInRadius(impulse.data.endX, impulse.data.endY, 20);
+                trace("Radius search result: " + (toPin ? toPin.name : "null"));
+            }
+
             cleanupTempTrack();
 
             // Validate and create track if connection is valid
             if (toPin && isValidConnection(fromPin, toPin)) {
+                trace("Creating track...");
                 createTrack(fromPin, toPin);
+            } else {
+                trace("Invalid connection - no track created");
+            }
+
+            _currentDragPin = null;
+        }
+
+        // =========================================================================
+        // PIN SEARCH METHODS
+        // =========================================================================
+
+        /**
+         * Find pins within a specified radius of mouse position
+         * @param {Number} stageX - Mouse X coordinate
+         * @param {Number} stageY - Mouse Y coordinate  
+         * @param {Number} radius - Search radius in pixels
+         * @return {Pin} Closest pin within radius, or null if none found
+         */
+        private function findPinInRadius(stageX:Number, stageY:Number, radius:Number = 15):Pin {
+            var allPins:Array = getAllPinsInWindow();
+            var mousePos:Point = new Point(stageX, stageY);
+            var closestPin:Pin = null;
+            var minDistance:Number = Number.MAX_VALUE;
+            
+            trace("Searching for pins in radius " + radius + " from: " + mousePos);
+            trace("Total pins in window: " + allPins.length);
+            
+            for each (var pin:Pin in allPins) {
+                var pinPos:Point = getGlobalPinPosition(pin);
+                var distance:Number = Point.distance(mousePos, pinPos);
+                
+                trace("Pin '" + pin.name + "' at " + pinPos + ", distance: " + distance);
+                
+                if (distance <= radius && distance < minDistance && pin != _currentDragPin) {
+                    // Проверяем, что это валидное соединение
+                    if (isValidConnection(_currentDragPin, pin)) {
+                        closestPin = pin;
+                        minDistance = distance;
+                        trace("Found valid pin candidate: " + pin.name + " at distance " + distance);
+                    }
+                }
             }
             
-            _currentDragPin = null;
+            if (closestPin) {
+                trace("Selected closest pin: " + closestPin.name + " at distance " + minDistance);
+            } else {
+                trace("No valid pins found in radius");
+            }
+            
+            return closestPin;
+        }
+
+        /**
+         * Get all pins in the current window
+         * @return {Array} Array of all pins
+         */
+        private function getAllPinsInWindow():Array {
+            var allPins:Array = [];
+            var atomManager:AtomManager = AtomManager.getInstance();
+            
+            if (!_currentWindow) return allPins;
+            
+            var allAtoms:Array = atomManager.getAtomsForWindow(_currentWindow.windowType);
+            
+            for each (var atomData:Object in allAtoms) {
+                var atom:Atom = atomData.atom;
+                
+                // Добавляем входные пины
+                for each (var inputPin:Pin in atom.inputs) {
+                    allPins.push(inputPin);
+                }
+                
+                // Добавляем выходные пины
+                for each (var outputPin:Pin in atom.outputs) {
+                    allPins.push(outputPin);
+                }
+            }
+            
+            return allPins;
         }
 
         // =========================================================================
@@ -132,31 +226,29 @@
          * @param {Number} startX - Starting X coordinate
          * @param {Number} startY - Starting Y coordinate
          */
-		private function startTempTrack(startX:Number, startY:Number):void {
-			var fromPos:Point = getGlobalPinPosition(_currentDragPin);
-			var localFrom:Point = _currentWindow.overlayLayer.globalToLocal(fromPos);
-			
-			_tempTrack = new TempTrack(localFrom);
+        private function startTempTrack(startX:Number, startY:Number):void {
+            var fromPos:Point = getGlobalPinPosition(_currentDragPin);
+            var localFrom:Point = _currentWindow.overlayLayer.globalToLocal(fromPos);
 
-			if (_currentWindow && _currentWindow.overlayLayer) {
-				_currentWindow.overlayLayer.addChild(_tempTrack);
-				updateTempTrack(startX, startY);
-			}
-		}
+            _tempTrack = new TempTrack(localFrom);
 
-
+            if (_currentWindow && _currentWindow.overlayLayer) {
+                _currentWindow.overlayLayer.addChild(_tempTrack);
+                updateTempTrack(startX, startY);
+            }
+        }
 
         /**
          * Update temporary track during drag operation
          * @param {Number} currentX - Current mouse X coordinate
          * @param {Number} currentY - Current mouse Y coordinate
          */
-		private function updateTempTrack(currentX:Number, currentY:Number):void {
-			if (!_tempTrack || !_currentDragPin || !_currentWindow) return;
+        private function updateTempTrack(currentX:Number, currentY:Number):void {
+            if (!_tempTrack || !_currentDragPin || !_currentWindow) return;
 
-			var localTo:Point = _currentWindow.overlayLayer.globalToLocal(new Point(currentX, currentY));
-			(_tempTrack as TempTrack).update(localTo);
-		}
+            var localTo:Point = _currentWindow.overlayLayer.globalToLocal(new Point(currentX, currentY));
+            (_tempTrack as TempTrack).update(localTo);
+        }
 
         /**
          * Clean up temporary track
@@ -180,12 +272,12 @@
          */
         private function isValidConnection(fromPin:Pin, toPin:Pin):Boolean {
             if (!toPin || !fromPin) return false;
-            
+
             // Get atoms from AtomManager since pins don't have direct parent reference
             var fromAtom:Atom = getAtomByPin(fromPin);
             var toAtom:Atom = getAtomByPin(toPin);
-            
-            return toPin.type == Pin.TYPE_INPUT && 
+
+            return toPin.type == Pin.TYPE_INPUT &&
                    fromPin.type == Pin.TYPE_OUTPUT &&
                    fromAtom && toAtom &&
                    fromAtom.id != toAtom.id &&
@@ -213,12 +305,17 @@
                 var track:Track = new Track(fromPin, toPin);
                 var connectionId:String = generateConnectionId(fromPin, toPin);
 
-                // Add to tracksLayer instead of contentLayer
+                // Используем существующий tracksLayer
                 if (_currentWindow && _currentWindow.tracksLayer) {
                     _currentWindow.tracksLayer.addChild(track);
+                    trace("Track added to existing tracksLayer");
                 } else if (_currentWindow && _currentWindow.contentLayer) {
-                    // Fallback to contentLayer if tracksLayer is not available
+                    // Fallback: используем contentLayer
                     _currentWindow.contentLayer.addChild(track);
+                    trace("Track added to contentLayer (tracksLayer not available)");
+                } else {
+                    trace("No window or layers available for track");
+                    return;
                 }
 
                 // Store track reference
@@ -236,6 +333,7 @@
                 }));
 
             } catch (error:Error) {
+                trace("Track creation error: " + error.message);
                 MultiPulsator.emit(new Impulse("TRACK_CREATION_ERROR", {
                     fromPin: fromPin,
                     toPin: toPin,
@@ -248,36 +346,36 @@
         // PIN POSITION CALCULATION METHODS
         // =========================================================================
 
-		/**
-		 * Get global position of a pin
-		 * @private
-		 * @param {Pin} pin - Pin to get position for
-		 * @return {Point} Global position point
-		 */
-		private function getGlobalPinPosition(pin:Pin):Point {
-			// Find the PinView in the display hierarchy
-			var pinView:PinView = findPinView(pin);
-			if (pinView) {
-				// Получаем глобальную позицию пина
-				return pinView.localToGlobal(new Point(0, 0));
-			}
+        /**
+         * Get global position of a pin
+         * @private
+         * @param {Pin} pin - Pin to get position for
+         * @return {Point} Global position point
+         */
+        private function getGlobalPinPosition(pin:Pin):Point {
+            // Find the PinView in the display hierarchy
+            var pinView:PinView = findPinView(pin);
+            if (pinView && pinView.stage) {
+                // Получаем глобальную позицию пина
+                return pinView.localToGlobal(new Point(0, 0));
+            }
 
-			// Fallback: если PinView не найден, используем позицию атома
-			var atom:Atom = getAtomByPin(pin);
-			var atomView:AtomView = getAtomView(atom);
-			if (atomView && atomView.stage) {
-				var pinIndex:int = getPinIndex(atom, pin);
-				var totalPins:int = pin.type == Pin.TYPE_INPUT ? atom.inputs.length : atom.outputs.length;
-				var pinY:Number = atomView.height * (pinIndex + 1) / (totalPins + 1);
-				var pinX:Number = pin.type == Pin.TYPE_INPUT ? 0 : atomView.width;
-				
-				// Получаем глобальную позицию атома и добавляем смещение пина
-				var atomGlobal:Point = atomView.localToGlobal(new Point(pinX, pinY));
-				return atomGlobal;
-			}
+            // Fallback: если PinView не найден, используем позицию атома
+            var atom:Atom = getAtomByPin(pin);
+            var atomView:AtomView = getAtomView(atom);
+            if (atomView && atomView.stage) {
+                var pinIndex:int = getPinIndex(atom, pin);
+                var totalPins:int = pin.type == Pin.TYPE_INPUT ? atom.inputs.length : atom.outputs.length;
+                var pinY:Number = atomView.height * (pinIndex + 1) / (totalPins + 1);
+                var pinX:Number = pin.type == Pin.TYPE_INPUT ? 0 : atomView.width;
 
-			return new Point(100, 100); // Fallback с видимой позицией
-		}
+                // Получаем глобальную позицию атома и добавляем смещение пина
+                var atomGlobal:Point = atomView.localToGlobal(new Point(pinX, pinY));
+                return atomGlobal;
+            }
+
+            return new Point(100, 100); // Fallback с видимой позицией
+        }
 
         /**
          * Find the PinView for a given Pin
@@ -370,7 +468,7 @@
         private function onAtomMoved(impulse:Impulse):void {
             var movedAtom:Atom = impulse.data.newAtom;
             var atomId:String = movedAtom.id;
-            
+
             // Update all tracks connected to this atom
             for each (var track:Track in _activeTracks) {
                 if (track.isConnectedToAtom(atomId)) {
@@ -394,7 +492,7 @@
         private function onWindowClosing(impulse:Impulse):void {
             var closingWindow:Window = impulse.data.window;
             var windowType:String = closingWindow.windowType;
-            
+
             // Remove tracks associated with this window
             cleanupTracksByWindow(windowType);
         }
@@ -406,7 +504,7 @@
         private function onTrackDisconnect(impulse:Impulse):void {
             var track:Track = impulse.data.track;
             var connectionId:String = impulse.data.connectionId;
-            
+
             if (track) {
                 removeTrack(track);
             } else if (connectionId) {
@@ -437,12 +535,12 @@
         private function generateConnectionId(fromPin:Pin, toPin:Pin):String {
             var fromAtom:Atom = getAtomByPin(fromPin);
             var toAtom:Atom = getAtomByPin(toPin);
-            
+
             if (!fromAtom || !toAtom) {
                 return "invalid_connection";
             }
-            
-            return "track_" + fromAtom.id + "_" + fromPin.name + 
+
+            return "track_" + fromAtom.id + "_" + fromPin.name +
                    "_to_" + toAtom.id + "_" + toPin.name;
         }
 
@@ -485,11 +583,11 @@
          */
         public function removeTrack(track:Track):void {
             var connectionId:String = track.connectionId;
-            
+
             if (_activeTracks[connectionId]) {
                 track.dispose();
                 delete _activeTracks[connectionId];
-                
+
                 MultiPulsator.emit(new Impulse("TRACK_REMOVED", {
                     track: track,
                     connectionId: connectionId
@@ -533,13 +631,13 @@
          */
         public function getTracksByAtom(atomId:String):Array {
             var connectedTracks:Array = [];
-            
+
             for each (var track:Track in _activeTracks) {
                 if (track.isConnectedToAtom(atomId)) {
                     connectedTracks.push(track);
                 }
             }
-            
+
             return connectedTracks;
         }
 
@@ -550,13 +648,13 @@
          */
         public function getTracksByPin(pin:Pin):Array {
             var connectedTracks:Array = [];
-            
+
             for each (var track:Track in _activeTracks) {
                 if (track.isConnectedToPin(pin)) {
                     connectedTracks.push(track);
                 }
             }
-            
+
             return connectedTracks;
         }
 
@@ -573,16 +671,16 @@
             MultiPulsator.removeImpulse("WINDOW_CLOSING", onWindowClosing);
             MultiPulsator.removeImpulse("TRACK_DISCONNECT", onTrackDisconnect);
             MultiPulsator.removeImpulse("TRACK_UPDATE_ALL", onTrackUpdateAll);
-            
+
             // Dispose all active tracks
             for each (var track:Track in _activeTracks) {
                 track.dispose();
             }
             _activeTracks = {};
-            
+
             // Cleanup temporary track
             cleanupTempTrack();
-            
+
             _currentDragPin = null;
             _currentWindow = null;
         }
