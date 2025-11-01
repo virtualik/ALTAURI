@@ -241,10 +241,11 @@
                 stage.removeEventListener(MouseEvent.MOUSE_UP, onDragEnd);
                 
                 var newAtom:Atom = _atom.setPosition(new Point(this.x, this.y));
-                MultiPulsator.emit(new Impulse("ATOM_MOVED", {
-                    oldAtom: _atom,
-                    newAtom: newAtom
-                }));
+				MultiPulsator.emit(new Impulse("ATOM_MOVED", {
+					oldAtom: _atom,
+					newAtom: newAtom,
+					updateTracks: true  // Флаг для обновления треков
+				}));
             }
         }
 

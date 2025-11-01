@@ -214,53 +214,53 @@
         /**
          * Draw or update track visual representation
          */
-        public function drawTrack():void {
-            trace("=== DRAW TRACK (NEW APPROACH) ===");
-            
-            this.graphics.clear();
+		public function drawTrack():void {
+			trace("=== DRAW TRACK ===");
+			
+			this.graphics.clear();
 
-            var fromPos:Point = getGlobalPinPosition(_fromPin);
-            var toPos:Point = getGlobalPinPosition(_toPin);
+			var fromPos:Point = getGlobalPinPosition(_fromPin);
+			var toPos:Point = getGlobalPinPosition(_toPin);
 
-            trace("From pin global: " + fromPos);
-            trace("To pin global: " + toPos);
+			trace("From pin global: " + fromPos);
+			trace("To pin global: " + toPos);
 
-            // Если трек еще не добавлен на сцену, откладываем отрисовку
-            if (!this.parent) {
-                trace("Track not yet added to parent - will draw when added");
-                this.addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
-                return;
-            }
+			// Если трек еще не добавлен на сцену, откладываем отрисовку
+			if (!this.parent) {
+				trace("Track not yet added to parent - will draw when added");
+				this.addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
+				return;
+			}
 
-            trace("Track parent: " + this.parent.name);
-            trace("Parent stage: " + (this.parent.stage ? "exists" : "null"));
+			trace("Track parent: " + this.parent.name);
+			
+			// ВАЖНОЕ ИСПРАВЛЕНИЕ: используем globalToLocal для tracksLayer
+			var tracksLayer:Sprite = this.parent as Sprite;
+			var localFrom:Point = tracksLayer.globalToLocal(fromPos);
+			var localTo:Point = tracksLayer.globalToLocal(toPos);
 
-            // Преобразуем глобальные координаты в локальные координаты tracksLayer
-            var localFrom:Point = this.parent.globalToLocal(fromPos);
-            var localTo:Point = this.parent.globalToLocal(toPos);
+			trace("Local in tracksLayer - from: " + localFrom + ", to: " + localTo);
 
-            trace("Local in tracksLayer - from: " + localFrom + ", to: " + localTo);
+			// Проверяем, что координаты валидны
+			if (isNaN(localFrom.x) || isNaN(localFrom.y) || isNaN(localTo.x) || isNaN(localTo.y)) {
+				trace("ERROR: Invalid coordinates detected!");
+				return;
+			}
 
-            // Проверяем, что координаты валидны
-            if (isNaN(localFrom.x) || isNaN(localFrom.y) || isNaN(localTo.x) || isNaN(localTo.y)) {
-                trace("ERROR: Invalid coordinates detected!");
-                return;
-            }
+			// Draw track line
+			var lineColor:uint = _isActive ? 0x00FF00 : 0x666666;
+			var lineAlpha:Number = _isActive ? 0.7 : 0.4;
+			var lineThickness:Number = _isActive ? 2 : 1;
 
-            // Draw track line
-            var lineColor:uint = _isActive ? 0x00FF00 : 0x666666;
-            var lineAlpha:Number = _isActive ? 0.7 : 0.4;
-            var lineThickness:Number = _isActive ? 2 : 1;
+			this.graphics.lineStyle(lineThickness, lineColor, lineAlpha);
+			this.graphics.moveTo(localFrom.x, localFrom.y);
+			this.graphics.lineTo(localTo.x, localTo.y);
 
-            this.graphics.lineStyle(lineThickness, lineColor, lineAlpha);
-            this.graphics.moveTo(localFrom.x, localFrom.y);
-            this.graphics.lineTo(localTo.x, localTo.y);
+			// Add arrowhead for direction indication
+			drawArrowhead(localFrom, localTo);
 
-            // Add arrowhead for direction indication
-            drawArrowhead(localFrom, localTo);
-            
-            trace("Track drawn successfully");
-        }
+			trace("Track drawn successfully from " + localFrom + " to " + localTo);
+		}
 
         /**
          * Draw direction arrowhead on track
@@ -349,21 +349,45 @@
          * @param {Pin} pin - Pin to find view for
          * @return {PinView} Found PinView or null
          */
-        private function findPinView(pin:Pin):PinView {
-            var atomManager:AtomManager = AtomManager.getInstance();
-            var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
+private function findPinView(pin:Pin):PinView {
+    trace("=== FIND PIN VIEW FROM TRACK ===");
+    trace("Looking for pin: " + pin.name + " with id: " + pin.id);
+    trace("Pin type: " + pin.type + ", value: " + pin.value);
+    
+    var atomManager:AtomManager = AtomManager.getInstance();
+    var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
+    
+    trace("Total atoms in window: " + allAtoms.length);
 
-            for each (var atomData:Object in allAtoms) {
-                var atomView:AtomView = atomData.view;
-                for (var i:int = 0; i < atomView.numChildren; i++) {
-                    var child:* = atomView.getChildAt(i);
-                    if (child is PinView && (child as PinView).pin === pin) {
-                        return child as PinView;
-                    }
+    for each (var atomData:Object in allAtoms) {
+        var atom:Atom = atomData.atom;
+        var atomView:AtomView = atomData.view;
+        
+        trace("Checking atom: " + atom.id + " (" + atom.type + ") at position: " + atom.position);
+        trace("AtomView children count: " + atomView.numChildren);
+        
+        for (var i:int = 0; i < atomView.numChildren; i++) {
+            var child:* = atomView.getChildAt(i);
+            if (child is PinView) {
+                var pinView:PinView = child as PinView;
+                trace("  Found PinView: " + pinView.pin.name + 
+                      " (id: " + pinView.pin.id + 
+                      ", type: " + pinView.pin.type + 
+                      ", same id? " + (pinView.pin.id == pin.id) + ")");
+                
+                if (pinView.pin.id == pin.id) {
+                    trace("*** MATCH FOUND! ***");
+                    trace("PinView position: x=" + pinView.x + ", y=" + pinView.y);
+                    trace("PinView global position: " + pinView.localToGlobal(new Point(0, 0)));
+                    return pinView;
                 }
             }
-            return null;
         }
+    }
+    
+    trace("*** NO MATCH FOUND for pin: " + pin.name + " with id: " + pin.id + " ***");
+    return null;
+}
 
         /**
          * Get atom that owns the specified pin
@@ -371,23 +395,44 @@
          * @param {Pin} pin - Pin to find owner for
          * @return {Atom} Atom that owns the pin, or null if not found
          */
-        private function getAtomByPin(pin:Pin):Atom {
-            var atomManager:AtomManager = AtomManager.getInstance();
-            var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
+		private function getAtomByPin(pin:Pin):Atom {
+			trace("=== GET ATOM BY PIN ===");
+			trace("Looking for atom that owns pin: " + pin.name + " (id: " + pin.id + ")");
+			
+			var atomManager:AtomManager = AtomManager.getInstance();
+			var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
+			
+			trace("Total atoms to check: " + allAtoms.length);
 
-            for each (var atomData:Object in allAtoms) {
-                var atom:Atom = atomData.atom;
-                // Check input pins
-                for each (var inputPin:Pin in atom.inputs) {
-                    if (inputPin === pin) return atom;
-                }
-                // Check output pins
-                for each (var outputPin:Pin in atom.outputs) {
-                    if (outputPin === pin) return atom;
-                }
-            }
-            return null;
-        }
+			for each (var atomData:Object in allAtoms) {
+				var atom:Atom = atomData.atom;
+				trace("Checking atom: " + atom.id + " (" + atom.type + ")");
+				
+				// Check input pins
+				for each (var inputPin:Pin in atom.inputs) {
+					trace("  Input pin: " + inputPin.name + " (id: " + inputPin.id + 
+						  ", match? " + (inputPin.id == pin.id) + ")");
+					if (inputPin.id == pin.id) {
+						trace("*** FOUND in inputs ***");
+						return atom;
+					}
+				}
+				
+				// Check output pins
+				for each (var outputPin:Pin in atom.outputs) {
+					trace("  Output pin: " + outputPin.name + " (id: " + outputPin.id + 
+						  ", match? " + (outputPin.id == pin.id) + ")");
+					if (outputPin.id == pin.id) {
+						trace("*** FOUND in outputs ***");
+						return atom;
+					}
+				}
+			}
+			
+			trace("*** PIN NOT FOUND IN ANY ATOM! ***");
+			return null;
+		}
+
 
         /**
          * Get AtomView for a given Atom
@@ -433,12 +478,11 @@
          * @param {String} atomId - Atom ID to check
          * @return {Boolean} True if connected to atom
          */
-        public function isConnectedToAtom(atomId:String):Boolean {
-            var fromAtom:Atom = getAtomByPin(_fromPin);
-            var toAtom:Atom = getAtomByPin(_toPin);
-
-            return (fromAtom && fromAtom.id == atomId) || (toAtom && toAtom.id == atomId);
-        }
+		public function isConnectedToAtom(atomId:String):Boolean {
+			var result:Boolean = _connectionId.indexOf(atomId) !== -1;
+			trace("Track.isConnectedToAtom: atomId=" + atomId + ", connectionId=" + _connectionId + ", result=" + result);
+			return result;
+		}
 
         /**
          * Check if track is connected to specific pin

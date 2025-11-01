@@ -27,13 +27,27 @@
             var atom:Atom = new Atom(generateId(), type, position, name);
             
             // Create pins from definition
-            for each (var pinDef1:Object in definition.pins.inputs) {
-                atom.inputs.push(new Pin(pinDef1.name, Pin.TYPE_INPUT));
-            }
-            for each (var pinDef2:Object in definition.pins.outputs) {
-                atom.outputs.push(new Pin(pinDef2.name, Pin.TYPE_OUTPUT));
-            }
-            
+for each (var pinDef1:Object in definition.pins.inputs) {
+    var inputPin:Pin = new Pin(pinDef1.name, Pin.TYPE_INPUT);
+    // Копируем дополнительные данные из определения
+    if (pinDef1.data) {
+        for (var key1:String in pinDef1.data) {
+            inputPin.data[key1] = pinDef1.data[key1];
+        }
+    }
+    atom.inputs.push(inputPin);
+}
+
+for each (var pinDef2:Object in definition.pins.outputs) {
+    var outputPin:Pin = new Pin(pinDef2.name, Pin.TYPE_OUTPUT);
+    // Копируем дополнительные данные из определения
+    if (pinDef2.data) {
+        for (var key2:String in pinDef2.data) {
+            outputPin.data[key2] = pinDef2.data[key2];
+        }
+    }
+    atom.outputs.push(outputPin);
+}            
             // Initialize atom using behavior function
             atom = definition.behavior.initialize(atom);
             

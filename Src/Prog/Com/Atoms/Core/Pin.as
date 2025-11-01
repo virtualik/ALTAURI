@@ -12,6 +12,9 @@
         /** Output pin type constant */
         public static const TYPE_OUTPUT:String = "output";
         
+        /** Unique identifier for the pin */
+        public var id:String;
+        
         /** Pin name */
         public var name:String;
         
@@ -34,10 +37,21 @@
          * @param {Object} data - Additional pin data (optional)
          */
         public function Pin(name:String, type:String, value:* = null, data:Object = null) {
+            this.id = generateId(); // Генерируем уникальный ID
             this.name = name;
             this.type = type;
             this.value = value;
             this.data = data || {};
+        }
+
+        /**
+         * Generates a unique identifier for the pin.
+         * 
+         * @private
+         * @return {String} Unique ID
+         */
+        private function generateId():String {
+            return "pin_" + new Date().getTime() + "_" + Math.floor(Math.random() * 1000000);
         }
 
         /**
@@ -46,7 +60,9 @@
          * @return {Pin} New Pin instance with same properties
          */
         public function clone():Pin {
-            return new Pin(name, type, value, cloneObject(data));
+            var newPin:Pin = new Pin(name, type, value, cloneObject(data));
+            newPin.id = this.id; // Сохраняем тот же ID
+            return newPin;
         }
 
         /**
@@ -56,7 +72,9 @@
          * @return {Pin} New Pin instance with updated value
          */
         public function cloneWithValue(newValue:*):Pin {
-            return new Pin(name, type, newValue, cloneObject(data));
+            var newPin:Pin = new Pin(name, type, newValue, cloneObject(data));
+            newPin.id = this.id; // Сохраняем тот же ID
+            return newPin;
         }
 
         /**

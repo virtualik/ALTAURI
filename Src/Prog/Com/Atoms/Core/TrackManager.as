@@ -67,6 +67,7 @@
 
             // System events for track updates
             MultiPulsator.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
+			
             MultiPulsator.subscribeToImpulse("WINDOW_ACTIVATED", onWindowActivated);
             MultiPulsator.subscribeToImpulse("WINDOW_CLOSING", onWindowClosing);
 
@@ -383,44 +384,88 @@
          * @param {Pin} pin - Pin to find view for
          * @return {PinView} Found PinView or null
          */
-        private function findPinView(pin:Pin):PinView {
-            var atomManager:AtomManager = AtomManager.getInstance();
-            var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
+		private function findPinView(pin:Pin):PinView {
+			trace("=== FIND PIN VIEW FROM TRACKMANAGER ===");
+			trace("Looking for pin: " + pin.name + " with id: " + pin.id);
+			trace("Pin type: " + pin.type + ", value: " + pin.value);
+			
+			var atomManager:AtomManager = AtomManager.getInstance();
+			var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
+			
+			trace("Total atoms in window: " + allAtoms.length);
 
-            for each (var atomData:Object in allAtoms) {
-                var atomView:AtomView = atomData.view;
-                for (var i:int = 0; i < atomView.numChildren; i++) {
-                    var child:* = atomView.getChildAt(i);
-                    if (child is PinView && (child as PinView).pin === pin) {
-                        return child as PinView;
-                    }
-                }
-            }
-            return null;
-        }
+			for each (var atomData:Object in allAtoms) {
+				var atom:Atom = atomData.atom;
+				var atomView:AtomView = atomData.view;
+				
+				trace("Checking atom: " + atom.id + " (" + atom.type + ") at position: " + atom.position);
+				trace("AtomView children count: " + atomView.numChildren);
+				
+				for (var i:int = 0; i < atomView.numChildren; i++) {
+					var child:* = atomView.getChildAt(i);
+					if (child is PinView) {
+						var pinView:PinView = child as PinView;
+						trace("  Found PinView: " + pinView.pin.name + 
+							  " (id: " + pinView.pin.id + 
+							  ", type: " + pinView.pin.type + 
+							  ", same id? " + (pinView.pin.id == pin.id) + ")");
+						
+						if (pinView.pin.id == pin.id) {
+							trace("*** MATCH FOUND! ***");
+							trace("PinView position: x=" + pinView.x + ", y=" + pinView.y);
+							trace("PinView global position: " + pinView.localToGlobal(new Point(0, 0)));
+							return pinView;
+						}
+					}
+				}
+			}
+			
+			trace("*** NO MATCH FOUND for pin: " + pin.name + " with id: " + pin.id + " ***");
+			return null;
+		}
 
         /**
          * Get atom that owns the specified pin
          * @param {Pin} pin - Pin to find owner for
          * @return {Atom} Atom that owns the pin, or null if not found
          */
-        private function getAtomByPin(pin:Pin):Atom {
-            var atomManager:AtomManager = AtomManager.getInstance();
-            var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
+		private function getAtomByPin(pin:Pin):Atom {
+			trace("=== GET ATOM BY PIN ===");
+			trace("Looking for atom that owns pin: " + pin.name + " (id: " + pin.id + ")");
+			
+			var atomManager:AtomManager = AtomManager.getInstance();
+			var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
+			
+			trace("Total atoms to check: " + allAtoms.length);
 
-            for each (var atomData:Object in allAtoms) {
-                var atom:Atom = atomData.atom;
-                // Check input pins
-                for each (var inputPin:Pin in atom.inputs) {
-                    if (inputPin === pin) return atom;
-                }
-                // Check output pins
-                for each (var outputPin:Pin in atom.outputs) {
-                    if (outputPin === pin) return atom;
-                }
-            }
-            return null;
-        }
+			for each (var atomData:Object in allAtoms) {
+				var atom:Atom = atomData.atom;
+				trace("Checking atom: " + atom.id + " (" + atom.type + ")");
+				
+				// Check input pins
+				for each (var inputPin:Pin in atom.inputs) {
+					trace("  Input pin: " + inputPin.name + " (id: " + inputPin.id + 
+						  ", match? " + (inputPin.id == pin.id) + ")");
+					if (inputPin.id == pin.id) {
+						trace("*** FOUND in inputs ***");
+						return atom;
+					}
+				}
+				
+				// Check output pins
+				for each (var outputPin:Pin in atom.outputs) {
+					trace("  Output pin: " + outputPin.name + " (id: " + outputPin.id + 
+						  ", match? " + (outputPin.id == pin.id) + ")");
+					if (outputPin.id == pin.id) {
+						trace("*** FOUND in outputs ***");
+						return atom;
+					}
+				}
+			}
+			
+			trace("*** PIN NOT FOUND IN ANY ATOM! ***");
+			return null;
+		}
 
         /**
          * Get AtomView for a given Atom
@@ -465,18 +510,54 @@
          * Handle atom movement to update connected tracks
          * @param {Impulse} impulse - ATOM_MOVED impulse
          */
-        private function onAtomMoved(impulse:Impulse):void {
-            var movedAtom:Atom = impulse.data.newAtom;
-            var atomId:String = movedAtom.id;
+		private function onAtomMoved(impulse:Impulse):void {
+			trace("TrackManager: ATOM_MOVED received, updateTracks: " + impulse.data.updateTracks);
+			
+			// Проверяем флаг обновления треков
+			if (!impulse.data.updateTracks) {
+				trace("TrackManager: Skipping track update - updateTracks is false");
+				return;
+			}
 
-            // Update all tracks connected to this atom
-            for each (var track:Track in _activeTracks) {
-                if (track.isConnectedToAtom(atomId)) {
-                    track.updateVisual();
-                }
-            }
-        }
+			var movedAtom:Atom = impulse.data.newAtom;
+			var atomId:String = movedAtom.id;
 
+			trace("TrackManager: Updating tracks for atom: " + atomId);
+			trace("TrackManager: Active tracks count: " + getActiveTracksCount());
+
+			var updatedTracks:int = 0;
+			
+			// Update all tracks connected to this atom
+			for each (var track:Track in _activeTracks) {
+				if (track.isConnectedToAtom(atomId)) {
+					trace("TrackManager: Updating track: " + track.connectionId);
+					track.updateVisual();
+					updatedTracks++;
+				}
+			}
+			
+			trace("TrackManager: Updated " + updatedTracks + " tracks");
+		}
+	
+public function getActiveTracksCount():int {
+    var count:int = 0;
+    for (var key:String in _activeTracks) {
+        count++;
+    }
+    return count;
+}
+
+// Добавьте метод для логирования всех треков
+public function logAllTracks():void {
+    trace("=== ALL ACTIVE TRACKS ===");
+    for (var connectionId:String in _activeTracks) {
+        var track:Track = _activeTracks[connectionId];
+        var info:Object = track.getConnectionInfo();
+        trace("Track: " + connectionId + ", From: " + info.fromAtom + "." + info.fromPin + 
+              " -> To: " + info.toAtom + "." + info.toPin);
+    }
+    trace("=== END TRACKS LOG ===");
+}
         /**
          * Handle window activation to update track context
          * @param {Impulse} impulse - WINDOW_ACTIVATED impulse
