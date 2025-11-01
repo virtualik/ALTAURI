@@ -46,6 +46,9 @@
 
         /** Background layer - static background elements */
         private var _backgroundLayer:Sprite;
+		
+        /** Tracks layer - static Tracks between elements */
+        private var _tracksLayer:Sprite;
 
         /** Content layer - dynamic elements that move with canvas (atoms, tracks) */
         private var _contentLayer:Sprite;
@@ -57,7 +60,7 @@
         private var _viewPoint:Point = new Point(0, 0);
 
         /** Current zoom level */
-        private var _zoomLevel:Number = 1.0;
+        private var _zoomLevel:Number = 0.1;
 
         /** Dragging state for panning */
         private var _isDragging:Boolean = false;
@@ -67,8 +70,8 @@
 
         /** Zoom constraints */
         private static const ZOOM_MIN:Number = 0.1;
-        private static const ZOOM_MAX:Number = 3.0;
-        private static const ZOOM_STEP:Number = 0.1;
+        private static const ZOOM_MAX:Number = 0.3;
+        private static const ZOOM_STEP:Number = 0.01;
 
         /** Platform detection */
         private static var _isDesktop:Boolean = Capabilities.os.indexOf("Windows") >= 0 ||
@@ -192,7 +195,7 @@
             _canvas = new Sprite();
             _canvas.name = "Canvas";
             _content.addChild(_canvas);
-
+	
             // Create background layer for static elements
             _backgroundLayer = new Sprite();
             _backgroundLayer.name = "BackgroundLayer";
@@ -201,7 +204,14 @@
             _backgroundLayer.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onBackgroundRightClick);
             _canvas.addChild(_backgroundLayer);
 
-            // Create content layer for dynamic elements (atoms, tracks)
+			// Create tracks layer for permanent connections
+			_tracksLayer = new Sprite();
+			_tracksLayer.name = "TracksLayer";
+			_tracksLayer.mouseEnabled = false; // Треки не должны перехватывать события мыши
+			_canvas.addChild(_tracksLayer);
+		
+		
+			// Create content layer for dynamic elements (atoms, tracks)
             _contentLayer = new Sprite();
             _contentLayer.name = "ContentLayer";
             _contentLayer.mouseEnabled = true;
@@ -247,7 +257,7 @@
             _canvas.x = stage.stageWidth / 2;
             _canvas.y = stage.stageHeight / 2;
             _viewPoint.setTo(0, 0);
-            _zoomLevel = 1.0;
+            //_zoomLevel = 0.0;
             updateViewport();
         }
 
@@ -474,9 +484,9 @@
          * Draw grid on background for better orientation
          */
         private function drawGrid():void {
-            var gridSize:int = 50;
+            var gridSize:int = 10;
             var gridColor:uint = 0x2d2d4d;
-            var gridAlpha:Number = 0.5;
+            var gridAlpha:Number = 0.77;
 
             _backgroundLayer.graphics.lineStyle(1, gridColor, gridAlpha);
 
@@ -792,6 +802,14 @@
         public function get windowType():String {
             return _type;
         }
+
+		/**
+		 * Get tracks layer reference
+		 * @return Tracks layer for permanent connections
+		 */
+		public function get tracksLayer():Sprite {
+			return _tracksLayer;
+		}	
 
         /**
          * Reset viewport to default position and zoom
