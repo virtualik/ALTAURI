@@ -1,5 +1,9 @@
 ﻿package Src.Prog.Com.Atoms.Data {
     import Src.Prog.Com.Atoms.Core.Atom;
+    import Src.Prog.Core.MultiPulsator.MultiPulsator;
+    import Src.Prog.Core.MultiPulsator.Impulse;
+    import Src.Prog.Com.Atoms.Core.AtomView;
+    import Src.Prog.Core.Managers.AtomManager;
 
     /**
      * Central registry for all atom definitions in the system
@@ -21,38 +25,65 @@
             trace("AtomDefinitions: Initializing atom registry...");
 
             // Input Atoms
-            registerAtomType("Button", {
-                displayName: "Button",
-                category: "Input",
-                description: "A simple push button that sends impulses when pressed",
-                pins: [
-                    {name: "output", type: "output", dataType: "impulse", description: "Sends impulse when pressed"}
-                ],
-                behavior: {
-                    onInteraction: function(atom:Atom, interactionType:String):Atom {
-                        trace("Button pressed - sending impulse");
-                        // Button logic here
-                        return atom;
-                    }
-                },
-                viewConfig: {
-                    width: 60,
-                    height: 30,
-                    backgroundColor: 0x3366CC
-                },
-                visuals: {
-                    base: {
-                        width: 60,
-                        height: 30,
-                        color: 0x3366CC,
-                        textColor: 0x000000,
+			registerAtomType("Button", {
+				displayName: "Button",
+				category: "Input",
+				description: "A simple push button that sends impulses when pressed",
+				pins: [
+					{name: "output", type: "output", dataType: "boolean", description: "Sends impulse when pressed"}
+				],
+				behavior: {
+					onInteraction: function(atom:Atom, interactionType:String):Atom {
+						trace("Button pressed - sending TRUE signal");
+						
+						// Создаем новый атом с обновленным значением пина
+						var newAtom:Atom = atom.setPinValue("output", true, false); // false = output pin
+						
+						// Эмитим импульс о изменении значения пина
+						MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+							atomId: newAtom.id,
+							pinName: "output",
+							newValue: true,
+							oldValue: atom.outputs[0].value // старое значение
+						}));
+						
+						return newAtom;
+					},
+					
+					// Добавим функцию для сброса (по правому клику например)
+					onRightClick: function(atom:Atom):Atom {
+						trace("Button right-click - sending FALSE signal");
+						
+						var newAtom:Atom = atom.setPinValue("output", false, false);
+						
+						MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+							atomId: newAtom.id,
+							pinName: "output",
+							newValue: false,
+							oldValue: atom.outputs[0].value
+						}));
+						
+						return newAtom;
+					}
+				},
+				viewConfig: {
+					width: 60,
+					height: 30,
+					backgroundColor: 0x3366CC
+				},
+				visuals: {
+					base: {
+						width: 60,
+						height: 30,
+						color: 0x3366CC,
+						textColor: 0x000000,
 						cornerRadius: 8
-                    },
-                    Editor: {
-                        // специфичные настройки для Editor
-                    }
-                }
-            });
+					},
+					Editor: {
+						// специфичные настройки для Editor
+					}
+				}
+			});
 
             registerAtomType("Toggle", {
                 displayName: "Toggle Switch", 
@@ -225,30 +256,50 @@
                 }
             });
 
-            registerAtomType("LED", {
-                displayName: "LED Indicator",
-                category: "Output", 
-                description: "Visual indicator that lights up when active",
-                pins: [
-                    {name: "input", type: "input", dataType: "boolean", description: "LED state (on/off)"}
-                ],
-                viewConfig: {
-                    width: 30,
-                    height: 30,
-                    backgroundColor: 0x333333
-                },
-                visuals: {
-                    base: {
-                        width: 30,
-                        height: 30,
-                        color: 0x333333,
-                        textColor: 0xFFFFFF
-                    },
-                    Editor: {
-                        // специфичные настройки для Editor
-                    }
-                }
-            });
+			registerAtomType("LED", {
+				displayName: "LED Indicator",
+				category: "Output",
+				description: "Visual indicator that lights up when active",
+				pins: [
+					{name: "input", type: "input", dataType: "boolean", description: "LED state (on/off)"}
+				],
+				behavior: {
+					onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
+						trace("=== LED INPUT CHANGE ===");
+						trace("LED " + atom.id + " received value: " + value);
+						trace("Value type: " + typeof value);
+						trace("=========================");
+						
+						// Обновляем визуальное представление на основе значения
+						var view:AtomView = AtomManager.getInstance().getAtomView(atom);
+						if (view) {
+							if (value === true) {
+								view.setBackgroundColor(0x00FF00); // Зеленый когда включен
+							} else {
+								view.setBackgroundColor(0x333333); // Темный когда выключен
+							}
+						}
+						
+						return atom;
+					}
+				},
+				viewConfig: {
+					width: 30,
+					height: 30,
+					backgroundColor: 0x333333
+				},
+				visuals: {
+					base: {
+						width: 30,
+						height: 30,
+						color: 0x333333,
+						textColor: 0xFFFFFF
+					},
+					Editor: {
+						// специфичные настройки для Editor
+					}
+				}
+			});
 
             // System Atoms
             registerAtomType("Clock", {

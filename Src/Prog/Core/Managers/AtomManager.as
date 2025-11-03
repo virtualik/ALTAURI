@@ -116,29 +116,57 @@
          * @private
          * @param {Impulse} impulse - ATOM_INTERACTION impulse
          */
-        private function onAtomInteraction(impulse:Impulse):void {
-            var atom:Atom = impulse.data.atom;
-            var interactionType:String = impulse.data.interactionType;
+		private function onAtomInteraction(impulse:Impulse):void {
+			var atom:Atom = impulse.data.atom;
+			var interactionType:String = impulse.data.interactionType;
+			var view:AtomView = impulse.data.view;
 
-            var definition:Object = AtomDefinitions.getAtomDefinition(atom.type);
-            if (definition && definition.behavior && definition.behavior.onInteraction) {
-                var newAtom:Atom = definition.behavior.onInteraction(atom, interactionType);
-                updateAtom(newAtom);
+			trace("=== ATOM INTERACTION ===");
+			trace("Atom: " + atom.type + " (" + atom.id + ")");
+			trace("Interaction type: " + interactionType);
 
-                // Emit pin value changes if outputs were updated
-                for each (var outputPin:Pin in newAtom.outputs) {
-                    var oldPin:Pin = findPinByName(atom.outputs, outputPin.name);
-                    if (oldPin && oldPin.value !== outputPin.value) {
-                        MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
-                            atomId: newAtom.id,
-                            pinName: outputPin.name,
-                            newValue: outputPin.value,
-                            oldValue: oldPin.value
-                        }));
-                    }
-                }
-            }
-        }
+			var definition:Object = AtomDefinitions.getAtomDefinition(atom.type);
+			
+			if (definition && definition.behavior) {
+				try {
+					var newAtom:Atom = atom;
+					
+					// Обработка левого клика
+					if (interactionType == "press" && definition.behavior.onInteraction) {
+						newAtom = definition.behavior.onInteraction(atom, interactionType);
+					}
+					
+					// Обработка правого клика  
+					else if (interactionType == "rightClick" && definition.behavior.onRightClick) {
+						newAtom = definition.behavior.onRightClick(atom);
+					}
+					
+					// Обновляем атом в менеджере
+					if (newAtom !== atom) {
+						updateAtom(newAtom);
+						
+						// Эмитим изменения значений пинов
+						for each (var outputPin:Pin in newAtom.outputs) {
+							var oldPin:Pin = findPinByName(atom.outputs, outputPin.name);
+							if (oldPin && oldPin.value !== outputPin.value) {
+								MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+									atomId: newAtom.id,
+									pinName: outputPin.name,
+									newValue: outputPin.value,
+									oldValue: oldPin.value,
+									source: "interaction"
+								}));
+							}
+						}
+					}
+					
+				} catch (error:Error) {
+					trace("ERROR in atom interaction: " + error.message);
+				}
+			}
+			
+			trace("=== END INTERACTION ===");
+		}
 
         /**
          * Handles pin value changes from connections.
@@ -364,7 +392,19 @@
             return count;
         }
 
-        /**
+		/**
+		 * Gets the AtomView for a given Atom instance.
+		 *
+		 * @public
+		 * @param {Atom} atom - Atom to find view for
+		 * @return {AtomView} Found AtomView or null if not found
+		 */
+		public function getAtomView(atom:Atom):AtomView {
+			var atomData:Object = _atoms[atom.id];
+			return atomData ? atomData.view : null;
+		}
+
+		/**
          * Gets all available atom definitions for menu creation.
          *
          * @return {Array} Array of atom definition objects with type, name, and category
