@@ -22,11 +22,11 @@
 	import Src.Prog.Com.Atoms.Core.AtomView;
 	import Src.Prog.Com.Atoms.Core.Track;
 	import Src.Prog.Com.Atoms.Core.Pin;
-	import Src.Prog.Com.Menus.AtomCreationContextMenu;
-	import Src.Prog.Com.Menus.AtomOptionsContextMenu;
-	import Src.Prog.Com.Menus.TrackContextMenu;
-	import Src.Prog.Com.Menus.AtomContextMenuItem;
+	// Menus
+	import Src.Prog.Com.Menus.ContextMenu;
+	import Src.Prog.Com.Menus.ContextMenuItem;
 	import Src.Prog.Core.Managers.MenuManager;
+
 	/**
 	  *Universal window with ultra-smooth pan/zoom canvas and impulse system.
 	  **Features:
@@ -411,6 +411,7 @@
 				charCode: e.charCode
 			}));
 		}
+	
 		private function transformMouseDown(e: MouseEvent): void {
 			var isMenu: Boolean = isMenuElement(e.target as DisplayObject);
 			if(!isMenu) {
@@ -519,19 +520,23 @@
 		// =========================================================================
 		// UTILS
 		// =========================================================================
-		private function isMenuElement(obj: DisplayObject): Boolean {
-			while(obj && obj != stage) {
-				if(obj is AtomContextMenuItem ||
-					obj.parent is AtomCreationContextMenu ||
-					obj.parent is AtomOptionsContextMenu ||
-					obj.parent is TrackContextMenu) {
+		/**
+		 * Check if a display object is part of any context menu
+		 * @param {DisplayObject} obj - Target display object
+		 * @return {Boolean} True if object belongs to a context menu
+		 */
+		private function isMenuElement(obj:DisplayObject):Boolean {
+			var current:DisplayObject = obj;
+			while (current && current != stage) {
+				if (current is ContextMenuItem || current is ContextMenu) {
 					return true;
 				}
-				obj = obj.parent;
+				current = current.parent;
 			}
 			return false;
 		}
-		private function findClickedAtom(target: DisplayObject): Atom {
+
+	private function findClickedAtom(target: DisplayObject): Atom {
 			var cur: DisplayObject = target;
 			while(cur && cur != stage) {
 				if(cur is AtomView) return(cur as AtomView).atom;
