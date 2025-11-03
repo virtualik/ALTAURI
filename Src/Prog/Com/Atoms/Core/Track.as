@@ -76,11 +76,12 @@
          *
          * @private
          */
-        private function setupPinSubscription():void {
-            // Direct P2P subscription: input pin listens to output pin
-            _pinDataListener = onSourceDataChanged;
-            _fromPin.addListener(_pinDataListener);
-        }
+		private function setupPinSubscription():void {
+			trace("Track setting up impulse subscription for: " + _connectionId);
+			
+			// Подписываемся на импульсы от исходного пина
+			MultiPulsator.subscribeToImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
+		}
 
         /**
          * Sets up impulse event listeners for system coordination.
@@ -103,18 +104,26 @@
          * @param {*} oldValue - Previous data value
          * @param {Pin} sourcePin - Source pin that changed
          */
-        private function onSourceDataChanged(newValue:*, oldValue:*, sourcePin:Pin):void {
-            // 1. Transfer data to target pin
-            transferValueToTarget(newValue);
+		private function onSourceDataChanged(newValue:*, oldValue:*, sourcePin:Pin):void {
+			trace("=== TRACK DATA FLOW ===");
+			trace("Track " + _connectionId + " received data:");
+			trace("From pin: " + sourcePin.name + " (" + sourcePin.type + ")");
+			trace("Value: " + newValue + " (old: " + oldValue + ")");
+			trace("To pin: " + _toPin.name + " (" + _toPin.type + ")");
+			
+			// 1. Transfer data to target pin
+			transferValueToTarget(newValue);
 
-            // 2. Visualize data flow
-            startDataFlowAnimation(newValue);
+			// 2. Visualize data flow
+			startDataFlowAnimation(newValue);
 
-            // 3. Activate logical connection if not already active
-            if (!_isActive) {
-                createLogicalConnection();
-            }
-        }
+			// 3. Activate logical connection if not already active
+			if (!_isActive) {
+				createLogicalConnection();
+			}
+			
+			trace("=== END TRACK DATA FLOW ===");
+		}
 
         /**
          * Transfers data value to the target pin.
@@ -122,9 +131,27 @@
          * @private
          * @param {*} value - Data value to transfer
          */
-        private function transferValueToTarget(value:*):void {
-            _toPin.value = value;
-        }
+		private function transferValueToTarget(value:*):void {
+			trace("Transferring value " + value + " to target pin: " + _toPin.name);
+			
+			var oldValue:* = _toPin.value;
+			_toPin.value = value;
+			
+			trace("Target pin value set to: " + _toPin.value);
+			
+			// Отправляем импульс для целевого атома
+			var toAtom:Atom = _trackManager.getAtomByPin(_toPin);
+			if (toAtom) {
+				trace("Emitting PIN_VALUE_CHANGED for target atom: " + toAtom.id);
+				MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+					atomId: toAtom.id,
+					pinName: _toPin.name,
+					newValue: value,
+					oldValue: oldValue,
+					source: "track_transfer"
+				}));
+			}
+		}
 
         /**
          * Starts data flow visualization animation.
@@ -163,12 +190,23 @@
          * @private
          * @param {Impulse} impulse - PIN_VALUE_CHANGED impulse
          */
-        private function onPinValueChanged(impulse:Impulse):void {
-            var pin:Pin = impulse.data.pin;
-            if (pin === _fromPin || pin === _toPin) {
-                drawTrack();
-            }
-        }
+		private function onPinValueChanged(impulse:Impulse):void {
+			var atomId:String = impulse.data.atomId;
+			var pinName:String = impulse.data.pinName;
+			var newValue:* = impulse.data.newValue;
+			
+			// Проверяем, что импульс от нашего исходного пина
+			var fromAtom:Atom = _trackManager.getAtomByPin(_fromPin);
+			if (fromAtom && fromAtom.id == atomId && pinName == _fromPin.name) {
+				trace("Track " + _connectionId + " forwarding data from " + fromAtom.type + "." + pinName);
+				transferValueToTarget(newValue);
+				startDataFlowAnimation(newValue);
+				
+				if (!_isActive) {
+					createLogicalConnection();
+				}
+			}
+		}
 
         /**
          * Generates unique connection identifier.
@@ -310,6 +348,9 @@
          */
         public function dispose():void {
             _isActive = false;
+
+			// Убираем подписку на импульс
+			MultiPulsator.removeImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
 
             // Remove pin subscription - use explicit null checks
             if (_fromPin != null && _pinDataListener != null) {

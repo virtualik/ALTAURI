@@ -367,33 +367,43 @@
             }));
         }
 
-        /**
-         * Updates all visual elements of the atom.
-         *
-         * @private
-         */
-        private function updateVisuals():void {
-            if (!_definition) {
-                drawFallback();
-                return;
-            }
+		/**
+		 * Updates all visual elements of the atom.
+		 *
+		 * @public
+		 */
+		public function updateVisuals():void {
+			if (!_definition) {
+				drawFallback();
+				return;
+			}
 
-            var visualConfig:Object = getVisualConfig();
-            if (_viewConfig) {
-                visualConfig = mergeConfig(visualConfig, _viewConfig);
-            }
+			var visualConfig:Object = getVisualConfig();
+			if (_viewConfig) {
+				visualConfig = mergeConfig(visualConfig, _viewConfig);
+			}
 
-            this.graphics.clear();
-            
-            if (visualConfig.draw is Function) {
-                visualConfig.draw(this.graphics, _atom, visualConfig);
-            } else {
-                drawDefault(this.graphics, visualConfig);
-            }
+			this.graphics.clear();
 
-            updateLabel(visualConfig);
-            updatePins(visualConfig);
-        }
+			trace("Updating visuals for " + _atom.type + ", isOn: " + _atom.data.isOn);
+
+			// Если в конфигурации есть функция draw, используем её
+			if (visualConfig.draw is Function) {
+				try {
+					visualConfig.draw(this.graphics, _atom, visualConfig);
+					trace("Custom draw function executed for " + _atom.type);
+				} catch (error:Error) {
+					trace("Error in custom draw function for " + _atom.type + ": " + error.message);
+					drawDefault(this.graphics, visualConfig);
+				}
+			} else {
+				drawDefault(this.graphics, visualConfig);
+				trace("Default draw function executed for " + _atom.type);
+			}
+
+			updateLabel(visualConfig);
+			updatePins(visualConfig);
+		}
 
         /**
          * Gets visual configuration for current window type.

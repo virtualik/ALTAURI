@@ -68,7 +68,19 @@
             MultiPulsator.subscribeToImpulse("ATOM_DELETE_REQUEST", onAtomDeleteRequest);
             MultiPulsator.subscribeToImpulse("ATOM_INTERACTION", onAtomInteraction);
             MultiPulsator.subscribeToImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
-        }
+            MultiPulsator.subscribeToImpulse("ATOM_VISUAL_UPDATE", onAtomVisualUpdate);
+		}
+
+		private function onAtomVisualUpdate(impulse:Impulse):void {
+			var atomId:String = impulse.data.atomId;
+			var atomData:Object = _atoms[atomId];
+			
+			if (atomData) {
+				// Принудительно обновляем визуальное представление
+				atomData.view.updateVisuals();
+				trace("Visual update for atom: " + atomId);
+			}
+		}
 
         /**
          * Handles atom creation from context menu selection.
@@ -173,36 +185,40 @@
          *
          * @private
          * @param {Impulse} impulse - PIN_VALUE_CHANGED impulse
-         */
-        private function onPinValueChanged(impulse:Impulse):void {
-            var atomId:String = impulse.data.atomId;
-            var pinName:String = impulse.data.pinName;
-            var newValue:* = impulse.data.newValue;
+		*/
+		private function onPinValueChanged(impulse:Impulse):void {
+			var atomId:String = impulse.data.atomId;
+			var pinName:String = impulse.data.pinName;
+			var newValue:* = impulse.data.newValue;
+			var source:String = impulse.data.source || "unknown";
 
-            var atomData:Object = _atoms[atomId];
-            if (atomData) {
-                var atom:Atom = atomData.atom;
-                var definition:Object = AtomDefinitions.getAtomDefinition(atom.type);
+			trace("=== PIN_VALUE_CHANGED HANDLER ===");
+			trace("Source: " + source);
+			trace("Atom: " + atomId + ", Pin: " + pinName + ", Value: " + newValue);
 
-                if (definition && definition.behavior && definition.behavior.onInputChange) {
-                    var newAtom:Atom = definition.behavior.onInputChange(atom, pinName, newValue);
-                    updateAtom(newAtom);
+			var atomData:Object = _atoms[atomId];
+			if (atomData) {
+				var atom:Atom = atomData.atom;
+				var definition:Object = AtomDefinitions.getAtomDefinition(atom.type);
 
-                    // Emit output pin changes if any
-                    for each (var outputPin:Pin in newAtom.outputs) {
-                        var oldPin:Pin = findPinByName(atom.outputs, outputPin.name);
-                        if (oldPin && oldPin.value !== outputPin.value) {
-                            MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
-                                atomId: newAtom.id,
-                                pinName: outputPin.name,
-                                newValue: outputPin.value,
-                                oldValue: oldPin.value
-                            }));
-                        }
-                    }
-                }
-            }
-        }
+				trace("Atom type: " + atom.type + ", has onInputChange: " + 
+					  (definition && definition.behavior && definition.behavior.onInputChange));
+
+				// Для входных пинов вызываем onInputChange
+				var targetPin:Pin = findPinByName(atom.inputs, pinName);
+				if (targetPin && definition && definition.behavior && definition.behavior.onInputChange) {
+					trace("Calling onInputChange for " + atom.type);
+					var newAtom:Atom = definition.behavior.onInputChange(atom, pinName, newValue);
+					updateAtom(newAtom);
+				} else {
+					trace("No onInputChange call needed for " + atom.type + " (not an input pin or no behavior)");
+				}
+			} else {
+				trace("Atom data not found for: " + atomId);
+			}
+			
+			trace("=== END PIN_VALUE_CHANGED HANDLER ===");
+		}
 
         /**
          * Handles atom deletion requests with connected track cleanup.
@@ -243,37 +259,40 @@
          * @param {Atom} atom - The atom instance
          * @param {AtomView} view - The atom view
          */
-        public function addAtomToWindow(windowType:String, atom:Atom, view:AtomView):void {
-            trace("Adding atom to window: " + windowType + ", atom: " + atom.id);
+		public function addAtomToWindow(windowType:String, atom:Atom, view:AtomView):void {
+			trace("Adding atom to window: " + windowType + ", atom: " + atom.id);
 
-            if (!_windowAtoms[windowType]) {
-                _windowAtoms[windowType] = [];
-            }
+			if (!_windowAtoms[windowType]) {
+				_windowAtoms[windowType] = [];
+			}
 
-            _atoms[atom.id] = { atom: atom, view: view };
-            _windowAtoms[windowType].push(atom.id);
+			_atoms[atom.id] = { atom: atom, view: view };
+			_windowAtoms[windowType].push(atom.id);
 
-            var windowsManager:WindowsManager = WindowsManager.getInstance();
-            var window:Window = windowsManager.findWindow(windowType);
+			var windowsManager:WindowsManager = WindowsManager.getInstance();
+			var window:Window = windowsManager.findWindow(windowType);
 
-            if (window && window.contentLayer) {
-                window.contentLayer.addChild(view as DisplayObject);
+			if (window && window.contentLayer) {
+				window.contentLayer.addChild(view as DisplayObject);
 
-                // Set position from atom data
-                view.x = atom.position.x;
-                view.y = atom.position.y;
+				// Set position from atom data
+				view.x = atom.position.x;
+				view.y = atom.position.y;
 
-                trace("SUCCESS: Atom view added to contentLayer at: " + atom.position);
+				// НЕМЕДЛЕННОЕ ОБНОВЛЕНИЕ ВИЗУАЛИЗАЦИИ
+				view.updateVisuals();
 
-                MultiPulsator.emit(new Impulse("ATOM_ADDED", {
-                    windowType: windowType,
-                    atom: atom,
-                    view: view
-                }));
-            } else {
-                trace("ERROR: Window or contentLayer not found for: " + windowType);
-            }
-        }
+				trace("SUCCESS: Atom view added to contentLayer at: " + atom.position);
+
+				MultiPulsator.emit(new Impulse("ATOM_ADDED", {
+					windowType: windowType,
+					atom: atom,
+					view: view
+				}));
+			} else {
+				trace("ERROR: Window or contentLayer not found for: " + windowType);
+			}
+		}
 
         /**
          * Removes an atom by ID with enhanced cleanup.
@@ -321,17 +340,26 @@
          *
          * @param {Atom} newAtom - The updated atom instance
          */
-        public function updateAtom(newAtom:Atom):void {
-            if (_atoms[newAtom.id]) {
-                _atoms[newAtom.id].atom = newAtom;
-                _atoms[newAtom.id].view.updateAtom(newAtom);
+		public function updateAtom(newAtom:Atom):void {
+			trace("=== ATOM MANAGER UPDATE ATOM ===");
+			trace("Updating atom: " + newAtom.id + " (" + newAtom.type + ")");
+			
+			if (_atoms[newAtom.id]) {
+				_atoms[newAtom.id].atom = newAtom;
+				trace("Calling view.updateAtom()");
+				_atoms[newAtom.id].view.updateAtom(newAtom);
+				trace("View update completed");
 
-                MultiPulsator.emit(new Impulse("ATOM_UPDATED", {
-                    oldAtom: _atoms[newAtom.id].atom,
-                    newAtom: newAtom
-                }));
-            }
-        }
+				MultiPulsator.emit(new Impulse("ATOM_UPDATED", {
+					oldAtom: _atoms[newAtom.id].atom,
+					newAtom: newAtom
+				}));
+			} else {
+				trace("WARNING: Atom not found for update: " + newAtom.id);
+			}
+			
+			trace("=== END ATOM MANAGER UPDATE ===");
+		}
 
         /**
          * Gets all atoms for a specific window.

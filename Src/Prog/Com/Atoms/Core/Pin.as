@@ -65,13 +65,20 @@
          *
          * @param {*} newValue - New value for the pin
          */
-        public function set value(newValue:*):void {
-            if (_value !== newValue) {
-                var oldValue:* = _value;
-                _value = newValue;
-                notifyListeners(newValue, oldValue);
-            }
-        }
+		public function set value(newValue:*):void {
+			if (_value !== newValue) {
+				var oldValue:* = _value;
+				_value = newValue;
+				
+				trace("=== PIN VALUE CHANGE ===");
+				trace("Pin " + this.name + " (" + this.type + ")");
+				trace("Old value: " + oldValue);
+				trace("New value: " + newValue);
+				trace("=== END PIN VALUE CHANGE ===");
+				
+				notifyListeners(newValue, oldValue);
+			}
+		}
 
         /**
          * Adds a listener function to be called when pin data changes.

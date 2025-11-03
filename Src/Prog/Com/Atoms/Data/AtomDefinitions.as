@@ -4,6 +4,7 @@
     import Src.Prog.Core.MultiPulsator.Impulse;
     import Src.Prog.Com.Atoms.Core.AtomView;
     import Src.Prog.Core.Managers.AtomManager;
+    import flash.display.Graphics;
 
     /**
      * Central registry for all atom definitions in the system
@@ -37,20 +38,20 @@
 						trace("Button pressed - sending TRUE signal");
 						
 						// Создаем новый атом с обновленным значением пина
-						var newAtom:Atom = atom.setPinValue("output", true, false); // false = output pin
+						var newAtom:Atom = atom.setPinValue("output", true, false);
 						
 						// Эмитим импульс о изменении значения пина
 						MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
 							atomId: newAtom.id,
 							pinName: "output",
 							newValue: true,
-							oldValue: atom.outputs[0].value // старое значение
+							oldValue: atom.outputs[0].value,
+							source: "button_interaction"
 						}));
 						
 						return newAtom;
 					},
 					
-					// Добавим функцию для сброса (по правому клику например)
 					onRightClick: function(atom:Atom):Atom {
 						trace("Button right-click - sending FALSE signal");
 						
@@ -58,9 +59,10 @@
 						
 						MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
 							atomId: newAtom.id,
-							pinName: "output",
+							pinName: "output", 
 							newValue: false,
-							oldValue: atom.outputs[0].value
+							oldValue: atom.outputs[0].value,
+							source: "button_right_click"
 						}));
 						
 						return newAtom;
@@ -267,33 +269,52 @@
 					onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
 						trace("=== LED INPUT CHANGE ===");
 						trace("LED " + atom.id + " received value: " + value);
-						trace("Value type: " + typeof value);
+						
+						// Создаем новый атом с обновленным состоянием
+						var newAtom:Atom = atom.setData("isOn", Boolean(value));
+						
+						trace("LED data updated - isOn: " + newAtom.data.isOn);
+						
+						// Эмитим импульс для немедленного визуального обновления
+						MultiPulsator.emit(new Impulse("ATOM_VISUAL_UPDATE", {
+							atomId: newAtom.id,
+							data: newAtom.data
+						}));
+						
 						trace("=========================");
-						
-						// Обновляем визуальное представление на основе значения
-						var view:AtomView = AtomManager.getInstance().getAtomView(atom);
-						if (view) {
-							if (value === true) {
-								view.setBackgroundColor(0x00FF00); // Зеленый когда включен
-							} else {
-								view.setBackgroundColor(0x333333); // Темный когда выключен
-							}
-						}
-						
-						return atom;
+						return newAtom;
 					}
-				},
-				viewConfig: {
-					width: 30,
-					height: 30,
-					backgroundColor: 0x333333
 				},
 				visuals: {
 					base: {
 						width: 30,
 						height: 30,
 						color: 0x333333,
-						textColor: 0xFFFFFF
+						textColor: 0xFFFFFF,
+						// Добавляем функцию отрисовки для LED
+						draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+							var isOn:Boolean = atom.data.isOn === true;
+							var color:uint = isOn ? 0x00FF00 : 0x333333; // Зеленый когда включен, темный когда выключен
+							var glowColor:uint = isOn ? 0x80FF80 : 0x666666; // Свечение для включенного состояния
+							
+							graphics.clear();
+							
+							// Рисуем свечение (только когда включен)
+							if (isOn) {
+								graphics.beginFill(glowColor, 0.3);
+								graphics.drawCircle(config.width / 2, config.height / 2, config.width / 1.5);
+								graphics.endFill();
+							}
+							
+							// Рисуем основной светодиод
+							graphics.beginFill(color);
+							graphics.drawCircle(config.width / 2, config.height / 2, config.width / 2 - 2);
+							graphics.endFill();
+							
+							// Обводка
+							graphics.lineStyle(1, 0x666666);
+							graphics.drawCircle(config.width / 2, config.height / 2, config.width / 2 - 2);
+						}
 					},
 					Editor: {
 						// специфичные настройки для Editor
