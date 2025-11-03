@@ -8,9 +8,9 @@
     import Src.Prog.Core.Managers.AtomManager;
 
     /**
-     * TrackManager - Centralized manager for track creation and lifecycle management.
-     * Handles real-time track updates during atom dragging and provides comprehensive track management.
-     *
+     * TrackManager - Centralized manager for track creation and lifecycle management
+     * Handles track creation, updates, and cleanup with optimized performance
+     * 
      * @class TrackManager
      * @public
      */
@@ -18,7 +18,7 @@
         /** Singleton instance */
         private static var _instance:TrackManager;
 
-        /** Active tracks storage */
+        /** Active tracks storage by connection ID */
         private var _activeTracks:Object;
 
         /** Temporary track during drag operations */
@@ -40,7 +40,10 @@
 
         /**
          * Get singleton instance
-         * @return {TrackManager} TrackManager singleton instance
+         * 
+         * @static
+         * @public
+         * @return {TrackManager} Singleton instance
          */
         public static function getInstance():TrackManager {
             if (!_instance) {
@@ -51,13 +54,18 @@
 
         /**
          * Initialize track manager system
+         * 
+         * @static
+         * @public
          */
         public static function initialize():void {
             getInstance(); // Ensures instance creation and setup
         }
 
         /**
-         * Setup all impulse listeners for track management
+         * Setup impulse listeners for track management
+         * 
+         * @private
          */
         private function setupImpulseListeners():void {
             // Track creation process
@@ -65,19 +73,14 @@
             MultiPulsator.subscribeToImpulse("PIN_DRAG_UPDATE", onPinDragUpdate);
             MultiPulsator.subscribeToImpulse("PIN_DRAG_END", onPinDragEnd);
 
-            // Atom movement events - real-time updates
+            // Atom movement events
             MultiPulsator.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
-            MultiPulsator.subscribeToImpulse("ATOM_DRAGGING", onAtomDragging);
 
             // Window events
             MultiPulsator.subscribeToImpulse("WINDOW_ACTIVATED", onWindowActivated);
             MultiPulsator.subscribeToImpulse("WINDOW_CLOSING", onWindowClosing);
 
             // Track management commands
-            MultiPulsator.subscribeToImpulse("TRACK_DISCONNECT", onTrackDisconnect);
-            MultiPulsator.subscribeToImpulse("TRACK_UPDATE_ALL", onTrackUpdateAll);
-            
-            // Track deletion from context menu
             MultiPulsator.subscribeToImpulse("TRACK_DELETE_REQUEST", onTrackDeleteRequest);
         }
 
@@ -87,25 +90,23 @@
 
         /**
          * Handle pin drag start impulse
+         * 
+         * @private
          * @param {Impulse} impulse - PIN_DRAG_START impulse
          */
         private function onPinDragStart(impulse:Impulse):void {
-            trace("=== PIN DRAG START ===");
             _currentDragPin = impulse.data.pin;
             _currentWindow = findWindowByType(impulse.data.windowType);
 
-            trace("Current window: " + (_currentWindow ? _currentWindow.windowType : "null"));
-            trace("TracksLayer: " + (_currentWindow && _currentWindow.tracksLayer ? "exists" : "null"));
-
             if (_currentWindow && _currentDragPin) {
                 startTempTrack(impulse.data.startX, impulse.data.startY);
-            } else {
-                trace("Missing window or drag pin!");
             }
         }
 
         /**
          * Handle pin drag update impulse
+         * 
+         * @private
          * @param {Impulse} impulse - PIN_DRAG_UPDATE impulse
          */
         private function onPinDragUpdate(impulse:Impulse):void {
@@ -116,6 +117,8 @@
 
         /**
          * Handle pin drag end impulse
+         * 
+         * @private
          * @param {Impulse} impulse - PIN_DRAG_END impulse
          */
         private function onPinDragEnd(impulse:Impulse):void {
@@ -124,49 +127,29 @@
             var fromPin:Pin = _currentDragPin;
             var toPin:Pin = impulse.data.toPin;
 
-            trace("=== PIN DRAG END ===");
-            trace("From pin: " + fromPin.name + " (type: " + fromPin.type + ")");
-            trace("Initial to pin: " + (toPin ? toPin.name + " (type: " + toPin.type + ")" : "null"));
-
-            // Если точный поиск не нашел пин, используем поиск по радиусу
+            // Fallback to radius search if exact pin not found
             if (!toPin) {
-                trace("Exact pin search failed, trying radius search...");
                 toPin = findPinInRadius(impulse.data.endX, impulse.data.endY, 20);
-                trace("Radius search result: " + (toPin ? toPin.name : "null"));
             }
 
             cleanupTempTrack();
 
             // Validate and create track if connection is valid
             if (toPin && isValidConnection(fromPin, toPin)) {
-                trace("Creating track...");
                 createTrack(fromPin, toPin);
-            } else {
-                trace("Invalid connection - no track created");
             }
 
             _currentDragPin = null;
         }
 
         // =========================================================================
-        // ATOM MOVEMENT HANDLERS - REAL-TIME UPDATES
+        // ATOM MOVEMENT HANDLERS
         // =========================================================================
 
         /**
-         * Handle real-time atom dragging - update tracks immediately
-         * @param {Impulse} impulse - ATOM_DRAGGING impulse
-         */
-        private function onAtomDragging(impulse:Impulse):void {
-            var atom:Atom = impulse.data.atom;
-            var updateTracks:Boolean = impulse.data.updateTracks;
-            
-            if (atom && updateTracks) {
-                updateTracksForAtom(atom.id);
-            }
-        }
-
-        /**
-         * Handle atom movement with enhanced real-time support
+         * Handle atom movement to update connected tracks
+         * 
+         * @private
          * @param {Impulse} impulse - ATOM_MOVED impulse
          */
         private function onAtomMoved(impulse:Impulse):void {
@@ -174,33 +157,23 @@
             var atomId:String = movedAtom.id;
             var updateTracks:Boolean = impulse.data.updateTracks;
 
-            trace("TrackManager: ATOM_MOVED received, atom: " + atomId + 
-                  ", updateTracks: " + updateTracks);
-
-            // Update tracks if requested
             if (updateTracks) {
                 updateTracksForAtom(atomId);
             }
         }
 
         /**
-         * Update all tracks connected to a specific atom in real-time
+         * Update all tracks connected to a specific atom
+         * 
+         * @private
          * @param {String} atomId - ID of the atom to update tracks for
          */
         private function updateTracksForAtom(atomId:String):void {
-            trace("TrackManager: Updating tracks for atom: " + atomId);
-
-            var updatedTracks:int = 0;
-
-            // Update all tracks connected to this atom
             for each (var track:Track in _activeTracks) {
                 if (track.isConnectedToAtom(atomId)) {
                     track.updateVisual();
-                    updatedTracks++;
                 }
             }
-
-            trace("TrackManager: Updated " + updatedTracks + " tracks");
         }
 
         // =========================================================================
@@ -209,6 +182,8 @@
 
         /**
          * Find pins within a specified radius of mouse position
+         * 
+         * @private
          * @param {Number} stageX - Mouse X coordinate
          * @param {Number} stageY - Mouse Y coordinate
          * @param {Number} radius - Search radius in pixels
@@ -220,29 +195,16 @@
             var closestPin:Pin = null;
             var minDistance:Number = Number.MAX_VALUE;
 
-            trace("Searching for pins in radius " + radius + " from: " + mousePos);
-            trace("Total pins in window: " + allPins.length);
-
             for each (var pin:Pin in allPins) {
                 var pinPos:Point = getGlobalPinPosition(pin);
                 var distance:Number = Point.distance(mousePos, pinPos);
 
-                trace("Pin '" + pin.name + "' at " + pinPos + ", distance: " + distance);
-
                 if (distance <= radius && distance < minDistance && pin != _currentDragPin) {
-                    // Проверяем, что это валидное соединение
                     if (isValidConnection(_currentDragPin, pin)) {
                         closestPin = pin;
                         minDistance = distance;
-                        trace("Found valid pin candidate: " + pin.name + " at distance " + distance);
                     }
                 }
-            }
-
-            if (closestPin) {
-                trace("Selected closest pin: " + closestPin.name + " at distance " + minDistance);
-            } else {
-                trace("No valid pins found in radius");
             }
 
             return closestPin;
@@ -250,6 +212,8 @@
 
         /**
          * Get all pins in the current window
+         * 
+         * @private
          * @return {Array} Array of all pins
          */
         private function getAllPinsInWindow():Array {
@@ -263,12 +227,12 @@
             for each (var atomData:Object in allAtoms) {
                 var atom:Atom = atomData.atom;
 
-                // Добавляем входные пины
+                // Add input pins
                 for each (var inputPin:Pin in atom.inputs) {
                     allPins.push(inputPin);
                 }
 
-                // Добавляем выходные пины
+                // Add output pins
                 for each (var outputPin:Pin in atom.outputs) {
                     allPins.push(outputPin);
                 }
@@ -283,6 +247,8 @@
 
         /**
          * Start temporary track visualization
+         * 
+         * @private
          * @param {Number} startX - Starting X coordinate
          * @param {Number} startY - Starting Y coordinate
          */
@@ -300,6 +266,8 @@
 
         /**
          * Update temporary track during drag operation
+         * 
+         * @private
          * @param {Number} currentX - Current mouse X coordinate
          * @param {Number} currentY - Current mouse Y coordinate
          */
@@ -312,6 +280,8 @@
 
         /**
          * Clean up temporary track
+         * 
+         * @private
          */
         private function cleanupTempTrack():void {
             if (_tempTrack && _tempTrack.parent) {
@@ -326,6 +296,8 @@
 
         /**
          * Validate connection between pins
+         * 
+         * @private
          * @param {Pin} fromPin - Source pin (must be output)
          * @param {Pin} toPin - Target pin (must be input)
          * @return {Boolean} True if connection is valid
@@ -333,7 +305,6 @@
         private function isValidConnection(fromPin:Pin, toPin:Pin):Boolean {
             if (!toPin || !fromPin) return false;
 
-            // Get atoms from AtomManager since pins don't have direct parent reference
             var fromAtom:Atom = getAtomByPin(fromPin);
             var toAtom:Atom = getAtomByPin(toPin);
 
@@ -346,6 +317,8 @@
 
         /**
          * Check if connection already exists
+         * 
+         * @private
          * @param {Pin} fromPin - Source pin
          * @param {Pin} toPin - Target pin
          * @return {Boolean} True if connection already exists
@@ -357,6 +330,8 @@
 
         /**
          * Create a new track between pins
+         * 
+         * @private
          * @param {Pin} fromPin - Source pin
          * @param {Pin} toPin - Target pin
          */
@@ -365,16 +340,12 @@
                 var track:Track = new Track(fromPin, toPin);
                 var connectionId:String = generateConnectionId(fromPin, toPin);
 
-                // Используем существующий tracksLayer
+                // Add to appropriate layer
                 if (_currentWindow && _currentWindow.tracksLayer) {
                     _currentWindow.tracksLayer.addChild(track);
-                    trace("Track added to existing tracksLayer");
                 } else if (_currentWindow && _currentWindow.contentLayer) {
-                    // Fallback: используем contentLayer
                     _currentWindow.contentLayer.addChild(track);
-                    trace("Track added to contentLayer (tracksLayer not available)");
                 } else {
-                    trace("No window or layers available for track");
                     return;
                 }
 
@@ -393,7 +364,6 @@
                 }));
 
             } catch (error:Error) {
-                trace("Track creation error: " + error.message);
                 MultiPulsator.emit(new Impulse("TRACK_CREATION_ERROR", {
                     fromPin: fromPin,
                     toPin: toPin,
@@ -408,6 +378,7 @@
 
         /**
          * Get global position of a pin
+         * 
          * @private
          * @param {Pin} pin - Pin to get position for
          * @return {Point} Global position point
@@ -416,11 +387,10 @@
             // Find the PinView in the display hierarchy
             var pinView:PinView = findPinView(pin);
             if (pinView && pinView.stage) {
-                // Получаем глобальную позицию пина
                 return pinView.localToGlobal(new Point(0, 0));
             }
 
-            // Fallback: если PinView не найден, используем позицию атома
+            // Fallback: use atom position if PinView not found
             var atom:Atom = getAtomByPin(pin);
             var atomView:AtomView = getAtomView(atom);
             if (atomView && atomView.stage) {
@@ -429,28 +399,23 @@
                 var pinY:Number = atomView.height * (pinIndex + 1) / (totalPins + 1);
                 var pinX:Number = pin.type == Pin.TYPE_INPUT ? 0 : atomView.width;
 
-                // Получаем глобальную позицию атома и добавляем смещение пина
                 var atomGlobal:Point = atomView.localToGlobal(new Point(pinX, pinY));
                 return atomGlobal;
             }
 
-            return new Point(100, 100); // Fallback с видимой позицией
+            return new Point(100, 100); // Fallback position
         }
 
         /**
          * Find the PinView for a given Pin
+         * 
          * @private
          * @param {Pin} pin - Pin to find view for
          * @return {PinView} Found PinView or null
          */
         private function findPinView(pin:Pin):PinView {
-            trace("=== FIND PIN VIEW FROM TRACKMANAGER ===");
-            trace("Looking for pin: " + pin.name + " with id: " + pin.id);
-
             var atomManager:AtomManager = AtomManager.getInstance();
             var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
-
-            trace("Total atoms in window: " + allAtoms.length);
 
             for each (var atomData:Object in allAtoms) {
                 var atom:Atom = atomData.atom;
@@ -461,30 +426,25 @@
                     if (child is PinView) {
                         var pinView:PinView = child as PinView;
                         if (pinView.pin.id == pin.id) {
-                            trace("*** MATCH FOUND! ***");
                             return pinView;
                         }
                     }
                 }
             }
 
-            trace("*** NO MATCH FOUND for pin: " + pin.name + " with id: " + pin.id + " ***");
             return null;
         }
 
         /**
          * Get atom that owns the specified pin
+         * 
+         * @private
          * @param {Pin} pin - Pin to find owner for
          * @return {Atom} Atom that owns the pin, or null if not found
          */
         private function getAtomByPin(pin:Pin):Atom {
-            trace("=== GET ATOM BY PIN ===");
-            trace("Looking for atom that owns pin: " + pin.name + " (id: " + pin.id + ")");
-
             var atomManager:AtomManager = AtomManager.getInstance();
             var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
-
-            trace("Total atoms to check: " + allAtoms.length);
 
             for each (var atomData:Object in allAtoms) {
                 var atom:Atom = atomData.atom;
@@ -492,7 +452,6 @@
                 // Check input pins
                 for each (var inputPin:Pin in atom.inputs) {
                     if (inputPin.id == pin.id) {
-                        trace("*** FOUND in inputs ***");
                         return atom;
                     }
                 }
@@ -500,18 +459,17 @@
                 // Check output pins
                 for each (var outputPin:Pin in atom.outputs) {
                     if (outputPin.id == pin.id) {
-                        trace("*** FOUND in outputs ***");
                         return atom;
                     }
                 }
             }
 
-            trace("*** PIN NOT FOUND IN ANY ATOM! ***");
             return null;
         }
 
         /**
          * Get AtomView for a given Atom
+         * 
          * @private
          * @param {Atom} atom - Atom to find view for
          * @return {AtomView} Found AtomView or null
@@ -530,6 +488,7 @@
 
         /**
          * Get the index of a pin within its atom
+         * 
          * @private
          * @param {Atom} atom - Atom containing the pin
          * @param {Pin} pin - Pin to find index for
@@ -551,6 +510,8 @@
 
         /**
          * Handle window activation to update track context
+         * 
+         * @private
          * @param {Impulse} impulse - WINDOW_ACTIVATED impulse
          */
         private function onWindowActivated(impulse:Impulse):void {
@@ -559,48 +520,24 @@
 
         /**
          * Handle window closing to cleanup tracks
+         * 
+         * @private
          * @param {Impulse} impulse - WINDOW_CLOSING impulse
          */
         private function onWindowClosing(impulse:Impulse):void {
             var closingWindow:Window = impulse.data.window;
             var windowType:String = closingWindow.windowType;
-
-            // Remove tracks associated with this window
             cleanupTracksByWindow(windowType);
         }
 
         /**
-         * Handle track disconnect command
-         * @param {Impulse} impulse - TRACK_DISCONNECT impulse
-         */
-        private function onTrackDisconnect(impulse:Impulse):void {
-            var track:Track = impulse.data.track;
-            var connectionId:String = impulse.data.connectionId;
-
-            if (track) {
-                removeTrack(track);
-            } else if (connectionId) {
-                removeTrackById(connectionId);
-            }
-        }
-
-        /**
-         * Handle update all tracks command
-         * @param {Impulse} impulse - TRACK_UPDATE_ALL impulse
-         */
-        private function onTrackUpdateAll(impulse:Impulse):void {
-            for each (var track:Track in _activeTracks) {
-                track.updateVisual();
-            }
-        }
-
-        /**
          * Handle track deletion request from context menu
+         * 
+         * @private
          * @param {Impulse} impulse - TRACK_DELETE_REQUEST impulse
          */
         private function onTrackDeleteRequest(impulse:Impulse):void {
             var track:Track = impulse.data.track;
-            trace("TrackManager: Received track delete request for: " + (track ? track.connectionId : "null"));
 
             if (track) {
                 removeTrack(track);
@@ -618,6 +555,8 @@
 
         /**
          * Generate unique connection ID
+         * 
+         * @private
          * @param {Pin} fromPin - Source pin
          * @param {Pin} toPin - Target pin
          * @return {String} Unique connection identifier
@@ -636,6 +575,8 @@
 
         /**
          * Find window by type
+         * 
+         * @private
          * @param {String} windowType - Window type to find
          * @return {Window} Found window or null
          */
@@ -649,14 +590,13 @@
 
         /**
          * Cleanup tracks by window type
+         * 
+         * @private
          * @param {String} windowType - Window type to cleanup
          */
         private function cleanupTracksByWindow(windowType:String):void {
-            // Remove tracks that are in the specified window
             for (var connectionId:String in _activeTracks) {
                 var track:Track = _activeTracks[connectionId];
-                // We need to check which window the track belongs to
-                // For now, we'll assume all tracks are in the current window context
                 if (_currentWindow && _currentWindow.windowType == windowType) {
                     removeTrack(track);
                 }
@@ -669,15 +609,14 @@
 
         /**
          * Remove track by track instance
-         * Enhanced with proper cleanup and event emission
+         * 
+         * @public
          * @param {Track} track - Track to remove
          */
         public function removeTrack(track:Track):void {
             var connectionId:String = track.connectionId;
 
             if (_activeTracks[connectionId]) {
-                trace("TrackManager: Removing track: " + connectionId);
-                
                 // Dispose track resources
                 track.dispose();
                 delete _activeTracks[connectionId];
@@ -686,15 +625,13 @@
                     track: track,
                     connectionId: connectionId
                 }));
-                
-                trace("TrackManager: Track removed successfully");
-            } else {
-                trace("TrackManager: Track not found for removal: " + connectionId);
             }
         }
 
         /**
          * Remove track by connection ID
+         * 
+         * @public
          * @param {String} connectionId - Connection ID to remove
          * @return {Track} The removed track or null if not found
          */
@@ -708,6 +645,8 @@
 
         /**
          * Get all active tracks
+         * 
+         * @public
          * @return {Object} Object of active tracks
          */
         public function getActiveTracks():Object {
@@ -716,6 +655,8 @@
 
         /**
          * Get track by connection ID
+         * 
+         * @public
          * @param {String} connectionId - Connection ID to find
          * @return {Track} Found track or null
          */
@@ -725,6 +666,8 @@
 
         /**
          * Get tracks connected to specific atom
+         * 
+         * @public
          * @param {String} atomId - Atom ID to find connections for
          * @return {Array} Array of connected tracks
          */
@@ -742,6 +685,8 @@
 
         /**
          * Get tracks connected to specific pin
+         * 
+         * @public
          * @param {Pin} pin - Pin to find connections for
          * @return {Array} Array of connected tracks
          */
@@ -759,6 +704,8 @@
 
         /**
          * Get count of active tracks
+         * 
+         * @public
          * @return {int} Number of active tracks
          */
         public function getActiveTracksCount():int {
@@ -770,21 +717,9 @@
         }
 
         /**
-         * Log all active tracks for debugging
-         */
-        public function logAllTracks():void {
-            trace("=== ALL ACTIVE TRACKS ===");
-            for (var connectionId:String in _activeTracks) {
-                var track:Track = _activeTracks[connectionId];
-                var info:Object = track.getConnectionInfo();
-                trace("Track: " + connectionId + ", From: " + info.fromAtom + "." + info.fromPin +
-                      " -> To: " + info.toAtom + "." + info.toPin);
-            }
-            trace("=== END TRACKS LOG ===");
-        }
-
-        /**
          * Cleanup all resources
+         * 
+         * @public
          */
         public function dispose():void {
             // Remove all impulse listeners
@@ -792,11 +727,8 @@
             MultiPulsator.removeImpulse("PIN_DRAG_UPDATE", onPinDragUpdate);
             MultiPulsator.removeImpulse("PIN_DRAG_END", onPinDragEnd);
             MultiPulsator.removeImpulse("ATOM_MOVED", onAtomMoved);
-            MultiPulsator.removeImpulse("ATOM_DRAGGING", onAtomDragging);
             MultiPulsator.removeImpulse("WINDOW_ACTIVATED", onWindowActivated);
             MultiPulsator.removeImpulse("WINDOW_CLOSING", onWindowClosing);
-            MultiPulsator.removeImpulse("TRACK_DISCONNECT", onTrackDisconnect);
-            MultiPulsator.removeImpulse("TRACK_UPDATE_ALL", onTrackUpdateAll);
             MultiPulsator.removeImpulse("TRACK_DELETE_REQUEST", onTrackDeleteRequest);
 
             // Dispose all active tracks
