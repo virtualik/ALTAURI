@@ -5,7 +5,6 @@
     import Src.Prog.Core.MultiPulsator.MultiPulsator;
     import Src.Prog.Core.MultiPulsator.Impulse;
 
-
     /**
      * Context menu for track operations
      */

@@ -8,6 +8,7 @@
     import Src.Prog.Core.Commands.CommandErrorEvent;
     import Src.Prog.Com.Atoms.Core.AtomFactory;
     import Src.Prog.Com.Atoms.Core.TrackManager;
+    import Src.Prog.Com.Atoms.Data.AtomDefinitions;
 
     /**
      * Director - main initialization pipeline manager for data-driven architecture
@@ -26,12 +27,14 @@
             trace("Director: Starting initialization pipeline for data-driven architecture");
 
             _initSequence = new SerialCommand(0,
-                new InvokeFunction(initializeCoreSystems),
-                new InvokeFunction(initializeMultiPulsator),
-                new InvokeFunction(WindowsManager.createWindows),
-                new InvokeFunction(initializeAtomSystem),
-                new InvokeFunction(initializeTrackSystem),
-                new InvokeFunction(finalizeInitialization)
+				new InvokeFunction(initializeCoreSystems),
+				new InvokeFunction(initializeMultiPulsator),
+				new InvokeFunction(WindowsManager.createWindows),
+				new InvokeFunction(initializeAtomSystem),  // AtomDefinitions должны быть здесь
+				new InvokeFunction(initializeMenuSystem),  // MenuManager зависит от атомов
+				new InvokeFunction(initializeTrackSystem), // TrackManager зависит от атомов
+				new InvokeFunction(finalizeInitialization)			
+			
             );
 
             _initSequence.addEventListener(Event.COMPLETE, onInitSequenceComplete);
@@ -68,34 +71,38 @@
             }));
         }
 
-        /**
-         * Initializes the atom system with data-driven architecture.
-         * 
-         * @private
-         */
-        private static function initializeAtomSystem():void {
-            trace("Director: Initializing data-driven atom system");
+		/**
+		 * Initializes the atom system with data-driven architecture.
+		 *
+		 * @private
+		 */
+		private static function initializeAtomSystem():void {
+			trace("Director: Initializing data-driven atom system");
 
-            try {
-                // Initialize AtomManager (creates singleton instance)
-                var atomManager:AtomManager = AtomManager.getInstance();
-                trace("AtomManager initialized with supported types: " + atomManager.getSupportedAtomTypes().join(", "));
-                
-                // AtomFactory is static and doesn't require explicit initialization
-                // AtomDefinitions are loaded statically
-                
-                MultiPulsator.emit(new Impulse("ATOM_SYSTEM_INITIALIZED", {
-                    supportedTypes: atomManager.getSupportedAtomTypes()
-                }));
-                
-            } catch (error:Error) {
-                trace("Error initializing atom system: " + error.message);
-                MultiPulsator.emit(new Impulse("ERROR", {
-                    source: "Director",
-                    message: "Atom system initialization failed: " + error.message
-                }));
-            }
-        }
+			try {
+				// ИНИЦИАЛИЗИРУЕМ AtomDefinitions ПЕРЕД ИХ ИСПОЛЬЗОВАНИЕМ
+				AtomDefinitions.initialize();
+				AtomDefinitions.validateDefinitions(); // Опционально: для проверки определений
+
+				// Initialize AtomManager (creates singleton instance)
+				var atomManager:AtomManager = AtomManager.getInstance();
+				trace("AtomManager initialized with supported types: " + atomManager.getSupportedAtomTypes().join(", "));
+
+				// Инициализируем AtomFactory
+				AtomFactory.initialize();
+
+				MultiPulsator.emit(new Impulse("ATOM_SYSTEM_INITIALIZED", {
+					supportedTypes: atomManager.getSupportedAtomTypes()
+				}));
+
+			} catch (error:Error) {
+				trace("Error initializing atom system: " + error.message);
+				MultiPulsator.emit(new Impulse("ERROR", {
+					source: "Director",
+					message: "Atom system initialization failed: " + error.message
+				}));
+			}
+		}
 
         /**
          * Initializes the track management system.
@@ -122,6 +129,30 @@
         }
 
         /**
+         * Initializes the menu management system.
+         *
+         * @private
+         */
+        private static function initializeMenuSystem():void {
+            trace("Director: Initializing menu system");
+
+            try {
+                // Initialize MenuManager
+                MenuManager.initialize();
+                trace("MenuManager initialized");
+
+                MultiPulsator.emit(new Impulse("MENU_SYSTEM_INITIALIZED"));
+
+            } catch (error:Error) {
+                trace("Error initializing menu system: " + error.message);
+                MultiPulsator.emit(new Impulse("ERROR", {
+                    source: "Director",
+                    message: "Menu system initialization failed: " + error.message
+                }));
+            }
+        }
+
+		/**
          * Final initialization procedure.
          * 
          * @private

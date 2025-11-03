@@ -19,7 +19,7 @@
         
         public function update(currentPos:Point):void {
             this.graphics.clear();
-            this.graphics.lineStyle(2, 0x00FF00, 0.8);
+            this.graphics.lineStyle(3, 0x00FF00, 0.2);
             this.graphics.moveTo(_startPos.x, _startPos.y);
             this.graphics.lineTo(currentPos.x, currentPos.y);
         }

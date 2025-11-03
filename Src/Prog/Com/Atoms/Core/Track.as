@@ -6,10 +6,13 @@
     import Src.Prog.Core.Managers.AtomManager;
     import flash.utils.setTimeout;
     import flash.events.Event;
+    import flash.events.MouseEvent;
+    import Src.Prog.Core.Window;
 
     /**
      * Track - Visual and logical connection between two pins in data-driven architecture.
      * Handles data flow between output and input pins with automatic updates.
+     * Enhanced with right-click impulse emission for context menus.
      *
      * @class Track
      * @public
@@ -40,10 +43,32 @@
             _toPin = toPin;
             _connectionId = generateConnectionId();
 
+            // Make track interactive for right-click
+            this.mouseEnabled = true;
+            this.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
+
             setupImpulseListeners();
-            
+
             // Отрисовка при добавлении на сцену
             this.addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
+        }
+
+        /**
+         * Handle right mouse down event - emit impulse for context menu
+         * @param {MouseEvent} event - Right mouse down event
+         */
+        private function onRightMouseDown(event:MouseEvent):void {
+            event.stopPropagation(); // Prevent window from handling this event
+            
+            trace("Track: Right click on track: " + _connectionId);
+            
+            // Emit impulse for menu system
+            MultiPulsator.emit(new Impulse("TRACK_RIGHT_CLICK", {
+                track: this,
+                globalPosition: new Point(event.stageX, event.stageY),
+                window: this.stage ? this.stage.nativeWindow as Window : null,
+                connectionId: _connectionId
+            }));
         }
 
         // =========================================================================
@@ -248,8 +273,8 @@
 			}
 
 			// Draw track line
-			var lineColor:uint = _isActive ? 0x00FF00 : 0x666666;
-			var lineAlpha:Number = _isActive ? 0.7 : 0.4;
+			var lineColor:uint = _isActive ? 0x777777 : 0x777777;
+			var lineAlpha:Number = _isActive ? 0.5 : 0.5;
 			var lineThickness:Number = _isActive ? 2 : 1;
 
 			this.graphics.lineStyle(lineThickness, lineColor, lineAlpha);
@@ -349,45 +374,45 @@
          * @param {Pin} pin - Pin to find view for
          * @return {PinView} Found PinView or null
          */
-private function findPinView(pin:Pin):PinView {
-    trace("=== FIND PIN VIEW FROM TRACK ===");
-    trace("Looking for pin: " + pin.name + " with id: " + pin.id);
-    trace("Pin type: " + pin.type + ", value: " + pin.value);
-    
-    var atomManager:AtomManager = AtomManager.getInstance();
-    var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
-    
-    trace("Total atoms in window: " + allAtoms.length);
+		private function findPinView(pin:Pin):PinView {
+			trace("=== FIND PIN VIEW FROM TRACK ===");
+			trace("Looking for pin: " + pin.name + " with id: " + pin.id);
+			trace("Pin type: " + pin.type + ", value: " + pin.value);
+			
+			var atomManager:AtomManager = AtomManager.getInstance();
+			var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
+			
+			trace("Total atoms in window: " + allAtoms.length);
 
-    for each (var atomData:Object in allAtoms) {
-        var atom:Atom = atomData.atom;
-        var atomView:AtomView = atomData.view;
-        
-        trace("Checking atom: " + atom.id + " (" + atom.type + ") at position: " + atom.position);
-        trace("AtomView children count: " + atomView.numChildren);
-        
-        for (var i:int = 0; i < atomView.numChildren; i++) {
-            var child:* = atomView.getChildAt(i);
-            if (child is PinView) {
-                var pinView:PinView = child as PinView;
-                trace("  Found PinView: " + pinView.pin.name + 
-                      " (id: " + pinView.pin.id + 
-                      ", type: " + pinView.pin.type + 
-                      ", same id? " + (pinView.pin.id == pin.id) + ")");
-                
-                if (pinView.pin.id == pin.id) {
-                    trace("*** MATCH FOUND! ***");
-                    trace("PinView position: x=" + pinView.x + ", y=" + pinView.y);
-                    trace("PinView global position: " + pinView.localToGlobal(new Point(0, 0)));
-                    return pinView;
-                }
-            }
-        }
-    }
-    
-    trace("*** NO MATCH FOUND for pin: " + pin.name + " with id: " + pin.id + " ***");
-    return null;
-}
+			for each (var atomData:Object in allAtoms) {
+				var atom:Atom = atomData.atom;
+				var atomView:AtomView = atomData.view;
+				
+				trace("Checking atom: " + atom.id + " (" + atom.type + ") at position: " + atom.position);
+				trace("AtomView children count: " + atomView.numChildren);
+				
+				for (var i:int = 0; i < atomView.numChildren; i++) {
+					var child:* = atomView.getChildAt(i);
+					if (child is PinView) {
+						var pinView:PinView = child as PinView;
+						trace("  Found PinView: " + pinView.pin.name + 
+							  " (id: " + pinView.pin.id + 
+							  ", type: " + pinView.pin.type + 
+							  ", same id? " + (pinView.pin.id == pin.id) + ")");
+						
+						if (pinView.pin.id == pin.id) {
+							trace("*** MATCH FOUND! ***");
+							trace("PinView position: x=" + pinView.x + ", y=" + pinView.y);
+							trace("PinView global position: " + pinView.localToGlobal(new Point(0, 0)));
+							return pinView;
+						}
+					}
+				}
+			}
+			
+			trace("*** NO MATCH FOUND for pin: " + pin.name + " with id: " + pin.id + " ***");
+			return null;
+		}
 
         /**
          * Get atom that owns the specified pin

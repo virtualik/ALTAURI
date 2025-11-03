@@ -1,7 +1,7 @@
 ﻿package Src.Prog.Com.Menus {
     import flash.geom.Point;
     import flash.events.MouseEvent;
-    import Src.Prog.Com.Atoms.Core.BaseAtom;
+    import Src.Prog.Com.Atoms.Core.Atom;
     import Src.Prog.Core.MultiPulsator.MultiPulsator;
     import Src.Prog.Core.MultiPulsator.Impulse;
 
@@ -10,14 +10,14 @@
      * Provides options for managing individual atoms in the editor
      */
     public class AtomOptionsContextMenu extends BaseContextMenu {
-        private var _targetAtom:BaseAtom;
+        private var _targetAtom:Atom;
 
         /**
          * Constructs an AtomOptionsContextMenu instance
          * @param globalClickPos - global stage coordinates of the click
          * @param targetAtom - atom that the menu operates on
          */
-        public function AtomOptionsContextMenu(globalClickPos:Point, targetAtom:BaseAtom) {
+        public function AtomOptionsContextMenu(globalClickPos:Point, targetAtom:Atom) {
             super();
             _targetAtom = targetAtom;
 
