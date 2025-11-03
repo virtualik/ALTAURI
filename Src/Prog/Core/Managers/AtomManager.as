@@ -13,6 +13,7 @@
     import Src.Prog.Com.Atoms.Core.Pin;
     import Src.Prog.Com.Atoms.Core.TrackManager;
     import Src.Prog.Com.Atoms.Core.Track;
+    import Src.Prog.Core.Commands.CreateAtomCommand;
 
     /**
      * Manages atoms in the application using the new data-driven architecture.
@@ -78,22 +79,8 @@
 		private function onAtomContextMenuSelected(impulse:Impulse):void {
 			var atomType:String = impulse.data.atomType;
 			var position:Point = impulse.data.position;
-
-			trace("AtomManager: Creating atom of type: " + atomType);
-
-			// Двойная валидация
-			if (!AtomDefinitions.isAtomTypeRegistered(atomType)) {
-				trace("ERROR: AtomManager rejected unregistered atom type: " + atomType);
-				return;
-			}
-
-			var atomInfo:Object = AtomFactory.createAtom(atomType, position, "Editor");
-			if (atomInfo && atomInfo.atom && atomInfo.view) {
-				addAtomToWindow("Editor", atomInfo.atom, atomInfo.view);
-				trace("SUCCESS: Atom created and added to window");
-			} else {
-				trace("ERROR: AtomFactory failed to create atom: " + atomType);
-			}
+			var cmd:CreateAtomCommand = new CreateAtomCommand(atomType, position, "Editor");
+			cmd.execute(); // или через SerialCommand, если нужно в цепочку
 		}
 
 		// Добавить метод для получения поддерживаемых типов:
