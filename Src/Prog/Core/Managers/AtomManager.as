@@ -13,7 +13,7 @@
     import Src.Prog.Com.Atoms.Core.Pin;
     import Src.Prog.Com.Atoms.Core.TrackManager;
     import Src.Prog.Com.Atoms.Core.Track;
-    import Src.Prog.Core.Commands.CreateAtomCommand;
+    import Src.Prog.Core.Commands.CreateAtom;
 
     /**
      * Manages atoms in the application using the new data-driven architecture.
@@ -79,7 +79,7 @@
 		private function onAtomContextMenuSelected(impulse:Impulse):void {
 			var atomType:String = impulse.data.atomType;
 			var position:Point = impulse.data.position;
-			var cmd:CreateAtomCommand = new CreateAtomCommand(atomType, position, "Editor");
+			var cmd:CreateAtom = new CreateAtom(atomType, position, "Editor");
 			cmd.execute(); // или через SerialCommand, если нужно в цепочку
 		}
 

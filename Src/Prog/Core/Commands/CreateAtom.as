@@ -1,5 +1,4 @@
-﻿// Src/Prog/Core/Commands/CreateAtomCommand.as
-package Src.Prog.Core.Commands {
+﻿package Src.Prog.Core.Commands {
     import flash.geom.Point;
     import Src.Prog.Com.Atoms.Core.Atom;
     import Src.Prog.Com.Atoms.Core.AtomView;
@@ -22,7 +21,7 @@ package Src.Prog.Core.Commands {
      * @class CreateAtomCommand
      * @extends Command
      */
-    public class CreateAtomCommand extends Command {
+    public class CreateAtom extends Command {
         private var _atomType:String;
         private var _position:Point;
         private var _windowType:String;
@@ -40,7 +39,7 @@ package Src.Prog.Core.Commands {
          * @param {String} windowType - Target window ("Editor", "Device")
          * @param {String} name - Optional display name
          */
-        public function CreateAtomCommand(
+        public function CreateAtom(
             atomType:String,
             position:Point,
             windowType:String = "Editor",
