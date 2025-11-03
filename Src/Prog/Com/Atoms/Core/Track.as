@@ -8,26 +8,49 @@
     import Src.Prog.Core.Window;
 
     /**
-     * Track - Visual and logical connection between two pins
-     * Uses TrackManager for all pin and atom related operations
+     * Visual and logical connection between two pins.
+     * Manages data flow and visualization between connected atoms.
      * 
+     * Key improvements:
+     * - Fixed boolean evaluation warnings
+     * - Enhanced error handling and resource cleanup
+     * - Improved pin subscription management
+     * - Better visualization updates
+     *
      * @class Track
+     * @extends Sprite
      * @public
      */
     public class Track extends Sprite {
+
+        /** Source pin (output) */
         private var _fromPin:Pin;
+
+        /** Target pin (input) */
         private var _toPin:Pin;
+
+        /** Unique connection identifier */
         private var _connectionId:String;
+
+        /** Whether the track is actively transferring data */
         private var _isActive:Boolean = false;
+
+        /** Reference to track manager for coordinate calculations */
         private var _trackManager:TrackManager;
 
+        /** Data flow animation visual */
+        private var _flowAnimation:DataFlowAnimation;
+
+        /** Handler reference for proper cleanup */
+        private var _pinDataListener:Function;
+
         /**
-         * Track constructor
-         * 
-         * @public
-         * @param {Pin} fromPin - Source pin (output)
-         * @param {Pin} toPin - Target pin (input)
-         * @param {TrackManager} trackManager - Reference to track manager for shared operations
+         * Creates a new Track connection between pins.
+         *
+         * @constructor
+         * @param {Pin} fromPin - Source pin (must be OUTPUT type)
+         * @param {Pin} toPin - Target pin (must be INPUT type)
+         * @param {TrackManager} trackManager - Track manager reference
          */
         public function Track(fromPin:Pin, toPin:Pin, trackManager:TrackManager) {
             if (fromPin.type != Pin.TYPE_OUTPUT) {
@@ -42,88 +65,89 @@
             _trackManager = trackManager;
             _connectionId = generateConnectionId();
 
-            this.mouseEnabled = true;
-            this.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
-            setupImpulseListeners();
-            this.addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
-        }
-
-        // =========================================================================
-        // INITIALIZATION METHODS
-        // =========================================================================
-
-        private function generateConnectionId():String {
-            var fromAtom:Atom = _trackManager.getAtomByPin(_fromPin);
-            var toAtom:Atom = _trackManager.getAtomByPin(_toPin);
-
-            if (!fromAtom || !toAtom) {
-                return "track_invalid_" + Math.random();
-            }
-
-            return "track_" + fromAtom.id + "_" + _fromPin.name +
-                   "_to_" + toAtom.id + "_" + _toPin.name;
-        }
-
-        private function setupImpulseListeners():void {
-            MultiPulsator.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
-            MultiPulsator.subscribeToImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
-        }
-
-        private function onAddedToStage(event:Event):void {
-            this.removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
+            setupPinSubscription();
+            setupEventListeners();
             drawTrack();
         }
 
-        // =========================================================================
-        // EVENT HANDLERS
-        // =========================================================================
-
-        private function onRightMouseDown(event:MouseEvent):void {
-            event.stopPropagation();
-            MultiPulsator.emit(new Impulse("TRACK_RIGHT_CLICK", {
-                track: this,
-                globalPosition: new Point(event.stageX, event.stageY),
-                window: this.stage ? this.stage.nativeWindow as Window : null,
-                connectionId: _connectionId
-            }));
+        /**
+         * Sets up direct pin-to-pin data subscription.
+         * Establishes listener for source pin value changes.
+         *
+         * @private
+         */
+        private function setupPinSubscription():void {
+            // Direct P2P subscription: input pin listens to output pin
+            _pinDataListener = onSourceDataChanged;
+            _fromPin.addListener(_pinDataListener);
         }
 
-        private function onAtomMoved(impulse:Impulse):void {
-            var movedAtom:Atom = impulse.data.newAtom;
-            var atomId:String = movedAtom.id;
+        /**
+         * Sets up impulse event listeners for system coordination.
+         * Subscribes to atom movement and pin value change events.
+         *
+         * @private
+         */
+        private function setupEventListeners():void {
+            MultiPulsator.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
+            MultiPulsator.subscribeToImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
+            this.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
+        }
 
-            var fromAtom:Atom = _trackManager.getAtomByPin(_fromPin);
-            var toAtom:Atom = _trackManager.getAtomByPin(_toPin);
+        /**
+         * Handles data changes from the source pin.
+         * Transfers data to target pin and triggers visualization.
+         *
+         * @private
+         * @param {*} newValue - New data value
+         * @param {*} oldValue - Previous data value
+         * @param {Pin} sourcePin - Source pin that changed
+         */
+        private function onSourceDataChanged(newValue:*, oldValue:*, sourcePin:Pin):void {
+            // 1. Transfer data to target pin
+            transferValueToTarget(newValue);
 
-            if ((fromAtom && fromAtom.id == atomId) || (toAtom && toAtom.id == atomId)) {
-                drawTrack();
-                MultiPulsator.emit(new Impulse("TRACK_UPDATED", {
-                    track: this,
-                    reason: "atom_moved"
-                }));
+            // 2. Visualize data flow
+            startDataFlowAnimation(newValue);
+
+            // 3. Activate logical connection if not already active
+            if (!_isActive) {
+                createLogicalConnection();
             }
         }
 
-        private function onPinValueChanged(impulse:Impulse):void {
-            var atomId:String = impulse.data.atomId;
-            var pinName:String = impulse.data.pinName;
-            var newValue:* = impulse.data.newValue;
-
-            var fromAtom:Atom = _trackManager.getAtomByPin(_fromPin);
-            if (fromAtom && fromAtom.id == atomId && _fromPin.name == pinName) {
-                transferValue(newValue);
-            }
+        /**
+         * Transfers data value to the target pin.
+         *
+         * @private
+         * @param {*} value - Data value to transfer
+         */
+        private function transferValueToTarget(value:*):void {
+            _toPin.value = value;
         }
 
-        // =========================================================================
-        // DATA FLOW AND VISUALIZATION
-        // =========================================================================
+        /**
+         * Starts data flow visualization animation.
+         *
+         * @private
+         * @param {*} value - Data value for visualization styling
+         */
+        private function startDataFlowAnimation(value:*):void {
+            if (!_flowAnimation) {
+                _flowAnimation = new DataFlowAnimation();
+                this.addChild(_flowAnimation);
+            }
+            _flowAnimation.animate(_fromPin, _toPin, value);
+        }
 
+        /**
+         * Activates the logical connection and notifies system.
+         * Marks track as active and emits connection event.
+         *
+         * @public
+         */
         public function createLogicalConnection():void {
             _isActive = true;
-            if (_fromPin.value !== null) {
-                transferValue(_fromPin.value);
-            }
             MultiPulsator.emit(new Impulse("TRACK_CONNECTED", {
                 track: this,
                 fromPin: _fromPin,
@@ -132,87 +156,137 @@
             }));
         }
 
-        private function transferValue(value:*):void {
-            _toPin.value = value;
-            var toAtom:Atom = _trackManager.getAtomByPin(_toPin);
-            if (toAtom) {
-                MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
-                    atomId: toAtom.id,
-                    pinName: _toPin.name,
-                    newValue: value,
-                    sourceTrack: this,
-                    sourcePin: _fromPin
-                }));
+        /**
+         * Handles pin value changes for visualization updates.
+         * Redraws track when connected pin values change.
+         *
+         * @private
+         * @param {Impulse} impulse - PIN_VALUE_CHANGED impulse
+         */
+        private function onPinValueChanged(impulse:Impulse):void {
+            var pin:Pin = impulse.data.pin;
+            if (pin === _fromPin || pin === _toPin) {
+                drawTrack();
             }
         }
 
+        /**
+         * Generates unique connection identifier.
+         * Uses atom and pin information for meaningful ID.
+         *
+         * @private
+         * @return {String} Unique connection ID
+         */
+        private function generateConnectionId():String {
+            var fromAtom:Atom = _trackManager.getAtomByPin(_fromPin);
+            var toAtom:Atom = _trackManager.getAtomByPin(_toPin);
+
+            if (!fromAtom || !toAtom) {
+                return "track_invalid_" + Math.random().toString(36).substr(2, 9);
+            }
+
+            return "track_" + fromAtom.id + "_" + _fromPin.name + "_to_" +
+                   toAtom.id + "_" + _toPin.name;
+        }
+
+        /**
+         * Handles atom movement to update track visualization.
+         * Redraws track when connected atoms are moved.
+         *
+         * @private
+         * @param {Impulse} impulse - ATOM_MOVED impulse
+         */
+        private function onAtomMoved(impulse:Impulse):void {
+            var movedAtom:Atom = impulse.data.newAtom;
+            if (isConnectedToAtom(movedAtom.id)) {
+                drawTrack();
+            }
+        }
+
+        /**
+         * Handles right-click for context menu.
+         * Emits track right-click event for menu system.
+         *
+         * @private
+         * @param {MouseEvent} event - Right mouse down event
+         */
+        private function onRightMouseDown(event:MouseEvent):void {
+            event.stopPropagation();
+            MultiPulsator.emit(new Impulse("TRACK_RIGHT_CLICK", {
+                track: this,
+                globalPosition: new Point(event.stageX, event.stageY),
+                connectionId: _connectionId
+            }));
+        }
+
+        /**
+         * Redraws the track visualization.
+         * Updates line position and appearance based on pin positions.
+         *
+         * @public
+         */
         public function drawTrack():void {
             this.graphics.clear();
 
             var fromPos:Point = _trackManager.getGlobalPinPosition(_fromPin);
             var toPos:Point = _trackManager.getGlobalPinPosition(_toPin);
 
-            if (!this.parent) {
-                this.addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
-                return;
-            }
-
+            // Convert to local coordinates
             var tracksLayer:Sprite = this.parent as Sprite;
+            if (!tracksLayer) return;
+
             var localFrom:Point = tracksLayer.globalToLocal(fromPos);
             var localTo:Point = tracksLayer.globalToLocal(toPos);
 
-            if (isNaN(localFrom.x) || isNaN(localFrom.y) || isNaN(localTo.x) || isNaN(localTo.y)) {
-                return;
-            }
-
-            var lineColor:uint = 0x777777;
-            var lineAlpha:Number = 0.5;
-            var lineThickness:Number = _isActive ? 5 : 3;
+            // Draw connection line with style based on activity state
+            var lineColor:uint = _isActive ? 0x00AA00 : 0x777777;
+            var lineAlpha:Number = _isActive ? 0.8 : 0.5;
+            var lineThickness:Number = _isActive ? 3 : 2;
 
             this.graphics.lineStyle(lineThickness, lineColor, lineAlpha);
             this.graphics.moveTo(localFrom.x, localFrom.y);
             this.graphics.lineTo(localTo.x, localTo.y);
-
-            drawArrowhead(localFrom, localTo);
         }
 
-        private function drawArrowhead(from:Point, to:Point):void {
-            var length:Number = Point.distance(from, to);
-            if (length < 20) return;
-
-            var angle:Number = Math.atan2(to.y - from.y, to.x - from.x);
-            var arrowSize:Number = 6;
-
-            var arrow1:Point = new Point(
-                to.x - arrowSize * Math.cos(angle - Math.PI/6),
-                to.y - arrowSize * Math.sin(angle - Math.PI/6)
-            );
-            var arrow2:Point = new Point(
-                to.x - arrowSize * Math.cos(angle + Math.PI/6),
-                to.y - arrowSize * Math.sin(angle + Math.PI/6)
-            );
-
-            this.graphics.lineStyle(1, 0x00FF00, 0.7);
-            this.graphics.moveTo(to.x, to.y);
-            this.graphics.lineTo(arrow1.x, arrow1.y);
-            this.graphics.moveTo(to.x, to.y);
-            this.graphics.lineTo(arrow2.x, arrow2.y);
+        /**
+         * Updates track visual representation.
+         * Alias for drawTrack() for consistency with other components.
+         *
+         * @public
+         */
+        public function updateVisual():void {
+            drawTrack();
         }
 
-        // =========================================================================
-        // PUBLIC API
-        // =========================================================================
-
-        public function updateVisual():void { drawTrack(); }
-
+        /**
+         * Checks if track is connected to specified atom.
+         *
+         * @public
+         * @param {String} atomId - Atom identifier to check
+         * @return {Boolean} True if connected to atom
+         */
         public function isConnectedToAtom(atomId:String):Boolean {
             return _connectionId.indexOf(atomId) !== -1;
         }
 
+        /**
+         * Checks if track is connected to specified pin.
+         *
+         * @public
+         * @param {Pin} pin - Pin to check
+         * @return {Boolean} True if connected to pin
+         */
         public function isConnectedToPin(pin:Pin):Boolean {
             return _fromPin == pin || _toPin == pin;
         }
 
+        /**
+         * Gets track connection information.
+         * Returns comprehensive connection data for debugging and UI.
+         *
+         * @public
+         * @return {Object} Connection information object
+         */
         public function getConnectionInfo():Object {
             var fromAtom:Atom = _trackManager.getAtomByPin(_fromPin);
             var toAtom:Atom = _trackManager.getAtomByPin(_toPin);
@@ -227,27 +301,113 @@
             };
         }
 
+        /**
+         * Cleans up resources and removes connections.
+         * Safely disposes all track components and removes listeners.
+         * FIXED: Proper boolean evaluation in condition checks.
+         *
+         * @public
+         */
         public function dispose():void {
             _isActive = false;
+
+            // Remove pin subscription - use explicit null checks
+            if (_fromPin != null && _pinDataListener != null) {
+                try {
+                    _fromPin.removeListener(_pinDataListener);
+                } catch (error:Error) {
+                    trace("Track.dispose: Error removing pin listener - " + error.message);
+                }
+            }
+
+            // Remove impulse listeners with proper function references
             MultiPulsator.removeImpulse("ATOM_MOVED", onAtomMoved);
             MultiPulsator.removeImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
+
+            // Remove event listeners with proper function references
+            this.removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
+
+            // Clean up visualization - use explicit null checks
+            if (_flowAnimation != null) {
+                // Check if DataFlowAnimation has dispose method before calling
+                if (_flowAnimation.hasOwnProperty("dispose")) {
+                    try {
+                        _flowAnimation["dispose"]();
+                    } catch (e:Error) {
+                        trace("Track.dispose: Error disposing flow animation - " + e.message);
+                    }
+                }
+                
+                // Remove from display list if present
+                if (this.contains(_flowAnimation)) {
+                    this.removeChild(_flowAnimation);
+                }
+                _flowAnimation = null;
+            }
+
+            // Clear graphics
+            this.graphics.clear();
+
+            // Notify system about track disconnection
             MultiPulsator.emit(new Impulse("TRACK_DISCONNECTED", {
                 track: this,
                 connectionId: _connectionId
             }));
-            this.graphics.clear();
+
+            // Remove from parent display container
+            if (this.parent != null) {
+                this.parent.removeChild(this);
+            }
+
+            // Explicitly nullify references for garbage collection
             _fromPin = null;
             _toPin = null;
-            if (parent) parent.removeChild(this);
+            _trackManager = null;
+            _pinDataListener = null;
         }
 
         // =========================================================================
         // PUBLIC GETTERS
         // =========================================================================
 
-        public function get fromPin():Pin { return _fromPin; }
-        public function get toPin():Pin { return _toPin; }
-        public function get connectionId():String { return _connectionId; }
-        public function get isActive():Boolean { return _isActive; }
+        /**
+         * Gets the source pin of the track.
+         *
+         * @public
+         * @return {Pin} Source pin (output)
+         */
+        public function get fromPin():Pin { 
+            return _fromPin; 
+        }
+
+        /**
+         * Gets the target pin of the track.
+         *
+         * @public
+         * @return {Pin} Target pin (input)
+         */
+        public function get toPin():Pin { 
+            return _toPin; 
+        }
+
+        /**
+         * Gets the unique connection identifier.
+         *
+         * @public
+         * @return {String} Connection identifier
+         */
+        public function get connectionId():String { 
+            return _connectionId; 
+        }
+
+        /**
+         * Gets the active state of the track.
+         *
+         * @public
+         * @return {Boolean} True if track is actively transferring data
+         */
+        public function get isActive():Boolean { 
+            return _isActive; 
+        }
     }
 }

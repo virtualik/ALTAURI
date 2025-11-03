@@ -4,45 +4,49 @@
     import flash.utils.getTimer;
 
     /**
-     * Validating atom factory - only creates atoms that are properly registered
-     * Centralized creation point for all atom instances with validation
-     * 
+     * Validating atom factory - creates atoms that are properly registered.
+     * Centralized creation point for all atom instances with validation.
+     *
      * @class AtomFactory
      * @public
      */
     public class AtomFactory {
+        
+        /** Factory initialization flag */
         private static var _initialized:Boolean = false;
+        
+        /** Counter for generating unique atom IDs */
         private static var _atomCounter:int = 0;
 
         /**
-         * Initialize the factory system
-         * Must be called before creating any atoms
-         * 
+         * Initializes the factory system.
+         * Must be called before creating any atoms.
+         *
          * @static
          * @public
          */
         public static function initialize():void {
             if (_initialized) return;
-            
+
             if (!AtomDefinitions.getSupportedTypes()) {
                 trace("AtomFactory: WARNING - AtomDefinitions not initialized properly");
                 AtomDefinitions.initialize();
             }
-            
+
             _initialized = true;
             trace("AtomFactory: Initialized - ready to create validated atoms");
         }
 
         /**
-         * Creates a complete atom instance with view based on type definition
-         * 
+         * Creates a complete atom instance with view based on type definition.
+         *
          * @static
          * @public
          * @param {String} type - Atom type identifier (e.g., "Button", "Counter")
          * @param {Point} position - Initial position on canvas
          * @param {String} windowType - Target window type ("Editor", "Device")
          * @param {String} name - Optional display name (defaults to type)
-         * @return {Object} Object containing {atom: Atom, view: AtomView} or null if creation failed
+         * @return {Object} Object containing {atom: Atom, view: AtomView} or null if failed
          */
         public static function createAtom(type:String, position:Point, windowType:String = "Editor", name:String = null):Object {
             // Validate factory state
@@ -60,10 +64,10 @@
 
             // Create atom instance
             var atom:Atom = new Atom(generateId(), type, position, name || type);
-            
+
             // Create pins from definition
             createPinsFromDefinition(atom, definition.pins);
-            
+
             // Initialize behavior if defined
             if (definition.behavior && definition.behavior.initialize is Function) {
                 atom = definition.behavior.initialize(atom);
@@ -71,15 +75,15 @@
 
             // Create view
             var view:AtomView = new AtomView(atom, windowType);
-            
+
             trace("AtomFactory: Created atom - " + type + " (" + atom.id + ")");
-            
+
             return { atom: atom, view: view };
         }
 
         /**
-         * Create pins for atom based on definition
-         * 
+         * Creates pins for atom based on definition.
+         *
          * @static
          * @private
          * @param {Atom} atom - Target atom instance
@@ -117,7 +121,7 @@
                     } else {
                         atom.outputs.push(pin);
                     }
-                    
+
                 } catch (error:Error) {
                     trace("ERROR: Failed to create pin '" + pinDef.name + "' for atom " + atom.type + ": " + error.message);
                 }
@@ -127,8 +131,8 @@
         }
 
         /**
-         * Generate a unique ID for an atom
-         * 
+         * Generates a unique ID for an atom.
+         *
          * @static
          * @private
          * @return {String} Unique atom identifier
@@ -139,8 +143,8 @@
         }
 
         /**
-         * Validate if atom type can be created
-         * 
+         * Validates if atom type can be created.
+         *
          * @static
          * @public
          * @param {String} type - Atom type to validate
@@ -151,8 +155,8 @@
         }
 
         /**
-         * Get all creatable atom types
-         * 
+         * Gets all creatable atom types.
+         *
          * @static
          * @public
          * @return {Array} Array of registered atom type strings
@@ -162,8 +166,8 @@
         }
 
         /**
-         * Get creatable atom types by category
-         * 
+         * Gets creatable atom types by category.
+         *
          * @static
          * @public
          * @param {String} category - Category to filter by
@@ -174,8 +178,8 @@
         }
 
         /**
-         * Check if factory is properly initialized
-         * 
+         * Checks if factory is properly initialized.
+         *
          * @static
          * @public
          * @return {Boolean} True if factory is ready to create atoms
@@ -185,8 +189,8 @@
         }
 
         /**
-         * Get total count of atoms created by this factory
-         * 
+         * Gets total count of atoms created by this factory.
+         *
          * @static
          * @public
          * @return {int} Number of atoms created
