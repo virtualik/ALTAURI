@@ -145,7 +145,7 @@
 			_backgroundLayer.name = "BackgroundLayer";
 			_backgroundLayer.mouseEnabled = true;
 			_backgroundLayer.doubleClickEnabled = true;
-			_backgroundLayer.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onBackgroundRightClick);
+			//_backgroundLayer.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onBackgroundRightClick);
 			_canvas.addChild(_backgroundLayer);
 			_tracksLayer = new Sprite();
 			_tracksLayer.name = "TracksLayer";
@@ -163,7 +163,8 @@
 			_canvas.addChild(_overlayLayer);
 			setupViewportControls();
 		}
-		private function onBackgroundRightClick(event: MouseEvent): void {
+/*		private function onBackgroundRightClick(event: MouseEvent): void {
+			 trace("--=== Window: onBackgroundRightClick ===-- " + this);
 			if(_type !== "Editor") return;
 			var pos: Point = new Point(event.stageX, event.stageY);
 			MultiPulsator.emit(new Impulse("WINDOW_RIGHT_CLICK", {
@@ -173,7 +174,7 @@
 				localPosition: _contentLayer.globalToLocal(pos)
 			}));
 			event.stopPropagation();
-		}
+		}*/
 		private function setupViewportControls(): void {
 			stage.addEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
 			stage.addEventListener(MouseEvent.MIDDLE_MOUSE_DOWN, onMiddleMouseDown);
@@ -471,7 +472,9 @@
 				stageY: e.stageY
 			}));
 		}
+
 		private function transformClick(e: MouseEvent): void {
+			trace("--=== transformClick ===-- " + e.target)
 			var isMenu: Boolean = isMenuElement(e.target as DisplayObject);
 			if(!isMenu) {
 				MultiPulsator.emit(new Impulse("WINDOW_CLICK", {
@@ -483,7 +486,10 @@
 				MenuManager.getInstance().closeCurrentMenu();
 			}
 		}
+	
 		private function transformRightMouseDown(e: MouseEvent): void {
+			trace("--===[!][transformRightMouseDown][!] ===-- " + e.target)
+
 			if(_type !== "Editor" || isMenuElement(e.target as DisplayObject)) return;
 			var target: DisplayObject = e.target as DisplayObject;
 			var pos: Point = new Point(e.stageX, e.stageY);
@@ -499,6 +505,7 @@
 				e.stopPropagation();
 			}
 			else if(track) {
+			trace("--===[!][     track     ][!] ===-- " + e.target)
 				MultiPulsator.emit(new Impulse("TRACK_RIGHT_CLICK", {
 					track: track,
 					globalPosition: pos,
@@ -673,7 +680,7 @@
 				stage.removeEventListener(Event.ENTER_FRAME, onPanFrameUpdate);
 			}
 			if(_backgroundLayer) {
-				_backgroundLayer.removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onBackgroundRightClick);
+			//	_backgroundLayer.removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onBackgroundRightClick);
 			}
 			removeEventListener(Event.ACTIVATE, transformWindowActivate);
 			removeEventListener(Event.DEACTIVATE, transformWindowDeactivate);

@@ -116,10 +116,13 @@ package Src.Prog.Core.Managers {
          * @param {Impulse} impulse - Must contain: track, globalPosition, window.
          */
         private function onTrackRightClick(impulse:Impulse):void {
-            trace("MenuManager: Track right click received");
+            trace("--=== MenuManager: Track right click received ===--");
             var track:Track = impulse.data.track;
+            trace("--=== MenuManager: track: " + track.connectionId + "    ===--");
             var globalPos:Point = impulse.data.globalPosition;
+            trace("--=== MenuManager: Track right click received ===--");
             var window:Window = impulse.data.window;
+            trace("--=== MenuManager: window: " + window + "    ===--");
 
             if (track && window) {
                 closeCurrentMenu();
@@ -237,6 +240,7 @@ package Src.Prog.Core.Managers {
          * @param {Window} window - Parent window.
          */
         private function showTrackMenu(globalPosition:Point, track:Track, window:Window):void {
+			trace("--=== showTrackMenu ===-- " + track) 
             try {
                 var menu:ContextMenu;
                 var items:Array = [{

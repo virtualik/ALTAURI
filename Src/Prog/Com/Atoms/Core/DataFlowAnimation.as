@@ -130,7 +130,7 @@
          * @return {uint} Particle color value
          */
         private function getParticleColor(value:*):uint {
-            if (value === true) return 0x00FF00;    // Green for true
+            if (value === true) return 0xFFFFCC;    // Green for true
             if (value === false) return 0xFF0000;   // Red for false
             if (typeof value == "number") return 0x0088FF; // Blue for numbers
             return 0xFFFFFF; // White for other types

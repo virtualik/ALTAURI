@@ -44,7 +44,7 @@
             _endPos = endPos;
             _color = color;
             _progress = -delay; // Negative progress for delayed start
-            _speed = 2.0; // Base animation speed
+            _speed = 3; // Base animation speed
             _isComplete = false;
             
             draw();
@@ -58,7 +58,7 @@
         private function draw():void {
             this.graphics.clear();
             this.graphics.beginFill(_color, 0.8);
-            this.graphics.drawCircle(0, 0, 2);
+            this.graphics.drawCircle(0, 0, 3);
             this.graphics.endFill();
         }
 

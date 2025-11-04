@@ -253,8 +253,9 @@
             MultiPulsator.emit(new Impulse("TRACK_RIGHT_CLICK", {
                 track: this,
                 globalPosition: new Point(event.stageX, event.stageY),
-                connectionId: _connectionId
-            }));
+                connectionId: _connectionId,
+				window: event.currentTarget.root.nativeWindow
+            })); 
         }
 
         /**
@@ -277,8 +278,8 @@
             var localTo:Point = tracksLayer.globalToLocal(toPos);
 
             // Draw connection line with style based on activity state
-            var lineColor:uint = _isActive ? 0x00AA00 : 0x777777;
-            var lineAlpha:Number = _isActive ? 0.8 : 0.5;
+            var lineColor:uint = _isActive ? 0x777777 : 0x777777;
+            var lineAlpha:Number = _isActive ? 0.5 : 0.5;
             var lineThickness:Number = _isActive ? 3 : 2;
 
             this.graphics.lineStyle(lineThickness, lineColor, lineAlpha);
