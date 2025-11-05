@@ -15,6 +15,64 @@
         private static var _initialized:Boolean = false;
 
         /**
+         * Static helper function for drawing LED atoms
+         * 
+         * @public
+         * @static
+         * @param {Graphics} graphics - Graphics object to draw on
+         * @param {Atom} atom - Atom instance with data
+         * @param {Object} config - Visual configuration
+         */
+        public static function drawLED(graphics:Graphics, atom:Atom, config:Object):void {
+            trace("=== LED CUSTOM DRAW FUNCTION EXECUTING ===");
+            trace("Atom data in draw: " + JSON.stringify(atom.data));
+            trace("isOn value: " + atom.data.isOn);
+            trace("Config width: " + config.width + ", height: " + config.height);
+            
+            // Защита от невалидных параметров
+            var width:Number = config.width || 30;
+            var height:Number = config.height || 30;
+            var centerX:Number = width / 2;
+            var centerY:Number = height / 2;
+            
+            var isOn:Boolean = atom.data.isOn === true;
+            var color:uint = isOn ? 0x00FF00 : 0x333333;
+            var glowColor:uint = isOn ? 0x80FF80 : 0x666666;
+
+            trace("Drawing LED - isOn: " + isOn + ", color: " + color.toString(16) + ", center: " + centerX + "," + centerY);
+
+            graphics.clear();
+
+            try {
+                // Рисуем свечение (только когда включен)
+                if (isOn) {
+                    graphics.beginFill(glowColor, 0.3);
+                    var glowRadius:Number = Math.max(1, width / 1.5);
+                    graphics.drawCircle(centerX, centerY, glowRadius);
+                    graphics.endFill();
+                }
+
+                // Рисуем основной светодиод
+                graphics.beginFill(color);
+                var ledRadius:Number = Math.max(1, width / 2 - 2);
+                graphics.drawCircle(centerX, centerY, ledRadius);
+                graphics.endFill();
+
+                // Обводка
+                graphics.lineStyle(1, 0x666666);
+                graphics.drawCircle(centerX, centerY, ledRadius);
+                
+                trace("=== LED CUSTOM DRAW FUNCTION COMPLETED ===");
+            } catch (error:Error) {
+                trace("ERROR in LED drawing: " + error.message);
+                // Фолбэк: простой прямоугольник
+                graphics.beginFill(0xFF0000);
+                graphics.drawRect(0, 0, width, height);
+                graphics.endFill();
+            }
+        }
+
+        /**
          * Register all atom definitions - call this once at app startup
          */
         public static function initialize():void {
@@ -29,29 +87,48 @@
 			registerAtomType("Button", {
 				displayName: "Button",
 				category: "Input",
-				description: "A simple push button that sends impulses when pressed",
+				description: "A simple push button that sends TRUE when pressed and FALSE when released",
 				pins: [
-					{name: "output", type: "output", dataType: "boolean", description: "Sends impulse when pressed"}
+					{name: "output", type: "output", dataType: "boolean", description: "Sends TRUE when pressed, FALSE when released"}
 				],
 				behavior: {
 					onInteraction: function(atom:Atom, interactionType:String):Atom {
-						trace("Button pressed - sending TRUE signal");
+						if (interactionType == "press") {
+							trace("Button pressed - sending TRUE signal");
+							
+							// Создаем новый атом с обновленным значением пина
+							var newAtom:Atom = atom.setPinValue("output", true, false);
+							
+							// Эмитим импульс о изменении значения пина
+							MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+								atomId: newAtom.id,
+								pinName: "output",
+								newValue: true,
+								oldValue: atom.outputs[0].value,
+								source: "button_press"
+							}));
+							
+							return newAtom;
+						}
+						return atom;
+					},
+					
+					onRelease: function(atom:Atom):Atom {
+						trace("Button released - sending FALSE signal");
 						
-						// Создаем новый атом с обновленным значением пина
-						var newAtom:Atom = atom.setPinValue("output", true, false);
+						var newAtom:Atom = atom.setPinValue("output", false, false);
 						
-						// Эмитим импульс о изменении значения пина
 						MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
 							atomId: newAtom.id,
 							pinName: "output",
-							newValue: true,
+							newValue: false,
 							oldValue: atom.outputs[0].value,
-							source: "button_interaction"
+							source: "button_release"
 						}));
 						
 						return newAtom;
 					},
-					
+
 					onRightClick: function(atom:Atom):Atom {
 						trace("Button right-click - sending FALSE signal");
 						
@@ -269,19 +346,15 @@
 					onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
 						trace("=== LED INPUT CHANGE ===");
 						trace("LED " + atom.id + " received value: " + value);
-						
-						// Создаем новый атом с обновленным состоянием
+
 						var newAtom:Atom = atom.setData("isOn", Boolean(value));
-						
 						trace("LED data updated - isOn: " + newAtom.data.isOn);
-						
-						// Эмитим импульс для немедленного визуального обновления
+
 						MultiPulsator.emit(new Impulse("ATOM_VISUAL_UPDATE", {
 							atomId: newAtom.id,
 							data: newAtom.data
 						}));
-						
-						trace("=========================");
+
 						return newAtom;
 					}
 				},
@@ -291,33 +364,27 @@
 						height: 30,
 						color: 0x333333,
 						textColor: 0xFFFFFF,
-						// Добавляем функцию отрисовки для LED
 						draw: function(graphics:Graphics, atom:Atom, config:Object):void {
-							var isOn:Boolean = atom.data.isOn === true;
-							var color:uint = isOn ? 0x00FF00 : 0x333333; // Зеленый когда включен, темный когда выключен
-							var glowColor:uint = isOn ? 0x80FF80 : 0x666666; // Свечение для включенного состояния
-							
-							graphics.clear();
-							
-							// Рисуем свечение (только когда включен)
-							if (isOn) {
-								graphics.beginFill(glowColor, 0.3);
-								graphics.drawCircle(config.width / 2, config.height / 2, config.width / 1.5);
-								graphics.endFill();
-							}
-							
-							// Рисуем основной светодиод
-							graphics.beginFill(color);
-							graphics.drawCircle(config.width / 2, config.height / 2, config.width / 2 - 2);
-							graphics.endFill();
-							
-							// Обводка
-							graphics.lineStyle(1, 0x666666);
-							graphics.drawCircle(config.width / 2, config.height / 2, config.width / 2 - 2);
+							AtomDefinitions.drawLED(graphics, atom, config);
 						}
 					},
 					Editor: {
-						// специфичные настройки для Editor
+						width: 30,
+						height: 30,
+						color: 0x333333,
+						textColor: 0xFFFFFF,
+						draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+							AtomDefinitions.drawLED(graphics, atom, config);
+						}
+					},
+					Device: {
+						width: 30,
+						height: 30,
+						color: 0x333333,
+						textColor: 0xFFFFFF,
+						draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+							AtomDefinitions.drawLED(graphics, atom, config);
+						}
 					}
 				}
 			});

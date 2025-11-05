@@ -1,5 +1,4 @@
-﻿// Src/Prog/Core/Managers/MenuManager.as
-package Src.Prog.Core.Managers {
+﻿package Src.Prog.Core.Managers {
     import flash.geom.Point;
     import Src.Prog.Core.MultiPulsator.MultiPulsator;
     import Src.Prog.Core.MultiPulsator.Impulse;
@@ -11,35 +10,45 @@ package Src.Prog.Core.Managers {
 
     /**
      * Centralized manager for all context menus in the application.
-     * Uses a single, parameterized ContextMenu class to display:
-     * - Atom creation options (from AtomDefinitions)
-     * - Atom operations (delete, properties)
-     * - Track operations (delete)
-     *
-     * All menus are rendered in the overlayLayer of the active window.
-     * Supports automatic closing on click, ESC, and window events.
-     *
+     * Coordinates menu creation, display, and lifecycle management for LKM and RKM operations.
+     * Uses a single, parameterized ContextMenu class to handle all menu types dynamically.
+     * 
+     * Key Responsibilities:
+     * - Processes right-click impulses for context menu creation
+     * - Manages menu lifecycle and automatic closing
+     * - Dynamically builds menus from atom definitions
+     * - Handles menu item callbacks and action execution
+     * - Integrates with MultiPulsator system for event coordination
+     * 
      * @class MenuManager
      * @public
      */
     public class MenuManager {
-        /** Singleton instance */
+        
+        /** Singleton instance reference */
         private static var _instance:MenuManager;
-
-        /** Currently open menu reference (always ContextMenu) */
+        
+        /** Currently open menu reference for state management */
         private var _currentMenu:ContextMenu;
 
         /**
          * Private constructor for singleton pattern.
-         * Sets up all impulse listeners upon instantiation.
+         * Initializes impulse listeners upon instantiation.
+         * 
+         * @constructor
+         * @private
          */
         public function MenuManager() {
             setupImpulseListeners();
         }
 
         /**
-         * Get the singleton instance of MenuManager.
-         * @return {MenuManager} The singleton instance.
+         * Gets the singleton instance of MenuManager.
+         * Implements lazy initialization for optimal resource usage.
+         * 
+         * @static
+         * @public
+         * @return {MenuManager} Singleton MenuManager instance
          */
         public static function getInstance():MenuManager {
             if (!_instance) {
@@ -49,39 +58,48 @@ package Src.Prog.Core.Managers {
         }
 
         /**
-         * Initialize the MenuManager system.
-         * Ensures the singleton is created and ready.
+         * Initializes the MenuManager system.
+         * Ensures singleton is created and ready for operation.
+         * 
+         * @static
+         * @public
          */
         public static function initialize():void {
             getInstance();
         }
 
         /**
-         * Set up all impulse listeners for menu control.
-         * Subscribes to user and system events that affect menus.
+         * Sets up all impulse listeners for menu control system.
+         * Subscribes to user interaction and system events that affect menu behavior.
+         * Establishes comprehensive menu lifecycle management.
+         * 
+         * @private
          */
         private function setupImpulseListeners():void {
-            // Creation & interaction
+            // Context menu creation triggers
             MultiPulsator.subscribeToImpulse("WINDOW_RIGHT_CLICK", onWindowRightClick);
             MultiPulsator.subscribeToImpulse("ATOM_RIGHT_CLICK", onAtomRightClick);
             MultiPulsator.subscribeToImpulse("TRACK_RIGHT_CLICK", onTrackRightClick);
 
-            // Closing triggers
+            // Menu closing triggers
             MultiPulsator.subscribeToImpulse("WINDOW_LEFT_CLICK", closeCurrentMenu);
             MultiPulsator.subscribeToImpulse("WINDOW_CLICK", closeCurrentMenu);
             MultiPulsator.subscribeToImpulse("KEY_ESC_PRESSED", closeCurrentMenu);
 
-            // Cleanup
+            // System cleanup
             MultiPulsator.subscribeToImpulse("APP_CLOSE", onAppClose);
         }
 
         // =========================================================================
-        // IMPULSE HANDLERS
+        // IMPULSE HANDLERS - CONTEXT MENU CREATION
         // =========================================================================
 
         /**
-         * Handle right-click on canvas background → show atom creation menu.
-         * @param {Impulse} impulse - Must contain: globalPosition, localPosition, window.
+         * Handles window background right-click for atom creation menu.
+         * Dynamically builds menu from registered atom definitions in AtomDefinitions.
+         * 
+         * @private
+         * @param {Impulse} impulse - WINDOW_RIGHT_CLICK impulse containing position and window data
          */
         private function onWindowRightClick(impulse:Impulse):void {
             trace("MenuManager: Window right click received");
@@ -96,8 +114,11 @@ package Src.Prog.Core.Managers {
         }
 
         /**
-         * Handle right-click on an atom → show atom options menu.
-         * @param {Impulse} impulse - Must contain: atom, globalPosition, window.
+         * Handles atom right-click for atom-specific operations menu.
+         * Provides context-sensitive options like delete and properties.
+         * 
+         * @private
+         * @param {Impulse} impulse - ATOM_RIGHT_CLICK impulse containing atom and position data
          */
         private function onAtomRightClick(impulse:Impulse):void {
             trace("MenuManager: Atom right click received");
@@ -112,17 +133,17 @@ package Src.Prog.Core.Managers {
         }
 
         /**
-         * Handle right-click on a track → show track options menu.
-         * @param {Impulse} impulse - Must contain: track, globalPosition, window.
+         * Handles track right-click for connection management menu.
+         * Provides track-specific operations like deletion.
+         * 
+         * @private
+         * @param {Impulse} impulse - TRACK_RIGHT_CLICK impulse containing track and position data
          */
         private function onTrackRightClick(impulse:Impulse):void {
-            trace("--=== MenuManager: Track right click received ===--");
+            trace("MenuManager: Track right click received");
             var track:Track = impulse.data.track;
-            trace("--=== MenuManager: track: " + track.connectionId + "    ===--");
             var globalPos:Point = impulse.data.globalPosition;
-            trace("--=== MenuManager: Track right click received ===--");
             var window:Window = impulse.data.window;
-            trace("--=== MenuManager: window: " + window + "    ===--");
 
             if (track && window) {
                 closeCurrentMenu();
@@ -131,8 +152,11 @@ package Src.Prog.Core.Managers {
         }
 
         /**
-         * Handle application shutdown → clean up.
-         * @param {Impulse} impulse - APP_CLOSE impulse.
+         * Handles application shutdown for resource cleanup.
+         * Ensures proper disposal of menu resources on application close.
+         * 
+         * @private
+         * @param {Impulse} impulse - APP_CLOSE impulse
          */
         private function onAppClose(impulse:Impulse):void {
             closeCurrentMenu();
@@ -144,16 +168,20 @@ package Src.Prog.Core.Managers {
         // =========================================================================
 
         /**
-         * Show dynamic atom creation menu built from AtomDefinitions.
-         * @param {Point} globalPosition - Stage coordinates of click.
-         * @param {Point} localPosition - Content-layer coordinates (for atom placement).
-         * @param {Window} window - Target window.
+         * Shows dynamic atom creation menu built from AtomDefinitions registry.
+         * Creates categorized menu items for all registered atom types.
+         * 
+         * @private
+         * @param {Point} globalPosition - Stage coordinates of click for menu positioning
+         * @param {Point} localPosition - Content-layer coordinates for atom placement
+         * @param {Window} window - Target window for menu display
          */
         private function showCreationMenu(globalPosition:Point, localPosition:Point, window:Window):void {
             try {
                 var items:Array = [];
                 var types:Array = AtomDefinitions.getSupportedTypes();
 
+                // Build menu items from all registered atom types
                 for each (var type:String in types) {
                     var def:Object = AtomDefinitions.getAtomDefinition(type);
                     if (def) {
@@ -166,12 +194,14 @@ package Src.Prog.Core.Managers {
                     }
                 }
 
-                // Sort by category → name
+                // Sort items by category and label for better UX
                 items.sortOn(["category", "label"]);
 
+                // Create and display context menu
                 var menu:ContextMenu = new ContextMenu(items, window, globalPosition);
                 window.overlayLayer.addChild(menu);
                 _currentMenu = menu;
+                
                 trace("MenuManager: Creation menu displayed successfully");
             } catch (error:Error) {
                 trace("MenuManager: ERROR creating creation menu: " + error.message);
@@ -179,10 +209,13 @@ package Src.Prog.Core.Managers {
         }
 
         /**
-         * Factory for atom creation callbacks (closes over type and position).
-         * @param {String} atomType - Type of atom to create.
-         * @param {Point} position - Position to place the atom.
-         * @return {Function} Callback that emits ATOM_CONTEXT_MENU_SELECTED.
+         * Factory function for atom creation callbacks.
+         * Creates closure over atom type and position for menu item execution.
+         * 
+         * @private
+         * @param {String} atomType - Type of atom to create
+         * @param {Point} position - Position to place the new atom
+         * @return {Function} Callback function that emits ATOM_CONTEXT_MENU_SELECTED impulse
          */
         private function createAtomCallback(atomType:String, position:Point):Function {
             return function(action:String):void {
@@ -195,10 +228,13 @@ package Src.Prog.Core.Managers {
         }
 
         /**
-         * Show atom options menu (Delete, Properties).
-         * @param {Point} globalPosition - Stage coordinates of click.
-         * @param {Atom} atom - Target atom.
-         * @param {Window} window - Parent window.
+         * Shows atom-specific options menu with operations like delete and properties.
+         * Provides context-sensitive operations for individual atoms.
+         * 
+         * @private
+         * @param {Point} globalPosition - Stage coordinates for menu positioning
+         * @param {Atom} atom - Target atom for operations
+         * @param {Window} window - Parent window for menu display
          */
         private function showAtomOptionsMenu(globalPosition:Point, atom:Atom, window:Window):void {
             try {
@@ -214,7 +250,7 @@ package Src.Prog.Core.Managers {
                         category: "Danger"
                     },
                     {
-                        label: "Properties",
+                        label: "Properties", 
                         action: "properties",
                         callback: function(action:String):void {
                             menu.close();
@@ -227,6 +263,7 @@ package Src.Prog.Core.Managers {
                 menu = new ContextMenu(items, window, globalPosition);
                 window.overlayLayer.addChild(menu);
                 _currentMenu = menu;
+                
                 trace("MenuManager: Atom options menu displayed successfully");
             } catch (error:Error) {
                 trace("MenuManager: ERROR creating atom options menu: " + error.message);
@@ -234,13 +271,15 @@ package Src.Prog.Core.Managers {
         }
 
         /**
-         * Show track options menu (Delete).
-         * @param {Point} globalPosition - Stage coordinates of click.
-         * @param {Track} track - Target track.
-         * @param {Window} window - Parent window.
+         * Shows track-specific options menu for connection management.
+         * Currently provides track deletion capability.
+         * 
+         * @private
+         * @param {Point} globalPosition - Stage coordinates for menu positioning
+         * @param {Track} track - Target track for operations
+         * @param {Window} window - Parent window for menu display
          */
         private function showTrackMenu(globalPosition:Point, track:Track, window:Window):void {
-			trace("--=== showTrackMenu ===-- " + track) 
             try {
                 var menu:ContextMenu;
                 var items:Array = [{
@@ -256,6 +295,7 @@ package Src.Prog.Core.Managers {
                 menu = new ContextMenu(items, window, globalPosition);
                 window.overlayLayer.addChild(menu);
                 _currentMenu = menu;
+                
                 trace("MenuManager: Track menu displayed successfully");
             } catch (error:Error) {
                 trace("MenuManager: ERROR creating track menu: " + error.message);
@@ -263,12 +303,15 @@ package Src.Prog.Core.Managers {
         }
 
         // =========================================================================
-        // MENU CONTROL
+        // MENU CONTROL AND LIFECYCLE MANAGEMENT
         // =========================================================================
 
         /**
-         * Close the currently open context menu, if any.
-         * Safe to call multiple times.
+         * Closes the currently open context menu if one exists.
+         * Provides safe cleanup with error handling for menu operations.
+         * 
+         * @public
+         * @param {Impulse} impulse - Optional impulse that triggered the close operation
          */
         public function closeCurrentMenu(impulse:Impulse = null):void {
             if (_currentMenu) {
@@ -283,24 +326,30 @@ package Src.Prog.Core.Managers {
         }
 
         /**
-         * Check if a menu is currently open.
-         * @return {Boolean} True if a menu is visible.
+         * Checks if a context menu is currently open and visible.
+         * Used for input event processing to prevent interference.
+         * 
+         * @public
+         * @return {Boolean} True if a menu is currently open and visible
          */
         public function isMenuOpen():Boolean {
             return _currentMenu != null;
         }
 
         // =========================================================================
-        // CLEANUP
+        // RESOURCE CLEANUP AND DISPOSAL
         // =========================================================================
 
         /**
-         * Clean up all resources and unsubscribe from impulses.
+         * Cleans up all MenuManager resources and unsubscribes from impulses.
+         * Performs comprehensive cleanup to prevent memory leaks and ensure proper shutdown.
+         * 
+         * @public
          */
         public function dispose():void {
             closeCurrentMenu();
 
-            // Unsubscribe from all impulses
+            // Unsubscribe from all impulses to prevent memory leaks
             MultiPulsator.removeImpulse("WINDOW_RIGHT_CLICK", onWindowRightClick);
             MultiPulsator.removeImpulse("ATOM_RIGHT_CLICK", onAtomRightClick);
             MultiPulsator.removeImpulse("TRACK_RIGHT_CLICK", onTrackRightClick);

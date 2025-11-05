@@ -7,41 +7,47 @@
     import flash.text.TextFormatAlign;
     import Src.Prog.Core.MultiPulsator.MultiPulsator;
     import Src.Prog.Core.MultiPulsator.Impulse;
-    import Src.Prog.Com.Atoms.Data.AtomDefinitions;
     import flash.display.Graphics;
     import Src.Prog.Core.Window;
+    import Src.Prog.Core.Managers.AtomManager;
+    import Src.Prog.Com.Atoms.Core.Pin;
+    import Src.Prog.Com.Atoms.Data.AtomDefinitions;
+    import flash.display.DisplayObject;
 
     /**
      * Universal view class that renders any atom type based on its data definition.
-     * Handles visualization, user interactions, and pin management.
-     * Fully synchronized with logical atom model.
+     * Enhanced with mouse release handling for button-like atoms.
+     * FIXED: Mouse event conflicts with PinView and proper drag operation cleanup.
      *
      * @class AtomView
      * @extends Sprite
      * @public
      */
     public class AtomView extends Sprite {
-        
+
         /** Reference to the logical atom model */
         private var _atom:Atom;
-        
+
         /** Window type for context-specific rendering */
         private var _windowType:String;
-        
+
         /** Atom definition from registry */
         private var _definition:Object;
-        
+
         /** Display label for atom name */
         private var _label:TextField;
-        
+
         /** Drag state flag */
         private var _isDragging:Boolean = false;
-        
+
         /** Drag offset for smooth dragging */
         private var _dragOffset:Point = new Point();
-        
+
         /** Visual configuration overrides */
         private var _viewConfig:Object;
+
+        /** Track if this atom is currently being pressed (for button behavior) */
+        private var _isPressed:Boolean = false;
 
         /**
          * Creates a new AtomView instance.
@@ -54,12 +60,12 @@
             _atom = atom;
             _windowType = windowType;
             _definition = AtomDefinitions.getAtomDefinition(atom.type);
-            
+
             super();
-            
+
             setupView();
             updateVisuals();
-            
+
             // Initial position from atom model
             this.x = _atom.position.x;
             this.y = _atom.position.y;
@@ -67,6 +73,8 @@
 
         /**
          * Sets up the view with event listeners and basic styling.
+         * Enhanced with mouse release handling for buttons.
+         * FIXED: Added pin click detection to prevent conflicts.
          *
          * @private
          */
@@ -75,7 +83,26 @@
             this.useHandCursor = true;
             this.addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
             this.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
+
+            // Add mouse up handler for release behavior
+            this.addEventListener(MouseEvent.MOUSE_UP, onMouseUp);
             createLabel();
+        }
+
+        /**
+         * Handles mouse up events for button release behavior.
+         *
+         * @private
+         * @param {MouseEvent} event - Mouse up event
+         */
+        private function onMouseUp(event:MouseEvent):void {
+           // event.stopPropagation();
+
+            // If button was pressed, handle release
+            if (_isPressed) {
+                _isPressed = false;
+                handleInteraction("release");
+            }
         }
 
         /**
@@ -137,13 +164,13 @@
             _label = new TextField();
             _label.selectable = false;
             _label.mouseEnabled = false;
-            
+
             var format:TextFormat = new TextFormat();
             format.size = 10;
             format.align = TextFormatAlign.CENTER;
             format.color = 0x000000;
             _label.defaultTextFormat = format;
-            
+
             this.addChild(_label);
         }
 
@@ -154,11 +181,11 @@
          */
         public function updateAtom(newAtom:Atom):void {
             _atom = newAtom;
-            
+
             // Sync visual position with logical model
             this.x = _atom.position.x;
             this.y = _atom.position.y;
-            
+
             updateVisuals();
         }
 
@@ -173,15 +200,15 @@
             var width:Number = validateDimension(config.width, 60);
             var height:Number = validateDimension(config.height, 40);
             var color:uint = config.color || 0xCCCCCC;
-            
+
             graphics.beginFill(color);
-            
+
             if (config.cornerRadius && !isNaN(config.cornerRadius) && config.cornerRadius > 0) {
                 graphics.drawRoundRect(0, 0, width, height, config.cornerRadius, config.cornerRadius);
             } else {
                 graphics.drawRect(0, 0, width, height);
             }
-            
+
             graphics.endFill();
         }
 
@@ -220,53 +247,140 @@
          * @private
          * @param {Object} config - Visual configuration
          */
-		private function updatePins(config:Object):void {
-			// Remove existing pin views
-			for (var i:int = this.numChildren - 1; i >= 0; i--) {
-				if (this.getChildAt(i) is PinView) {
-					this.removeChildAt(i);
-				}
-			}
+        private function updatePins(config:Object):void {
+            // Remove existing pin views
+            for (var i:int = this.numChildren - 1; i >= 0; i--) {
+                if (this.getChildAt(i) is PinView) {
+                    this.removeChildAt(i);
+                }
+            }
 
-			// Create input pin views
-			for (var j:int = 0; j < _atom.inputs.length; j++) {
-				var inputPin:PinView = new PinView(_atom.inputs[j]);
-				inputPin.x = 0;
-				inputPin.y = config.height * (j + 1) / (_atom.inputs.length + 1);
-				
-				// УБЕДИТЕСЬ ЧТО ЭТИ ФЛАГИ УСТАНОВЛЕНЫ:
-				inputPin.mouseEnabled = true;
-				inputPin.mouseChildren = false;
-				
-				this.addChild(inputPin);
-			}
+            // Create input pin views
+            for (var j:int = 0; j < _atom.inputs.length; j++) {
+                var inputPin:PinView = new PinView(_atom.inputs[j]);
+                inputPin.x = 0;
+                inputPin.y = config.height * (j + 1) / (_atom.inputs.length + 1);
 
-			// Create output pin views
-			for (var k:int = 0; k < _atom.outputs.length; k++) {
-				var outputPin:PinView = new PinView(_atom.outputs[k]);
-				outputPin.x = config.width;
-				outputPin.y = config.height * (k + 1) / (_atom.outputs.length + 1);
-				
-				// УБЕДИТЕСЬ ЧТО ЭТИ ФЛАГИ УСТАНОВЛЕНЫ:
-				outputPin.mouseEnabled = true;
-				outputPin.mouseChildren = false;
-				
-				this.addChild(outputPin);
-			}
-		}
+                // ENSURE THESE FLAGS ARE SET:
+                inputPin.mouseEnabled = true;
+                inputPin.mouseChildren = false;
+
+                this.addChild(inputPin);
+            }
+
+            // Create output pin views
+            for (var k:int = 0; k < _atom.outputs.length; k++) {
+                var outputPin:PinView = new PinView(_atom.outputs[k]);
+                outputPin.x = config.width;
+                outputPin.y = config.height * (k + 1) / (_atom.outputs.length + 1);
+
+                // ENSURE THESE FLAGS ARE SET:
+                outputPin.mouseEnabled = true;
+                outputPin.mouseChildren = false;
+
+                this.addChild(outputPin);
+            }
+        }
 
         /**
          * Handles mouse down for dragging or interaction.
+         * Enhanced with press state tracking for buttons.
+         * FIXED: Added pin click detection to prevent conflicts with PinView.
          *
          * @private
          * @param {MouseEvent} event - Mouse down event
          */
         private function onMouseDown(event:MouseEvent):void {
+            // ADDED: Check if click was on a pin
+            var target:DisplayObject = event.target as DisplayObject;
+            while (target && target != this) {
+                if (target is PinView) {
+                    // Click was on pin - let PinView handle it
+                    return;
+                }
+                target = target.parent;
+            }
+
             if (event.ctrlKey) {
                 startDragMode(event);
             } else {
+                _isPressed = true; // Mark that button is pressed
                 handleInteraction("press");
             }
+        }
+
+        /**
+         * Handles atom interactions (press and release).
+         * Enhanced to support both press and release interactions.
+         *
+         * @private
+         * @param {String} interactionType - Type of interaction ("press" or "release")
+         */
+        private function handleInteraction(interactionType:String):void {
+            trace("=== ATOM INTERACTION ===");
+            trace("Atom: " + _atom.type + " (" + _atom.id + ")");
+            trace("Interaction type: " + interactionType);
+
+            var definition:Object = AtomDefinitions.getAtomDefinition(_atom.type);
+
+            if (definition && definition.behavior) {
+                try {
+                    var newAtom:Atom = _atom;
+
+                    // Handle press
+                    if (interactionType == "press" && definition.behavior.onInteraction) {
+                        newAtom = definition.behavior.onInteraction(_atom, interactionType);
+                    }
+
+                    // Handle release
+                    else if (interactionType == "release" && definition.behavior.onRelease) {
+                        newAtom = definition.behavior.onRelease(_atom);
+                    }
+
+                    // Update atom in manager
+                    if (newAtom !== _atom) {
+                        // Get AtomManager via MultiPulsator or directly
+                        var atomManager:AtomManager = AtomManager.getInstance();
+                        atomManager.updateAtom(newAtom);
+
+                        // Emit pin value changes
+                        for each (var outputPin:Pin in newAtom.outputs) {
+                            var oldPin:Pin = findPinByName(_atom.outputs, outputPin.name);
+                            if (oldPin && oldPin.value !== outputPin.value) {
+                                MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+                                    atomId: newAtom.id,
+                                    pinName: outputPin.name,
+                                    newValue: outputPin.value,
+                                    oldValue: oldPin.value,
+                                    source: "interaction"
+                                }));
+                            }
+                        }
+                    }
+
+                } catch (error:Error) {
+                    trace("ERROR in atom interaction: " + error.message);
+                }
+            }
+
+            trace("=== END INTERACTION ===");
+        }
+
+        /**
+         * Finds a pin by name in a pin vector.
+         *
+         * @private
+         * @param {Vector.<Pin>} pins - Vector of pins to search
+         * @param {String} pinName - Name of pin to find
+         * @return {Pin} Found pin or null
+         */
+        private function findPinByName(pins:Vector.<Pin>, pinName:String):Pin {
+            for each (var pin:Pin in pins) {
+                if (pin.name == pinName) {
+                    return pin;
+                }
+            }
+            return null;
         }
 
         /**
@@ -327,6 +441,7 @@
 
         /**
          * Handles drag end.
+         * FIXED: Ensures proper cleanup of drag state.
          *
          * @private
          * @param {MouseEvent} event - Mouse up event
@@ -336,7 +451,7 @@
 
             _isDragging = false;
             this.alpha = 1.0;
-            
+
             stage.removeEventListener(MouseEvent.MOUSE_MOVE, onDrag);
             stage.removeEventListener(MouseEvent.MOUSE_UP, onDragEnd);
 
@@ -354,56 +469,42 @@
         }
 
         /**
-         * Handles atom interactions.
+         * Updates all visual elements of the atom.
          *
-         * @private
-         * @param {String} interactionType - Type of interaction
+         * @public
          */
-        private function handleInteraction(interactionType:String):void {
-            MultiPulsator.emit(new Impulse("ATOM_INTERACTION", {
-                atom: _atom,
-                interactionType: interactionType,
-                view: this
-            }));
+        public function updateVisuals():void {
+            if (!_definition) {
+                drawFallback();
+                return;
+            }
+
+            var visualConfig:Object = getVisualConfig();
+            if (_viewConfig) {
+                visualConfig = mergeConfig(visualConfig, _viewConfig);
+            }
+
+            this.graphics.clear();
+
+            trace("Updating visuals for " + _atom.type + ", isOn: " + _atom.data.isOn);
+
+            // If configuration has draw function, use it
+            if (visualConfig.draw is Function) {
+                try {
+                    visualConfig.draw(this.graphics, _atom, visualConfig);
+                    trace("Custom draw function executed for " + _atom.type);
+                } catch (error:Error) {
+                    trace("Error in custom draw function for " + _atom.type + ": " + error.message);
+                    drawDefault(this.graphics, visualConfig);
+                }
+            } else {
+                drawDefault(this.graphics, visualConfig);
+                trace("Default draw function executed for " + _atom.type);
+            }
+
+            updateLabel(visualConfig);
+            updatePins(visualConfig);
         }
-
-		/**
-		 * Updates all visual elements of the atom.
-		 *
-		 * @public
-		 */
-		public function updateVisuals():void {
-			if (!_definition) {
-				drawFallback();
-				return;
-			}
-
-			var visualConfig:Object = getVisualConfig();
-			if (_viewConfig) {
-				visualConfig = mergeConfig(visualConfig, _viewConfig);
-			}
-
-			this.graphics.clear();
-
-			trace("Updating visuals for " + _atom.type + ", isOn: " + _atom.data.isOn);
-
-			// Если в конфигурации есть функция draw, используем её
-			if (visualConfig.draw is Function) {
-				try {
-					visualConfig.draw(this.graphics, _atom, visualConfig);
-					trace("Custom draw function executed for " + _atom.type);
-				} catch (error:Error) {
-					trace("Error in custom draw function for " + _atom.type + ": " + error.message);
-					drawDefault(this.graphics, visualConfig);
-				}
-			} else {
-				drawDefault(this.graphics, visualConfig);
-				trace("Default draw function executed for " + _atom.type);
-			}
-
-			updateLabel(visualConfig);
-			updatePins(visualConfig);
-		}
 
         /**
          * Gets visual configuration for current window type.
@@ -412,19 +513,50 @@
          * @return {Object} Visual configuration object
          */
         private function getVisualConfig():Object {
-            if (!_definition) return getFallbackConfig();
-            
+            trace("=== GET VISUAL CONFIG ===");
+            trace("Atom type: " + _atom.type);
+            trace("Window type: " + _windowType);
+
+            if (!_definition) {
+                trace("No definition found, using fallback");
+                return getFallbackConfig();
+            }
+
+            trace("Definition has visuals: " + (_definition.visuals != null));
+
+            var config:Object = null;
+
+            // First try window-specific configuration
             if (_definition.visuals && _definition.visuals[_windowType]) {
-                return _definition.visuals[_windowType];
+                trace("Using window-specific visuals for: " + _windowType);
+                config = _definition.visuals[_windowType];
+
+                // If window-specific lacks draw function, try base
+                if (!config.draw && _definition.visuals.base) {
+                    trace("Window config lacks draw function, falling back to base");
+                    var baseConfig:Object = _definition.visuals.base;
+                    // Merge configurations, prioritizing window-specific
+                    config = mergeConfig(baseConfig, config);
+                }
             }
-            if (_definition.visuals && _definition.visuals.base) {
-                return _definition.visuals.base;
+            // If no window-specific, try base
+            else if (_definition.visuals && _definition.visuals.base) {
+                trace("Using base visuals (no window-specific)");
+                config = _definition.visuals.base;
             }
-            if (_definition.viewConfig) {
-                return _definition.viewConfig;
+            // If no visuals, try viewConfig
+            else if (_definition.viewConfig) {
+                trace("Using viewConfig");
+                config = _definition.viewConfig;
             }
-            
-            return getFallbackConfig();
+            // Fallback
+            else {
+                trace("Using fallback config");
+                config = getFallbackConfig();
+            }
+
+            trace("Final config has draw function: " + (config.draw is Function));
+            return config;
         }
 
         /**
@@ -471,16 +603,21 @@
 
         /**
          * Cleans up resources and event listeners.
+         * Enhanced to remove mouse up listener.
+         * FIXED: Ensures complete cleanup of all event listeners.
+         *
+         * @public
          */
         public function dispose():void {
             removeEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
             removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
-            
+            removeEventListener(MouseEvent.MOUSE_UP, onMouseUp); // Add removal of mouse up handler
+
             if (stage) {
                 stage.removeEventListener(MouseEvent.MOUSE_MOVE, onDrag);
                 stage.removeEventListener(MouseEvent.MOUSE_UP, onDragEnd);
             }
-            
+
             // Remove pin views
             for (var i:int = this.numChildren - 1; i >= 0; i--) {
                 if (this.getChildAt(i) is PinView) {
@@ -494,8 +631,8 @@
          *
          * @return {Atom} Associated atom model
          */
-        public function get atom():Atom { 
-            return _atom; 
+        public function get atom():Atom {
+            return _atom;
         }
     }
 }

@@ -25,7 +25,7 @@
         public var type:String;
         
         /** Dynamic data storage for atom-specific properties and state */
-        public var data:Dictionary;
+        public var data:Object;
         
         /** Collection of input pins */
         public var inputs:Vector.<Pin>;
@@ -47,7 +47,7 @@
             this.type = type;
             this.position = position.clone();
             this.name = name || type;
-            this.data = new Dictionary();
+            this.data = new Object();
             this.inputs = new Vector.<Pin>();
             this.outputs = new Vector.<Pin>();
         }
@@ -73,14 +73,22 @@
          * @param {*} value - New value for the data key
          * @return {Atom} New Atom instance with updated data
          */
-        public function setData(key:String, value:*):Atom {
-            var newAtom:Atom = new Atom(id, type, position, name);
-            newAtom.data = cloneData(this.data);
-            newAtom.data[key] = value;
-            newAtom.inputs = clonePins(this.inputs);
-            newAtom.outputs = clonePins(this.outputs);
-            return newAtom;
-        }
+		public function setData(key:String, value:*):Atom {
+			trace("=== ATOM SETDATA ===");
+			trace("Key: " + key + ", Value: " + value);
+			trace("Original data: " + JSON.stringify(this.data));
+			
+			var newAtom:Atom = new Atom(id, type, position, name);
+			newAtom.data = cloneData(this.data);
+			newAtom.data[key] = value;
+			newAtom.inputs = clonePins(this.inputs);
+			newAtom.outputs = clonePins(this.outputs);
+			
+			trace("New atom data: " + JSON.stringify(newAtom.data));
+			trace("=== END SETDATA ===");
+			
+			return newAtom;
+		}
 
         /**
          * Creates a new Atom instance with updated pin value (immutable pattern).
@@ -125,13 +133,13 @@
          * @param {Dictionary} original - Original dictionary to clone
          * @return {Dictionary} New cloned dictionary
          */
-        private function cloneData(original:Dictionary):Dictionary {
-            var cloned:Dictionary = new Dictionary();
-            for (var key:String in original) {
-                cloned[key] = original[key];
-            }
-            return cloned;
-        }
+		private function cloneData(original:Object):Object {
+			var cloned:Object = {};
+			for (var key:String in original) {
+				cloned[key] = original[key];
+			}
+			return cloned;
+		}
 
         /**
          * Creates a deep clone of a pin vector.

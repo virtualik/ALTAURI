@@ -17,8 +17,7 @@
 
     /**
      * Manages atoms in the application using the new data-driven architecture.
-     * Handles creation, deletion, and tracking of atoms and their views.
-     * Enhanced with atom deletion functionality and track cleanup.
+     * Enhanced with support for button release interactions.
      *
      * @class AtomManager
      * @public
@@ -57,7 +56,7 @@
 
         /**
          * Sets up impulse listeners for atom management.
-         * Enhanced with atom deletion and track cleanup.
+         * Enhanced with support for release interactions.
          *
          * @private
          */
@@ -74,7 +73,7 @@
 		private function onAtomVisualUpdate(impulse:Impulse):void {
 			var atomId:String = impulse.data.atomId;
 			var atomData:Object = _atoms[atomId];
-			
+
 			if (atomData) {
 				// Принудительно обновляем визуальное представление
 				atomData.view.updateVisuals();
@@ -123,8 +122,9 @@
         }
 
         /**
-         * Handles atom interaction events (clicks, presses, etc.).
-         *
+         * Handles atom interaction events (press and release).
+         * Enhanced to support release interactions.
+         * 
          * @private
          * @param {Impulse} impulse - ATOM_INTERACTION impulse
          */
@@ -138,25 +138,25 @@
 			trace("Interaction type: " + interactionType);
 
 			var definition:Object = AtomDefinitions.getAtomDefinition(atom.type);
-			
+
 			if (definition && definition.behavior) {
 				try {
 					var newAtom:Atom = atom;
-					
-					// Обработка левого клика
+
+					// Обработка нажатия
 					if (interactionType == "press" && definition.behavior.onInteraction) {
 						newAtom = definition.behavior.onInteraction(atom, interactionType);
 					}
 					
-					// Обработка правого клика  
-					else if (interactionType == "rightClick" && definition.behavior.onRightClick) {
-						newAtom = definition.behavior.onRightClick(atom);
+					// Обработка отпускания
+					else if (interactionType == "release" && definition.behavior.onRelease) {
+						newAtom = definition.behavior.onRelease(atom);
 					}
-					
+
 					// Обновляем атом в менеджере
 					if (newAtom !== atom) {
 						updateAtom(newAtom);
-						
+
 						// Эмитим изменения значений пинов
 						for each (var outputPin:Pin in newAtom.outputs) {
 							var oldPin:Pin = findPinByName(atom.outputs, outputPin.name);
@@ -171,12 +171,12 @@
 							}
 						}
 					}
-					
+
 				} catch (error:Error) {
 					trace("ERROR in atom interaction: " + error.message);
 				}
 			}
-			
+
 			trace("=== END INTERACTION ===");
 		}
 
@@ -201,7 +201,7 @@
 				var atom:Atom = atomData.atom;
 				var definition:Object = AtomDefinitions.getAtomDefinition(atom.type);
 
-				trace("Atom type: " + atom.type + ", has onInputChange: " + 
+				trace("Atom type: " + atom.type + ", has onInputChange: " +
 					  (definition && definition.behavior && definition.behavior.onInputChange));
 
 				// Для входных пинов вызываем onInputChange
@@ -216,7 +216,7 @@
 			} else {
 				trace("Atom data not found for: " + atomId);
 			}
-			
+
 			trace("=== END PIN_VALUE_CHANGED HANDLER ===");
 		}
 
@@ -229,10 +229,10 @@
         private function onAtomDeleteRequest(impulse:Impulse):void {
             var atom:Atom = impulse.data.atom;
             trace("AtomManager: Received atom delete request for: " + atom.id);
-            
+
             // Remove all tracks connected to this atom first
             removeConnectedTracks(atom);
-            
+
             // Then remove the atom
             removeAtom(atom.id);
         }
@@ -244,9 +244,9 @@
         private function removeConnectedTracks(atom:Atom):void {
             var trackManager:TrackManager = TrackManager.getInstance();
             var connectedTracks:Array = trackManager.getTracksByAtom(atom.id);
-            
+
             trace("AtomManager: Removing " + connectedTracks.length + " tracks connected to atom: " + atom.id);
-            
+
             for each (var track:Track in connectedTracks) {
                 trackManager.removeTrack(track);
             }
@@ -343,7 +343,7 @@
 		public function updateAtom(newAtom:Atom):void {
 			trace("=== ATOM MANAGER UPDATE ATOM ===");
 			trace("Updating atom: " + newAtom.id + " (" + newAtom.type + ")");
-			
+
 			if (_atoms[newAtom.id]) {
 				_atoms[newAtom.id].atom = newAtom;
 				trace("Calling view.updateAtom()");
@@ -357,7 +357,7 @@
 			} else {
 				trace("WARNING: Atom not found for update: " + newAtom.id);
 			}
-			
+
 			trace("=== END ATOM MANAGER UPDATE ===");
 		}
 
@@ -395,7 +395,6 @@
             }
             return null;
         }
-
 
         /**
          * Gets atom data by ID.
@@ -440,7 +439,7 @@
         public function getAtomDefinitionsForMenu():Array {
             var result:Array = [];
             var supportedTypes:Array = getSupportedAtomTypes();
-            
+
             for each (var atomType:String in supportedTypes) {
                 var definition:Object = AtomDefinitions.getAtomDefinition(atomType);
                 if (definition) {
@@ -451,7 +450,7 @@
                     });
                 }
             }
-            
+
             return result;
         }
 
@@ -477,6 +476,7 @@
             MultiPulsator.removeImpulse("ATOM_DELETE_REQUEST", onAtomDeleteRequest);
             MultiPulsator.removeImpulse("ATOM_INTERACTION", onAtomInteraction);
             MultiPulsator.removeImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
+            MultiPulsator.removeImpulse("ATOM_VISUAL_UPDATE", onAtomVisualUpdate);
 
             // Remove all atoms
             for (var atomId:String in _atoms) {

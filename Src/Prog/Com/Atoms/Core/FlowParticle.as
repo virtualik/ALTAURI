@@ -57,8 +57,8 @@
          */
         private function draw():void {
             this.graphics.clear();
-            this.graphics.beginFill(_color, 0.8);
-            this.graphics.drawCircle(0, 0, 3);
+            this.graphics.beginFill(_color, 1.0);
+            this.graphics.drawCircle(0, 0, 2);
             this.graphics.endFill();
         }
 

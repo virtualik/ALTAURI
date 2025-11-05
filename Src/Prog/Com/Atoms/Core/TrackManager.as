@@ -10,15 +10,16 @@
     import flash.events.MouseEvent;
 
     /**
-     * Централизованный менеджер для создания, управления жизненным циклом треков и вычисления позиций пинов.
-     * Обрабатывает все операции, связанные с треками, включая позиционирование пинов, обнаружение атомов
-     * и валидацию соединений с использованием прямых подписок pin-to-pin для оптимальной производительности.
+     * Centralized manager for creating, managing track lifecycle and calculating pin positions.
+     * Handles all track-related operations including pin positioning, atom detection
+     * and connection validation using direct pin-to-pin subscriptions for optimal performance.
      *
-     * Ключевые улучшения:
-     * - Добавлена проверка существующих соединений
-     * - Улучшена обработка импульсов с подробным логированием
-     * - Оптимизирован поиск пинов в радиусе
-     * - Расширена отладочная информация
+     * Key improvements:
+     * - Added existing connection validation
+     * - Enhanced impulse handling with detailed logging
+     * - Optimized radius-based pin search
+     * - Extended debug information
+     * - FIXED: Temporary track cleanup issues
      *
      * @class TrackManager
      * @public
@@ -65,7 +66,7 @@
 
         /**
          * Gets the currently dragging pin for external access.
-         * Используется PinView для валидации соединений.
+         * Used by PinView for connection validation.
          *
          * @public
          * @return {Pin} Currently dragging pin or null
@@ -91,7 +92,7 @@
 
         /**
          * Checks if a connection between pins already exists in active tracks.
-         * Предотвращает создание дублирующих соединений.
+         * Prevents creation of duplicate connections.
          *
          * @public
          * @param {Pin} fromPin - Source pin
@@ -118,103 +119,104 @@
          * @param {Pin} toPin - Target pin (must be input)
          * @return {Boolean} True if connection is valid and allowed
          */
-		private function isValidConnection(fromPin:Pin, toPin:Pin):Boolean {
-			if (!fromPin || !toPin) {
-				trace("Invalid: one or both pins are null");
-				return false;
-			}
+        private function isValidConnection(fromPin:Pin, toPin:Pin):Boolean {
+            if (!fromPin || !toPin) {
+                trace("Invalid: one or both pins are null");
+                return false;
+            }
 
-			// Запрещаем соединение с самим собой
-			if (fromPin === toPin) {
-				trace("Invalid: cannot connect to self");
-				return false;
-			}
+            // Prevent self-connection
+            if (fromPin === toPin) {
+                trace("Invalid: cannot connect to self");
+                return false;
+            }
 
-			// Проверяем соответствие типов: выход → вход
-			var validTypes:Boolean = (fromPin.type == Pin.TYPE_OUTPUT && toPin.type == Pin.TYPE_INPUT);
-			if (!validTypes) {
-				trace("Invalid pin types: " + fromPin.type + " -> " + toPin.type);
-				return false;
-			}
+            // Check type compatibility: output → input
+            var validTypes:Boolean = (fromPin.type == Pin.TYPE_OUTPUT && toPin.type == Pin.TYPE_INPUT);
+            if (!validTypes) {
+                trace("Invalid pin types: " + fromPin.type + " -> " + toPin.type);
+                return false;
+            }
 
-			// Получаем атомы для проверки принадлежности
-			var fromAtom:Atom = getAtomByPin(fromPin);
-			var toAtom:Atom = getAtomByPin(toPin);
+            // Get atoms for ownership validation
+            var fromAtom:Atom = getAtomByPin(fromPin);
+            var toAtom:Atom = getAtomByPin(toPin);
 
-			if (!fromAtom || !toAtom) {
-				trace("Invalid: could not find atoms for pins");
-				return false;
-			}
+            if (!fromAtom || !toAtom) {
+                trace("Invalid: could not find atoms for pins");
+                return false;
+            }
 
-			// Запрещаем соединение пинов одного атома
-			if (fromAtom.id == toAtom.id) {
-				trace("Invalid: cannot connect pins of the same atom");
-				return false;
-			}
+            // Prevent connection of pins from same atom
+            if (fromAtom.id == toAtom.id) {
+                trace("Invalid: cannot connect pins of the same atom");
+                return false;
+            }
 
-			// УБРАТЬ ПРОВЕРКУ СУЩЕСТВУЮЩИХ СОЕДИНЕНИЙ - разрешаем переподключение
-			// var connectionExists:Boolean = trackManager.connectionExists(fromPin, toPin);
-			// if (connectionExists) {
-			//     trace("Invalid: connection already exists");
-			//     return false;
-			// }
-
-			trace("Connection VALID: " + fromAtom.type + "." + fromPin.name +
-				  " -> " + toAtom.type + "." + toPin.name);
-			return true;
-		}
+            // REMOVED EXISTING CONNECTIONS CHECK - allow reconnection
+            trace("Connection VALID: " + fromAtom.type + "." + fromPin.name +
+                  " -> " + toAtom.type + "." + toPin.name);
+            return true;
+        }
 
         // =========================================================================
         // PIN SEARCH AND VALIDATION METHODS
         // =========================================================================
 
         /**
-         * Finds pins within a specified radius of mouse position for connection targeting.
-         * Uses spatial search to locate the closest valid pin for connection.
-         * Улучшенная версия с проверкой расстояния и приоритетом ближайшего пина.
+         * Finds pins within specified radius of mouse position for connection targeting.
+         * Uses spatial search to locate closest valid pin for connection.
+         * FIXED: Increased default radius and improved targeting.
          *
          * @private
          * @param {Number} stageX - Mouse X coordinate in stage space
          * @param {Number} stageY - Mouse Y coordinate in stage space
-         * @param {Number} radius - Search radius in pixels (default: 20)
+         * @param {Number} radius - Search radius in pixels (default: 50)
          * @return {Pin} Closest valid pin within radius, or null if none found
          */
-        private function findPinInRadius(stageX:Number, stageY:Number, radius:Number = 20):Pin {
-            var allPins:Array = getAllPinsInWindow();
-            var mousePos:Point = new Point(stageX, stageY);
-            var closestPin:Pin = null;
-            var minDistance:Number = Number.MAX_VALUE;
+/*        private function findPinInRadius(stageX:Number, stageY:Number, radius:Number = 30):Pin {
+            try {
+                var allPins:Array = getAllPinsInWindow();
+                var mousePos:Point = new Point(stageX, stageY);
+                var closestPin:Pin = null;
+                var minDistance:Number = Number.MAX_VALUE;
 
-            trace("=== RADIUS PIN SEARCH ===");
-            trace("Search center: " + stageX + ", " + stageY);
-            trace("Search radius: " + radius);
-            trace("Total pins in window: " + allPins.length);
+                trace("=== RADIUS PIN SEARCH ===");
+                trace("Search center: " + stageX + ", " + stageY);
+                trace("Search radius: " + radius);
+                trace("Total pins in window: " + allPins.length);
 
-            for each (var pin:Pin in allPins) {
-                var pinPos:Point = getGlobalPinPosition(pin);
-                var distance:Number = Point.distance(mousePos, pinPos);
+                for each (var pin:Pin in allPins) {
+                    if (!pin) continue;
+                    
+                    var pinPos:Point = getGlobalPinPosition(pin);
+                    var distance:Number = Point.distance(mousePos, pinPos);
 
-                trace("Checking pin: " + pin.name + " at distance " + distance.toFixed(2));
+                    trace("Checking pin: " + pin.name + " at distance " + distance.toFixed(2));
 
-                if (distance <= radius && distance < minDistance && pin != _currentDragPin) {
-                    if (isValidConnection(_currentDragPin, pin)) {
-                        closestPin = pin;
-                        minDistance = distance;
-                        trace("New closest valid pin: " + pin.name + " at " + distance.toFixed(2));
-                    } else {
-                        trace("Invalid connection for pin: " + pin.name);
+                    if (distance <= radius && distance < minDistance && pin != _currentDragPin) {
+                        if (isValidConnection(_currentDragPin, pin)) {
+                            closestPin = pin;
+                            minDistance = distance;
+                            trace("New closest valid pin: " + pin.name + " at " + distance.toFixed(2));
+                        } else {
+                            trace("Invalid connection for pin: " + pin.name);
+                        }
                     }
                 }
+
+                trace("Radius search result: " + (closestPin ? closestPin.name : "null"));
+                trace("=== END RADIUS SEARCH ===");
+
+            } catch (error:Error) {
+                trace("ERROR in findPinInRadius: " + error.message);
+                return null;
             }
-
-            trace("Radius search result: " + (closestPin ? closestPin.name : "null"));
-            trace("=== END RADIUS SEARCH ===");
-
-            return closestPin;
-        }
+			return closestPin;
+        }*/
 
         /**
-         * Gets all pins in the current window context for connection searching.
+         * Gets all pins in current window context for connection searching.
          *
          * @private
          * @return {Array} Array of all pins in current window
@@ -256,7 +258,7 @@
         /**
          * Sets up all impulse listeners for track management system.
          * Handles pin dragging, atom movement, window events, and track commands.
-         * Добавлено подробное логирование для отладки.
+         * Added detailed logging for debugging.
          *
          * @private
          */
@@ -276,6 +278,9 @@
             // Track management commands
             MultiPulsator.subscribeToImpulse("TRACK_DELETE_REQUEST", onTrackDeleteRequest);
 
+            // ADDED: Force cleanup impulse for window deactivation
+            MultiPulsator.subscribeToImpulse("FORCE_CLEANUP_TEMP_TRACK", onForceCleanup);
+
             trace("TrackManager: Impulse listeners setup complete");
         }
 
@@ -286,12 +291,19 @@
         /**
          * Handles pin drag start impulse for connection creation.
          * Initializes temporary track visualization and stores drag context.
-         * Добавлено логирование для отладки процесса перетаскивания.
+         * ADDED: Previous state cleanup to prevent conflicts.
          *
          * @private
          * @param {Impulse} impulse - PIN_DRAG_START impulse with pin and position data
          */
         private function onPinDragStart(impulse:Impulse):void {
+            // ADDED: Clean up previous state before starting new drag operation
+            if (_currentDragPin) {
+                trace("WARNING: Previous drag operation not cleaned up properly. Forcing cleanup.");
+                cleanupTempTrack();
+                _currentDragPin = null;
+            }
+
             _currentDragPin = impulse.data.pin;
             _currentWindow = findWindowByType(impulse.data.windowType);
 
@@ -323,68 +335,105 @@
         /**
          * Handles pin drag end impulse for finalizing connections.
          * Validates and creates permanent tracks or cleans up temporary state.
-         * Улучшенная логика с резервным поиском по радиусу.
+         * Enhanced logic with fallback radius search.
          *
          * @private
          * @param {Impulse} impulse - PIN_DRAG_END impulse with end position and target pin
          */
-		private function onPinDragEnd(impulse:Impulse):void {
-			trace("=== PIN DRAG END PROCESSING ===");
-
+		 private function onPinDragEnd(impulse:Impulse):void {
+			trace("=== TRACK MANAGER PIN_DRAG_END ===");
+			trace("Impulse data: " + JSON.stringify(impulse.data));
+			
 			if (!_currentDragPin) {
-				trace("WARNING: No current drag pin on drag end");
-				cleanupTempTrack();
+				trace("ERROR: No current drag pin!");
 				return;
 			}
-
-			var fromPin:Pin = _currentDragPin;
-			var toPin:Pin = impulse.data.toPin;
-
-			trace("From pin: " + fromPin.name);
-			trace("Direct target pin: " + (toPin ? toPin.name : "null"));
-
-			// Если прямой целевой пин не предоставлен, выполняем поиск по радиусу
-			if (!toPin) {
-				trace("No direct target, performing radius search...");
-				toPin = findPinInRadius(impulse.data.endX, impulse.data.endY, 25);
-				trace("Radius search result: " + (toPin ? toPin.name : "null"));
-			}
-
-			cleanupTempTrack();
-
-			// Создаем трек если соединение валидно
-			if (toPin && isValidConnection(fromPin, toPin)) {
-				// ПЕРЕД СОЗДАНИЕМ НОВОГО СОЕДИНЕНИЯ УДАЛЯЕМ СТАРЫЕ
-				removeExistingConnections(toPin);
-				
-				trace("Creating track: " + fromPin.name + " -> " + toPin.name);
-				createTrack(fromPin, toPin);
-			} else {
-				trace("Track creation skipped - invalid connection");
-			}
-
-			_currentDragPin = null;
-			trace("=== PIN DRAG END COMPLETE ===");
-		}
-
-		// Новый метод для удаления существующих соединений с целевым пином
-		private function removeExistingConnections(toPin:Pin):void {
-			var tracksToRemove:Array = [];
 			
-			// Ищем все треки, подключенные к целевому пину
-			for each (var track:Track in _activeTracks) {
-				if (track.toPin === toPin) {
-					tracksToRemove.push(track);
-					trace("Found existing track to remove: " + track.connectionId);
-				}
-			}
-			
-			// Удаляем найденные треки
-			for each (var trackToRemove:Track in tracksToRemove) {
-				removeTrack(trackToRemove);
-				trace("Removed existing track: " + trackToRemove.connectionId);
-			}
-		}
+
+           trace("=== PIN DRAG END PROCESSING ===");
+
+            try {
+                var fromPin:Pin = _currentDragPin;
+                var toPin:Pin = impulse.data.toPin;
+
+                trace("From pin: " + fromPin.name);
+                trace("Direct target pin: " + (toPin ? toPin.name + " (" + toPin.type + ")" : "null"));
+
+                // If direct target pin not provided, perform radius search with INCREASED radius
+                if (!toPin) {
+                    trace("No direct target, performing radius search...");
+          //          toPin = findPinInRadius(impulse.data.endX, impulse.data.endY, 50); // INCREASED radius
+                    trace("Radius search result: " + (toPin ? toPin.name : "null"));
+                }
+
+                cleanupTempTrack();
+
+                // Create track if connection is valid
+                if (toPin && isValidConnection(fromPin, toPin)) {
+                    // BEFORE creating new connection, remove existing ones
+                    removeExistingConnections(toPin);
+
+                    trace("Creating track: " + fromPin.name + " -> " + toPin.name);
+                    createTrack(fromPin, toPin);
+                } else {
+                    trace("Track creation skipped - invalid connection");
+                    
+                    // Notify about failed connection attempt
+                    MultiPulsator.emit(new Impulse("TRACK_CONNECTION_FAILED", {
+                        fromPin: fromPin,
+                        toPin: toPin,
+                        reason: toPin ? "Invalid connection" : "No target pin found"
+                    }));
+                }
+
+                _currentDragPin = null;
+                trace("=== PIN DRAG END COMPLETE ===");
+            } catch (error:Error) {
+                trace("ERROR in onPinDragEnd: " + error.message);
+                cleanupTempTrack();
+                _currentDragPin = null;
+                
+                MultiPulsator.emit(new Impulse("TRACK_CREATION_ERROR", {
+                    error: "Drag end processing failed: " + error.message
+                }));
+            }
+        }
+
+        /**
+         * Removes existing connections to target pin.
+         *
+         * @private
+         * @param {Pin} toPin - Target pin to remove connections from
+         */
+        private function removeExistingConnections(toPin:Pin):void {
+            var tracksToRemove:Array = [];
+
+            // Find all tracks connected to target pin
+            for each (var track:Track in _activeTracks) {
+                if (track.toPin === toPin) {
+                    tracksToRemove.push(track);
+                    trace("Found existing track to remove: " + track.connectionId);
+                }
+            }
+
+            // Remove found tracks
+            for each (var trackToRemove:Track in tracksToRemove) {
+                removeTrack(trackToRemove);
+                trace("Removed existing track: " + trackToRemove.connectionId);
+            }
+        }
+
+        /**
+         * Handles force cleanup impulse for emergency state reset.
+         * ADDED: Ensures clean state on window deactivation or system errors.
+         *
+         * @private
+         * @param {Impulse} impulse - FORCE_CLEANUP_TEMP_TRACK impulse
+         */
+        private function onForceCleanup(impulse:Impulse):void {
+            trace("TrackManager: Received force cleanup request");
+            forceCleanup();
+        }
 
         /**
          * Handles atom movement to update connected track visualizations.
@@ -458,7 +507,7 @@
         /**
          * Creates a new track between pins with validation and proper setup.
          * Establishes direct pin-to-pin subscription for optimal data transfer.
-         * Добавлена расширенная обработка ошибок и логирование.
+         * Added extended error handling and logging.
          *
          * @private
          * @param {Pin} fromPin - Source pin (output)
@@ -475,7 +524,7 @@
 
                 trace("Track created, connection ID: " + connectionId);
 
-                // Добавляем трек в соответствующий слой окна
+                // Add track to appropriate window layer
                 if (_currentWindow && _currentWindow.tracksLayer) {
                     _currentWindow.tracksLayer.addChild(track);
                     trace("Track added to tracksLayer");
@@ -489,9 +538,8 @@
 
                 _activeTracks[connectionId] = track;
 
-				track.drawTrack();
-
-				track.createLogicalConnection();
+                track.drawTrack();
+                track.createLogicalConnection();
 
                 trace("Track successfully created and activated");
 
@@ -592,7 +640,7 @@
         // =========================================================================
 
         /**
-         * Generates a unique connection identifier based on pin and atom information.
+         * Generates unique connection identifier based on pin and atom information.
          *
          * @private
          * @param {Pin} fromPin - Source pin
@@ -643,7 +691,7 @@
         }
 
         // =========================================================================
-        // PUBLIC API (остальные методы остаются без изменений)
+        // PUBLIC API
         // =========================================================================
 
         /**
@@ -666,6 +714,23 @@
                     connectionId: connectionId
                 }));
             }
+        }
+
+        /**
+         * ADDED: Force cleanup of all temporary state.
+         * Emergency method to reset track manager state.
+         *
+         * @public
+         */
+        public function forceCleanup():void {
+            trace("TrackManager: FORCING cleanup of all temporary state");
+            cleanupTempTrack();
+            _currentDragPin = null;
+            
+            // Emit cleanup completion
+            MultiPulsator.emit(new Impulse("TEMP_TRACK_CLEANUP_COMPLETE", {
+                timestamp: new Date().getTime()
+            }));
         }
 
         /**
@@ -745,7 +810,7 @@
         }
 
         // =========================================================================
-        // PIN POSITION CALCULATION METHODS (остаются без изменений)
+        // PIN POSITION CALCULATION METHODS
         // =========================================================================
 
         /**
@@ -893,6 +958,7 @@
             MultiPulsator.removeImpulse("WINDOW_ACTIVATED", onWindowActivated);
             MultiPulsator.removeImpulse("WINDOW_CLOSING", onWindowClosing);
             MultiPulsator.removeImpulse("TRACK_DELETE_REQUEST", onTrackDeleteRequest);
+            MultiPulsator.removeImpulse("FORCE_CLEANUP_TEMP_TRACK", onForceCleanup);
 
             // Dispose all active tracks
             var trackCount:int = 0;
