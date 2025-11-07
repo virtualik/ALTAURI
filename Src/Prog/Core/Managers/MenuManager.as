@@ -105,7 +105,7 @@
             trace("MenuManager: Window right click received");
             var globalPos:Point = impulse.data.globalPosition;
             var localPos:Point = impulse.data.localPosition;
-            var window:Window = impulse.data.window;
+            var window:Window = findWindowByType(impulse.data.windowType);
 
             if (window) {
                 closeCurrentMenu();
@@ -325,7 +325,7 @@
             }
         }
 
-        /**
+		/**
          * Checks if a context menu is currently open and visible.
          * Used for input event processing to prevent interference.
          * 
@@ -334,6 +334,22 @@
          */
         public function isMenuOpen():Boolean {
             return _currentMenu != null;
+        }
+
+		// =========================================================================
+        // API METHODS
+        // =========================================================================
+
+        /**
+         * Finds a window by type using WindowsManager.
+         *
+         * @private
+         * @param {String} windowType - Type of window to find
+         * @return {Window} Found window or null
+         */
+        private function findWindowByType(windowType:String):Window {
+            var windowsManager:WindowsManager = WindowsManager.getInstance();
+            return windowsManager ? windowsManager.findWindow(windowType) : null;
         }
 
         // =========================================================================

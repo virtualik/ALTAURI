@@ -82,6 +82,8 @@
          * @return Window - Found window or null
          */
         public function findWindow(type:String):Window {
+			if (type == null) return null;
+    
             switch(type.toLowerCase()) {
                 case "editor": return editorWindow;
                 case "device": return deviceWindow;

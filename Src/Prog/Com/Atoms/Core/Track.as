@@ -65,7 +65,7 @@
             _trackManager = trackManager;
             _connectionId = generateConnectionId();
 
-            setupPinSubscription();
+          //  setupPinSubscription();
             setupEventListeners();
             drawTrack();
         }
@@ -76,12 +76,12 @@
          *
          * @private
          */
-		private function setupPinSubscription():void {
-			trace("Track setting up impulse subscription for: " + _connectionId);
-			
-			// Подписываемся на импульсы от исходного пина
-			MultiPulsator.subscribeToImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
-		}
+		//private function setupPinSubscription():void {
+		//	trace("Track setting up impulse subscription for: " + _connectionId);
+		//	
+		//	// Подписываемся на импульсы от исходного пина
+		//	MultiPulsator.subscribeToImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
+		//}
 
         /**
          * Sets up impulse event listeners for system coordination.

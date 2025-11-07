@@ -215,6 +215,440 @@
             });
 
             // Logic Atoms
+			registerAtomType("AND", {
+				displayName: "AND Gate",
+				category: "Logic",
+				description: "Logical AND gate - output is TRUE only when both inputs are TRUE",
+				pins: [
+					{name: "input1", type: "input", dataType: "boolean", description: "First input signal"},
+					{name: "input2", type: "input", dataType: "boolean", description: "Second input signal"},
+					{name: "output", type: "output", dataType: "boolean", description: "Output signal (input1 AND input2)"}
+				],
+				behavior: {
+					onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
+						trace("=== AND GATE INPUT CHANGE ===");
+						trace("Pin: " + pinName + ", Value: " + value);
+						
+						// Обновляем значение входящего пина в данных атома
+						var newAtom:Atom = atom.setData(pinName, Boolean(value));
+						
+						// Получаем текущие значения обоих входов
+						var input1:Boolean = newAtom.data.input1 === true;
+						var input2:Boolean = newAtom.data.input2 === true;
+						
+						trace("Input1: " + input1 + ", Input2: " + input2);
+						
+						// Вычисляем результат AND
+						var result:Boolean = input1 && input2;
+						trace("AND Result: " + result);
+						
+						// Создаем атом с обновленным выходным значением
+						var finalAtom:Atom = newAtom.setPinValue("output", result, false);
+						
+						// Эмитим импульс об изменении выходного значения
+						MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+							atomId: finalAtom.id,
+							pinName: "output",
+							newValue: result,
+							oldValue: atom.outputs[0] ? atom.outputs[0].value : false,
+							source: "and_gate"
+						}));
+						
+						trace("=== END AND GATE ===");
+						return finalAtom;
+					},
+					
+					// Инициализация - устанавливаем начальные значения
+					initialize: function(atom:Atom):Atom {
+						trace("AND Gate initialized");
+						// Инициализируем данные входов как false, если они не установлены
+						var newAtom:Atom = atom;
+						if (!atom.hasValue("input1")) {
+							newAtom = newAtom.setData("input1", false);
+						}
+						if (!atom.hasValue("input2")) {
+							newAtom = newAtom.setData("input2", false);
+						}
+						// Устанавливаем начальное выходное значение
+						newAtom = newAtom.setPinValue("output", false, false);
+						return newAtom;
+					}
+				},
+				viewConfig: {
+					width: 70,
+					height: 50,
+					backgroundColor: 0x6666CC
+				},
+				visuals: {
+					base: {
+						width: 70,
+						height: 50,
+						color: 0x6666CC,
+						textColor: 0xFFFFFF,
+						cornerRadius: 5,
+					draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+						var width:Number = config.width || 70;
+						var height:Number = config.height || 50;
+						
+						graphics.clear();
+						
+						// Заливка
+						graphics.beginFill(config.color || 0x6666CC);
+						graphics.drawRoundRect(0, 0, width, height, 10, 10);
+						graphics.endFill();
+						
+						// Обводка
+						graphics.lineStyle(2, 0xFFFFFF);
+						graphics.drawRoundRect(2, 2, width-4, height-4, 8, 8);
+						
+						// Текст "AND"
+						graphics.lineStyle(1, 0xFFFFFF);
+						graphics.moveTo(width * 0.3, height * 0.4);
+						graphics.lineTo(width * 0.7, height * 0.4);
+					}
+					},
+					Editor: {
+						// Можно добавить специфичные настройки для редактора
+					},
+					Device: {
+						// Можно добавить псевдо-реалистичный вид для устройства
+					}
+				}
+			});
+			registerAtomType("OR", {
+				displayName: "OR Gate",
+				category: "Logic",
+				description: "Logical OR gate - output is TRUE when at least one input is TRUE",
+				pins: [
+					{name: "input1", type: "input", dataType: "boolean", description: "First input signal"},
+					{name: "input2", type: "input", dataType: "boolean", description: "Second input signal"},
+					{name: "output", type: "output", dataType: "boolean", description: "Output signal (input1 OR input2)"}
+				],
+				behavior: {
+					onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
+						trace("=== OR GATE INPUT CHANGE ===");
+						trace("Pin: " + pinName + ", Value: " + value);
+						
+						// Обновляем значение входящего пина в данных атома
+						var newAtom:Atom = atom.setData(pinName, Boolean(value));
+						
+						// Получаем текущие значения обоих входов
+						var input1:Boolean = newAtom.data.input1 === true;
+						var input2:Boolean = newAtom.data.input2 === true;
+						
+						trace("Input1: " + input1 + ", Input2: " + input2);
+						
+						// Вычисляем результат OR
+						var result:Boolean = input1 || input2;
+						trace("OR Result: " + result);
+						
+						// Создаем атом с обновленным выходным значением
+						var finalAtom:Atom = newAtom.setPinValue("output", result, false);
+						
+						// Эмитим импульс об изменении выходного значения
+						MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+							atomId: finalAtom.id,
+							pinName: "output",
+							newValue: result,
+							oldValue: atom.outputs[0] ? atom.outputs[0].value : false,
+							source: "or_gate"
+						}));
+						
+						trace("=== END OR GATE ===");
+						return finalAtom;
+					},
+					
+					// Инициализация - устанавливаем начальные значения
+					initialize: function(atom:Atom):Atom {
+						trace("OR Gate initialized");
+						// Инициализируем данные входов как false, если они не установлены
+						var newAtom:Atom = atom;
+						if (!atom.hasValue("input1")) {
+							newAtom = newAtom.setData("input1", false);
+						}
+						if (!atom.hasValue("input2")) {
+							newAtom = newAtom.setData("input2", false);
+						}
+						// Устанавливаем начальное выходное значение
+						newAtom = newAtom.setPinValue("output", false, false);
+						return newAtom;
+					}
+				},
+				viewConfig: {
+					width: 70,
+					height: 50,
+					backgroundColor: 0xCC6666
+				},
+				visuals: {
+					base: {
+						width: 70,
+						height: 50,
+						color: 0xCC6666,
+						textColor: 0xFFFFFF,
+						cornerRadius: 5,
+						draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+							var width:Number = config.width || 70;
+							var height:Number = config.height || 50;
+							
+							graphics.clear();
+							
+							// Заливка
+							graphics.beginFill(config.color || 0xCC6666);
+							graphics.drawRoundRect(0, 0, width, height, 10, 10);
+							graphics.endFill();
+							
+							// Обводка
+							graphics.lineStyle(2, 0xFFFFFF);
+							graphics.drawRoundRect(2, 2, width-4, height-4, 8, 8);
+							
+							// Символ OR - изогнутая линия с входными точками
+							graphics.lineStyle(2, 0xFFFFFF);
+							
+							// Левый вход 1
+							graphics.moveTo(0, height * 0.3);
+							graphics.lineTo(width * 0.3, height * 0.3);
+							
+							// Левый вход 2
+							graphics.moveTo(0, height * 0.7);
+							graphics.lineTo(width * 0.3, height * 0.7);
+							
+							// Изогнутая линия символа OR
+							graphics.moveTo(width * 0.3, height * 0.3);
+							graphics.curveTo(width * 0.5, height * 0.5, width * 0.3, height * 0.7);
+							
+							// Выходная линия
+							graphics.moveTo(width * 0.7, height * 0.5);
+							graphics.lineTo(width, height * 0.5);
+						}
+					},
+					Editor: {
+						// Специфичные настройки для редактора
+					},
+					Device: {
+						// Псевдо-реалистичный вид для устройства
+					}
+				}
+			});
+			registerAtomType("NOT", {
+				displayName: "NOT Gate",
+				category: "Logic",
+				description: "Logical NOT gate (inverter) - output is the opposite of input",
+				pins: [
+					{name: "input", type: "input", dataType: "boolean", description: "Input signal"},
+					{name: "output", type: "output", dataType: "boolean", description: "Output signal (inverse of input)"}
+				],
+				behavior: {
+					onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
+						trace("=== NOT GATE INPUT CHANGE ===");
+						trace("Pin: " + pinName + ", Value: " + value);
+						
+						// Получаем текущее значение входа
+						var inputValue:Boolean = Boolean(value);
+						trace("Input: " + inputValue);
+						
+						// Вычисляем результат NOT (инверсия)
+						var result:Boolean = !inputValue;
+						trace("NOT Result: " + result);
+						
+						// Создаем атом с обновленным выходным значением
+						var newAtom:Atom = atom.setPinValue("output", result, false);
+						
+						// Эмитим импульс об изменении выходного значения
+						MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+							atomId: newAtom.id,
+							pinName: "output",
+							newValue: result,
+							oldValue: atom.outputs[0] ? atom.outputs[0].value : false,
+							source: "not_gate"
+						}));
+						
+						trace("=== END NOT GATE ===");
+						return newAtom;
+					},
+					
+					// Инициализация - устанавливаем начальные значения
+					initialize: function(atom:Atom):Atom {
+						trace("NOT Gate initialized");
+						// Устанавливаем начальное выходное значение (инверсия от false = true)
+						return atom.setPinValue("output", true, false);
+					}
+				},
+				viewConfig: {
+					width: 60,
+					height: 40,
+					backgroundColor: 0x66CC66
+				},
+				visuals: {
+					base: {
+						width: 60,
+						height: 40,
+						color: 0x66CC66,
+						textColor: 0xFFFFFF,
+						cornerRadius: 5,
+						draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+							var width:Number = config.width || 60;
+							var height:Number = config.height || 40;
+							
+							graphics.clear();
+							
+							// Заливка
+							graphics.beginFill(config.color || 0x66CC66);
+							graphics.drawRoundRect(0, 0, width, height, 10, 10);
+							graphics.endFill();
+							
+							// Обводка
+							graphics.lineStyle(2, 0xFFFFFF);
+							graphics.drawRoundRect(2, 2, width-4, height-4, 8, 8);
+							
+							// Символ NOT - треугольник с кружком на выходе
+							graphics.lineStyle(2, 0xFFFFFF);
+							
+							// Входная линия
+							graphics.moveTo(0, height * 0.5);
+							graphics.lineTo(width * 0.3, height * 0.5);
+							
+							// Треугольник (основной символ инвертора)
+							graphics.moveTo(width * 0.3, height * 0.2);
+							graphics.lineTo(width * 0.7, height * 0.5);
+							graphics.lineTo(width * 0.3, height * 0.8);
+							graphics.lineTo(width * 0.3, height * 0.2);
+							
+							// Кружок инверсии на выходе
+							graphics.drawCircle(width * 0.8, height * 0.5, 3);
+							
+							// Выходная линия после кружка
+							graphics.moveTo(width * 0.83, height * 0.5);
+							graphics.lineTo(width, height * 0.5);
+						}
+					},
+					Editor: {
+						// Специфичные настройки для редактора
+					},
+					Device: {
+						// Псевдо-реалистичный вид для устройства
+					}
+				}
+			});
+			registerAtomType("NAND", {
+				displayName: "NAND Gate",
+				category: "Logic",
+				description: "Logical NAND gate - output is FALSE only when both inputs are TRUE",
+				pins: [
+					{name: "input1", type: "input", dataType: "boolean", description: "First input signal"},
+					{name: "input2", type: "input", dataType: "boolean", description: "Second input signal"},
+					{name: "output", type: "output", dataType: "boolean", description: "Output signal (NOT (input1 AND input2))"}
+				],
+				behavior: {
+					onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
+						trace("=== NAND GATE INPUT CHANGE ===");
+						trace("Pin: " + pinName + ", Value: " + value);
+						
+						// Обновляем значение входящего пина в данных атома
+						var newAtom:Atom = atom.setData(pinName, Boolean(value));
+						
+						// Получаем текущие значения обоих входов
+						var input1:Boolean = newAtom.data.input1 === true;
+						var input2:Boolean = newAtom.data.input2 === true;
+						
+						trace("Input1: " + input1 + ", Input2: " + input2);
+						
+						// Вычисляем результат NAND (NOT AND)
+						var result:Boolean = !(input1 && input2);
+						trace("NAND Result: " + result);
+						
+						// Создаем атом с обновленным выходным значением
+						var finalAtom:Atom = newAtom.setPinValue("output", result, false);
+						
+						// Эмитим импульс об изменении выходного значения
+						MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+							atomId: finalAtom.id,
+							pinName: "output",
+							newValue: result,
+							oldValue: atom.outputs[0] ? atom.outputs[0].value : false,
+							source: "nand_gate"
+						}));
+						
+						trace("=== END NAND GATE ===");
+						return finalAtom;
+					},
+					
+					// Инициализация - устанавливаем начальные значения
+					initialize: function(atom:Atom):Atom {
+						trace("NAND Gate initialized");
+						// Инициализируем данные входов как false, если они не установлены
+						var newAtom:Atom = atom;
+						if (!atom.hasValue("input1")) {
+							newAtom = newAtom.setData("input1", false);
+						}
+						if (!atom.hasValue("input2")) {
+							newAtom = newAtom.setData("input2", false);
+						}
+						// Устанавливаем начальное выходное значение (NAND от false,false = true)
+						newAtom = newAtom.setPinValue("output", true, false);
+						return newAtom;
+					}
+				},
+				viewConfig: {
+					width: 70,
+					height: 50,
+					backgroundColor: 0xCC66CC
+				},
+				visuals: {
+					base: {
+						width: 70,
+						height: 50,
+						color: 0xCC66CC,
+						textColor: 0xFFFFFF,
+						cornerRadius: 5,
+						draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+							var width:Number = config.width || 70;
+							var height:Number = config.height || 50;
+							
+							graphics.clear();
+							
+							// Заливка
+							graphics.beginFill(config.color || 0xCC66CC);
+							graphics.drawRoundRect(0, 0, width, height, 10, 10);
+							graphics.endFill();
+							
+							// Обводка
+							graphics.lineStyle(2, 0xFFFFFF);
+							graphics.drawRoundRect(2, 2, width-4, height-4, 8, 8);
+							
+							// Символ NAND - комбинация AND и NOT
+							graphics.lineStyle(2, 0xFFFFFF);
+							
+							// Левый вход 1
+							graphics.moveTo(0, height * 0.3);
+							graphics.lineTo(width * 0.2, height * 0.3);
+							
+							// Левый вход 2
+							graphics.moveTo(0, height * 0.7);
+							graphics.lineTo(width * 0.2, height * 0.7);
+							
+							// Основной прямоугольник AND
+							graphics.moveTo(width * 0.2, height * 0.2);
+							graphics.lineTo(width * 0.6, height * 0.2);
+							graphics.lineTo(width * 0.6, height * 0.8);
+							graphics.lineTo(width * 0.2, height * 0.8);
+							graphics.lineTo(width * 0.2, height * 0.2);
+							
+							// Кружок инверсии на выходе
+							graphics.drawCircle(width * 0.7, height * 0.5, 3);
+							
+							// Выходная линия после кружка
+							graphics.moveTo(width * 0.73, height * 0.5);
+							graphics.lineTo(width, height * 0.5);
+						}
+					},
+					Editor: {
+						// Специфичные настройки для редактора
+					},
+					Device: {
+						// Псевдо-реалистичный вид для устройства
+					}
+				}
+			});
             registerAtomType("Counter", {
                 displayName: "Counter",
                 category: "Logic", 

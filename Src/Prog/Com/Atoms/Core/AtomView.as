@@ -13,6 +13,7 @@
     import Src.Prog.Com.Atoms.Core.Pin;
     import Src.Prog.Com.Atoms.Data.AtomDefinitions;
     import flash.display.DisplayObject;
+    import flash.filters.GlowFilter;
 
     /**
      * Universal view class that renders any atom type based on its data definition.
@@ -69,8 +70,18 @@
             // Initial position from atom model
             this.x = _atom.position.x;
             this.y = _atom.position.y;
+			MultiPulsator.subscribeToImpulse("WINDOW_LEFT_RELEASE", handle_release_outside);
         }
 
+		private function handle_release_outside(impulse: Impulse):void {
+			// If button was pressed, handle release
+				trace("-=[i]=- release outside Impulse received in AtomView")
+			if (_isPressed) {
+				 _isPressed = false;
+				handleInteraction("release");
+			}
+		}
+	
         /**
          * Sets up the view with event listeners and basic styling.
          * Enhanced with mouse release handling for buttons.
@@ -323,6 +334,7 @@
 
             var definition:Object = AtomDefinitions.getAtomDefinition(_atom.type);
 
+
             if (definition && definition.behavior) {
                 try {
                     var newAtom:Atom = _atom;
@@ -336,6 +348,7 @@
                     else if (interactionType == "release" && definition.behavior.onRelease) {
                         newAtom = definition.behavior.onRelease(_atom);
                     }
+				
 
                     // Update atom in manager
                     if (newAtom !== _atom) {
@@ -474,6 +487,12 @@
          * @public
          */
         public function updateVisuals():void {
+			// Добавить визуальную индикацию состояния нажатия
+			if (_isPressed) {
+				this.filters = [new GlowFilter(0xFFFFFF, 0.8, 1, 1, 2, 3)];
+			} else {
+				this.filters = [];
+			}
             if (!_definition) {
                 drawFallback();
                 return;

@@ -82,7 +82,7 @@
          */
         private function onMouseDown(event:MouseEvent):void {
             event.stopPropagation(); // Prevent atom processing
-            event.stopImmediatePropagation(); // Immediate stop to prevent conflicts
+           // event.stopImmediatePropagation(); // Immediate stop to prevent conflicts
 
             MultiPulsator.emit(new Impulse("PIN_DRAG_START", {
                 pin: _pin,

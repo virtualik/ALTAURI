@@ -85,8 +85,9 @@
         private var _debugEnabled:Boolean = false;
 		
         /** MOUSE_DOWN Event handler */
-		private var transformMouseDown: *; 
-		private var transformMouseUp: *; 
+		private var transformMouseUp: *;
+		private var transformMouseDown: *;
+		private var transformRightMouseDown: *;
 		
 		/** Zoom configuration constants */
         private static const ZOOM_MIN:Number = 0.09;
@@ -95,8 +96,8 @@
         
         /** Platform detection for desktop vs mobile behavior */
         private static var _isDesktop:Boolean = Capabilities.os.indexOf("Windows") >= 0 || 
-                                               Capabilities.os.indexOf("Mac") >= 0 || 
-                                               Capabilities.os.indexOf("Linux") >= 0;
+												Capabilities.os.indexOf("Mac") >= 0 || 
+												Capabilities.os.indexOf("Linux") >= 0;
 
         /**
          * Creates a new Window instance with specified type and configuration.
@@ -161,65 +162,83 @@
             addEventListener(NativeWindowDisplayStateEvent.DISPLAY_STATE_CHANGE, transformDisplayStateChange);
             
             /** Mouse input events - primary LKM and RKM handlers */
+			stage.addEventListener(MouseEvent.MOUSE_UP, 
+				function(e:MouseEvent):void {
+					transformMouseUp = this;
+				//	if (e.target is AtomView) return;
+					
+					MultiPulsator.emit(new Impulse("WINDOW_LEFT_RELEASE", {
+						windowType: _type,
+						stageX: e.stageX,
+						stageY: e.stageY
+					}));
+				}
+			);
 			stage.addEventListener(MouseEvent.MOUSE_DOWN, 
 				function(e:MouseEvent):void {
 					transformMouseDown = this;
+
+					if (e.target is AtomView || e.target is Pin || e.target is Track) {
+						return; // Компоненты обрабатывают события сами
+					}					
+					
 					// Force cleanup on any mouse down to prevent stuck temporary tracks
 					var trackManager:TrackManager = TrackManager.getInstance();
 					if (trackManager.getCurrentDragPin()) {
-						trace("WARNING: Active drag operation detected on new mouse down. Forcing cleanup.");
 						trackManager.forceCleanup();
 					}
 					var isMenu: Boolean = isMenuElement(e.target as DisplayObject);
 						if(!isMenu) {
+							// Now we'll close Menu
 							MultiPulsator.emit(new Impulse("WINDOW_LEFT_CLICK", {
 								windowType: _type,
-								window: this,
-								stageX: e.stageX,
-								stageY: e.stageY
-							}));
-							closeContextMenus();
-						}
-						var pin: Pin = getPinFromTarget(e.target as DisplayObject);
-						if(pin) {
-							MultiPulsator.emit(new Impulse("PIN_MOUSE_DOWN", { // for beginning of the Track 
-								pin: pin,
-								windowType: _type,
 								stageX: e.stageX,
 								stageY: e.stageY
 							}));
 						}
-						MultiPulsator.emit(new Impulse("WINDOW_MOUSE_DOWN", {
-							windowType: _type,
-							window: this,
-							stageX: e.stageX,
-							stageY: e.stageY
-						}));}
+				;}
 			);		
-            stage.addEventListener(MouseEvent.MOUSE_UP,
+	
+            stage.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, 
 				function(e:MouseEvent):void {
-					transformMouseUp = this;
-					var pin:Pin = getPinFromTarget(e.target as DisplayObject);
-					trace("[--TEST MOUSE_UP in Window--]")
-					if (pin) {
-						MultiPulsator.emit(new Impulse("PIN_MOUSE_UP", {
-							pin: pin,
+					transformRightMouseDown = this;
+
+					// Early exit for non-Editor windows or menu elements
+					if (_type !== "Editor" || isMenuElement(e.target as DisplayObject)) return;
+					
+					var target:DisplayObject = e.target as DisplayObject;
+					var pos:Point = new Point(e.stageX, e.stageY);
+					
+					// Target detection hierarchy: Atom → Track → Background
+					var atom:Atom = findClickedAtom(target);
+					var track:Track = findClickedTrack(target);
+					
+					if (atom) {
+						// Atom-specific context menu impulse
+						MultiPulsator.emit(new Impulse("ATOM_RIGHT_CLICK", {
+							atom: atom,
+							globalPosition: pos,
 							windowType: _type
 						}));
+						e.stopPropagation();
+					} else if (track) {
+						// Track-specific context menu impulse
+						MultiPulsator.emit(new Impulse("TRACK_RIGHT_CLICK", {
+							track: track,
+							globalPosition: pos,
+							windowType: _type
+						}));
+						e.stopPropagation();
+					} else {
+						// Background context menu for atom creation
+						MultiPulsator.emit(new Impulse("WINDOW_RIGHT_CLICK", {
+							globalPosition: pos,
+							windowType: _type,
+							localPosition: _contentLayer.globalToLocal(pos)
+						}));
 					}
-					
-					MultiPulsator.emit(new Impulse("WINDOW_MOUSE_UP", {
-						windowType: _type,
-						window: this,
-						stageX: e.stageX,
-						stageY: e.stageY
-						}));}
-			);		
-            stage.addEventListener(MouseEvent.MOUSE_MOVE, transformMouseMove);
-            stage.addEventListener(MouseEvent.MOUSE_WHEEL, transformMouseWheel);
-            stage.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, transformRightMouseDown);
-            stage.addEventListener(MouseEvent.RIGHT_MOUSE_UP, transformRightMouseUp);
-            stage.addEventListener(MouseEvent.CLICK, transformClick);
+				}			
+			);
 						
 			addEventListener(Event.DEACTIVATE, onWindowDeactivate);
         }
@@ -494,152 +513,6 @@
         }
 
         // =========================================================================
-        // MOUSE EVENT TRANSFORMERS - CORE INPUT PROCESSING
-        // =========================================================================
-
-
-        /**
-         * Transforms native mouse up events into application impulses.
-         * 
-         * @private
-         * @param {MouseEvent} e - Native MOUSE_UP event
-         */
-/*        private function transformMouseUp(e:MouseEvent):void {
-            var pin:Pin = getPinFromTarget(e.target as DisplayObject);
-            if (pin) {
-                MultiPulsator.emit(new Impulse("PIN_MOUSE_UP", {
-                    pin: pin,
-                    windowType: _type
-                }));
-            }
-            
-            MultiPulsator.emit(new Impulse("WINDOW_MOUSE_UP", {
-                windowType: _type,
-                window: this,
-                stageX: e.stageX,
-                stageY: e.stageY
-            }));
-        }*/
-
-        /**
-         * Transforms native mouse move events into application impulses.
-         * 
-         * @private
-         * @param {MouseEvent} e - Native MOUSE_MOVE event
-         */
-        private function transformMouseMove(e:MouseEvent):void {
-            var pin:Pin = getPinFromTarget(e.target as DisplayObject);
-            if (pin) {
-                MultiPulsator.emit(new Impulse("PIN_MOUSE_UP", {
-                    pin: pin,
-                    windowType: _type
-                }));
-            }
-
-			MultiPulsator.emit(new Impulse("WINDOW_MOUSE_MOVE", {
-                windowType: _type,
-                window: this,
-                stageX: e.stageX,
-                stageY: e.stageY
-            }));
-        }
-
-        /**
-         * Transforms native mouse wheel events into application impulses.
-         * 
-         * @private
-         * @param {MouseEvent} e - Native MOUSE_WHEEL event
-         */
-        private function transformMouseWheel(e:MouseEvent):void {
-            MultiPulsator.emit(new Impulse("WINDOW_MOUSE_WHEEL", {
-                windowType: _type,
-                window: this,
-                delta: e.delta,
-                stageX: e.stageX,
-                stageY: e.stageY
-            }));
-        }
-
-        /**
-         * Transforms native click events (LKM release) into application impulses.
-         * Handles menu closing and provides click confirmation.
-         * 
-         * @private
-         * @param {MouseEvent} e - Native CLICK event
-         */
-        private function transformClick(e:MouseEvent):void {
-            var isMenu:Boolean = isMenuElement(e.target as DisplayObject);
-            
-            if (!isMenu) {
-                MultiPulsator.emit(new Impulse("WINDOW_CLICK", {
-                    windowType: _type,
-                    window: this,
-                    stageX: e.stageX,
-                    stageY: e.stageY
-                }));
-                MenuManager.getInstance().closeCurrentMenu();
-            }
-        }
-
-        /**
-         * Transforms native right mouse down events into context-aware impulses.
-         * Implements sophisticated target detection for atoms, tracks, and background.
-         * This is the primary entry point for context menu operations.
-         * 
-         * @private
-         * @param {MouseEvent} e - Native RIGHT_MOUSE_DOWN event
-         */
-        private function transformRightMouseDown(e:MouseEvent):void {
-            // Early exit for non-Editor windows or menu elements
-            if (_type !== "Editor" || isMenuElement(e.target as DisplayObject)) return;
-            
-            var target:DisplayObject = e.target as DisplayObject;
-            var pos:Point = new Point(e.stageX, e.stageY);
-            
-            // Target detection hierarchy: Atom → Track → Background
-            var atom:Atom = findClickedAtom(target);
-            var track:Track = findClickedTrack(target);
-            
-            if (atom) {
-                // Atom-specific context menu impulse
-                MultiPulsator.emit(new Impulse("ATOM_RIGHT_CLICK", {
-                    atom: atom,
-                    globalPosition: pos,
-                    window: this,
-                    windowType: _type
-                }));
-                e.stopPropagation();
-            } else if (track) {
-                // Track-specific context menu impulse
-                MultiPulsator.emit(new Impulse("TRACK_RIGHT_CLICK", {
-                    track: track,
-                    globalPosition: pos,
-                    window: this,
-                    windowType: _type
-                }));
-                e.stopPropagation();
-            } else {
-                // Background context menu for atom creation
-                MultiPulsator.emit(new Impulse("WINDOW_RIGHT_CLICK", {
-                    globalPosition: pos,
-                    window: this,
-                    windowType: _type,
-                    localPosition: _contentLayer.globalToLocal(pos)
-                }));
-            }
-        }
-
-        /**
-         * Transforms native right mouse up events into application impulses.
-         * 
-         * @private
-         * @param {MouseEvent} e - Native RIGHT_MOUSE_UP event
-         */
-        private function transformRightMouseUp(e:MouseEvent):void {
-            // Currently no specific right mouse up handling required
-        }
-
-        // =========================================================================
         // WINDOW EVENT TRANSFORMERS
         // =========================================================================
 
@@ -844,15 +717,6 @@
                 cur = cur.parent;
             }
             return cur as Pin;
-        }
-
-        /**
-         * Closes all open context menus via MenuManager.
-         * 
-         * @public
-         */
-        public function closeContextMenus():void {
-            MenuManager.getInstance().closeCurrentMenu();
         }
 
         // =========================================================================
@@ -1109,7 +973,7 @@
             updateViewport();
         }
 
-        /**
+		/**
          * Gets the window type identifier.
          * 
          * @public
@@ -1152,13 +1016,10 @@
             removeEventListener(Event.RESIZE, transformWindowResize);
             removeEventListener(NativeWindowDisplayStateEvent.DISPLAY_STATE_CHANGE, transformDisplayStateChange);
             
+            stage.removeEventListener(MouseEvent.MOUSE_DOWN, transformMouseUp);
             stage.removeEventListener(MouseEvent.MOUSE_DOWN, transformMouseDown);
-            stage.removeEventListener(MouseEvent.MOUSE_UP, transformMouseUp);
-            stage.removeEventListener(MouseEvent.MOUSE_MOVE, transformMouseMove);
-            stage.removeEventListener(MouseEvent.MOUSE_WHEEL, transformMouseWheel);
             stage.removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, transformRightMouseDown);
-            stage.removeEventListener(MouseEvent.RIGHT_MOUSE_UP, transformRightMouseUp);
-            stage.removeEventListener(MouseEvent.CLICK, transformClick);
+
             
             // Remove content from stage
             if (_content && stage && stage.contains(_content)) {
