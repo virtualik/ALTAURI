@@ -2,9 +2,10 @@
     import flash.events.Event;
     import flash.system.Capabilities;
 
-    import Src.Prog.Core.MultiPulsator.MultiPulsator;
-    import Src.Prog.Core.MultiPulsator.Impulse;
-    import Src.Prog.Core.Window;
+    import Src.Prog.Core.Impulsys.Impulsys;
+    import Src.Prog.Core.Impulsys.Impulse;
+    import Src.Prog.Core.Windows.Window;
+
     import Src.Prog.Core.Commands.InvokeFunction;
     import Src.Prog.Core.Commands.ICommand;
     import Src.Prog.Main;
@@ -17,7 +18,7 @@
      * - Platform-aware window creation (Desktop vs Mobile)
      * - Window instance management and access
      * - Coordination with application initialization system
-     * - MultiPulsator integration for window events
+     * - Impulsys integration for window events
      */
     public class WindowsManager {
         private static var _instance:WindowsManager;
@@ -70,7 +71,7 @@
             }
 
             // Signal window creation completion
-            MultiPulsator.emit(new Impulse("APP_WINDOWS_READY", {
+            Impulsys.emit(new Impulse("APP_WINDOWS_READY", {
                 windows: manager.getAllWindows(),
                 platform: _isDesktop ? "desktop" : "mobile"
             }));

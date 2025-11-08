@@ -1,6 +1,6 @@
-﻿package Src.Prog.Core.MultiPulsator {
+﻿package Src.Prog.Core.Impulsys {
     /**
-     * Impulse implementation - concrete message container for MultiPulsator system
+     * Impulse implementation - concrete message container for Impulsys system
      * Universal data container providing standardized message format and type safety
      *
      * Primary message vehicle for inter-module communication

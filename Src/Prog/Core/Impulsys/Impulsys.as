@@ -1,17 +1,17 @@
-﻿package Src.Prog.Core.MultiPulsator {
+﻿package Src.Prog.Core.Impulsys {
     import flash.utils.Dictionary;
 
     /**
      * Centralized impulse management system implementing Publisher-Subscriber pattern.
      * Provides asynchronous communication between components via impulses.
      *
-     * @class MultiPulsator
+     * @class Impulsys
      * @public
      */
-    public class MultiPulsator {
+    public class Impulsys {
         
         /** Singleton instance */
-        private static var instance:MultiPulsator;
+        private static var instance:Impulsys;
         
         /** Dictionary storing impulse type to listener arrays mapping */
         private var impulseListeners:Dictionary;
@@ -19,7 +19,7 @@
         /**
          * Private constructor for singleton pattern.
          */
-        public function MultiPulsator() {
+        public function Impulsys() {
             impulseListeners = new Dictionary();
         }
 
@@ -27,11 +27,11 @@
          * Gets the singleton instance (lazy initialization).
          *
          * @static
-         * @return {MultiPulsator} Singleton instance
+         * @return {Impulsys} Singleton instance
          */
-        public static function getInstance():MultiPulsator {
+        public static function getInstance():Impulsys {
             if (!instance) {
-                instance = new MultiPulsator();
+                instance = new Impulsys();
             }
             return instance;
         }
@@ -125,7 +125,7 @@
             for (var key:* in dict) {
                 count++;
             }
-            trace("MultiPulsator: " + count + " impulse types with active listeners");
+            trace("Impulsys: " + count + " impulse types with active listeners");
         }
     }
 }

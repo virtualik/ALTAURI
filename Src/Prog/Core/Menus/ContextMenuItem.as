@@ -1,5 +1,4 @@
-﻿// Src/Prog/Com/Menus/ContextMenuItem.as
-package Src.Prog.Com.Menus {
+﻿package Src.Prog.Core.Menus {
     import flash.display.Sprite;
     import flash.text.TextField;
     import flash.text.TextFormat;
@@ -80,7 +79,7 @@ package Src.Prog.Com.Menus {
             }
 
             graphics.beginFill(color);
-            graphics.drawRect(0, 0, 170, 22);
+            graphics.drawRect(2, 2, 166, 22);
             graphics.endFill();
         }
     }

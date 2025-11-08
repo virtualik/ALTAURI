@@ -5,7 +5,7 @@
     import Src.Prog.Com.Atoms.Core.AtomFactory;
     import Src.Prog.Core.Managers.AtomManager;
     import Src.Prog.Core.Managers.WindowsManager;
-    import Src.Prog.Core.Window;
+    import Src.Prog.Core.Windows.Window;
     import flash.display.DisplayObject;
 
     /**

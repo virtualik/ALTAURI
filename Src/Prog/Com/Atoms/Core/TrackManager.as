@@ -1,9 +1,9 @@
 ﻿package Src.Prog.Com.Atoms.Core {
     import flash.display.Sprite;
     import flash.geom.Point;
-    import Src.Prog.Core.MultiPulsator.MultiPulsator;
-    import Src.Prog.Core.MultiPulsator.Impulse;
-    import Src.Prog.Core.Window;
+    import Src.Prog.Core.Impulsys.Impulsys;
+    import Src.Prog.Core.Impulsys.Impulse;
+    import Src.Prog.Core.Windows.Window;
     import Src.Prog.Core.Managers.WindowsManager;
     import Src.Prog.Core.Managers.AtomManager;
     import flash.events.Event;
@@ -264,22 +264,22 @@
          */
         private function setupImpulseListeners():void {
             // Track creation process
-            MultiPulsator.subscribeToImpulse("PIN_DRAG_START", onPinDragStart);
-            MultiPulsator.subscribeToImpulse("PIN_DRAG_UPDATE", onPinDragUpdate);
-            MultiPulsator.subscribeToImpulse("PIN_DRAG_END", onPinDragEnd);
+            Impulsys.subscribeToImpulse("PIN_DRAG_START", onPinDragStart);
+            Impulsys.subscribeToImpulse("PIN_DRAG_UPDATE", onPinDragUpdate);
+            Impulsys.subscribeToImpulse("PIN_DRAG_END", onPinDragEnd);
 
             // Atom movement events
-            MultiPulsator.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
+            Impulsys.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
 
             // Window events
-            MultiPulsator.subscribeToImpulse("WINDOW_ACTIVATED", onWindowActivated);
-            MultiPulsator.subscribeToImpulse("WINDOW_CLOSING", onWindowClosing);
+            Impulsys.subscribeToImpulse("WINDOW_ACTIVATED", onWindowActivated);
+            Impulsys.subscribeToImpulse("WINDOW_CLOSING", onWindowClosing);
 
             // Track management commands
-            MultiPulsator.subscribeToImpulse("TRACK_DELETE_REQUEST", onTrackDeleteRequest);
+            Impulsys.subscribeToImpulse("TRACK_DELETE_REQUEST", onTrackDeleteRequest);
 
             // ADDED: Force cleanup impulse for window deactivation
-            MultiPulsator.subscribeToImpulse("FORCE_CLEANUP_TEMP_TRACK", onForceCleanup);
+            Impulsys.subscribeToImpulse("FORCE_CLEANUP_TEMP_TRACK", onForceCleanup);
 
             trace("TrackManager: Impulse listeners setup complete");
         }
@@ -379,7 +379,7 @@
                     trace("Track creation skipped - invalid connection");
                     
                     // Notify about failed connection attempt
-                    MultiPulsator.emit(new Impulse("TRACK_CONNECTION_FAILED", {
+                    Impulsys.emit(new Impulse("TRACK_CONNECTION_FAILED", {
                         fromPin: fromPin,
                         toPin: toPin,
                         reason: toPin ? "Invalid connection" : "No target pin found"
@@ -393,7 +393,7 @@
                 cleanupTempTrack();
                 _currentDragPin = null;
                 
-                MultiPulsator.emit(new Impulse("TRACK_CREATION_ERROR", {
+                Impulsys.emit(new Impulse("TRACK_CREATION_ERROR", {
                     error: "Drag end processing failed: " + error.message
                 }));
             }
@@ -493,7 +493,7 @@
 
             if (track) {
                 removeTrack(track);
-                MultiPulsator.emit(new Impulse("TRACK_DELETED", {
+                Impulsys.emit(new Impulse("TRACK_DELETED", {
                     track: track,
                     connectionId: track.connectionId
                 }));
@@ -543,7 +543,7 @@
 
                 trace("Track successfully created and activated");
 
-                MultiPulsator.emit(new Impulse("TRACK_CREATED", {
+                Impulsys.emit(new Impulse("TRACK_CREATED", {
                     track: track,
                     fromPin: fromPin,
                     toPin: toPin,
@@ -555,7 +555,7 @@
 
             } catch (error:Error) {
                 trace("ERROR in track creation: " + error.message);
-                MultiPulsator.emit(new Impulse("TRACK_CREATION_ERROR", {
+                Impulsys.emit(new Impulse("TRACK_CREATION_ERROR", {
                     fromPin: fromPin,
                     toPin: toPin,
                     error: error.message
@@ -709,7 +709,7 @@
                 delete _activeTracks[connectionId];
                 trace("Track removed: " + connectionId);
 
-                MultiPulsator.emit(new Impulse("TRACK_REMOVED", {
+                Impulsys.emit(new Impulse("TRACK_REMOVED", {
                     track: track,
                     connectionId: connectionId
                 }));
@@ -728,7 +728,7 @@
             _currentDragPin = null;
             
             // Emit cleanup completion
-            MultiPulsator.emit(new Impulse("TEMP_TRACK_CLEANUP_COMPLETE", {
+            Impulsys.emit(new Impulse("TEMP_TRACK_CLEANUP_COMPLETE", {
                 timestamp: new Date().getTime()
             }));
         }
@@ -951,14 +951,14 @@
             trace("TrackManager: Disposing all resources...");
 
             // Remove all impulse listeners
-            MultiPulsator.removeImpulse("PIN_DRAG_START", onPinDragStart);
-            MultiPulsator.removeImpulse("PIN_DRAG_UPDATE", onPinDragUpdate);
-            MultiPulsator.removeImpulse("PIN_DRAG_END", onPinDragEnd);
-            MultiPulsator.removeImpulse("ATOM_MOVED", onAtomMoved);
-            MultiPulsator.removeImpulse("WINDOW_ACTIVATED", onWindowActivated);
-            MultiPulsator.removeImpulse("WINDOW_CLOSING", onWindowClosing);
-            MultiPulsator.removeImpulse("TRACK_DELETE_REQUEST", onTrackDeleteRequest);
-            MultiPulsator.removeImpulse("FORCE_CLEANUP_TEMP_TRACK", onForceCleanup);
+            Impulsys.removeImpulse("PIN_DRAG_START", onPinDragStart);
+            Impulsys.removeImpulse("PIN_DRAG_UPDATE", onPinDragUpdate);
+            Impulsys.removeImpulse("PIN_DRAG_END", onPinDragEnd);
+            Impulsys.removeImpulse("ATOM_MOVED", onAtomMoved);
+            Impulsys.removeImpulse("WINDOW_ACTIVATED", onWindowActivated);
+            Impulsys.removeImpulse("WINDOW_CLOSING", onWindowClosing);
+            Impulsys.removeImpulse("TRACK_DELETE_REQUEST", onTrackDeleteRequest);
+            Impulsys.removeImpulse("FORCE_CLEANUP_TEMP_TRACK", onForceCleanup);
 
             // Dispose all active tracks
             var trackCount:int = 0;

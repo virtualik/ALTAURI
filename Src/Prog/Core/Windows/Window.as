@@ -1,4 +1,4 @@
-﻿package Src.Prog.Core {
+﻿package Src.Prog.Core.Windows {
     import flash.display.NativeWindow;
     import flash.display.NativeWindowInitOptions;
     import flash.display.NativeWindowSystemChrome;
@@ -15,15 +15,15 @@
     import flash.geom.Point;
     import flash.geom.Rectangle;
     import flash.ui.Keyboard;
-    import Src.Prog.Core.MultiPulsator.MultiPulsator;
-    import Src.Prog.Core.MultiPulsator.Impulse;
+    import Src.Prog.Core.Impulsys.Impulsys;
+    import Src.Prog.Core.Impulsys.Impulse;
     import flash.display.DisplayObject;
     import Src.Prog.Com.Atoms.Core.Atom;
     import Src.Prog.Com.Atoms.Core.AtomView;
     import Src.Prog.Com.Atoms.Core.Track;
     import Src.Prog.Com.Atoms.Core.Pin;
-    import Src.Prog.Com.Menus.ContextMenu;
-    import Src.Prog.Com.Menus.ContextMenuItem;
+    import Src.Prog.Core.Menus.ContextMenu;
+    import Src.Prog.Core.Menus.ContextMenuItem;
     import Src.Prog.Core.Managers.MenuManager;
     import Src.Prog.Com.Atoms.Core.TrackManager;
 
@@ -36,7 +36,7 @@
      * - Unified mouse event processing pipeline
      * - Frame-based smooth panning and zooming
      * - Context-aware right-click handling
-     * - MultiPulsator integration for system-wide event distribution
+     * - Impulsys integration for system-wide event distribution
      * - Debug overlay with viewport information
      * 
      * @class Window
@@ -167,7 +167,7 @@
 					transformMouseUp = this;
 				//	if (e.target is AtomView) return;
 					
-					MultiPulsator.emit(new Impulse("WINDOW_LEFT_RELEASE", {
+					Impulsys.emit(new Impulse("WINDOW_LEFT_RELEASE", {
 						windowType: _type,
 						stageX: e.stageX,
 						stageY: e.stageY
@@ -190,7 +190,7 @@
 					var isMenu: Boolean = isMenuElement(e.target as DisplayObject);
 						if(!isMenu) {
 							// Now we'll close Menu
-							MultiPulsator.emit(new Impulse("WINDOW_LEFT_CLICK", {
+							Impulsys.emit(new Impulse("WINDOW_LEFT_CLICK", {
 								windowType: _type,
 								stageX: e.stageX,
 								stageY: e.stageY
@@ -215,7 +215,7 @@
 					
 					if (atom) {
 						// Atom-specific context menu impulse
-						MultiPulsator.emit(new Impulse("ATOM_RIGHT_CLICK", {
+						Impulsys.emit(new Impulse("ATOM_RIGHT_CLICK", {
 							atom: atom,
 							globalPosition: pos,
 							windowType: _type
@@ -223,7 +223,7 @@
 						e.stopPropagation();
 					} else if (track) {
 						// Track-specific context menu impulse
-						MultiPulsator.emit(new Impulse("TRACK_RIGHT_CLICK", {
+						Impulsys.emit(new Impulse("TRACK_RIGHT_CLICK", {
 							track: track,
 							globalPosition: pos,
 							windowType: _type
@@ -231,7 +231,7 @@
 						e.stopPropagation();
 					} else {
 						// Background context menu for atom creation
-						MultiPulsator.emit(new Impulse("WINDOW_RIGHT_CLICK", {
+						Impulsys.emit(new Impulse("WINDOW_RIGHT_CLICK", {
 							globalPosition: pos,
 							windowType: _type,
 							localPosition: _contentLayer.globalToLocal(pos)
@@ -349,7 +349,7 @@
 			// Also close any open context menus
 			MenuManager.getInstance().closeCurrentMenu();
 			
-			MultiPulsator.emit(new Impulse("WINDOW_DEACTIVATED_CLEANUP", {
+			Impulsys.emit(new Impulse("WINDOW_DEACTIVATED_CLEANUP", {
 				windowType: _type,
 				window: this
 			}));
@@ -402,7 +402,7 @@
             updateViewport();
 
             // Notify system of canvas panning
-            MultiPulsator.emit(new Impulse("CANVAS_PANNED", {
+            Impulsys.emit(new Impulse("CANVAS_PANNED", {
                 windowType: _type,
                 viewPoint: _viewPoint.clone(),
                 movement: new Point(-screenDx / _zoomLevel, -screenDy / _zoomLevel)
@@ -464,7 +464,7 @@
             updateViewport();
 
             // Notify system of zoom change
-            MultiPulsator.emit(new Impulse("CANVAS_ZOOM_CHANGED", {
+            Impulsys.emit(new Impulse("CANVAS_ZOOM_CHANGED", {
                 windowType: _type,
                 zoomLevel: _zoomLevel,
                 viewPoint: _viewPoint.clone()
@@ -479,7 +479,7 @@
          */
         private function onStageResize(event:Event):void {
             updateViewport();
-            MultiPulsator.emit(new Impulse("CANVAS_RESIZED", {
+            Impulsys.emit(new Impulse("CANVAS_RESIZED", {
                 windowType: _type,
                 stageWidth: stage.stageWidth,
                 stageHeight: stage.stageHeight
@@ -525,7 +525,7 @@
         private function transformWindowActivate(e:Event):void {
             if (!_content) initializeContent();
             
-            MultiPulsator.emit(new Impulse("WINDOW_ACTIVATED", {
+            Impulsys.emit(new Impulse("WINDOW_ACTIVATED", {
                 windowType: _type,
                 window: this
             }));
@@ -538,7 +538,7 @@
          * @param {Event} e - DEACTIVATE event
          */
         private function transformWindowDeactivate(e:Event):void {
-            MultiPulsator.emit(new Impulse("WINDOW_DEACTIVATED", {
+            Impulsys.emit(new Impulse("WINDOW_DEACTIVATED", {
                 windowType: _type,
                 window: this
             }));
@@ -551,11 +551,11 @@
          * @param {Event} e - CLOSING event
          */
         private function transformWindowClosing(e:Event):void {
-            MultiPulsator.emit(new Impulse("WINDOW_CLOSING", {
+            Impulsys.emit(new Impulse("WINDOW_CLOSING", {
                 windowType: _type,
                 window: this
             }));
-            MultiPulsator.emit(new Impulse("APP_CLOSE"));
+            Impulsys.emit(new Impulse("APP_CLOSE"));
         }
 
         /**
@@ -565,7 +565,7 @@
          * @param {Event} e - RESIZE event
          */
         private function transformWindowResize(e:Event):void {
-            MultiPulsator.emit(new Impulse("WINDOW_RESIZED", {
+            Impulsys.emit(new Impulse("WINDOW_RESIZED", {
                 windowType: _type,
                 window: this,
                 width: this.width,
@@ -580,7 +580,7 @@
          * @param {NativeWindowDisplayStateEvent} e - DISPLAY_STATE_CHANGE event
          */
         private function transformDisplayStateChange(e:NativeWindowDisplayStateEvent):void {
-            MultiPulsator.emit(new Impulse("WINDOW_DISPLAY_STATE_CHANGED", {
+            Impulsys.emit(new Impulse("WINDOW_DISPLAY_STATE_CHANGED", {
                 windowType: _type,
                 window: this,
                 displayState: this.displayState
@@ -597,7 +597,7 @@
         private function transformKeyDown(e:KeyboardEvent):void {
             // Escape key handling for menu dismissal
             if (e.keyCode == Keyboard.ESCAPE) {
-                MultiPulsator.emit(new Impulse("KEY_ESC_PRESSED", {
+                Impulsys.emit(new Impulse("KEY_ESC_PRESSED", {
                     window: this,
                     windowType: _type
                 }));
@@ -614,7 +614,7 @@
                 }
             }
             
-            MultiPulsator.emit(new Impulse("WINDOW_KEY_DOWN", {
+            Impulsys.emit(new Impulse("WINDOW_KEY_DOWN", {
                 windowType: _type,
                 window: this,
                 keyCode: e.keyCode,
@@ -632,7 +632,7 @@
          * @param {KeyboardEvent} e - KEY_UP event
          */
         private function transformKeyUp(e:KeyboardEvent):void {
-            MultiPulsator.emit(new Impulse("WINDOW_KEY_UP", {
+            Impulsys.emit(new Impulse("WINDOW_KEY_UP", {
                 windowType: _type,
                 window: this,
                 keyCode: e.keyCode,
@@ -874,7 +874,7 @@
             _zoomLevel = 0.1;
             updateViewport();
             
-            MultiPulsator.emit(new Impulse("CANVAS_RESET", {
+            Impulsys.emit(new Impulse("CANVAS_RESET", {
                 windowType: _type,
                 zoomLevel: _zoomLevel,
                 viewPoint: _viewPoint.clone()

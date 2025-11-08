@@ -5,10 +5,10 @@
     import flash.text.TextField;
     import flash.text.TextFormat;
     import flash.text.TextFormatAlign;
-    import Src.Prog.Core.MultiPulsator.MultiPulsator;
-    import Src.Prog.Core.MultiPulsator.Impulse;
+    import Src.Prog.Core.Impulsys.Impulsys;
+    import Src.Prog.Core.Impulsys.Impulse;
     import flash.display.Graphics;
-    import Src.Prog.Core.Window;
+    import Src.Prog.Core.Windows.Window;
     import Src.Prog.Core.Managers.AtomManager;
     import Src.Prog.Com.Atoms.Core.Pin;
     import Src.Prog.Com.Atoms.Data.AtomDefinitions;
@@ -70,7 +70,7 @@
             // Initial position from atom model
             this.x = _atom.position.x;
             this.y = _atom.position.y;
-			MultiPulsator.subscribeToImpulse("WINDOW_LEFT_RELEASE", handle_release_outside);
+			Impulsys.subscribeToImpulse("WINDOW_LEFT_RELEASE", handle_release_outside);
         }
 
 		private function handle_release_outside(impulse: Impulse):void {
@@ -124,7 +124,7 @@
          */
         private function onRightMouseDown(event:MouseEvent):void {
             event.stopPropagation();
-            MultiPulsator.emit(new Impulse("ATOM_RIGHT_CLICK", {
+            Impulsys.emit(new Impulse("ATOM_RIGHT_CLICK", {
                 atom: _atom,
                 view: this,
                 globalPosition: new Point(event.stageX, event.stageY),
@@ -352,7 +352,7 @@
 
                     // Update atom in manager
                     if (newAtom !== _atom) {
-                        // Get AtomManager via MultiPulsator or directly
+                        // Get AtomManager via Impulsys or directly
                         var atomManager:AtomManager = AtomManager.getInstance();
                         atomManager.updateAtom(newAtom);
 
@@ -360,7 +360,7 @@
                         for each (var outputPin:Pin in newAtom.outputs) {
                             var oldPin:Pin = findPinByName(_atom.outputs, outputPin.name);
                             if (oldPin && oldPin.value !== outputPin.value) {
-                                MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+                                Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
                                     atomId: newAtom.id,
                                     pinName: outputPin.name,
                                     newValue: outputPin.value,
@@ -418,7 +418,7 @@
             stage.addEventListener(MouseEvent.MOUSE_MOVE, onDrag);
             stage.addEventListener(MouseEvent.MOUSE_UP, onDragEnd);
 
-            MultiPulsator.emit(new Impulse("ATOM_DRAG_START", {
+            Impulsys.emit(new Impulse("ATOM_DRAG_START", {
                 atom: _atom,
                 view: this,
                 startPosition: _atom.position.clone()
@@ -440,7 +440,7 @@
 
             var newAtom:Atom = _atom.setPosition(new Point(newX, newY));
 
-            MultiPulsator.emit(new Impulse("ATOM_MOVED", {
+            Impulsys.emit(new Impulse("ATOM_MOVED", {
                 oldAtom: _atom,
                 newAtom: newAtom,
                 updateTracks: true,
@@ -470,7 +470,7 @@
 
             // Final position update
             var finalAtom:Atom = _atom.setPosition(new Point(this.x, this.y));
-            MultiPulsator.emit(new Impulse("ATOM_DRAG_END", {
+            Impulsys.emit(new Impulse("ATOM_DRAG_END", {
                 atom: _atom,
                 view: this,
                 finalPosition: new Point(this.x, this.y)

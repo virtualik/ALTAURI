@@ -1,9 +1,8 @@
-﻿// Src/Prog/Com/Menus/ContextMenu.as
-package Src.Prog.Com.Menus {
+﻿package Src.Prog.Core.Menus {
     import flash.display.Sprite;
     import flash.geom.Point;
     import flash.events.MouseEvent;
-    import Src.Prog.Core.Window;
+    import Src.Prog.Core.Windows.Window;
 
     /**
      * Universal, parameterized context menu.
@@ -37,11 +36,11 @@ package Src.Prog.Com.Menus {
         }
 
         private function buildUI():void {
-            var height:Number = 10 + 22 * _items.length;
+            var height:Number = 7 + 22 * _items.length;
             graphics.clear();
             graphics.beginFill(0x333333, 0.95);
             graphics.lineStyle(1, 0x666666);
-            graphics.drawRect(0, 0, 170, height);
+            graphics.drawRect(-1, 4, 172, height);
             graphics.endFill();
 
             var y:Number = 5;

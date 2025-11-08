@@ -1,8 +1,8 @@
 ﻿package Src.Prog.Core.Managers {
     import flash.events.Event;
     
-    import Src.Prog.Core.MultiPulsator.MultiPulsator;
-    import Src.Prog.Core.MultiPulsator.Impulse;
+    import Src.Prog.Core.Impulsys.Impulsys;
+    import Src.Prog.Core.Impulsys.Impulse;
     import Src.Prog.Core.Commands.SerialCommand;
     import Src.Prog.Core.Commands.InvokeFunction;
     import Src.Prog.Core.Commands.CommandErrorEvent;
@@ -23,12 +23,12 @@
         /**
          * Starts the main initialization pipeline.
          */
-        public static function Start():void {
+        public static function Run():void {
             trace("Director: Starting initialization pipeline for data-driven architecture");
 
             _initSequence = new SerialCommand(0,
 				new InvokeFunction(initializeCoreSystems),
-				new InvokeFunction(initializeMultiPulsator),
+				new InvokeFunction(initializeImpulsys),
 				new InvokeFunction(WindowsManager.createWindows),
 				new InvokeFunction(initializeAtomSystem),  // AtomDefinitions должны быть здесь
 				new InvokeFunction(initializeMenuSystem),  // MenuManager зависит от атомов
@@ -53,21 +53,21 @@
             // Initialize DataManager if needed
             // DataManager is static and doesn't require explicit initialization
             
-            MultiPulsator.emit(new Impulse("CORE_SYSTEMS_INITIALIZED"));
+            Impulsys.emit(new Impulse("CORE_SYSTEMS_INITIALIZED"));
         }
 
         /**
-         * Initializes MultiPulsator communication system.
+         * Initializes Impulsys communication system.
          * 
          * @private
          */
-        private static function initializeMultiPulsator():void {
-            trace("Director: Initializing MultiPulsator");
+        private static function initializeImpulsys():void {
+            trace("Director: Initializing Impulsys");
             
-            // MultiPulsator is static and self-initializing
+            // Impulsys is static and self-initializing
             // Just verify it's working by emitting a test impulse
-            MultiPulsator.emit(new Impulse("SYSTEM_READY", {
-                message: "MultiPulsator initialized successfully"
+            Impulsys.emit(new Impulse("SYSTEM_READY", {
+                message: "Impulsys initialized successfully"
             }));
         }
 
@@ -91,13 +91,13 @@
 				// Инициализируем AtomFactory
 				AtomFactory.initialize();
 
-				MultiPulsator.emit(new Impulse("ATOM_SYSTEM_INITIALIZED", {
+				Impulsys.emit(new Impulse("ATOM_SYSTEM_INITIALIZED", {
 					supportedTypes: atomManager.getSupportedAtomTypes()
 				}));
 
 			} catch (error:Error) {
 				trace("Error initializing atom system: " + error.message);
-				MultiPulsator.emit(new Impulse("ERROR", {
+				Impulsys.emit(new Impulse("ERROR", {
 					source: "Director",
 					message: "Atom system initialization failed: " + error.message
 				}));
@@ -117,11 +117,11 @@
                 TrackManager.initialize();
                 trace("TrackManager initialized");
                 
-                MultiPulsator.emit(new Impulse("TRACK_SYSTEM_INITIALIZED"));
+                Impulsys.emit(new Impulse("TRACK_SYSTEM_INITIALIZED"));
                 
             } catch (error:Error) {
                 trace("Error initializing track system: " + error.message);
-                MultiPulsator.emit(new Impulse("ERROR", {
+                Impulsys.emit(new Impulse("ERROR", {
                     source: "Director",
                     message: "Track system initialization failed: " + error.message
                 }));
@@ -141,11 +141,11 @@
                 MenuManager.initialize();
                 trace("MenuManager initialized");
 
-                MultiPulsator.emit(new Impulse("MENU_SYSTEM_INITIALIZED"));
+                Impulsys.emit(new Impulse("MENU_SYSTEM_INITIALIZED"));
 
             } catch (error:Error) {
                 trace("Error initializing menu system: " + error.message);
-                MultiPulsator.emit(new Impulse("ERROR", {
+                Impulsys.emit(new Impulse("ERROR", {
                     source: "Director",
                     message: "Menu system initialization failed: " + error.message
                 }));
@@ -160,7 +160,7 @@
         private static function finalizeInitialization():void {
             trace("Director: Finalizing initialization");
             
-            MultiPulsator.emit(new Impulse("APP_READY", {
+            Impulsys.emit(new Impulse("APP_READY", {
                 architecture: "data-driven",
                 timestamp: new Date().getTime()
             }));
@@ -175,7 +175,7 @@
         private static function onInitSequenceComplete(event:Event):void {
             trace("Director: Data-driven initialization complete");
             
-            MultiPulsator.emit(new Impulse("APP_STARTUP_COMPLETE", {
+            Impulsys.emit(new Impulse("APP_STARTUP_COMPLETE", {
                 message: "Data-driven architecture ready",
                 atomTypes: AtomManager.getInstance().getSupportedAtomTypes()
             }));
@@ -195,7 +195,7 @@
         private static function onInitSequenceError(event:CommandErrorEvent):void {
             trace("Director: Initialization error: " + event.errorMessage);
             
-            MultiPulsator.emit(new Impulse("APP_STARTUP_FAILED", {
+            Impulsys.emit(new Impulse("APP_STARTUP_FAILED", {
                 error: event.errorMessage
             }));
 

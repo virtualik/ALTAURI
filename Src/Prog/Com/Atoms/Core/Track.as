@@ -1,11 +1,11 @@
 ﻿package Src.Prog.Com.Atoms.Core {
     import flash.display.Sprite;
     import flash.geom.Point;
-    import Src.Prog.Core.MultiPulsator.MultiPulsator;
-    import Src.Prog.Core.MultiPulsator.Impulse;
+    import Src.Prog.Core.Impulsys.Impulsys;
+    import Src.Prog.Core.Impulsys.Impulse;
     import flash.events.Event;
     import flash.events.MouseEvent;
-    import Src.Prog.Core.Window;
+    import Src.Prog.Core.Windows.Window;
 
     /**
      * Visual and logical connection between two pins.
@@ -80,7 +80,7 @@
 		//	trace("Track setting up impulse subscription for: " + _connectionId);
 		//	
 		//	// Подписываемся на импульсы от исходного пина
-		//	MultiPulsator.subscribeToImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
+		//	Impulsys.subscribeToImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
 		//}
 
         /**
@@ -90,8 +90,8 @@
          * @private
          */
         private function setupEventListeners():void {
-            MultiPulsator.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
-            MultiPulsator.subscribeToImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
+            Impulsys.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
+            Impulsys.subscribeToImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
             this.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
         }
 
@@ -143,7 +143,7 @@
 			var toAtom:Atom = _trackManager.getAtomByPin(_toPin);
 			if (toAtom) {
 				trace("Emitting PIN_VALUE_CHANGED for target atom: " + toAtom.id);
-				MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+				Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
 					atomId: toAtom.id,
 					pinName: _toPin.name,
 					newValue: value,
@@ -175,7 +175,7 @@
          */
         public function createLogicalConnection():void {
             _isActive = true;
-            MultiPulsator.emit(new Impulse("TRACK_CONNECTED", {
+            Impulsys.emit(new Impulse("TRACK_CONNECTED", {
                 track: this,
                 fromPin: _fromPin,
                 toPin: _toPin,
@@ -250,7 +250,7 @@
          */
         private function onRightMouseDown(event:MouseEvent):void {
             event.stopPropagation();
-            MultiPulsator.emit(new Impulse("TRACK_RIGHT_CLICK", {
+            Impulsys.emit(new Impulse("TRACK_RIGHT_CLICK", {
                 track: this,
                 globalPosition: new Point(event.stageX, event.stageY),
                 connectionId: _connectionId,
@@ -351,7 +351,7 @@
             _isActive = false;
 
 			// Убираем подписку на импульс
-			MultiPulsator.removeImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
+			Impulsys.removeImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
 
             // Remove pin subscription - use explicit null checks
             if (_fromPin != null && _pinDataListener != null) {
@@ -363,8 +363,8 @@
             }
 
             // Remove impulse listeners with proper function references
-            MultiPulsator.removeImpulse("ATOM_MOVED", onAtomMoved);
-            MultiPulsator.removeImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
+            Impulsys.removeImpulse("ATOM_MOVED", onAtomMoved);
+            Impulsys.removeImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
 
             // Remove event listeners with proper function references
             this.removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
@@ -391,7 +391,7 @@
             this.graphics.clear();
 
             // Notify system about track disconnection
-            MultiPulsator.emit(new Impulse("TRACK_DISCONNECTED", {
+            Impulsys.emit(new Impulse("TRACK_DISCONNECTED", {
                 track: this,
                 connectionId: _connectionId
             }));

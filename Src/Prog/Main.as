@@ -8,8 +8,8 @@
     import flash.desktop.NativeApplication;
     import flash.display.NativeWindow;
 
-    import Src.Prog.Core.MultiPulsator.MultiPulsator;
-    import Src.Prog.Core.MultiPulsator.Impulse;
+    import Src.Prog.Core.Impulsys.Impulsys;
+    import Src.Prog.Core.Impulsys.Impulse;
     import Src.Prog.Core.Commands.SerialCommand;
     import Src.Prog.Core.Commands.RegisterData;
     import Src.Prog.Core.Managers.Director;
@@ -40,10 +40,10 @@
             removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
 
             // Subscribe to impulses
-            MultiPulsator.subscribeToImpulse("APP_CLOSE", reactor_APP_CLOSE);
-            MultiPulsator.subscribeToImpulse("ENTER_FRAME", reactor_ENTER_FRAME);
-            MultiPulsator.subscribeToImpulse("STAGE_RESIZE", reactor_STAGE_RESIZE);
-            MultiPulsator.subscribeToImpulse("APP_READY", reactor_APP_READY);
+            Impulsys.subscribeToImpulse("APP_CLOSE", reactor_APP_CLOSE);
+            Impulsys.subscribeToImpulse("ENTER_FRAME", reactor_ENTER_FRAME);
+            Impulsys.subscribeToImpulse("STAGE_RESIZE", reactor_STAGE_RESIZE);
+            Impulsys.subscribeToImpulse("APP_READY", reactor_APP_READY);
 
             // Stage configuration
             stage.align = StageAlign.TOP_LEFT;
@@ -63,7 +63,7 @@
          * Stage resize handler
          */
         private function onStageResize(e:Event):void {
-            MultiPulsator.emit(new Impulse("STAGE_RESIZE", {
+            Impulsys.emit(new Impulse("STAGE_RESIZE", {
                 width: stage.stageWidth,
                 height: stage.stageHeight
             }));
@@ -101,7 +101,7 @@
          * Enter frame handler
          */
         private function onEnterFrame(e:Event):void {
-            MultiPulsator.emit(new Impulse("ENTER_FRAME"));
+            Impulsys.emit(new Impulse("ENTER_FRAME"));
         }
 
         /**
@@ -109,7 +109,7 @@
          * Starts system construction process via Director
          */
         private function init():void {
-            Director.Start();
+            Director.Run();
         }
 
         /**
@@ -125,7 +125,7 @@
          * Implements graceful shutdown through impulse system
          */
         public function onWindowClose(event:Event):void {
-            MultiPulsator.emit(new Impulse("APP_CLOSE"));
+            Impulsys.emit(new Impulse("APP_CLOSE"));
         }
 
         /**

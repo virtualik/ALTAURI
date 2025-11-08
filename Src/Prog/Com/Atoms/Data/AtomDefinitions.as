@@ -1,7 +1,7 @@
 ﻿package Src.Prog.Com.Atoms.Data {
     import Src.Prog.Com.Atoms.Core.Atom;
-    import Src.Prog.Core.MultiPulsator.MultiPulsator;
-    import Src.Prog.Core.MultiPulsator.Impulse;
+    import Src.Prog.Core.Impulsys.Impulsys;
+    import Src.Prog.Core.Impulsys.Impulse;
     import Src.Prog.Com.Atoms.Core.AtomView;
     import Src.Prog.Core.Managers.AtomManager;
     import flash.display.Graphics;
@@ -100,7 +100,7 @@
 							var newAtom:Atom = atom.setPinValue("output", true, false);
 							
 							// Эмитим импульс о изменении значения пина
-							MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+							Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
 								atomId: newAtom.id,
 								pinName: "output",
 								newValue: true,
@@ -118,7 +118,7 @@
 						
 						var newAtom:Atom = atom.setPinValue("output", false, false);
 						
-						MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+						Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
 							atomId: newAtom.id,
 							pinName: "output",
 							newValue: false,
@@ -134,7 +134,7 @@
 						
 						var newAtom:Atom = atom.setPinValue("output", false, false);
 						
-						MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+						Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
 							atomId: newAtom.id,
 							pinName: "output", 
 							newValue: false,
@@ -246,7 +246,7 @@
 						var finalAtom:Atom = newAtom.setPinValue("output", result, false);
 						
 						// Эмитим импульс об изменении выходного значения
-						MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+						Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
 							atomId: finalAtom.id,
 							pinName: "output",
 							newValue: result,
@@ -346,7 +346,7 @@
 						var finalAtom:Atom = newAtom.setPinValue("output", result, false);
 						
 						// Эмитим импульс об изменении выходного значения
-						MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+						Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
 							atomId: finalAtom.id,
 							pinName: "output",
 							newValue: result,
@@ -454,7 +454,7 @@
 						var newAtom:Atom = atom.setPinValue("output", result, false);
 						
 						// Эмитим импульс об изменении выходного значения
-						MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+						Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
 							atomId: newAtom.id,
 							pinName: "output",
 							newValue: result,
@@ -560,7 +560,7 @@
 						var finalAtom:Atom = newAtom.setPinValue("output", result, false);
 						
 						// Эмитим импульс об изменении выходного значения
-						MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+						Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
 							atomId: finalAtom.id,
 							pinName: "output",
 							newValue: result,
@@ -784,7 +784,7 @@
 						var newAtom:Atom = atom.setData("isOn", Boolean(value));
 						trace("LED data updated - isOn: " + newAtom.data.isOn);
 
-						MultiPulsator.emit(new Impulse("ATOM_VISUAL_UPDATE", {
+						Impulsys.emit(new Impulse("ATOM_VISUAL_UPDATE", {
 							atomId: newAtom.id,
 							data: newAtom.data
 						}));

@@ -1,12 +1,12 @@
 ﻿package Src.Prog.Core.Managers {
     import flash.geom.Point;
-    import Src.Prog.Core.MultiPulsator.MultiPulsator;
-    import Src.Prog.Core.MultiPulsator.Impulse;
-    import Src.Prog.Core.Window;
+    import Src.Prog.Core.Impulsys.Impulsys;
+    import Src.Prog.Core.Impulsys.Impulse;
+    import Src.Prog.Core.Windows.Window;
     import Src.Prog.Com.Atoms.Core.Atom;
     import Src.Prog.Com.Atoms.Core.Track;
     import Src.Prog.Com.Atoms.Data.AtomDefinitions;
-    import Src.Prog.Com.Menus.ContextMenu;
+    import Src.Prog.Core.Menus.ContextMenu;
 
     /**
      * Centralized manager for all context menus in the application.
@@ -18,7 +18,7 @@
      * - Manages menu lifecycle and automatic closing
      * - Dynamically builds menus from atom definitions
      * - Handles menu item callbacks and action execution
-     * - Integrates with MultiPulsator system for event coordination
+     * - Integrates with Impulsys system for event coordination
      * 
      * @class MenuManager
      * @public
@@ -77,17 +77,17 @@
          */
         private function setupImpulseListeners():void {
             // Context menu creation triggers
-            MultiPulsator.subscribeToImpulse("WINDOW_RIGHT_CLICK", onWindowRightClick);
-            MultiPulsator.subscribeToImpulse("ATOM_RIGHT_CLICK", onAtomRightClick);
-            MultiPulsator.subscribeToImpulse("TRACK_RIGHT_CLICK", onTrackRightClick);
+            Impulsys.subscribeToImpulse("WINDOW_RIGHT_CLICK", onWindowRightClick);
+            Impulsys.subscribeToImpulse("ATOM_RIGHT_CLICK", onAtomRightClick);
+            Impulsys.subscribeToImpulse("TRACK_RIGHT_CLICK", onTrackRightClick);
 
             // Menu closing triggers
-            MultiPulsator.subscribeToImpulse("WINDOW_LEFT_CLICK", closeCurrentMenu);
-            MultiPulsator.subscribeToImpulse("WINDOW_CLICK", closeCurrentMenu);
-            MultiPulsator.subscribeToImpulse("KEY_ESC_PRESSED", closeCurrentMenu);
+            Impulsys.subscribeToImpulse("WINDOW_LEFT_CLICK", closeCurrentMenu);
+            Impulsys.subscribeToImpulse("WINDOW_CLICK", closeCurrentMenu);
+            Impulsys.subscribeToImpulse("KEY_ESC_PRESSED", closeCurrentMenu);
 
             // System cleanup
-            MultiPulsator.subscribeToImpulse("APP_CLOSE", onAppClose);
+            Impulsys.subscribeToImpulse("APP_CLOSE", onAppClose);
         }
 
         // =========================================================================
@@ -102,7 +102,7 @@
          * @param {Impulse} impulse - WINDOW_RIGHT_CLICK impulse containing position and window data
          */
         private function onWindowRightClick(impulse:Impulse):void {
-            trace("MenuManager: Window right click received");
+            trace("MenuManager: Window right click Impulse received");
             var globalPos:Point = impulse.data.globalPosition;
             var localPos:Point = impulse.data.localPosition;
             var window:Window = findWindowByType(impulse.data.windowType);
@@ -220,7 +220,7 @@
         private function createAtomCallback(atomType:String, position:Point):Function {
             return function(action:String):void {
                 _currentMenu.close();
-                MultiPulsator.emit(new Impulse("ATOM_CONTEXT_MENU_SELECTED", {
+                Impulsys.emit(new Impulse("ATOM_CONTEXT_MENU_SELECTED", {
                     atomType: atomType,
                     position: position
                 }));
@@ -245,7 +245,7 @@
                         action: "delete",
                         callback: function(action:String):void {
                             menu.close();
-                            MultiPulsator.emit(new Impulse("ATOM_DELETE_REQUEST", { atom: atom }));
+                            Impulsys.emit(new Impulse("ATOM_DELETE_REQUEST", { atom: atom }));
                         },
                         category: "Danger"
                     },
@@ -254,7 +254,7 @@
                         action: "properties",
                         callback: function(action:String):void {
                             menu.close();
-                            MultiPulsator.emit(new Impulse("ATOM_PROPERTIES_REQUEST", { atom: atom }));
+                            Impulsys.emit(new Impulse("ATOM_PROPERTIES_REQUEST", { atom: atom }));
                         },
                         category: "Info"
                     }
@@ -287,7 +287,7 @@
                     action: "delete_track",
                     callback: function(action:String):void {
                         menu.close();
-                        MultiPulsator.emit(new Impulse("TRACK_DELETE_REQUEST", { track: track }));
+                        Impulsys.emit(new Impulse("TRACK_DELETE_REQUEST", { track: track }));
                     },
                     category: "Danger"
                 }];
@@ -366,13 +366,13 @@
             closeCurrentMenu();
 
             // Unsubscribe from all impulses to prevent memory leaks
-            MultiPulsator.removeImpulse("WINDOW_RIGHT_CLICK", onWindowRightClick);
-            MultiPulsator.removeImpulse("ATOM_RIGHT_CLICK", onAtomRightClick);
-            MultiPulsator.removeImpulse("TRACK_RIGHT_CLICK", onTrackRightClick);
-            MultiPulsator.removeImpulse("WINDOW_LEFT_CLICK", closeCurrentMenu);
-            MultiPulsator.removeImpulse("WINDOW_CLICK", closeCurrentMenu);
-            MultiPulsator.removeImpulse("KEY_ESC_PRESSED", closeCurrentMenu);
-            MultiPulsator.removeImpulse("APP_CLOSE", onAppClose);
+            Impulsys.removeImpulse("WINDOW_RIGHT_CLICK", onWindowRightClick);
+            Impulsys.removeImpulse("ATOM_RIGHT_CLICK", onAtomRightClick);
+            Impulsys.removeImpulse("TRACK_RIGHT_CLICK", onTrackRightClick);
+            Impulsys.removeImpulse("WINDOW_LEFT_CLICK", closeCurrentMenu);
+            Impulsys.removeImpulse("WINDOW_CLICK", closeCurrentMenu);
+            Impulsys.removeImpulse("KEY_ESC_PRESSED", closeCurrentMenu);
+            Impulsys.removeImpulse("APP_CLOSE", onAppClose);
 
             _currentMenu = null;
         }

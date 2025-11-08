@@ -3,9 +3,9 @@
     import flash.display.DisplayObject;
     import flash.geom.Point;
 
-    import Src.Prog.Core.MultiPulsator.MultiPulsator;
-    import Src.Prog.Core.MultiPulsator.Impulse;
-    import Src.Prog.Core.Window;
+    import Src.Prog.Core.Impulsys.Impulsys;
+    import Src.Prog.Core.Impulsys.Impulse;
+    import Src.Prog.Core.Windows.Window;
     import Src.Prog.Com.Atoms.Core.Atom;
     import Src.Prog.Com.Atoms.Core.AtomView;
     import Src.Prog.Com.Atoms.Core.AtomFactory;
@@ -62,12 +62,12 @@
          */
         private function setupImpulseListeners():void {
             // Atom creation and management
-            MultiPulsator.subscribeToImpulse("ATOM_CONTEXT_MENU_SELECTED", onAtomContextMenuSelected);
-            MultiPulsator.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
-            MultiPulsator.subscribeToImpulse("ATOM_DELETE_REQUEST", onAtomDeleteRequest);
-            MultiPulsator.subscribeToImpulse("ATOM_INTERACTION", onAtomInteraction);
-            MultiPulsator.subscribeToImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
-            MultiPulsator.subscribeToImpulse("ATOM_VISUAL_UPDATE", onAtomVisualUpdate);
+            Impulsys.subscribeToImpulse("ATOM_CONTEXT_MENU_SELECTED", onAtomContextMenuSelected);
+            Impulsys.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
+            Impulsys.subscribeToImpulse("ATOM_DELETE_REQUEST", onAtomDeleteRequest);
+            Impulsys.subscribeToImpulse("ATOM_INTERACTION", onAtomInteraction);
+            Impulsys.subscribeToImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
+            Impulsys.subscribeToImpulse("ATOM_VISUAL_UPDATE", onAtomVisualUpdate);
 		}
 
 		private function onAtomVisualUpdate(impulse:Impulse):void {
@@ -113,7 +113,7 @@
                 var view:AtomView = _atoms[newAtom.id].view;
                 view.updateAtom(newAtom);
 
-                MultiPulsator.emit(new Impulse("LOG_MESSAGE", {
+                Impulsys.emit(new Impulse("LOG_MESSAGE", {
                     level: "DEBUG",
                     source: "AtomManager",
                     message: "Atom moved: " + newAtom.name + " to " + newAtom.position
@@ -161,7 +161,7 @@
 						for each (var outputPin:Pin in newAtom.outputs) {
 							var oldPin:Pin = findPinByName(atom.outputs, outputPin.name);
 							if (oldPin && oldPin.value !== outputPin.value) {
-								MultiPulsator.emit(new Impulse("PIN_VALUE_CHANGED", {
+								Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
 									atomId: newAtom.id,
 									pinName: outputPin.name,
 									newValue: outputPin.value,
@@ -284,7 +284,7 @@
 
 				trace("SUCCESS: Atom view added to contentLayer at: " + atom.position);
 
-				MultiPulsator.emit(new Impulse("ATOM_ADDED", {
+				Impulsys.emit(new Impulse("ATOM_ADDED", {
 					windowType: windowType,
 					atom: atom,
 					view: view
@@ -325,7 +325,7 @@
                     }
                 }
 
-                MultiPulsator.emit(new Impulse("ATOM_REMOVED", {
+                Impulsys.emit(new Impulse("ATOM_REMOVED", {
                     atomId: atomId
                 }));
 
@@ -350,7 +350,7 @@
 				_atoms[newAtom.id].view.updateAtom(newAtom);
 				trace("View update completed");
 
-				MultiPulsator.emit(new Impulse("ATOM_UPDATED", {
+				Impulsys.emit(new Impulse("ATOM_UPDATED", {
 					oldAtom: _atoms[newAtom.id].atom,
 					newAtom: newAtom
 				}));
@@ -471,12 +471,12 @@
          */
         public function dispose():void {
             // Remove all impulse listeners
-            MultiPulsator.removeImpulse("ATOM_CONTEXT_MENU_SELECTED", onAtomContextMenuSelected);
-            MultiPulsator.removeImpulse("ATOM_MOVED", onAtomMoved);
-            MultiPulsator.removeImpulse("ATOM_DELETE_REQUEST", onAtomDeleteRequest);
-            MultiPulsator.removeImpulse("ATOM_INTERACTION", onAtomInteraction);
-            MultiPulsator.removeImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
-            MultiPulsator.removeImpulse("ATOM_VISUAL_UPDATE", onAtomVisualUpdate);
+            Impulsys.removeImpulse("ATOM_CONTEXT_MENU_SELECTED", onAtomContextMenuSelected);
+            Impulsys.removeImpulse("ATOM_MOVED", onAtomMoved);
+            Impulsys.removeImpulse("ATOM_DELETE_REQUEST", onAtomDeleteRequest);
+            Impulsys.removeImpulse("ATOM_INTERACTION", onAtomInteraction);
+            Impulsys.removeImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
+            Impulsys.removeImpulse("ATOM_VISUAL_UPDATE", onAtomVisualUpdate);
 
             // Remove all atoms
             for (var atomId:String in _atoms) {

@@ -1,8 +1,8 @@
 ﻿package Src.Prog.Com.Atoms.Core {
     import flash.display.Sprite;
     import flash.events.MouseEvent;
-    import Src.Prog.Core.MultiPulsator.MultiPulsator;
-    import Src.Prog.Core.MultiPulsator.Impulse;
+    import Src.Prog.Core.Impulsys.Impulsys;
+    import Src.Prog.Core.Impulsys.Impulse;
     import flash.display.DisplayObject;
     import flash.geom.Point;
     import flash.utils.getQualifiedClassName;
@@ -84,7 +84,7 @@
             event.stopPropagation(); // Prevent atom processing
            // event.stopImmediatePropagation(); // Immediate stop to prevent conflicts
 
-            MultiPulsator.emit(new Impulse("PIN_DRAG_START", {
+            Impulsys.emit(new Impulse("PIN_DRAG_START", {
                 pin: _pin,
                 startX: event.stageX,
                 startY: event.stageY,
@@ -106,7 +106,7 @@
          * @param {MouseEvent} event - Mouse move event
          */
         private function on_MouseMove(event:MouseEvent):void {
-            MultiPulsator.emit(new Impulse("PIN_DRAG_UPDATE", {
+            Impulsys.emit(new Impulse("PIN_DRAG_UPDATE", {
                 pin: _pin,
                 currentX: event.stageX,
                 currentY: event.stageY
@@ -152,7 +152,7 @@ trace("---------> pin: " + _pin + "toPin: " + targetPin + "endX: " + event.stage
 			
 			
 			
-				MultiPulsator.emit(new Impulse("PIN_DRAG_END", {
+				Impulsys.emit(new Impulse("PIN_DRAG_END", {
 					pin: _pin,
 					toPin: targetPin,
 					endX: event.stageX,
