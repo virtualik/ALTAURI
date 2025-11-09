@@ -327,57 +327,30 @@
          * @private
          * @param {String} interactionType - Type of interaction ("press" or "release")
          */
-        private function handleInteraction(interactionType:String):void {
-            trace("=== ATOM INTERACTION ===");
-            trace("Atom: " + _atom.type + " (" + _atom.id + ")");
-            trace("Interaction type: " + interactionType);
-
-            var definition:Object = AtomDefinitions.getAtomDefinition(_atom.type);
-
-
-            if (definition && definition.behavior) {
-                try {
-                    var newAtom:Atom = _atom;
-
-                    // Handle press
-                    if (interactionType == "press" && definition.behavior.onInteraction) {
-                        newAtom = definition.behavior.onInteraction(_atom, interactionType);
-                    }
-
-                    // Handle release
-                    else if (interactionType == "release" && definition.behavior.onRelease) {
-                        newAtom = definition.behavior.onRelease(_atom);
-                    }
-				
-
-                    // Update atom in manager
-                    if (newAtom !== _atom) {
-                        // Get AtomManager via Impulsys or directly
-                        var atomManager:AtomManager = AtomManager.getInstance();
-                        atomManager.updateAtom(newAtom);
-
-                        // Emit pin value changes
-                        for each (var outputPin:Pin in newAtom.outputs) {
-                            var oldPin:Pin = findPinByName(_atom.outputs, outputPin.name);
-                            if (oldPin && oldPin.value !== outputPin.value) {
-                                Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
-                                    atomId: newAtom.id,
-                                    pinName: outputPin.name,
-                                    newValue: outputPin.value,
-                                    oldValue: oldPin.value,
-                                    source: "interaction"
-                                }));
-                            }
-                        }
-                    }
-
-                } catch (error:Error) {
-                    trace("ERROR in atom interaction: " + error.message);
-                }
-            }
-
-            trace("=== END INTERACTION ===");
-        }
+		private function handleInteraction(interactionType:String):void {
+			trace("=== ATOM INTERACTION ===");
+			trace("Atom: " + _atom.type + " (" + _atom.id + ")");
+			trace("Interaction type: " + interactionType);
+			var definition:Object = AtomDefinitions.getAtomDefinition(_atom.type);
+			if (definition && definition.behavior) {
+				try {
+					var newAtom:Atom = _atom;
+					if (interactionType == "press" && definition.behavior.onInteraction) {
+						newAtom = definition.behavior.onInteraction(_atom, interactionType);
+					}
+					else if (interactionType == "release" && definition.behavior.onRelease) {
+						newAtom = definition.behavior.onRelease(_atom);
+					}
+					if (newAtom !== _atom) {
+						var atomManager:AtomManager = AtomManager.getInstance();
+						atomManager.updateAtom(newAtom);
+					}
+				} catch (error:Error) {
+					trace("ERROR in atom interaction: " + error.message);
+				}
+			}
+			trace("=== END INTERACTION ===");
+		}
 
         /**
          * Finds a pin by name in a pin vector.

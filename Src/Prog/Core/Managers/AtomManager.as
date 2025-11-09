@@ -78,7 +78,6 @@
             Impulsys.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
             Impulsys.subscribeToImpulse("ATOM_DELETE_REQUEST", onAtomDeleteRequest);
             Impulsys.subscribeToImpulse("ATOM_INTERACTION", onAtomInteraction);
-            Impulsys.subscribeToImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
             Impulsys.subscribeToImpulse("ATOM_VISUAL_UPDATE", onAtomVisualUpdate);
         }
 
@@ -159,20 +158,7 @@
 
                     if (newAtom !== atom) {
                         updateAtom(newAtom);
-
-                        for each (var outputPin:Pin in newAtom.outputs) {
-                            var oldPin:Pin = findPinByName(atom.outputs, outputPin.name);
-                            if (oldPin && oldPin.value !== outputPin.value) {
-                                Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
-                                    atomId: newAtom.id,
-                                    pinName: outputPin.name,
-                                    newValue: outputPin.value,
-                                    oldValue: oldPin.value,
-                                    source: "interaction"
-                                }));
-                            }
-                        }
-                    }
+					}
                 } catch (error:Error) {
                     trace("ERROR in atom interaction: " + error.message);
                 }
@@ -180,78 +166,6 @@
             trace("=== END INTERACTION ===");
         }
 
-        /**
-         * Handles pin value changes from connections.
-         * FIXED: Now properly finds target atom by checking all input pins.
-         *
-         * @private
-         * @param {Impulse} impulse - PIN_VALUE_CHANGED impulse
-         */
-private function onPinValueChanged(impulse:Impulse):void {
-    var targetAtomId:String = impulse.data.atomId; // ИДЕНТИФИКАТОР АТОМА-ПОЛУЧАТЕЛЯ
-    var pinName:String = impulse.data.pinName; // ИМЯ ПИНА В ЭТОМ АТОМЕ
-    var newValue:* = impulse.data.newValue;
-    var source:String = impulse.data.source || "unknown";
-
-    trace("=== PIN_VALUE_CHANGED HANDLER (FIXED) ===");
-    trace("Source: " + source);
-    trace("Target Atom: " + targetAtomId + ", Pin: " + pinName + ", Value: " + newValue);
-
-    // НАЙТИ КОНКРЕТНЫЙ АТОМ ПО ID
-    var atomData:Object = _atoms[targetAtomId];
-    if (!atomData) {
-        trace("ERROR: Target atom not found in manager: " + targetAtomId);
-        trace("=== END PIN_VALUE_CHANGED HANDLER ===");
-        return;
-    }
-
-    var atom:Atom = atomData.atom;
-    var targetPin:Pin = null;
-
-    // НАЙТИ ПИН В ЭТОМ АТОМЕ ПО ИМЕНИ
-    for each (var inputPin:Pin in atom.inputs) {
-        if (inputPin.name == pinName) {
-            targetPin = inputPin;
-            trace("Found target INPUT pin in atom: " + atom.type + " (" + atom.id + ")");
-            break;
-        }
-    }
-
-    if (!targetPin) {
-        for each (var outputPin:Pin in atom.outputs) {
-            if (outputPin.name == pinName) {
-                targetPin = outputPin;
-                trace("Found target OUTPUT pin in atom: " + atom.type + " (" + atom.id + ")");
-                break;
-            }
-        }
-    }
-
-    if (targetPin) {
-        trace("Processing pin change for: " + atom.type + " (" + atom.id + ")");
-        trace("Pin type: " + targetPin.type + ", name: " + targetPin.name);
-
-        var definition:Object = AtomDefinitions.getAtomDefinition(atom.type);
-        trace("Atom type: " + atom.type + ", has onInputChange: " +
-              (definition && definition.behavior && definition.behavior.onInputChange));
-
-        // ОБРАБАТЫВАТЬ ТОЛЬКО INPUT ПИНЫ С onInputChange
-        if (targetPin.type == Pin.TYPE_INPUT && definition && definition.behavior && definition.behavior.onInputChange) {
-            trace("=== CALLING onInputChange for " + atom.type + " ===");
-            var newAtom:Atom = definition.behavior.onInputChange(atom, pinName, newValue);
-            updateAtom(newAtom); // Это обновит atomData.atom и atomData.view
-            trace("=== onInputChange COMPLETED ===");
-        } else {
-            trace("No onInputChange call needed for " + atom.type +
-                  " (pin type: " + targetPin.type + ", has behavior: " +
-                  (definition && definition.behavior && definition.behavior.onInputChange) + ")");
-        }
-    } else {
-        trace("ERROR: Target pin '" + pinName + "' not found in atom: " + targetAtomId);
-    }
-
-    trace("=== END PIN_VALUE_CHANGED HANDLER ===");
-}
         /**
          * Handles atom deletion requests with connected track cleanup.
          *
@@ -360,7 +274,7 @@ private function onPinValueChanged(impulse:Impulse):void {
         public function updateAtom(newAtom:Atom):void {
             trace("=== ATOM MANAGER UPDATE ATOM ===");
             trace("Updating atom: " + newAtom.id + " (" + newAtom.type + ")");
-            trace("Atom data: " + JSON.stringify(newAtom.data));
+
 
             if (_atoms[newAtom.id]) {
                 _atoms[newAtom.id].atom = newAtom;
@@ -502,7 +416,6 @@ private function onPinValueChanged(impulse:Impulse):void {
             Impulsys.removeImpulse("ATOM_MOVED", onAtomMoved);
             Impulsys.removeImpulse("ATOM_DELETE_REQUEST", onAtomDeleteRequest);
             Impulsys.removeImpulse("ATOM_INTERACTION", onAtomInteraction);
-            Impulsys.removeImpulse("PIN_VALUE_CHANGED", onPinValueChanged);
             Impulsys.removeImpulse("ATOM_VISUAL_UPDATE", onAtomVisualUpdate);
 
             for (var atomId:String in _atoms) {

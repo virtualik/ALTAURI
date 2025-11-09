@@ -105,56 +105,18 @@
                 pins: [
                     {name: "output", type: "output", dataType: "boolean", description: "Sends TRUE when pressed, FALSE when released"}
                 ],
-                behavior: {
-                    onInteraction: function(atom:Atom, interactionType:String):Atom {
-                        if (interactionType == "press") {
-                            trace("Button pressed - sending TRUE signal");
-                            var outputPin:Pin = atom.outputs[0];
-                            if (outputPin) {
-                                trace("Directly setting output pin value to: true");
-                                outputPin.value = true;
-                            }
-                            var newAtom:Atom = atom.setPinValue("output", true, false);
-                            Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
-                                atomId: newAtom.id,
-                                pinName: "output",
-                                newValue: true,
-                                oldValue: atom.outputs[0].value,
-                                source: "button_press"
-                            }));
-                            return newAtom;
-                        }
-                        return atom;
-                    },
-                    onRelease: function(atom:Atom):Atom {
-                        trace("Button released - sending FALSE signal");
-                        var outputPin:Pin = atom.outputs[0];
-                        if (outputPin) {
-                            trace("Directly setting output pin value to: false");
-                            outputPin.value = false;
-                        }
-                        var newAtom:Atom = atom.setPinValue("output", false, false);
-                        Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
-                            atomId: newAtom.id,
-                            pinName: "output",
-                            newValue: false,
-                            oldValue: atom.outputs[0].value,
-                            source: "button_release"
-                        }));
-                        return newAtom;
-                    },
-                    onRightClick: function(atom:Atom):Atom {
-                        trace("Button right-click - sending FALSE signal");
-                        var newAtom:Atom = atom.setPinValue("output", false, false);
-                        Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
-                            atomId: newAtom.id,
-                            pinName: "output",
-                            newValue: false,
-                            oldValue: atom.outputs[0].value,
-                            source: "button_right_click"
-                        }));
-                        return newAtom;
-                    }
+				behavior: {
+					onInteraction: function(atom:Atom, interactionType:String):Atom {
+						if (interactionType == "press") {
+							trace("Button pressed - sending TRUE signal");
+							return atom.setPinValue("output", true, false);
+						}
+						return atom;
+					},
+					onRelease: function(atom:Atom):Atom {
+						trace("Button released - sending FALSE signal");
+						return atom.setPinValue("output", false, false);
+					}
                 },
                 viewConfig: {
                     width: 60,
@@ -298,13 +260,6 @@
                         var result:Boolean = input1 && input2;
                         trace("AND Result: " + result);
                         var finalAtom:Atom = newAtom.setPinValue("output", result, false);
-                        Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
-                            atomId: finalAtom.id,
-                            pinName: "output",
-                            newValue: result,
-                            oldValue: atom.outputs[0] ? atom.outputs[0].value : false,
-                            source: "and_gate"
-                        }));
                         trace("=== END AND GATE ===");
                         return finalAtom;
                     },
@@ -368,13 +323,6 @@
                         var result:Boolean = input1 || input2;
                         trace("OR Result: " + result);
                         var finalAtom:Atom = newAtom.setPinValue("output", result, false);
-                        Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
-                            atomId: finalAtom.id,
-                            pinName: "output",
-                            newValue: result,
-                            oldValue: atom.outputs[0] ? atom.outputs[0].value : false,
-                            source: "or_gate"
-                        }));
                         trace("=== END OR GATE ===");
                         return finalAtom;
                     },
@@ -441,13 +389,6 @@
 					var result:Boolean = !inputValue; // <-- Добавь трейс
 					trace("NOT Result (output): " + result);
 					var newAtom:Atom = atom.setPinValue("output", result, false);
-					Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
-						atomId: newAtom.id,
-						pinName: "output",
-						newValue: result,
-						oldValue: atom.outputs[0] ? atom.outputs[0].value : false,
-						source: "not_gate"
-					}));
 					trace("=== END NOT GATE ===");
 					return newAtom;
 				},
@@ -514,13 +455,6 @@
                         var result:Boolean = !(input1 && input2);
                         trace("NAND Result: " + result);
                         var finalAtom:Atom = newAtom.setPinValue("output", result, false);
-                        Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
-                            atomId: finalAtom.id,
-                            pinName: "output",
-                            newValue: result,
-                            oldValue: atom.outputs[0] ? atom.outputs[0].value : false,
-                            source: "nand_gate"
-                        }));
                         trace("=== END NAND GATE ===");
                         return finalAtom;
                     },
