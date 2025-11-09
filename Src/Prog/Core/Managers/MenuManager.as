@@ -7,6 +7,7 @@
     import Src.Prog.Com.Atoms.Core.Track;
     import Src.Prog.Com.Atoms.Data.AtomDefinitions;
     import Src.Prog.Core.Menus.ContextMenu;
+    import Src.Prog.Com.Atoms.Core.Pin;
 
     /**
      * Centralized manager for all context menus in the application.
@@ -89,7 +90,10 @@
             // System cleanup
             Impulsys.subscribeToImpulse("APP_CLOSE", onAppClose);
         }
-
+		//private function checkPinClass():void {
+		//	var testPin:Pin = new Pin("test", Pin.TYPE_OUTPUT);
+		//	testPin.value = "test_value"; // Это должно вызвать новый код с dispatchEvent
+		//}
         // =========================================================================
         // IMPULSE HANDLERS - CONTEXT MENU CREATION
         // =========================================================================
@@ -103,6 +107,7 @@
          */
         private function onWindowRightClick(impulse:Impulse):void {
             trace("MenuManager: Window right click Impulse received");
+			//checkPinClass();
             var globalPos:Point = impulse.data.globalPosition;
             var localPos:Point = impulse.data.localPosition;
             var window:Window = findWindowByType(impulse.data.windowType);

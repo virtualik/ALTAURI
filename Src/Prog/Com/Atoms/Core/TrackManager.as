@@ -20,6 +20,7 @@
      * - Optimized radius-based pin search
      * - Extended debug information
      * - FIXED: Temporary track cleanup issues
+     * - FIXED: Recursive event loops in pin subscriptions
      *
      * @class TrackManager
      * @public
@@ -164,58 +165,6 @@
         // =========================================================================
 
         /**
-         * Finds pins within specified radius of mouse position for connection targeting.
-         * Uses spatial search to locate closest valid pin for connection.
-         * FIXED: Increased default radius and improved targeting.
-         *
-         * @private
-         * @param {Number} stageX - Mouse X coordinate in stage space
-         * @param {Number} stageY - Mouse Y coordinate in stage space
-         * @param {Number} radius - Search radius in pixels (default: 50)
-         * @return {Pin} Closest valid pin within radius, or null if none found
-         */
-/*        private function findPinInRadius(stageX:Number, stageY:Number, radius:Number = 30):Pin {
-            try {
-                var allPins:Array = getAllPinsInWindow();
-                var mousePos:Point = new Point(stageX, stageY);
-                var closestPin:Pin = null;
-                var minDistance:Number = Number.MAX_VALUE;
-
-                trace("=== RADIUS PIN SEARCH ===");
-                trace("Search center: " + stageX + ", " + stageY);
-                trace("Search radius: " + radius);
-                trace("Total pins in window: " + allPins.length);
-
-                for each (var pin:Pin in allPins) {
-                    if (!pin) continue;
-                    
-                    var pinPos:Point = getGlobalPinPosition(pin);
-                    var distance:Number = Point.distance(mousePos, pinPos);
-
-                    trace("Checking pin: " + pin.name + " at distance " + distance.toFixed(2));
-
-                    if (distance <= radius && distance < minDistance && pin != _currentDragPin) {
-                        if (isValidConnection(_currentDragPin, pin)) {
-                            closestPin = pin;
-                            minDistance = distance;
-                            trace("New closest valid pin: " + pin.name + " at " + distance.toFixed(2));
-                        } else {
-                            trace("Invalid connection for pin: " + pin.name);
-                        }
-                    }
-                }
-
-                trace("Radius search result: " + (closestPin ? closestPin.name : "null"));
-                trace("=== END RADIUS SEARCH ===");
-
-            } catch (error:Error) {
-                trace("ERROR in findPinInRadius: " + error.message);
-                return null;
-            }
-			return closestPin;
-        }*/
-
-        /**
          * Gets all pins in current window context for connection searching.
          *
          * @private
@@ -249,6 +198,16 @@
 
             trace("Total pins collected: " + allPins.length);
             return allPins;
+        }
+
+        /**
+         * FIXED: Public method to get all pins in window for AtomManager
+         *
+         * @public
+         * @return {Array} Array of all pins in current window
+         */
+        public function getAllPinsInWindowPublic():Array {
+            return getAllPinsInWindow();
         }
 
         // =========================================================================
@@ -343,12 +302,12 @@
 		 private function onPinDragEnd(impulse:Impulse):void {
 			trace("=== TRACK MANAGER PIN_DRAG_END ===");
 			trace("Impulse data: " + JSON.stringify(impulse.data));
-			
+
 			if (!_currentDragPin) {
 				trace("ERROR: No current drag pin!");
 				return;
 			}
-			
+
 
            trace("=== PIN DRAG END PROCESSING ===");
 
@@ -358,13 +317,6 @@
 
                 trace("From pin: " + fromPin.name);
                 trace("Direct target pin: " + (toPin ? toPin.name + " (" + toPin.type + ")" : "null"));
-
-                // If direct target pin not provided, perform radius search with INCREASED radius
-                if (!toPin) {
-                    trace("No direct target, performing radius search...");
-          //          toPin = findPinInRadius(impulse.data.endX, impulse.data.endY, 50); // INCREASED radius
-                    trace("Radius search result: " + (toPin ? toPin.name : "null"));
-                }
 
                 cleanupTempTrack();
 
@@ -377,7 +329,7 @@
                     createTrack(fromPin, toPin);
                 } else {
                     trace("Track creation skipped - invalid connection");
-                    
+
                     // Notify about failed connection attempt
                     Impulsys.emit(new Impulse("TRACK_CONNECTION_FAILED", {
                         fromPin: fromPin,
@@ -392,7 +344,7 @@
                 trace("ERROR in onPinDragEnd: " + error.message);
                 cleanupTempTrack();
                 _currentDragPin = null;
-                
+
                 Impulsys.emit(new Impulse("TRACK_CREATION_ERROR", {
                     error: "Drag end processing failed: " + error.message
                 }));
@@ -506,8 +458,8 @@
 
         /**
          * Creates a new track between pins with validation and proper setup.
-         * Establishes direct pin-to-pin subscription for optimal data transfer.
-         * Added extended error handling and logging.
+         * Establishes direct pin-to-pin subscription for optimal data transfer without recursion.
+         * FIXED: Removed global event dependencies that caused infinite loops.
          *
          * @private
          * @param {Pin} fromPin - Source pin (output)
@@ -519,6 +471,7 @@
                 trace("From pin: " + fromPin.name + " (" + fromPin.type + ")");
                 trace("To pin: " + toPin.name + " (" + toPin.type + ")");
 
+                // FIXED: Create track first, then setup subscriptions
                 var track:Track = new Track(fromPin, toPin, this);
                 var connectionId:String = generateConnectionId(fromPin, toPin);
 
@@ -726,7 +679,7 @@
             trace("TrackManager: FORCING cleanup of all temporary state");
             cleanupTempTrack();
             _currentDragPin = null;
-            
+
             // Emit cleanup completion
             Impulsys.emit(new Impulse("TEMP_TRACK_CLEANUP_COMPLETE", {
                 timestamp: new Date().getTime()

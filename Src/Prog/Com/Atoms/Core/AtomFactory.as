@@ -89,46 +89,21 @@
          * @param {Atom} atom - Target atom instance
          * @param {Array} pinsDefinition - Array of pin definitions
          */
-        private static function createPinsFromDefinition(atom:Atom, pinsDefinition:Array):void {
-            if (!pinsDefinition || pinsDefinition.length === 0) {
-                trace("AtomFactory: WARNING - No pins defined for atom: " + atom.type);
-                return;
-            }
+		private static function createPinsFromDefinition(atom:Atom, pinsDefinition:Array):void {
+			for each (var pinDef:Object in pinsDefinition) {
+				// Создаем пин с расширенными возможностями
+				var pin:Pin = new Pin(pinDef.name, pinDef.type, null, pinDef);
+				
 
-            for each (var pinDef:Object in pinsDefinition) {
-                try {
-                    // Validate pin definition
-                    if (!pinDef.name) {
-                        trace("ERROR: Pin definition missing name for atom: " + atom.type);
-                        continue;
-                    }
-                    if (!pinDef.type || (pinDef.type != "input" && pinDef.type != "output")) {
-                        trace("ERROR: Invalid pin type '" + pinDef.type + "' for pin '" + pinDef.name + "' in atom: " + atom.type);
-                        continue;
-                    }
-
-                    // Create pin data object
-                    var pinData:Object = {};
-                    if (pinDef.dataType) pinData.dataType = pinDef.dataType;
-                    if (pinDef.description) pinData.description = pinDef.description;
-
-                    // Create pin instance
-                    var pin:Pin = new Pin(pinDef.name, pinDef.type, null, pinData);
-
-                    // Add to appropriate pin collection
-                    if (pinDef.type == "input") {
-                        atom.inputs.push(pin);
-                    } else {
-                        atom.outputs.push(pin);
-                    }
-
-                } catch (error:Error) {
-                    trace("ERROR: Failed to create pin '" + pinDef.name + "' for atom " + atom.type + ": " + error.message);
-                }
-            }
-
-            trace("AtomFactory: Created " + pinsDefinition.length + " pins for atom: " + atom.type);
-        }
+				
+				// Добавляем в соответствующие коллекции
+				if (pinDef.type == "input") {
+					atom.inputs.push(pin);
+				} else {
+					atom.outputs.push(pin);
+				}
+			}
+		}
 
         /**
          * Generates a unique ID for an atom.
