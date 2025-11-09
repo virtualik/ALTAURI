@@ -3,15 +3,20 @@
     import Src.Prog.Com.Atoms.Core.Atom;
     import Src.Prog.Core.Impulsys.Impulsys;
     import Src.Prog.Core.Impulsys.Impulse;
-    import Src.Prog.Com.Atoms.Core.AtomView;
     import Src.Prog.Core.Managers.AtomManager;
     import flash.display.Graphics;
     import Src.Prog.Com.Atoms.Core.Pin;
+    import Src.Prog.Com.Atoms.Core.AtomView;
 
     /**
      * Central registry for all atom definitions in the system.
      * ALL atoms must be registered here to be available in the application.
      * Ensures data-driven behavior with proper pin-to-data synchronization.
+     *
+     * Changes:
+     * - Added trace statements in LED onInputChange for testing cross-class flow.
+     * - Ensured updateAtom is called to trigger view refresh.
+     * - For testing: Run the app, press button, check console for "LED INPUT CHANGE" and "LED data updated".
      *
      * @class AtomDefinitions
      * @public
@@ -214,8 +219,66 @@
                 }
             });
 
+			registerAtomType("LED", {
+                displayName: "LED Indicator",
+                category: "Output",
+                description: "Visual indicator that lights up when active",
+                pins: [
+                    {name: "input", type: "input", dataType: "boolean", description: "LED state (on/off)"}
+                ],
+                behavior: {
+                    onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
+                        trace("=== LED INPUT CHANGE (TEST: Cross-class flow started) ===");
+                        trace("LED " + atom.id + " received value: " + value + " from pin: " + pinName);
+                        var isOn:Boolean = Boolean(value);
+                        var newAtom:Atom = atom.setData("isOn", isOn);
+                        trace("LED data updated - isOn: " + newAtom.data.isOn);
+                        var atomManager:AtomManager = AtomManager.getInstance();
+                        atomManager.updateAtom(newAtom);
+                        var view:AtomView = atomManager.getAtomView(newAtom);
+                        if (view) {
+                            view.updateVisuals();
+                            trace("TEST: LED view updated - should now be " + (isOn ? "ON" : "OFF"));
+                        } else {
+                            trace("TEST ERROR: No view found for LED " + atom.id);
+                        }
+                        trace("=== END LED INPUT CHANGE (TEST: Cross-class flow completed) ===");
+                        return newAtom;
+                    }
+                },
+                visuals: {
+                    base: {
+                        width: 30,
+                        height: 30,
+                        color: 0x333333,
+                        textColor: 0xFFFFFF,
+                        draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+                            AtomDefinitions.drawLED(graphics, atom, config);
+                        }
+                    },
+                    Editor: {
+                        width: 30,
+                        height: 30,
+                        color: 0x333333,
+                        textColor: 0xFFFFFF,
+                        draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+                            AtomDefinitions.drawLED(graphics, atom, config);
+                        }
+                    },
+                    Device: {
+                        width: 30,
+                        height: 30,
+                        color: 0x333333,
+                        textColor: 0xFFFFFF,
+                        draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+                            AtomDefinitions.drawLED(graphics, atom, config);
+                        }
+                    }
+                }
+            });
+		
             // Logic Atoms
-            registerAtomType("AND", {
+			registerAtomType("AND", {
                 displayName: "AND Gate",
                 category: "Logic",
                 description: "Logical AND gate - output is TRUE only when both inputs are TRUE",
@@ -369,25 +432,25 @@
                     {name: "input", type: "input", dataType: "boolean", description: "Input signal"},
                     {name: "output", type: "output", dataType: "boolean", description: "Output signal (inverse of input)"}
                 ],
-                behavior: {
-                    onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
-                        trace("=== NOT GATE INPUT CHANGE ===");
-                        trace("Pin: " + pinName + ", Value: " + value);
-                        var inputValue:Boolean = Boolean(value);
-                        trace("Input: " + inputValue);
-                        var result:Boolean = !inputValue;
-                        trace("NOT Result: " + result);
-                        var newAtom:Atom = atom.setPinValue("output", result, false);
-                        Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
-                            atomId: newAtom.id,
-                            pinName: "output",
-                            newValue: result,
-                            oldValue: atom.outputs[0] ? atom.outputs[0].value : false,
-                            source: "not_gate"
-                        }));
-                        trace("=== END NOT GATE ===");
-                        return newAtom;
-                    },
+			behavior: {
+				onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
+					trace("=== NOT INPUT CHANGE ===");
+					trace("Pin: " + pinName + ", Value: " + value);
+					var inputValue:Boolean = Boolean(value);
+					trace("Input: " + inputValue);
+					var result:Boolean = !inputValue; // <-- Добавь трейс
+					trace("NOT Result (output): " + result);
+					var newAtom:Atom = atom.setPinValue("output", result, false);
+					Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
+						atomId: newAtom.id,
+						pinName: "output",
+						newValue: result,
+						oldValue: atom.outputs[0] ? atom.outputs[0].value : false,
+						source: "not_gate"
+					}));
+					trace("=== END NOT GATE ===");
+					return newAtom;
+				},
                     initialize: function(atom:Atom):Atom {
                         trace("NOT Gate initialized");
                         return atom.setPinValue("output", true, false);
@@ -619,57 +682,6 @@
                         textColor: 0xFFFFFF
                     },
                     Editor: {}
-                }
-            });
-
-            registerAtomType("LED", {
-                displayName: "LED Indicator",
-                category: "Output",
-                description: "Visual indicator that lights up when active",
-                pins: [
-                    {name: "input", type: "input", dataType: "boolean", description: "LED state (on/off)"}
-                ],
-                behavior: {
-                    onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
-                        trace("=== LED INPUT CHANGE ===");
-                        trace("LED " + atom.id + " received value: " + value);
-                        var isOn:Boolean = Boolean(value);
-                        var newAtom:Atom = atom.setData("isOn", isOn);
-                        trace("LED data updated - isOn: " + newAtom.data.isOn);
-                        var atomManager:AtomManager = AtomManager.getInstance();
-                        atomManager.updateAtom(newAtom);
-                        trace("=== END LED INPUT CHANGE ===");
-                        return newAtom; // Возвращаем атом с обновлёнными данными
-                    }
-                },
-                visuals: {
-                    base: {
-                        width: 30,
-                        height: 30,
-                        color: 0x333333,
-                        textColor: 0xFFFFFF,
-                        draw: function(graphics:Graphics, atom:Atom, config:Object):void {
-                            AtomDefinitions.drawLED(graphics, atom, config);
-                        }
-                    },
-                    Editor: {
-                        width: 30,
-                        height: 30,
-                        color: 0x333333,
-                        textColor: 0xFFFFFF,
-                        draw: function(graphics:Graphics, atom:Atom, config:Object):void {
-                            AtomDefinitions.drawLED(graphics, atom, config);
-                        }
-                    },
-                    Device: {
-                        width: 30,
-                        height: 30,
-                        color: 0x333333,
-                        textColor: 0xFFFFFF,
-                        draw: function(graphics:Graphics, atom:Atom, config:Object):void {
-                            AtomDefinitions.drawLED(graphics, atom, config);
-                        }
-                    }
                 }
             });
 

@@ -70,7 +70,7 @@
             _trackManager = trackManager;
             _connectionId = generateConnectionId();
 
-            setupPinSubscription(); // FIXED: Use direct subscriptions instead of global
+            setupPinSubscription(); // Use direct subscriptions instead of global
             setupEventListeners();
             drawTrack();
         }
@@ -86,27 +86,25 @@
             trace("From pin: " + _fromPin.name + " (" + _fromPin.type + ", id: " + _fromPin.id + ")");
             trace("To pin: " + _toPin.name + " (" + _toPin.type + ", id: " + _toPin.id + ")");
 
-            var subscriptionCreated:Boolean = _toPin.subscribeToPin(_fromPin, Pin.PIN_VALUE_CHANGED,
-                function(event:PinEvent):void {
-                    trace("=== TRACK SUBSCRIPTION TRIGGERED ===");
-                    trace("Track: " + _fromPin.name + " -> " + _toPin.name);
-                    trace("Value: " + event.newValue);
-                    trace("Source pin: " + event.sourcePin.name);
-
-                    var oldValue:* = _toPin.value;
-                    _toPin.value = event.newValue;
-
-                    trace("=== TRACK SUBSCRIPTION COMPLETED ===");
-
-                    // FIXED: Emit for target atom with target pin name
-                    Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
-                        atomId: _trackManager.getAtomByPin(_toPin).id,  // Target atom ID
-                        pinName: _toPin.name,                           // Target pin name
-                        newValue: event.newValue,
-                        oldValue: oldValue,
-                        source: "propagation"
-                    }));
-                });
+			var subscriptionCreated:Boolean = _toPin.subscribeToPin(_fromPin, Pin.PIN_VALUE_CHANGED,
+				function(event:PinEvent):void {
+					trace("=== TRACK SUBSCRIPTION (NOT->LED) TRIGGERED ===");
+					trace("Track: " + _connectionId);
+					trace("From Pin Value: " + event.newValue + " (Source: " + event.sourcePin.name + ")");
+					trace("To Pin Old Value: " + _toPin.value);
+					var oldValue:* = _toPin.value;
+					_toPin.value = event.newValue;
+					trace("To Pin New Value: " + _toPin.value);
+					trace("=== TRACK SUBSCRIPTION (NOT->LED) COMPLETED ===");
+					// FIXED: Emit for target atom with target pin name
+					Impulsys.emit(new Impulse("PIN_VALUE_CHANGED", {
+						atomId: _trackManager.getAtomByPin(_toPin).id,  // Target atom ID (LED)
+						pinName: _toPin.name,                           // Target pin name (input)
+						newValue: event.newValue,                       // Value from NOT's output
+						oldValue: oldValue,
+						source: "propagation_from_NOT"
+					}));
+				});
 
             if (subscriptionCreated) {
                 trace("✓ Direct pin subscription created successfully");
