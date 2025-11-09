@@ -16,6 +16,7 @@
      *
      * Key changes:
      * - All data propagation now handled via direct onInputChange → updateAtom()
+     * - On dispose, emits PIN_DISCONNECTED to reset target pin to null
      *
      * @class Track
      * @extends Sprite
@@ -63,50 +64,65 @@
          * Sets up direct pin-to-pin data subscription.
          * Entirely self-contained: calls onInputChange → updateAtom().
          */
-		private function setupPinSubscription():void {
-			trace("Track setting up DIRECT pin subscription for: " + _connectionId);
-			trace("From pin: " + _fromPin.name + " (" + _fromPin.type + ", id: " + _fromPin.id + ")");
-			trace("To pin: " + _toPin.name + " (" + _toPin.type + ", id: " + _toPin.id + ")");
+        private function setupPinSubscription():void {
+            trace("Track setting up DIRECT pin subscription for: " + _connectionId);
+            trace("From pin: " + _fromPin.name + " (" + _fromPin.type + ", id: " + _fromPin.id + ")");
+            trace("To pin: " + _toPin.name + " (" + _toPin.type + ", id: " + _toPin.id + ")");
 
-			// Колбэк подписки
-			var onPinValueChanged:Function = function(event:PinEvent):void {
-				trace("=== DIRECT PIN SUBSCRIPTION TRIGGERED ===");
-				trace("Track: " + _connectionId);
-				trace("From: " + event.sourcePin.name + " → To: " + _toPin.name + " = " + event.newValue);
+            // Колбэк подписки
+            var onPinEvent:Function = function(event:PinEvent):void {
+                if (event.type == Pin.PIN_VALUE_CHANGED) {
+                    trace("=== DIRECT PIN SUBSCRIPTION TRIGGERED ===");
+                    trace("Track: " + _connectionId);
+                    trace("From: " + event.sourcePin.name + " → To: " + _toPin.name + " = " + event.newValue);
 
-				var targetAtom:Atom = _trackManager.getAtomByPin(_toPin);
-				if (!targetAtom) {
-					trace("ERROR: Target atom not found for pin: " + _toPin.name);
-					return;
-				}
-				var newAtom:Atom;
-				var definition:Object = AtomDefinitions.getAtomDefinition(targetAtom.type);
-				if (definition && definition.behavior && definition.behavior.onInputChange) {
-					newAtom = definition.behavior.onInputChange(targetAtom, _toPin.name, event.newValue);
-					AtomManager.getInstance().updateAtom(newAtom);
-				} else {
-					newAtom = targetAtom.setPinValue(_toPin.name, event.newValue, true);
-					AtomManager.getInstance().updateAtom(newAtom);
-				}
-				trace("=== DIRECT SUBSCRIPTION → VIEW UPDATED ===");
-			};
+                    var targetAtom:Atom = _trackManager.getAtomByPin(_toPin);
+                    if (!targetAtom) {
+                        trace("ERROR: Target atom not found for pin: " + _toPin.name);
+                        return;
+                    }
+                    var newAtom:Atom;
+                    var definition:Object = AtomDefinitions.getAtomDefinition(targetAtom.type);
+                    if (definition && definition.behavior && definition.behavior.onInputChange) {
+                        newAtom = definition.behavior.onInputChange(targetAtom, _toPin.name, event.newValue);
+                        AtomManager.getInstance().updateAtom(newAtom);
+                    } else {
+                        newAtom = targetAtom.setPinValue(_toPin.name, event.newValue, true);
+                        AtomManager.getInstance().updateAtom(newAtom);
+                    }
+                    trace("=== DIRECT SUBSCRIPTION → VIEW UPDATED ===");
+                }
+                else if (event.type == Pin.PIN_DISCONNECTED) {
+                    trace("=== DIRECT PIN SUBSCRIPTION: DISCONNECTED ===");
+                    // При отключении — сбрасываем значение на null
+                    var targetAtom:Atom = _trackManager.getAtomByPin(_toPin);
+                    if (!targetAtom) return;
+                    var definition:Object = AtomDefinitions.getAtomDefinition(targetAtom.type);
+                    if (definition && definition.behavior && definition.behavior.onInputChange) {
+                        var newAtom:Atom = definition.behavior.onInputChange(targetAtom, _toPin.name, null);
+                        AtomManager.getInstance().updateAtom(newAtom);
+                    } else {
+                        var newAtom:Atom = targetAtom.setPinValue(_toPin.name, null, true);
+                        AtomManager.getInstance().updateAtom(newAtom);
+                    }
+                }
+            };
 
-			var subscriptionCreated:Boolean = _toPin.subscribeToPin(_fromPin, Pin.PIN_VALUE_CHANGED, onPinValueChanged);
+            var subscriptionCreated:Boolean = _toPin.subscribeToPin(_fromPin, [Pin.PIN_VALUE_CHANGED, Pin.PIN_DISCONNECTED], onPinEvent);
 
-			if (subscriptionCreated) {
-				trace("✓ Direct pin subscription created successfully");
+            if (subscriptionCreated) {
+                trace("✓ Direct pin subscription created successfully");
 
-				// === ПЕРЕДАЧА НАЧАЛЬНОГО ЗНАЧЕНИЯ ===
-				if (_fromPin.value !== undefined && _fromPin.value !== null) {
-					trace("➡️ Propagating initial value on connection: " + _fromPin.value);
-					// Создаём событие ВРУЧНУЮ и вызываем подписчик напрямую
-					var initEvent:PinEvent = new PinEvent(Pin.PIN_VALUE_CHANGED, _fromPin, _fromPin.value, undefined);
-					onPinValueChanged(initEvent); // ← вызвать для того что бы Атом отработал onInputChange
-				}
-			} else {
-				trace("✗ Failed to create direct pin subscription");
-			}
-		}
+                // === ПЕРЕДАЧА НАЧАЛЬНОГО ЗНАЧЕНИЯ ===
+                if (_fromPin.value !== undefined && _fromPin.value !== null) {
+                    trace("➡️ Propagating initial value on connection: " + _fromPin.value);
+                    var initEvent:PinEvent = new PinEvent(Pin.PIN_VALUE_CHANGED, _fromPin, _fromPin.value, undefined);
+                    onPinEvent(initEvent);
+                }
+            } else {
+                trace("✗ Failed to create direct pin subscription");
+            }
+        }
 
         private function setupEventListeners():void {
             Impulsys.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
@@ -201,12 +217,30 @@
 
         public function dispose():void {
             _isActive = false;
-            if (_toPin && _fromPin) {
-                _toPin.unsubscribeFromPin(_fromPin, Pin.PIN_VALUE_CHANGED);
-                trace("Track: Removed direct pin subscription");
-            }
+
+			if (_toPin && _fromPin) {
+				// === СБРОС ЗНАЧЕНИЯ В ПОЛУЧАТЕЛЕ ===
+				var targetAtom:Atom = _trackManager.getAtomByPin(_toPin);
+				if (targetAtom) {
+					var definition:Object = AtomDefinitions.getAtomDefinition(targetAtom.type);
+					if (definition.behavior.onInputChange) {
+						// Вызываем onInputChange с null
+						var newAtom:Atom = definition.behavior.onInputChange(targetAtom, _toPin.name, null);
+						AtomManager.getInstance().updateAtom(newAtom);
+					} else {
+						var newAtom:Atom = targetAtom.setPinValue(_toPin.name, null, true);
+						AtomManager.getInstance().updateAtom(newAtom);
+					}
+				}
+
+				// Теперь отписываемся
+				_toPin.unsubscribeFromPin(_fromPin, Pin.PIN_VALUE_CHANGED);
+				trace("Track: Removed direct pin subscription and reset receiver to null");
+			}
+
             Impulsys.removeImpulse("ATOM_MOVED", onAtomMoved);
             this.removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
+            
             if (_flowAnimation != null) {
                 if (_flowAnimation.hasOwnProperty("dispose")) {
                     try {

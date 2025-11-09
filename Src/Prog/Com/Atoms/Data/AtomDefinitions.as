@@ -182,64 +182,58 @@
             });
 
 			registerAtomType("LED", {
-                displayName: "LED Indicator",
-                category: "Output",
-                description: "Visual indicator that lights up when active",
-                pins: [
-                    {name: "input", type: "input", dataType: "boolean", description: "LED state (on/off)"}
-                ],
-                behavior: {
-                    onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
-                        trace("=== LED INPUT CHANGE (TEST: Cross-class flow started) ===");
-                        trace("LED " + atom.id + " received value: " + value + " from pin: " + pinName);
-                        var isOn:Boolean = Boolean(value);
-                        var newAtom:Atom = atom.setData("isOn", isOn);
-                        trace("LED data updated - isOn: " + newAtom.data.isOn);
-                        var atomManager:AtomManager = AtomManager.getInstance();
-                        atomManager.updateAtom(newAtom);
-                        var view:AtomView = atomManager.getAtomView(newAtom);
-                        if (view) {
-                            view.updateVisuals();
-                            trace("TEST: LED view updated - should now be " + (isOn ? "ON" : "OFF"));
-                        } else {
-                            trace("TEST ERROR: No view found for LED " + atom.id);
-                        }
-                        trace("=== END LED INPUT CHANGE (TEST: Cross-class flow completed) ===");
-                        return newAtom;
-                    }
-                },
-                visuals: {
-                    base: {
-                        width: 30,
-                        height: 30,
-                        color: 0x333333,
-                        textColor: 0xFFFFFF,
-                        draw: function(graphics:Graphics, atom:Atom, config:Object):void {
-                            AtomDefinitions.drawLED(graphics, atom, config);
-                        }
-                    },
-                    Editor: {
-                        width: 30,
-                        height: 30,
-                        color: 0x333333,
-                        textColor: 0xFFFFFF,
-                        draw: function(graphics:Graphics, atom:Atom, config:Object):void {
-                            AtomDefinitions.drawLED(graphics, atom, config);
-                        }
-                    },
-                    Device: {
-                        width: 30,
-                        height: 30,
-                        color: 0x333333,
-                        textColor: 0xFFFFFF,
-                        draw: function(graphics:Graphics, atom:Atom, config:Object):void {
-                            AtomDefinitions.drawLED(graphics, atom, config);
-                        }
-                    }
-                }
-            });
-		
-            // Logic Atoms
+				displayName: "LED Indicator",
+				category: "Output",
+				description: "Visual indicator that lights up when active",
+				pins: [
+					{name: "input", type: "input", dataType: "boolean", description: "LED state (on/off)"}
+				],
+				behavior: {
+					onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
+						trace("=== LED INPUT CHANGE ===");
+						trace("LED " + atom.id + " received value: " + value + " from pin: " + pinName);
+						
+						// Только true = включено. false, null, undefined → выключено.
+						var isOn:Boolean = (value === true);
+						var newAtom:Atom = atom.setData("isOn", isOn);
+						
+						trace("LED data updated - isOn: " + newAtom.data.isOn);
+						AtomManager.getInstance().updateAtom(newAtom);
+						return newAtom;
+					}
+				},
+				visuals: {
+					base: {
+						width: 30,
+						height: 30,
+						color: 0x333333,
+						textColor: 0xFFFFFF,
+						draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+							AtomDefinitions.drawLED(graphics, atom, config);
+						}
+					},
+					Editor: {
+						width: 30,
+						height: 30,
+						color: 0x333333,
+						textColor: 0xFFFFFF,
+						draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+							AtomDefinitions.drawLED(graphics, atom, config);
+						}
+					},
+					Device: {
+						width: 30,
+						height: 30,
+						color: 0x333333,
+						textColor: 0xFFFFFF,
+						draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+							AtomDefinitions.drawLED(graphics, atom, config);
+						}
+					}
+				}
+			});
+
+			// Logic Atoms
 			registerAtomType("AND", {
                 displayName: "AND Gate",
                 category: "Logic",
