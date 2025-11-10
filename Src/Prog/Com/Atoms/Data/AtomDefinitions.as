@@ -8,9 +8,9 @@
     import Src.Prog.Com.Atoms.Core.Pin;
     import Src.Prog.Com.Atoms.Core.AtomView;
 	// Behaviors
-    import Src.Prog.Com.Atoms.Behaviors.ButtonBehavior;
-    import Src.Prog.Com.Atoms.Behaviors.LEDBehavior;
-    import Src.Prog.Com.Atoms.Behaviors.NumberDisplayBehavior;
+    import Src.Prog.Com.Atoms.Data.Behaviors.ButtonBehavior;
+    import Src.Prog.Com.Atoms.Data.Behaviors.LEDBehavior;
+    import Src.Prog.Com.Atoms.Data.Behaviors.NumberDisplayBehavior;
 
     /**
      * Central registry for all atom definitions in the system.
@@ -146,29 +146,6 @@
                         width: 50,
                         height: 25,
                         color: 0x66AA66,
-                        textColor: 0x000000
-                    },
-                    Editor: {}
-                }
-            });
-
-            registerAtomType("Slider", {
-                displayName: "Slider",
-                category: "Input",
-                description: "A slider for selecting numeric values",
-                pins: [
-                    {name: "value", type: "output", dataType: "number", description: "Current slider value"}
-                ],
-                viewConfig: {
-                    width: 100,
-                    height: 30,
-                    backgroundColor: 0xCC6633
-                },
-                visuals: {
-                    base: {
-                        width: 100,
-                        height: 30,
-                        color: 0xCC6633,
                         textColor: 0x000000
                     },
                     Editor: {}
@@ -509,32 +486,6 @@
                         width: 80,
                         height: 40,
                         color: 0x9966CC,
-                        textColor: 0x000000
-                    },
-                    Editor: {}
-                }
-            });
-
-            registerAtomType("Timer", {
-                displayName: "Timer",
-                category: "Logic",
-                description: "Generates impulses at regular intervals",
-                pins: [
-                    {name: "start", type: "input", dataType: "impulse", description: "Start timer"},
-                    {name: "stop", type: "input", dataType: "impulse", description: "Stop timer"},
-                    {name: "interval", type: "input", dataType: "number", description: "Timer interval in ms"},
-                    {name: "output", type: "output", dataType: "impulse", description: "Timer impulse output"}
-                ],
-                viewConfig: {
-                    width: 70,
-                    height: 35,
-                    backgroundColor: 0xCC9966
-                },
-                visuals: {
-                    base: {
-                        width: 70,
-                        height: 35,
-                        color: 0xCC9966,
                         textColor: 0x000000
                     },
                     Editor: {}

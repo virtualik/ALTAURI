@@ -1,5 +1,4 @@
-﻿// Src/Prog/Com/Atoms/Behaviors/BaseBehavior.as
-package Src.Prog.Com.Atoms.Behaviors {
+﻿package Src.Prog.Com.Atoms.Data.Behaviors {
     import Src.Prog.Com.Atoms.Core.Atom;
 
     public class BaseBehavior {
