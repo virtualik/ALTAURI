@@ -25,7 +25,6 @@
     import Src.Prog.Core.Menus.ContextMenu;
     import Src.Prog.Core.Menus.ContextMenuItem;
     import Src.Prog.Core.Managers.MenuManager;
-    import Src.Prog.Com.Atoms.Core.TrackManager;
 
     /**
      * Universal application window with comprehensive mouse event handling system.
@@ -182,11 +181,6 @@
 						return; // Компоненты обрабатывают события сами
 					}					
 					
-					// Force cleanup on any mouse down to prevent stuck temporary tracks
-					var trackManager:TrackManager = TrackManager.getInstance();
-					if (trackManager.getCurrentDragPin()) {
-						trackManager.forceCleanup();
-					}
 					var isMenu: Boolean = isMenuElement(e.target as DisplayObject);
 						if(!isMenu) {
 							// Now we'll close Menu
@@ -342,9 +336,6 @@
 		private function onWindowDeactivate(event:Event):void {
 			trace("Window deactivated: " + _type + ", forcing cleanup of temporary tracks");
 			
-			// Force cleanup of temporary track state
-			var trackManager:TrackManager = TrackManager.getInstance();
-			trackManager.forceCleanup();
 			
 			// Also close any open context menus
 			MenuManager.getInstance().closeCurrentMenu();

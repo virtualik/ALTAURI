@@ -11,22 +11,11 @@
 
     /**
      * Visual representation of a pin with interactive capabilities.
-     * Handles mouse interactions for creating connections between atoms.
-     * FIXED: Null object reference errors and improved pin targeting logic.
-     *
-     * @class PinView
-     * @extends Sprite
-     * @public
+     * Now initiates track creation directly through Pin class but preserves all search logic.
      */
     public class PinView extends Sprite {
         private var _pin:Pin;
 
-        /**
-         * Creates a new PinView instance.
-         *
-         * @constructor
-         * @param {Pin} pin - Logical pin model for visualization
-         */
         public function PinView(pin:Pin) {
             _pin = pin;
             super();
@@ -35,76 +24,65 @@
             this.name = "PinView_" + pin.name;
         }
 
-        /**
-         * Draws the visual representation of the pin.
-         * Uses color coding based on pin type (input/output).
-         * Increases hit box for better user experience.
-         *
-         * @private
-         */
         private function draw():void {
             this.graphics.clear();
-
-            // Invisible area for increased hit box (better UX)
             this.graphics.beginFill(0x000000, 0);
-            this.graphics.drawCircle(0, 0, 8); // Hit box radius increased
+            this.graphics.drawCircle(0, 0, 8);
             this.graphics.endFill();
 
-            // Visual pin representation
             var color:uint = (_pin.type == Pin.TYPE_INPUT) ? 0xFF4444 : 0x44FF44;
             this.graphics.beginFill(color);
-            this.graphics.drawCircle(0, 0, 4); // Visual size remains compact
+            this.graphics.drawCircle(0, 0, 4);
             this.graphics.endFill();
 
             this.buttonMode = true;
             this.useHandCursor = true;
         }
 
-        /**
-         * Sets up mouse handlers for drag and connection creation operations.
-         *
-         * @private
-         */
         private function setupInteractions():void {
             this.addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
-
-            // Ensure these flags are set:
             this.mouseEnabled = true;
-            this.mouseChildren = false; // Prevent children from intercepting events
+            this.mouseChildren = false;
         }
 
         /**
-         * Handles mouse down for starting pin drag operation.
-         * Stops event propagation to prevent atom processing.
-         *
-         * @private
-         * @param {MouseEvent} event - Mouse down event
+         * Handles mouse down for starting track creation (output pins only).
+         * For input pins, falls back to original drag behavior.
          */
         private function onMouseDown(event:MouseEvent):void {
-            event.stopPropagation(); // Prevent atom processing
-           // event.stopImmediatePropagation(); // Immediate stop to prevent conflicts
+            event.stopPropagation();
 
-            Impulsys.emit(new Impulse("PIN_DRAG_START", {
-                pin: _pin,
-                startX: event.stageX,
-                startY: event.stageY,
-                windowType: "Editor"
-            }));
+            if (_pin.type === Pin.TYPE_OUTPUT) {
+                // НОВАЯ ЛОГИКА: output pins создают треки напрямую
+                trace("=== PINVIEW MOUSE DOWN (OUTPUT) ===");
+                trace("Output pin clicked: " + _pin.name);
 
-            // Subscribe to mouse move and up events on stage
-            if (stage) {
-                stage.addEventListener(MouseEvent.MOUSE_MOVE, on_MouseMove);
-                stage.addEventListener(MouseEvent.MOUSE_UP, on_MouseUp);
+                var startPos:Point = new Point(event.stageX, event.stageY);
+                _pin.startTrackCreation(startPos);
+                
+                trace("Track creation initiated for pin: " + _pin.name);
+            } else {
+                // СТАРАЯ ЛОГИКА: input pins используют импульсную систему для обратной совместимости
+                trace("=== PINVIEW MOUSE DOWN (INPUT) ===");
+                
+                Impulsys.emit(new Impulse("PIN_DRAG_START", {
+                    pin: _pin,
+                    startX: event.stageX,
+                    startY: event.stageY,
+                    windowType: "Editor"
+                }));
+
+                if (stage) {
+                    stage.addEventListener(MouseEvent.MOUSE_MOVE, on_MouseMove);
+                    stage.addEventListener(MouseEvent.MOUSE_UP, on_MouseUp);
+                }
             }
         }
 
-        /**
-         * Handles mouse movement during dragging.
-         * Updates real-time visual feedback.
-         *
-         * @private
-         * @param {MouseEvent} event - Mouse move event
-         */
+        // =========================================================================
+        // СУЩЕСТВУЮЩИЕ МЕТОДЫ ПОИСКА ПИНОВ (СОХРАНЯЕМ)
+        // =========================================================================
+
         private function on_MouseMove(event:MouseEvent):void {
             Impulsys.emit(new Impulse("PIN_DRAG_UPDATE", {
                 pin: _pin,
@@ -113,165 +91,126 @@
             }));
         }
 
-        /**
-         * Handles mouse up for completing drag operations.
-         * Performs target pin search and creates connection on validation.
-         * FIXED: Added null checks and error handling to prevent crashes.
-         *
-         * @private
-         * @param {MouseEvent} event - Mouse up event
-         */
-		// В PinView - улучшенная версия on_MouseUp
-		private function on_MouseUp(event:MouseEvent):void {
-			trace("[--TEST [in PinView]--]")
-			try {
-				event.stopPropagation();
-				event.stopImmediatePropagation();
+        private function on_MouseUp(event:MouseEvent):void {
+            trace("[--TEST [in PinView]--]")
+            try {
+                event.stopPropagation();
+                event.stopImmediatePropagation();
 
-				trace("=== PIN MOUSE_UP HANDLER ===");
-				trace("Pin: " + _pin.name + " (" + _pin.type + ")");
+                trace("=== PIN MOUSE_UP HANDLER ===");
+                trace("Pin: " + _pin.name + " (" + _pin.type + ")");
 
-				// удаляем обработчики stage
-				if (stage) {
-					stage.removeEventListener(MouseEvent.MOUSE_MOVE, on_MouseMove);
-					stage.removeEventListener(MouseEvent.MOUSE_UP, on_MouseUp);
-				}
+                if (stage) {
+                    stage.removeEventListener(MouseEvent.MOUSE_MOVE, on_MouseMove);
+                    stage.removeEventListener(MouseEvent.MOUSE_UP, on_MouseUp);
+                }
 
-				var trackManager:TrackManager = TrackManager.getInstance();
-				var currentDragPin:Pin = trackManager ? trackManager.getCurrentDragPin() : null;
-				
-				trace("-=[]=- Current drag pin: " + (currentDragPin ? currentDragPin.name : "null"));
+                // Для обратной совместимости пока используем старую логику поиска
+                var targetPin:Pin = findPinUnderMouseEx(event.stageX, event.stageY, _pin);
+                
+                trace("Target pin found: " + (targetPin ? targetPin.name : "null"));
 
-				// Ищем целевой пин с улучшенной логикой
-				var targetPin:Pin = findPinUnderMouseEx(event.stageX, event.stageY, currentDragPin);
-				
-				trace("Target pin found: " + (targetPin ? targetPin.name : "null"));
-trace("---------> pin: " + _pin + "toPin: " + targetPin + "endX: " + event.stageX + "endY: " + event.stageY + "currentDragPin: " + currentDragPin);
+                Impulsys.emit(new Impulse("PIN_DRAG_END", {
+                    pin: _pin,
+                    toPin: targetPin,
+                    endX: event.stageX,
+                    endY: event.stageY,
+                    currentDragPin: _pin
+                }));
 
-			
-			
-			
-			
-				Impulsys.emit(new Impulse("PIN_DRAG_END", {
-					pin: _pin,
-					toPin: targetPin,
-					endX: event.stageX,
-					endY: event.stageY,
-					currentDragPin: currentDragPin
-				}));
+                trace("=== END PIN MOUSE_UP ===");
+            } catch (error:Error) {
+                trace("ERROR in PinView.on_MouseUp: " + error.message);
+                if (stage) {
+                    stage.removeEventListener(MouseEvent.MOUSE_MOVE, on_MouseMove);
+                    stage.removeEventListener(MouseEvent.MOUSE_UP, on_MouseUp);
+                }
+            }
+        }
 
-				trace("=== END PIN MOUSE_UP ===");
-			} catch (error:Error) {
-				trace("ERROR in PinView.on_MouseUp: " + error.message);
-				// Аварийная очистка
-				if (stage) {
-					stage.removeEventListener(MouseEvent.MOUSE_MOVE, on_MouseMove);
-					stage.removeEventListener(MouseEvent.MOUSE_UP, on_MouseUp);
-				}
-			}
-		}
+        private function findPinUnderMouseEx(stageX:Number, stageY:Number, currentDragPin:Pin):Pin {
+            try {
+                if (!stage) return null;
+                
+                var mousePos:Point = new Point(stageX, stageY);
+                var allPins:Array = getAllPinsInView();
+                var closestPin:Pin = null;
+                var minDistance:Number = 25;
+                
+                trace("=== ENHANCED PIN SEARCH ===");
+                trace("Mouse: " + stageX + ", " + stageY);
+                trace("Pins in view: " + allPins.length);
 
-        /** PinView - улучшенный поиск пинов 
-         */
-		private function findPinUnderMouseEx(stageX:Number, stageY:Number, currentDragPin:Pin):Pin {
-			try {
-				if (!stage) return null;
-				
-				var mousePos:Point = new Point(stageX, stageY);
-				var allPins:Array = getAllPinsInView();
-				var closestPin:Pin = null;
-				var minDistance:Number = 25; // Уменьшенный радиус для точности
-				
-				trace("=== ENHANCED PIN SEARCH ===");
-				trace("Mouse: " + stageX + ", " + stageY);
-				trace("Pins in view: " + allPins.length);
+                for each (var pinView:PinView in allPins) {
+                    if (!pinView || !pinView.pin) continue;
+                    
+                    var pin:Pin = pinView.pin;
+                    if (pin === currentDragPin) continue;
+                    
+                    var pinGlobalPos:Point = pinView.localToGlobal(new Point(0, 0));
+                    var distance:Number = Point.distance(mousePos, pinGlobalPos);
+                    
+                    trace("Checking pin: " + pin.name + " at distance " + distance.toFixed(1));
+                    
+                    if (distance <= minDistance) {
+                        if (isValidConnection(currentDragPin, pin)) {
+                            closestPin = pin;
+                            minDistance = distance;
+                            trace("VALID PIN: " + pin.name + " at " + distance.toFixed(1));
+                        }
+                    }
+                }
+                
+                trace("Final closest pin: " + (closestPin ? closestPin.name : "null"));
+                trace("=== END ENHANCED SEARCH ===");
+                
+            } catch (error:Error) {
+                trace("ERROR in findPinUnderMouseEx: " + error.message);
+                return null;
+            }
+            return closestPin;
+        }
 
-				for each (var pinView:PinView in allPins) {
-					if (!pinView || !pinView.pin) continue;
-					
-					var pin:Pin = pinView.pin;
-					if (pin === currentDragPin) continue;
-					
-					// Получаем глобальную позицию пина
-					var pinGlobalPos:Point = pinView.localToGlobal(new Point(0, 0));
-					var distance:Number = Point.distance(mousePos, pinGlobalPos);
-					
-					trace("Checking pin: " + pin.name + " at distance " + distance.toFixed(1));
-					
-					if (distance <= minDistance) {
-						if (isValidConnection(currentDragPin, pin)) {
-							closestPin = pin;
-							minDistance = distance; // Обновляем для поиска ближайшего
-							trace("VALID PIN: " + pin.name + " at " + distance.toFixed(1));
-						}
-					}
-				}
-				
-				trace("Final closest pin: " + (closestPin ? closestPin.name : "null"));
-				trace("=== END ENHANCED SEARCH ===");
-				
-			} catch (error:Error) {
-				trace("ERROR in findPinUnderMouseEx: " + error.message);
-				return null;
-			}
-				return closestPin;
-		}
+        private function getAllPinsInView():Array {
+            var pins:Array = [];
+            var atomManager:AtomManager = AtomManager.getInstance();
+            
+            if (!atomManager) return pins;
+            
+            var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
+            for each (var atomData:Object in allAtoms) {
+                var atomView:AtomView = atomData.view;
+                if (!atomView) continue;
+                
+                for (var i:int = 0; i < atomView.numChildren; i++) {
+                    var child:DisplayObject = atomView.getChildAt(i);
+                    if (child is PinView) {
+                        pins.push(child as PinView);
+                    }
+                }
+            }
+            
+            return pins;
+        }
 
-		// Получить все PinView в текущем виде
-		private function getAllPinsInView():Array {
-			var pins:Array = [];
-			var atomManager:AtomManager = AtomManager.getInstance();
-			
-			if (!atomManager) return pins;
-			
-			var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
-			for each (var atomData:Object in allAtoms) {
-				var atomView:AtomView = atomData.view;
-				if (!atomView) continue;
-				
-				for (var i:int = 0; i < atomView.numChildren; i++) {
-					var child:DisplayObject = atomView.getChildAt(i);
-					if (child is PinView) {
-						pins.push(child as PinView);
-					}
-				}
-			}
-			
-			return pins;
-		}
-
-        /**
-         * Finds pin under mouse coordinates with extended validation.
-         * Uses spatial search and distance checking for precise targeting.
-         * FIXED: Added comprehensive null checking and error handling.
-         *
-         * @private
-         * @param {Number} stageX - Mouse X coordinate in stage space
-         * @param {Number} stageY - Mouse Y coordinate in stage space
-         * @param {Pin} currentDragPin - Currently dragging pin
-         * @return {Pin} Found target pin or null
-         */
         private function findPinUnderMouse(stageX:Number, stageY:Number, currentDragPin:Pin):Pin {
             try {
-                // FIXED: Validate input parameters
                 if (!stage || isNaN(stageX) || isNaN(stageY)) {
                     trace("Invalid parameters for pin search");
                     return null;
                 }
 
                 var mousePos:Point = new Point(stageX, stageY);
-
                 trace("=== PIN SEARCH DEBUG ===");
                 trace("Mouse position: " + stageX + ", " + stageY);
 
                 var closestPin:PinView = null;
                 var minDistance:Number = Number.MAX_VALUE;
-                var searchRadius:Number = 35; // INCREASED: Better targeting
+                var searchRadius:Number = 35;
 
                 var objects:Array = stage.getObjectsUnderPoint(mousePos);
                 trace("Total objects under mouse: " + (objects ? objects.length : 0));
 
-                // DIAGNOSTICS: Output all objects under cursor
                 if (objects) {
                     for (var i:int = 0; i < objects.length; i++) {
                         var debugObj:DisplayObject = objects[i];
@@ -284,7 +223,6 @@ trace("---------> pin: " + _pin + "toPin: " + targetPin + "endX: " + event.stage
                         }
                     }
 
-                    // MAIN SEARCH: Look for PinView
                     for each (var obj:DisplayObject in objects) {
                         if (!obj) continue;
                         
@@ -294,7 +232,6 @@ trace("---------> pin: " + _pin + "toPin: " + targetPin + "endX: " + event.stage
                         if (obj is PinView) {
                             var targetPinView:PinView = obj as PinView;
                             
-                            // FIXED: Validate PinView and its pin
                             if (!targetPinView || !targetPinView.pin) {
                                 trace("  - Skipping invalid PinView");
                                 continue;
@@ -332,8 +269,6 @@ trace("---------> pin: " + _pin + "toPin: " + targetPin + "endX: " + event.stage
                 }
 
                 trace("No pin found in main search");
-
-                // ALTERNATIVE SEARCH: Recursively search all scene objects
                 trace("=== ALTERNATIVE SEARCH ===");
                 var alternativePin:Pin = findPinRecursive(stage, mousePos, currentDragPin, searchRadius);
                 if (alternativePin) {
@@ -346,90 +281,91 @@ trace("---------> pin: " + _pin + "toPin: " + targetPin + "endX: " + event.stage
                 trace("ERROR in findPinUnderMouse: " + error.message);
                 return null;
             }
-			return null;
+            return null;
         }
 
-        /**
-         * Recursive pin search throughout display hierarchy.
-         * FIXED: Added null checking and error handling.
-         *
-         * @private
-         * @param {DisplayObjectContainer} container - Container to search in
-         * @param {Point} mousePos - Mouse position
-         * @param {Pin} currentDragPin - Currently dragging pin
-         * @param {Number} radius - Search radius
-         * @return {Pin} Found pin or null
-         */
-        private function findPinRecursive(container:DisplayObjectContainer, mousePos:Point, currentDragPin:Pin, radius:Number):Pin {
-            try {
-                if (!container) return null;
+		private function findPinRecursive(container:DisplayObjectContainer, mousePos:Point, currentDragPin:Pin, radius:Number):Pin {
+			try {
+				if (!container) return null;
 
-                var closestPin:Pin = null;
-                var minDistance:Number = Number.MAX_VALUE;
+				var closestPin:Pin = null;
+				var minDistance:Number = Number.MAX_VALUE;
 
-                for (var i:int = 0; i < container.numChildren; i++) {
-                    var child:DisplayObject = container.getChildAt(i);
-                    if (!child) continue;
+				for (var i:int = 0; i < container.numChildren; i++) {
+					var child:DisplayObject = container.getChildAt(i);
+					if (!child) continue;
 
-                    // If this is PinView
-                    if (child is PinView) {
-                        var pinView:PinView = child as PinView;
-                        
-                        // FIXED: Validate PinView and its pin
-                        if (!pinView || !pinView.pin) continue;
-                        
-                        var pin:Pin = pinView.pin;
+					if (child is PinView) {
+						var pinView:PinView = child as PinView;
+						
+						if (!pinView || !pinView.pin) continue;
+						
+						var pin:Pin = pinView.pin;
 
-                        if (pin === currentDragPin) continue;
+						if (pin === currentDragPin) continue;
 
-                        var pinPos:Point = pinView.localToGlobal(new Point(0, 0));
-                        var distance:Number = Point.distance(mousePos, pinPos);
+						var pinPos:Point = pinView.localToGlobal(new Point(0, 0));
+						var distance:Number = Point.distance(mousePos, pinPos);
 
-                        trace("Alternative found PinView: " + pin.name + " at distance " + distance.toFixed(2));
+						trace("Alternative found PinView: " + pin.name + " at distance " + distance.toFixed(2));
 
-                        if (distance <= radius && distance < minDistance) {
-                            if (isValidConnection(currentDragPin, pin)) {
-                                closestPin = pin;
-                                minDistance = distance;
-                            }
-                        }
-                    }
+						if (distance <= radius && distance < minDistance) {
+							if (isValidConnection(currentDragPin, pin)) {
+								closestPin = pin;
+								minDistance = distance;
+							}
+						}
+					}
 
-                    // Recursively check child containers
-                    if (child is DisplayObjectContainer) {
-                        var foundPin:Pin = findPinRecursive(child as DisplayObjectContainer, mousePos, currentDragPin, radius);
-                        if (foundPin) {
-                            var trackManager:TrackManager = TrackManager.getInstance();
-                            if (trackManager) {
-                                var foundPinPos:Point = trackManager.getGlobalPinPosition(foundPin);
-                                var foundDistance:Number = Point.distance(mousePos, foundPinPos);
+					if (child is DisplayObjectContainer) {
+						var foundPin:Pin = findPinRecursive(child as DisplayObjectContainer, mousePos, currentDragPin, radius);
+						if (foundPin) {
+							// Используем TrackRegistry вместо TrackManager
+							var trackRegistry:TrackRegistry = TrackRegistry.getInstance();
+							if (trackRegistry) {
+								var foundAtom:Atom = trackRegistry.getAtomByPin(foundPin);
+								var foundAtomView:AtomView = trackRegistry.getAtomView(foundAtom);
+								if (foundAtomView) {
+									// ВМЕСТО TrackRegistry.getPinIndex() используем локальный расчет:
+									var foundPinIndex:int = calculatePinIndex(foundAtom, foundPin);
+									var totalPins:int = foundPin.type == Pin.TYPE_INPUT ? foundAtom.inputs.length : foundAtom.outputs.length;
+									var foundPinY:Number = foundAtomView.height * (foundPinIndex + 1) / (totalPins + 1);
+									var foundPinX:Number = foundPin.type == Pin.TYPE_INPUT ? 0 : foundAtomView.width;
+									var foundPinPos:Point = foundAtomView.localToGlobal(new Point(foundPinX, foundPinY));
+									
+									var foundDistance:Number = Point.distance(mousePos, foundPinPos);
 
-                                if (foundDistance <= radius && foundDistance < minDistance) {
-                                    closestPin = foundPin;
-                                    minDistance = foundDistance;
-                                }
-                            }
-                        }
-                    }
-                }
+									if (foundDistance <= radius && foundDistance < minDistance) {
+										closestPin = foundPin;
+										minDistance = foundDistance;
+									}
+								}
+							}
+						}
+					}
+				}
 
-            } catch (error:Error) {
-                trace("ERROR in findPinRecursive: " + error.message);
-                return null;
-            }
-		return closestPin;
-       }
+			} catch (error:Error) {
+				trace("ERROR in findPinRecursive: " + error.message);
+				return null;
+			}
+			return closestPin;
+		}
 
-        /**
-         * Validates connection possibility between two pins.
-         * Checks pin types, atom ownership and existing connections.
-         * FIXED: Added null safety and better error reporting.
-         *
-         * @private
-         * @param {Pin} fromPin - Source pin (must be output)
-         * @param {Pin} toPin - Target pin (must be input)
-         * @return {Boolean} True if connection is allowed
-         */
+		/**
+		 * Calculates pin index within its parent atom's pin collection.
+		 * @private
+		 */
+		private function calculatePinIndex(atom:Atom, pin:Pin):int {
+			var pins:Vector.<Pin> = pin.type == Pin.TYPE_INPUT ? atom.inputs : atom.outputs;
+			for (var i:int = 0; i < pins.length; i++) {
+				if (pins[i] === pin) {
+					return i;
+				}
+			}
+			return 0;
+		}
+
         private function isValidConnection(fromPin:Pin, toPin:Pin):Boolean {
             try {
                 if (!fromPin || !toPin) {
@@ -437,35 +373,32 @@ trace("---------> pin: " + _pin + "toPin: " + targetPin + "endX: " + event.stage
                     return false;
                 }
 
-                // Prevent self-connection
                 if (fromPin === toPin) {
                     trace("Invalid: cannot connect to self");
                     return false;
                 }
 
-                // Check type compatibility: output → input
                 var validTypes:Boolean = (fromPin.type == Pin.TYPE_OUTPUT && toPin.type == Pin.TYPE_INPUT);
                 if (!validTypes) {
                     trace("Invalid pin types: " + fromPin.type + " -> " + toPin.type);
                     return false;
                 }
 
-                // Get atoms for ownership validation
-                var trackManager:TrackManager = TrackManager.getInstance();
-                if (!trackManager) {
-                    trace("Invalid: TrackManager not available");
+                // Используем TrackRegistry вместо TrackManager
+                var trackRegistry:TrackRegistry = TrackRegistry.getInstance();
+                if (!trackRegistry) {
+                    trace("Invalid: TrackRegistry not available");
                     return false;
                 }
 
-                var fromAtom:Atom = trackManager.getAtomByPin(fromPin);
-                var toAtom:Atom = trackManager.getAtomByPin(toPin);
+                var fromAtom:Atom = trackRegistry.getAtomByPin(fromPin);
+                var toAtom:Atom = trackRegistry.getAtomByPin(toPin);
 
                 if (!fromAtom || !toAtom) {
                     trace("Invalid: could not find atoms for pins");
                     return false;
                 }
 
-                // Prevent connection of pins from same atom
                 if (fromAtom.id == toAtom.id) {
                     trace("Invalid: cannot connect pins of the same atom");
                     return false;
@@ -477,25 +410,13 @@ trace("---------> pin: " + _pin + "toPin: " + targetPin + "endX: " + event.stage
                 trace("ERROR in isValidConnection: " + error.message);
                 return false;
             }
-			return true;
+            return true;
         }
 
-        /**
-         * Returns the logical pin model associated with this view.
-         *
-         * @public
-         * @return {Pin} Associated pin model
-         */
         public function get pin():Pin {
             return _pin;
         }
 
-        /**
-         * Clean up resources and event listeners.
-         * FIXED: Added comprehensive cleanup.
-         *
-         * @public
-         */
         public function dispose():void {
             try {
                 this.removeEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);

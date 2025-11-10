@@ -11,19 +11,13 @@
     import Src.Prog.Com.Atoms.Core.AtomFactory;
     import Src.Prog.Com.Atoms.Data.AtomDefinitions;
     import Src.Prog.Com.Atoms.Core.Pin;
-    import Src.Prog.Com.Atoms.Core.TrackManager;
     import Src.Prog.Com.Atoms.Core.Track;
+    import Src.Prog.Com.Atoms.Core.TrackRegistry;
     import Src.Prog.Core.Commands.CreateAtom;
 
     /**
-     * Manages atoms in the application using the new data-driven architecture.
-     * Enhanced with support for button release interactions.
-     * FIXED: PIN_VALUE_CHANGED handler now properly processes target atoms.
-     * Uses singleton pattern with full lifecycle management.
-     *
-     * @class AtomManager
-     * @singleton
-     * @public
+     * Manages atoms in the application.
+     * Updated to use TrackRegistry for track management.
      */
     public class AtomManager {
 
@@ -38,10 +32,6 @@
 
         /**
          * Gets the singleton instance of AtomManager.
-         *
-         * @static
-         * @public
-         * @return {AtomManager} Singleton instance
          */
         public static function getInstance():AtomManager {
             if (!_instance) {
@@ -52,10 +42,6 @@
 
         /**
          * Creates a new AtomManager instance.
-         * Private constructor to enforce singleton pattern.
-         *
-         * @constructor
-         * @private
          */
         public function AtomManager() {
             if (_instance) {
@@ -68,9 +54,6 @@
 
         /**
          * Sets up impulse listeners for atom management.
-         * Enhanced with support for release interactions.
-         *
-         * @private
          */
         private function setupImpulseListeners():void {
             // Atom creation and management
@@ -83,9 +66,6 @@
 
         /**
          * Handles visual update request for a specific atom.
-         *
-         * @private
-         * @param {Impulse} impulse - ATOM_VISUAL_UPDATE impulse
          */
         private function onAtomVisualUpdate(impulse:Impulse):void {
             var atomId:String = impulse.data.atomId;
@@ -98,9 +78,6 @@
 
         /**
          * Handles atom creation from context menu selection.
-         *
-         * @private
-         * @param {Impulse} impulse - ATOM_CONTEXT_MENU_SELECTED impulse
          */
         private function onAtomContextMenuSelected(impulse:Impulse):void {
             var atomType:String = impulse.data.atomType;
@@ -111,9 +88,6 @@
 
         /**
          * Handles atom movement updates.
-         *
-         * @private
-         * @param {Impulse} impulse - ATOM_MOVED impulse
          */
         private function onAtomMoved(impulse:Impulse):void {
             var newAtom:Atom = impulse.data.newAtom;
@@ -131,10 +105,6 @@
 
         /**
          * Handles atom interaction events (press and release).
-         * Enhanced to support release interactions.
-         *
-         * @private
-         * @param {Impulse} impulse - ATOM_INTERACTION impulse
          */
         private function onAtomInteraction(impulse:Impulse):void {
             var atom:Atom = impulse.data.atom;
@@ -158,7 +128,7 @@
 
                     if (newAtom !== atom) {
                         updateAtom(newAtom);
-					}
+                    }
                 } catch (error:Error) {
                     trace("ERROR in atom interaction: " + error.message);
                 }
@@ -168,9 +138,7 @@
 
         /**
          * Handles atom deletion requests with connected track cleanup.
-         *
-         * @private
-         * @param {Impulse} impulse - ATOM_DELETE_REQUEST impulse
+         * Updated to use TrackRegistry instead of TrackManager.
          */
         private function onAtomDeleteRequest(impulse:Impulse):void {
             var atom:Atom = impulse.data.atom;
@@ -181,26 +149,19 @@
 
         /**
          * Remove all tracks connected to the specified atom.
-         *
-         * @private
-         * @param {Atom} atom - Atom to remove tracks for
+         * Updated to use TrackRegistry.
          */
         private function removeConnectedTracks(atom:Atom):void {
-            var trackManager:TrackManager = TrackManager.getInstance();
-            var connectedTracks:Array = trackManager.getTracksByAtom(atom.id);
+            var trackRegistry:TrackRegistry = TrackRegistry.getInstance();
+            var connectedTracks:Vector.<Track> = trackRegistry.getTracksByAtom(atom);
             trace("AtomManager: Removing " + connectedTracks.length + " tracks connected to atom: " + atom.id);
             for each (var track:Track in connectedTracks) {
-                trackManager.removeTrack(track);
+                track.dispose();
             }
         }
 
         /**
          * Adds an atom to a specific window.
-         *
-         * @public
-         * @param {String} windowType - The type of window ("Editor", "Device")
-         * @param {Atom} atom - The atom instance
-         * @param {AtomView} view - The atom view
          */
         public function addAtomToWindow(windowType:String, atom:Atom, view:AtomView):void {
             trace("Adding atom to window: " + windowType + ", atom: " + atom.id);
@@ -231,14 +192,15 @@
 
         /**
          * Removes an atom by ID with enhanced cleanup.
-         *
-         * @public
-         * @param {String} atomId - The ID of the atom to remove
+         * Automatically removes connected tracks via TrackRegistry.
          */
         public function removeAtom(atomId:String):void {
             if (_atoms[atomId]) {
                 var atomData:Object = _atoms[atomId];
                 trace("AtomManager: Removing atom: " + atomId);
+
+                // Remove connected tracks first
+                removeConnectedTracks(atomData.atom);
 
                 if (atomData.view && atomData.view.parent) {
                     atomData.view.parent.removeChild(atomData.view as DisplayObject);
@@ -267,14 +229,10 @@
 
         /**
          * Updates an atom in the manager and refreshes its view.
-         *
-         * @public
-         * @param {Atom} newAtom - The updated atom instance
          */
         public function updateAtom(newAtom:Atom):void {
             trace("=== ATOM MANAGER UPDATE ATOM ===");
             trace("Updating atom: " + newAtom.id + " (" + newAtom.type + ")");
-
 
             if (_atoms[newAtom.id]) {
                 _atoms[newAtom.id].atom = newAtom;
@@ -289,10 +247,6 @@
 
         /**
          * Gets all atoms for a specific window.
-         *
-         * @public
-         * @param {String} windowType - The window type
-         * @return {Array} Array of atom data objects
          */
         public function getAtomsForWindow(windowType:String):Array {
             var result:Array = [];
@@ -307,28 +261,7 @@
         }
 
         /**
-         * Finds a pin by name in a pin vector.
-         *
-         * @private
-         * @param {Vector.<Pin>} pins - Vector of pins to search
-         * @param {String} pinName - Name of pin to find
-         * @return {Pin} Found pin or null
-         */
-        private function findPinByName(pins:Vector.<Pin>, pinName:String):Pin {
-            for each (var pin:Pin in pins) {
-                if (pin.name == pinName) {
-                    return pin;
-                }
-            }
-            return null;
-        }
-
-        /**
          * Gets atom data by ID.
-         *
-         * @public
-         * @param {String} atomId - The atom ID to find
-         * @return {Object} Atom data object or null if not found
          */
         public function getAtomById(atomId:String):Object {
             return _atoms[atomId];
@@ -336,9 +269,6 @@
 
         /**
          * Gets total count of atoms in manager.
-         *
-         * @public
-         * @return {int} Number of atoms
          */
         public function getAtomCount():int {
             var count:int = 0;
@@ -350,10 +280,6 @@
 
         /**
          * Gets the AtomView for a given Atom instance.
-         *
-         * @public
-         * @param {Atom} atom - Atom to find view for
-         * @return {AtomView} Found AtomView or null if not found
          */
         public function getAtomView(atom:Atom):AtomView {
             var atomData:Object = _atoms[atom.id];
@@ -362,9 +288,6 @@
 
         /**
          * Gets all available atom definitions for menu creation.
-         *
-         * @public
-         * @return {Array} Array of atom definition objects with type, name, and category
          */
         public function getAtomDefinitionsForMenu():Array {
             var result:Array = [];
@@ -384,9 +307,6 @@
 
         /**
          * Gets supported atom types from definitions.
-         *
-         * @public
-         * @return {Array} Array of supported atom type strings
          */
         public function getSupportedAtomTypes():Array {
             return AtomDefinitions.getSupportedTypes();
@@ -394,8 +314,6 @@
 
         /**
          * Log all atoms for debugging.
-         *
-         * @public
          */
         public function logAllAtoms():void {
             trace("=== ALL ATOMS ===");
@@ -408,8 +326,6 @@
 
         /**
          * Cleans up all resources and listeners.
-         *
-         * @public
          */
         public function dispose():void {
             Impulsys.removeImpulse("ATOM_CONTEXT_MENU_SELECTED", onAtomContextMenuSelected);

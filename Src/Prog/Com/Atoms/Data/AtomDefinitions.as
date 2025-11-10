@@ -7,6 +7,10 @@
     import flash.display.Graphics;
     import Src.Prog.Com.Atoms.Core.Pin;
     import Src.Prog.Com.Atoms.Core.AtomView;
+	// Behaviors
+    import Src.Prog.Com.Atoms.Behaviors.ButtonBehavior;
+    import Src.Prog.Com.Atoms.Behaviors.LEDBehavior;
+    import Src.Prog.Com.Atoms.Behaviors.NumberDisplayBehavior;
 
     /**
      * Central registry for all atom definitions in the system.
@@ -105,19 +109,9 @@
                 pins: [
                     {name: "output", type: "output", dataType: "boolean", description: "Sends TRUE when pressed, FALSE when released"}
                 ],
-				behavior: {
-					onInteraction: function(atom:Atom, interactionType:String):Atom {
-						if (interactionType == "press") {
-							trace("Button pressed - sending TRUE signal");
-							return atom.setPinValue("output", true, false);
-						}
-						return atom;
-					},
-					onRelease: function(atom:Atom):Atom {
-						trace("Button released - sending FALSE signal");
-						return atom.setPinValue("output", false, false);
-					}
-                },
+				
+				behavior: new ButtonBehavior(), // ← УКАЗАТЕЛЬ НА КЛАСС C ПОВЕДЕНИЕМ
+
                 viewConfig: {
                     width: 60,
                     height: 30,
@@ -188,20 +182,9 @@
 				pins: [
 					{name: "input", type: "input", dataType: "boolean", description: "LED state (on/off)"}
 				],
-				behavior: {
-					onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
-						trace("=== LED INPUT CHANGE ===");
-						trace("LED " + atom.id + " received value: " + value + " from pin: " + pinName);
-						
-						// Только true = включено. false, null, undefined → выключено.
-						var isOn:Boolean = (value === true);
-						var newAtom:Atom = atom.setData("isOn", isOn);
-						
-						trace("LED data updated - isOn: " + newAtom.data.isOn);
-						AtomManager.getInstance().updateAtom(newAtom);
-						return newAtom;
-					}
-				},
+
+                behavior: new LEDBehavior(), // ← УКАЗАТЕЛЬ НА КЛАСС C ПОВЕДЕНИЕМ
+				
 				visuals: {
 					base: {
 						width: 30,
@@ -567,12 +550,9 @@
                     {name: "value", type: "input", dataType: "number", description: "Numeric value to display"},
                     {name: "trigger", type: "input", dataType: "impulse", description: "Update display"}
                 ],
-                behavior: {
-                    onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
-                        trace("NumberDisplay: Value changed to " + value);
-                        return atom;
-                    }
-                },
+				
+				behavior: new NumberDisplayBehavior(), // ← УКАЗАТЕЛЬ НА КЛАСС C ПОВЕДЕНИЕМ
+
                 viewConfig: {
                     width: 80,
                     height: 40,
