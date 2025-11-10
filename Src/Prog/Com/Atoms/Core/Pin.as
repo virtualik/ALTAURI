@@ -265,7 +265,7 @@
             var mousePos:Point = new Point(stageX, stageY);
             var allPins:Vector.<Pin> = getAllPinsInWindow();
             var closestPin:Pin = null;
-            var minDistance:Number = 25;
+            var minDistance:Number = 3;
 
             for each (var pin:Pin in allPins) {
                 if (pin === this) continue;

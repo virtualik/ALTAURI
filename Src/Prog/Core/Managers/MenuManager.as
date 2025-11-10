@@ -290,9 +290,13 @@
                 var items:Array = [{
                     label: "Delete Track",
                     action: "delete_track",
+					
                     callback: function(action:String):void {
                         menu.close();
-                        Impulsys.emit(new Impulse("TRACK_DELETE_REQUEST", { track: track }));
+						track.dispose();
+                        Impulsys.emit(new Impulse("TRACK_DELETE_REQUEST", {
+							track: track,
+							connectionId: track.connectionId }));
                     },
                     category: "Danger"
                 }];
