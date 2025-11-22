@@ -70,20 +70,37 @@
         }
 
         /**
-         * UPDATED: Mutates Pin.value in-place instead of cloning Pin.
+         * Mutates Pin.value in-place instead of cloning Pin.
          * Returns a new Atom (immutable interface), but Pin objects are reused.
          */
         public function setPinValue(pinName:String, value:*, isInput:Boolean = true):Atom {
+            trace("=== ATOM SET PIN VALUE ===");
+            trace("Atom: " + this.id + ", Pin: " + pinName + ", Value: " + value + ", IsInput: " + isInput);
+            
             var newAtom:Atom = new Atom(id, type, position, name);
             newAtom.data = cloneData(this.data);
-            // Обновляем значение существующего Pin — не создаём новый!
-            if (isInput) {
-                updatePinValueInPlace(inputs, pinName, value);
-            } else {
-                updatePinValueInPlace(outputs, pinName, value);
+            
+            // Обновляем значение существующего Pin
+            var pins:Vector.<Pin> = isInput ? inputs : outputs;
+            var pinUpdated:Boolean = false;
+            
+            for each (var pin:Pin in pins) {
+                if (pin.name == pinName) {
+                    trace("Updating pin: " + pin.name + " to value: " + value);
+                    pin.value = value; // ← Это вызовет PinEvent!
+                    pinUpdated = true;
+                    break;
+                }
             }
+            
+            if (!pinUpdated) {
+                trace("⚠ Pin not found: " + pinName);
+            }
+            
             newAtom.inputs = inputs;
             newAtom.outputs = outputs;
+            
+            trace("=== END SET PIN VALUE ===");
             return newAtom;
         }
 

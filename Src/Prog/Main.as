@@ -14,6 +14,7 @@
     import Src.Prog.Core.Commands.RegisterData;
     import Src.Prog.Core.Managers.Director;
 
+	/** Это не просто «кнопка → светодиод» — это полноценная low-code среда с визуальными компонентами и реактивными связями. **/
     /**
      * Main application class - entry point
      * Initializes system, manages application lifecycle, coordinates components via Director

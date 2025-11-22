@@ -46,6 +46,17 @@
             }
             return result;
         }
+	
+		public function getTrackBetweenPins(pin1:Pin, pin2:Pin):Track {
+			var tracksForPin1:Vector.<Track> = getTracksByPin(pin1);
+			for each (var track:Track in tracksForPin1) {
+				if ((track.fromPin === pin1 && track.toPin === pin2) ||
+					(track.fromPin === pin2 && track.toPin === pin1)) {
+					return track;
+				}
+			}
+			return null;
+		}
 
         public function getAtomByPin(pin:Pin):Atom {
             var atomManager:AtomManager = AtomManager.getInstance();

@@ -125,7 +125,8 @@
                         textColor: 0x000000,
                         cornerRadius: 8
                     },
-                    Editor: {}
+                    Editor: {},
+					Device: {}
                 }
             });
 

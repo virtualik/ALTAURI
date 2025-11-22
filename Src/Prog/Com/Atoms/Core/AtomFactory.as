@@ -11,10 +11,10 @@
      * @public
      */
     public class AtomFactory {
-        
+
         /** Factory initialization flag */
         private static var _initialized:Boolean = false;
-        
+
         /** Counter for generating unique atom IDs */
         private static var _atomCounter:int = 0;
 
@@ -68,6 +68,9 @@
             // Create pins from definition
             createPinsFromDefinition(atom, definition.pins);
 
+            // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устанавливаем владельца для всех пинов
+            setOwnerForAllPins(atom);
+
             // Initialize behavior if defined
             if (definition.behavior && definition.behavior.initialize is Function) {
                 atom = definition.behavior.initialize(atom);
@@ -76,7 +79,8 @@
             // Create view
             var view:AtomView = new AtomView(atom, windowType);
 
-            trace("AtomFactory: Created atom - " + type + " (" + atom.id + ")");
+            trace("AtomFactory: Created atom - " + type + " (" + atom.id + ") with " + 
+                  atom.inputs.length + " inputs and " + atom.outputs.length + " outputs");
 
             return { atom: atom, view: view };
         }
@@ -93,9 +97,7 @@
 			for each (var pinDef:Object in pinsDefinition) {
 				// Создаем пин с расширенными возможностями
 				var pin:Pin = new Pin(pinDef.name, pinDef.type, null, pinDef);
-				
 
-				
 				// Добавляем в соответствующие коллекции
 				if (pinDef.type == "input") {
 					atom.inputs.push(pin);
@@ -104,6 +106,28 @@
 				}
 			}
 		}
+		
+		/**
+         * Устанавливает атом-владелец для всех пинов.
+         * 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Без этого автоподключения не работают!
+         *
+         * @static
+         * @private
+         * @param {Atom} atom - Atom instance
+         */
+        private static function setOwnerForAllPins(atom:Atom):void {
+            trace("🔗 Setting owner for all pins of atom: " + atom.name);
+            
+            for each (var inputPin:Pin in atom.inputs) {
+                inputPin.setOwnerAtom(atom);
+                trace("  ✅ Input pin owner set: " + inputPin.name);
+            }
+            
+            for each (var outputPin:Pin in atom.outputs) {
+                outputPin.setOwnerAtom(atom);
+                trace("  ✅ Output pin owner set: " + outputPin.name);
+            }
+        }
 
         /**
          * Generates a unique ID for an atom.

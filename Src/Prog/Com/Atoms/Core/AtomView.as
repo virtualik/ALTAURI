@@ -19,6 +19,7 @@
      * Universal view class that renders any atom type based on its data definition.
      * Enhanced with mouse release handling for button-like atoms.
      * FIXED: Mouse event conflicts with PinView and proper drag operation cleanup.
+     * ADDED: Collision detection for pins during atom dragging.
      *
      * @class AtomView
      * @extends Sprite
@@ -71,17 +72,19 @@
             this.x = _atom.position.x;
             this.y = _atom.position.y;
 			Impulsys.subscribeToImpulse("WINDOW_LEFT_RELEASE", handle_release_outside);
+            
+            trace("✅ AtomView created for: " + atom.name + " with " + 
+                  atom.inputs.length + " inputs, " + atom.outputs.length + " outputs");
         }
 
 		private function handle_release_outside(impulse: Impulse):void {
-			// If button was pressed, handle release
-				trace("-=[i]=- release outside Impulse received in AtomView")
+			trace("-=[i]=- release outside Impulse received in AtomView")
 			if (_isPressed) {
 				 _isPressed = false;
 				handleInteraction("release");
 			}
 		}
-	
+
         /**
          * Sets up the view with event listeners and basic styling.
          * Enhanced with mouse release handling for buttons.
@@ -277,6 +280,7 @@
                 inputPin.mouseChildren = false;
 
                 this.addChild(inputPin);
+                trace("✅ Created input PinView: " + _atom.inputs[j].name + " at " + inputPin.x + "," + inputPin.y);
             }
 
             // Create output pin views
@@ -290,6 +294,7 @@
                 outputPin.mouseChildren = false;
 
                 this.addChild(outputPin);
+                trace("✅ Created output PinView: " + _atom.outputs[k].name + " at " + outputPin.x + "," + outputPin.y);
             }
         }
 
@@ -302,11 +307,12 @@
          * @param {MouseEvent} event - Mouse down event
          */
         private function onMouseDown(event:MouseEvent):void {
-            // ADDED: Check if click was on a pin
+            // Check if click was on a pin
             var target:DisplayObject = event.target as DisplayObject;
             while (target && target != this) {
                 if (target is PinView) {
                     // Click was on pin - let PinView handle it
+                    trace("⚠ Click on PinView - skipping AtomView handling");
                     return;
                 }
                 target = target.parent;
@@ -391,6 +397,7 @@
             stage.addEventListener(MouseEvent.MOUSE_MOVE, onDrag);
             stage.addEventListener(MouseEvent.MOUSE_UP, onDragEnd);
 
+            trace("🚀 DRAG STARTED for atom: " + _atom.name);
             Impulsys.emit(new Impulse("ATOM_DRAG_START", {
                 atom: _atom,
                 view: this,
@@ -404,57 +411,133 @@
          * @private
          * @param {MouseEvent} event - Mouse move event
          */
-        private function onDrag(event:MouseEvent):void {
-            if (!_isDragging || !parent) return;
+		private function onDrag(event:MouseEvent):void {
+			if (!_isDragging || !parent) return;
 
-            var mouseWorld:Point = parent.globalToLocal(new Point(event.stageX, event.stageY));
-            var newX:Number = mouseWorld.x - _dragOffset.x;
-            var newY:Number = mouseWorld.y - _dragOffset.y;
+			var mouseWorld:Point = parent.globalToLocal(new Point(event.stageX, event.stageY));
+			var newX:Number = mouseWorld.x - _dragOffset.x;
+			var newY:Number = mouseWorld.y - _dragOffset.y;
 
-            var newAtom:Atom = _atom.setPosition(new Point(newX, newY));
+			var newAtom:Atom = _atom.setPosition(new Point(newX, newY));
 
-            Impulsys.emit(new Impulse("ATOM_MOVED", {
-                oldAtom: _atom,
-                newAtom: newAtom,
-                updateTracks: true,
-                isDragging: false
-            }));
+			Impulsys.emit(new Impulse("ATOM_MOVED", {
+				oldAtom: _atom,
+				newAtom: newAtom,
+				updateTracks: true,
+				isDragging: false
+			}));
 
-            _atom = newAtom;
-            this.x = _atom.position.x;
-            this.y = _atom.position.y;
-        }
+			_atom = newAtom;
+			this.x = _atom.position.x;
+			this.y = _atom.position.y;
 
-        /**
+			// 🔥 ОБНОВЛЯЕМ КОЛЛИЗИИ ДЛЯ ВСЕХ ПИНОВ - И INPUT И OUTPUT
+			trace("🔄 Updating pin collisions during drag...");
+			updatePinCollisionsDuringDrag();
+		}
+
+		/**
+		 * Обновляет коллизии ВСЕХ пинов этого атома во время перетаскивания.
+		 * 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Теперь обновляем и input и output пины
+		 */
+		private function updatePinCollisionsDuringDrag():void {
+			trace("=== UPDATING PIN COLLISIONS ===");
+			trace("Atom: " + _atom.name + ", Input pins: " + _atom.inputs.length + ", Output pins: " + _atom.outputs.length);
+			
+			// 🔥 ОБНОВЛЯЕМ ВСЕ ПИНЫ - И INPUT И OUTPUT
+			for each (var inputPin:Pin in _atom.inputs) {
+				trace("🔍 Checking collisions for input pin: " + inputPin.name);
+				inputPin.updateCollisionsDuringDrag();
+			}
+			for each (var outputPin:Pin in _atom.outputs) {
+				trace("🔍 Checking collisions for output pin: " + outputPin.name);
+				outputPin.updateCollisionsDuringDrag();
+			}
+			trace("=== COLLISIONS UPDATE COMPLETE ===");
+		}
+
+		/**
          * Handles drag end.
-         * FIXED: Ensures proper cleanup of drag state.
+         * Ensures proper cleanup of drag state.
          *
          * @private
          * @param {MouseEvent} event - Mouse up event
          */
-        private function onDragEnd(event:MouseEvent):void {
-            if (!_isDragging) return;
+		private function onDragEnd(event:MouseEvent):void {
+			if (!_isDragging) return;
 
-            _isDragging = false;
-            this.alpha = 1.0;
+			_isDragging = false;
+			this.alpha = 1.0;
 
-            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onDrag);
-            stage.removeEventListener(MouseEvent.MOUSE_UP, onDragEnd);
+			stage.removeEventListener(MouseEvent.MOUSE_MOVE, onDrag);
+			stage.removeEventListener(MouseEvent.MOUSE_UP, onDragEnd);
 
-            // Final position update
-            var finalAtom:Atom = _atom.setPosition(new Point(this.x, this.y));
-            Impulsys.emit(new Impulse("ATOM_DRAG_END", {
-                atom: _atom,
-                view: this,
-                finalPosition: new Point(this.x, this.y)
-            }));
+			// Final position update
+			var finalAtom:Atom = _atom.setPosition(new Point(this.x, this.y));
 
-            _atom = finalAtom;
-            this.x = _atom.position.x;
-            this.y = _atom.position.y;
-        }
+			// 🔥 ФИНАЛЬНОЕ обновление коллизий
+			trace("🔄 Final collision check after drag...");
+			updatePinCollisionsDuringDrag();
 
-        /**
+			// 🔥 БЕЗОПАСНАЯ очистка только неактивных соединений
+			cleanupInactiveConnectionsAfterDrag();
+
+			trace("🛑 DRAG ENDED for atom: " + _atom.name);
+
+			Impulsys.emit(new Impulse("ATOM_DRAG_END", {
+				atom: _atom,
+				view: this,
+				finalPosition: new Point(this.x, this.y)
+			}));
+
+			_atom = finalAtom;
+			this.x = _atom.position.x;
+			this.y = _atom.position.y;
+		}
+
+		private function forceClearAllAutoConnections():void {
+			trace("=== FORCE CLEARING ALL AUTO-CONNECTIONS ===");
+			for each (var inputPin:Pin in _atom.inputs) {
+				trace("🧹 Clearing auto-connections for input: " + inputPin.name);
+				inputPin.forceClearAllAutoConnections();
+			}
+			for each (var outputPin:Pin in _atom.outputs) {
+				trace("🧹 Clearing auto-connections for output: " + outputPin.name);
+				outputPin.forceClearAllAutoConnections();
+			}
+			trace("=== AUTO-CONNECTIONS CLEARED ===");
+		}
+
+		private function forceClearAllPinCollisions():void {
+			trace("=== FORCE CLEARING COLLISIONS ===");
+			for each (var inputPin:Pin in _atom.inputs) {
+				trace("🧹 Clearing collisions for input: " + inputPin.name);
+				inputPin.forceClearCollisions();
+			}
+			for each (var outputPin:Pin in _atom.outputs) {
+				trace("🧹 Clearing collisions for output: " + outputPin.name);
+				outputPin.forceClearCollisions();
+			}
+			trace("=== COLLISIONS CLEARED ===");
+		}
+
+		/**
+		 * Безопасная очистка только неактивных автоподключений после перетаскивания
+		 */
+		private function cleanupInactiveConnectionsAfterDrag():void {
+			trace("=== CLEANING UP INACTIVE CONNECTIONS AFTER DRAG ===");
+			
+			for each (var inputPin:Pin in _atom.inputs) {
+				inputPin.cleanupInactiveAutoConnections();
+			}
+			for each (var outputPin:Pin in _atom.outputs) {
+				outputPin.cleanupInactiveAutoConnections();
+			}
+			
+			trace("=== INACTIVE CONNECTIONS CLEANUP COMPLETE ===");
+		}
+
+		/**
          * Updates all visual elements of the atom.
          *
          * @public
@@ -601,6 +684,10 @@
          * @public
          */
         public function dispose():void {
+            // Stop collision detection if still active
+            trace("🧹 Disposing AtomView: " + _atom.name);
+            forceClearAllPinCollisions();
+
             removeEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
             removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
             removeEventListener(MouseEvent.MOUSE_UP, onMouseUp); // Add removal of mouse up handler

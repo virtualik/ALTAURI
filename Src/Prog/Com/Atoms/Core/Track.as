@@ -47,22 +47,22 @@
             if (toPin.type != Pin.TYPE_INPUT) {
                 throw new ArgumentError("To pin must be INPUT type");
             }
-            
+
             _fromPin = fromPin;
             _toPin = toPin;
             _connectionId = generateConnectionId();
             _parentWindow = findParentWindow();
-            
+
             // Auto-register with track registry
             TrackRegistry.getInstance().registerTrack(this);
-            
+
             // Setup all necessary components
             setupEventListeners();
             setupPinSubscription();
             addToVisualLayer();
             drawTrack();
             createLogicalConnection();
-            
+
             trace("Track created: " + _connectionId);
         }
 
@@ -80,7 +80,7 @@
          * Sets up direct pin-to-pin data subscription.
          * Entirely self-contained: calls onInputChange → updateAtom().
          *
-         * @privateonRightMouseDow
+         * @private
          */
         private function setupPinSubscription():void {
             trace("Track setting up DIRECT pin subscription for: " + _connectionId);
@@ -97,17 +97,25 @@
                 }
             };
 
-            var subscriptionCreated:Boolean = _toPin.subscribeToPin(_fromPin, 
+            // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Правильная подписка
+            var subscriptionCreated:Boolean = _toPin.subscribeToPin(_fromPin,
                 [Pin.PIN_VALUE_CHANGED, Pin.PIN_DISCONNECTED], onPinEvent);
 
             if (subscriptionCreated) {
                 trace("✓ Direct pin subscription created successfully");
 
-                // === ПЕРЕДАЧА НАЧАЛЬНОГО ЗНАЧЕНИЯ ===
+                // === НЕМЕДЛЕННАЯ ПЕРЕДАЧА ТЕКУЩЕГО ЗНАЧЕНИЯ ===
                 if (_fromPin.value !== undefined && _fromPin.value !== null) {
                     trace("➡️ Propagating initial value on connection: " + _fromPin.value);
-					_fromPin.dispatchEvent(new PinEvent(Pin.PIN_VALUE_CHANGED, _fromPin, _fromPin.value, undefined));
-				}
+                    // Создаем событие для немедленной передачи текущего значения
+                    var initialEvent:PinEvent = new PinEvent(
+                        Pin.PIN_VALUE_CHANGED, 
+                        _fromPin, 
+                        _fromPin.value, 
+                        undefined
+                    );
+                    onPinEvent(initialEvent);
+                }
             } else {
                 trace("✗ Failed to create direct pin subscription");
             }
@@ -115,6 +123,7 @@
 
         /**
          * Handles value changes from source pin.
+         * FIXED: Proper value propagation to target atom
          *
          * @private
          * @param {PinEvent} event - Pin value change event
@@ -129,17 +138,26 @@
                 trace("ERROR: Target atom not found for pin: " + _toPin.name);
                 return;
             }
-            
+
             var newAtom:Atom;
             var definition:Object = AtomDefinitions.getAtomDefinition(targetAtom.type);
+            
+            // 🔥 ИСПРАВЛЕНИЕ: Правильное обновление атома
             if (definition && definition.behavior && definition.behavior.onInputChange) {
                 newAtom = definition.behavior.onInputChange(targetAtom, _toPin.name, event.newValue);
-                AtomManager.getInstance().updateAtom(newAtom);
             } else {
+                // Прямое обновление значения пина
                 newAtom = targetAtom.setPinValue(_toPin.name, event.newValue, true);
-                AtomManager.getInstance().updateAtom(newAtom);
             }
-            trace("=== DIRECT SUBSCRIPTION → VIEW UPDATED ===");
+            
+            if (newAtom !== targetAtom) {
+                AtomManager.getInstance().updateAtom(newAtom);
+                trace("✓ Atom updated via behavior");
+            } else {
+                trace("⚠ Atom not changed by behavior");
+            }
+            
+            trace("=== DIRECT SUBSCRIPTION COMPLETE ===");
         }
 
         /**
@@ -149,7 +167,7 @@
          */
 		private function handleDisconnection():void {
 			trace("=== TRACK DISCONNECTION HANDLER ===");
-			
+
 			var targetAtom:Atom = getAtomByPin(_toPin);
 			if (!targetAtom) {
 				trace("WARNING: Target atom not found for pin: " + _toPin.name);
@@ -157,10 +175,10 @@
 			}
 
 			trace("Resetting input pin: " + _toPin.name + " to undefined");
-			
+
 			var definition:Object = AtomDefinitions.getAtomDefinition(targetAtom.type);
 			var newAtom:Atom;
-			
+
 			if (definition && definition.behavior && definition.behavior.onInputChange) {
 				// Используем behavior для правильного сброса
 				newAtom = definition.behavior.onInputChange(targetAtom, _toPin.name, undefined);
@@ -168,7 +186,7 @@
 				// Прямое обновление пина
 				newAtom = targetAtom.setPinValue(_toPin.name, undefined, true);
 			}
-			
+
 			AtomManager.getInstance().updateAtom(newAtom);
 			trace("Input pin successfully reset to undefined");
 		}
@@ -199,14 +217,14 @@
         private function findParentWindow():Window {
             var fromAtom:Atom = getAtomByPin(_fromPin);
             if (!fromAtom) return null;
-            
+
             var atomManager:AtomManager = AtomManager.getInstance();
             var atomData:Object = atomManager.getAtomById(fromAtom.id);
             if (!atomData || !atomData.view) return null;
-            
+
             var atomView:AtomView = atomData.view;
             if (!atomView.stage) return null;
-            
+
             return atomView.stage.nativeWindow as Window;
         }
 
@@ -257,22 +275,22 @@
          */
         public function drawTrack():void {
             this.graphics.clear();
-            
+
             var fromPos:Point = getGlobalPinPosition(_fromPin);
             var toPos:Point = getGlobalPinPosition(_toPin);
-            
+
             if (!_parentWindow) return;
-            
+
             var tracksLayer:Sprite = this.parent as Sprite;
             if (!tracksLayer) return;
-            
+
             var localFrom:Point = tracksLayer.globalToLocal(fromPos);
             var localTo:Point = tracksLayer.globalToLocal(toPos);
-            
+
             var lineColor:uint = 0x777777;
             var lineAlpha:Number = 0.5;
             var lineThickness:Number = 4;
-            
+
             this.graphics.lineStyle(lineThickness, lineColor, lineAlpha);
             this.graphics.moveTo(localFrom.x, localFrom.y);
             this.graphics.lineTo(localTo.x, localTo.y);
@@ -290,7 +308,7 @@
 			if (pinView && pinView.stage) {
 				return pinView.localToGlobal(new Point(0, 0));
 			}
-			
+
 			// Fallback: calculate from atom position
 			var atom:Atom = getAtomByPin(pin);
 			var atomView:AtomView = TrackRegistry.getInstance().getAtomView(atom);
@@ -332,13 +350,13 @@
         private function findPinView(pin:Pin):PinView {
             var atom:Atom = getAtomByPin(pin);
             if (!atom) return null;
-            
+
             var atomManager:AtomManager = AtomManager.getInstance();
             var atomData:Object = atomManager.getAtomById(atom.id);
             if (!atomData || !atomData.view) return null;
-            
+
             var atomView:AtomView = atomData.view;
-            
+
             // Search through atom view children for PinView
             for (var i:int = 0; i < atomView.numChildren; i++) {
                 var child:Object = atomView.getChildAt(i);
@@ -349,7 +367,7 @@
                     }
                 }
             }
-            
+
             return null;
         }
 
@@ -372,7 +390,7 @@
         public function isConnectedToAtom(atomId:String):Boolean {
             var fromAtom:Atom = getAtomByPin(_fromPin);
             var toAtom:Atom = getAtomByPin(_toPin);
-            
+
             return (fromAtom && fromAtom.id == atomId) || (toAtom && toAtom.id == atomId);
         }
 
@@ -443,67 +461,50 @@
          *
          * @public
          */
-public function dispose():void {
-    trace("=== TRACK DISPOSE ===");
-    trace("Disposing track: " + _connectionId);
-    
-    _isActive = false;
-	
-    // 1. Сбрасываем значение входного пина в undefined
-	handleDisconnection();
-    //if (_toPin && _toPin.type === Pin.TYPE_INPUT) {
-    //    trace("Track: Resetting input pin to undefined: " + _toPin.name);
-    //    
-    //    // Создаем событие сброса
-    //    var resetEvent:PinEvent = new PinEvent(Pin.PIN_VALUE_CHANGED, _toPin, undefined, _toPin.value);
-    //    _toPin.dispatchEvent(resetEvent);
-    //    
-    //    // ИЛИ напрямую обновляем атом через behavior
-    //    var targetAtom:Atom = getAtomByPin(_toPin);
-    //    if (targetAtom) {
-    //        var definition:Object = AtomDefinitions.getAtomDefinition(targetAtom.type);
-    //        if (definition && definition.behavior && definition.behavior.onInputChange) {
-    //            var newAtom:Atom = definition.behavior.onInputChange(targetAtom, _toPin.name, undefined);
-    //            AtomManager.getInstance().updateAtom(newAtom);
-    //        }
-    //    }
-    //}
+        public function dispose():void {
+            trace("=== TRACK DISPOSE ===");
+            trace("Disposing track: " + _connectionId);
 
-    // 1. Отписываемся от событий пинов
-    if (_toPin && _fromPin) {
-        _toPin.unsubscribeFromPin(_fromPin);
-        trace("Track: Removed pin subscription");
-    }
+            _isActive = false;
 
-    // 2. Удаляем слушатели Impulsys
-    Impulsys.removeImpulse("ATOM_MOVED", onAtomMoved);
-    this.removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
+            // 1. Сбрасываем значение входного пина в undefined
+            handleDisconnection();
 
-    // 3. Очищаем графику
-    this.graphics.clear();
+            // 2. Отписываемся от событий пинов
+            if (_toPin && _fromPin) {
+                _toPin.unsubscribeFromPin(_fromPin);
+                trace("Track: Removed pin subscription");
+            }
 
-    // 4. Удаляем из TrackRegistry
-    TrackRegistry.getInstance().unregisterTrack(this);
+            // 3. Удаляем слушатели Impulsys
+            Impulsys.removeImpulse("ATOM_MOVED", onAtomMoved);
+            this.removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
 
-    // 5. Уведомляем систему
-    Impulsys.emit(new Impulse("TRACK_DISCONNECTED", {
-        track: this,
-        connectionId: _connectionId
-    }));
+            // 4. Очищаем графику
+            this.graphics.clear();
 
-    // 6. Удаляем из родительского контейнера
-    if (this.parent != null) {
-        this.parent.removeChild(this);
-        trace("Track: Removed from display list");
-    }
+            // 5. Удаляем из TrackRegistry
+            TrackRegistry.getInstance().unregisterTrack(this);
 
-    // 7. Очищаем ссылки
-    _fromPin = null;
-    _toPin = null;
-    _parentWindow = null;
+            // 6. Уведомляем систему
+            Impulsys.emit(new Impulse("TRACK_DISCONNECTED", {
+                track: this,
+                connectionId: _connectionId
+            }));
 
-    trace("=== TRACK DISPOSED: " + _connectionId + " ===");
-}
+            // 7. Удаляем из родительского контейнера
+            if (this.parent != null) {
+                this.parent.removeChild(this);
+                trace("Track: Removed from display list");
+            }
+
+            // 8. Очищаем ссылки
+            _fromPin = null;
+            _toPin = null;
+            _parentWindow = null;
+
+            trace("=== TRACK DISPOSED: " + _connectionId + " ===");
+        }
 
         // =========================================================================
         // PUBLIC ACCESSORS

@@ -9,59 +9,58 @@
     import Src.Prog.Core.Windows.Window;
     import Src.Prog.Core.Managers.AtomManager;
     import flash.display.DisplayObject;
+    import flash.geom.Rectangle;
 
     /**
      * Represents a connection point (input or output) for data flow between atoms.
-     * Manages data listeners for direct peer-to-peer communication.
-     * Enhanced with track creation management for output pins.
-     *
-     * Key changes:
-     * - Added track creation methods for output pins
-     * - Autonomous pin search and validation
-     * - Direct track creation without TrackManager
+     * Collision detection is triggered ONLY during atom drag and uses strict visual overlap.
      *
      * @class Pin
      * @extends EventDispatcher
-     * @public
      */
     public class Pin extends EventDispatcher {
-        public static const VERSION:String = "PIN_CLASS_V3_WITH_TRACK_CREATION";
+        // =============================================================================
+        // CONSTANTS AND STATIC PROPERTIES
+        // =============================================================================
+        public static const VERSION:String = "PIN_CLASS_V9_FIXED_INPUT_AUTO_CONNECT";
         public static const PIN_VALUE_CHANGED:String = "pinValueChanged";
         public static const PIN_CONNECTED:String = "pinConnected";
         public static const PIN_DISCONNECTED:String = "pinDisconnected";
         public static const TYPE_INPUT:String = "input";
         public static const TYPE_OUTPUT:String = "output";
 
-        public var id:String;
-        public var name:String;
-        public var type:String;
-        public var data:Object;
-
-        private var _listeners:Vector.<Function>;
-        private var _value:*;
-        private var _targetedSubscriptions:Vector.<PinSubscription>;
         private static var _eventManager:PinEventManager;
-
-        // Track creation properties
-        private var _tempTrack:TempTrack;
-        private var _isCreatingTrack:Boolean = false;
-        private var _creationStartPos:Point;
-
         private static function initializeEventManager():void {
             if (!_eventManager) {
                 _eventManager = new PinEventManager();
             }
         }
 
-        /**
-         * Creates a new Pin instance.
-         *
-         * @constructor
-         * @param {String} name - Pin name
-         * @param {String} type - Pin type (input/output)
-         * @param {*} value - Initial value
-         * @param {Object} data - Additional pin data
-         */
+        public static function getSystemStats():Object {
+            return _eventManager ? _eventManager.getStats() : { totalPins: 0 };
+        }
+
+        // =============================================================================
+        // BASIC PROPERTIES AND CONSTRUCTOR
+        // =============================================================================
+        public var id:String;
+        public var name:String;
+        public var type:String;
+        public var data:Object;
+        private var _listeners:Vector.<Function>;
+        private var _value:*;
+        private var _targetedSubscriptions:Vector.<PinSubscription>;
+        private var _atom:Atom;
+
+        // Track creation properties
+        private var _tempTrack:TempTrack;
+        private var _isCreatingTrack:Boolean = false;
+        private var _creationStartPos:Point;
+
+        // Collision state (used ONLY during drag)
+        private var _currentCollisions:Vector.<Pin> = new Vector.<Pin>();
+        private var _autoTracks:Vector.<Track> = new Vector.<Track>();
+
         public function Pin(name:String, type:String, value:* = null, data:Object = null) {
             super();
             initializeEventManager();
@@ -73,365 +72,616 @@
             this._listeners = new Vector.<Function>();
             this._targetedSubscriptions = new Vector.<PinSubscription>();
             _eventManager.registerPin(this);
+            
+            trace("✓ Pin created: " + name + " (" + type + ")");
         }
 
+        // =============================================================================
+        // PIN STATE MANAGEMENT
+        // =============================================================================
         public function get value():* {
             return _value;
         }
 
         public function set value(newValue:*):void {
             if (_value === newValue) return;
+            
             var oldValue:* = _value;
             _value = newValue;
-            trace("=== PIN VALUE CHANGE (V3) ===");
-            trace("Pin " + this.name + " (" + this.type + ")");
-            trace("Old value: " + oldValue);
-            trace("New value: " + newValue);
+            
+            trace("=== PIN VALUE CHANGE ===");
+            trace("Pin: " + this.name + " (" + this.id + ")");
+            trace("Old: " + oldValue + " → New: " + newValue);
+            
+            // 1. Уведомляем локальных слушателей
             notifyListeners(newValue, oldValue);
+            
+            // 2. Диспатчим событие
             var pinEvent:PinEvent = new PinEvent(PIN_VALUE_CHANGED, this, newValue, oldValue);
-            trace("🚀 DISPATCHING PIN_VALUE_CHANGED EVENT FOR PIN: " + this.name);
-            trace("Event details: " + pinEvent.type + ", value: " + pinEvent.newValue);
             this.dispatchEvent(pinEvent);
-            trace("✅ Event dispatched successfully");
+            
             trace("=== END PIN VALUE CHANGE ===");
         }
 
-        // =============================================================================
-        // TRACK CREATION METHODS (OUTPUT PINS ONLY)
-        // =============================================================================
+        public function setOwnerAtom(atom:Atom):void {
+            _atom = atom;
+            trace("✓ Pin " + this.name + " now owned by atom: " + atom.name);
+        }
 
+        public function dispose():void {
+            // Просто очищаем — таймера нет
+            forceClearCollisions();
+            notifyDisconnected();
+            unsubscribeFromAllPins();
+            if (_eventManager) {
+                _eventManager.unregisterPin(this);
+            }
+            _listeners = null;
+            _targetedSubscriptions = null;
+            if (_isCreatingTrack) {
+                cancelTrackCreation();
+            }
+            _currentCollisions = null;
+            _atom = null;
+        }
+
+        private function generateId():String {
+            return "pin_" + new Date().getTime() + "_" + Math.floor(Math.random() * 1000000);
+        }
+
+        // =============================================================================
+        // COLLISION LOGIC — ONLY DURING DRAG (NO TIMER)
+        // =============================================================================
         /**
-         * Starts track creation process for output pins.
-         * Creates temporary track visualization and sets up mouse tracking.
-         *
-         * @public
-         * @param {Point} globalStartPos - Starting position in stage coordinates
+         * Вызывается ВНЕШНЕ (например, из AtomView) при каждом шаге перетаскивания.
+         * Обновляет коллизии ДЛЯ ВСЕХ пинов - и input и output.
          */
-        public function startTrackCreation(globalStartPos:Point):void {
-            if (this.type !== TYPE_OUTPUT) return;
+        public function updateCollisionsDuringDrag():void {
+            if (!_atom) {
+                trace("⚠ updateCollisionsDuringDrag: No atom");
+                return;
+            }
+
+            trace("=== COLLISION DETECTION FOR PIN: " + this.name + " (" + this.type + ") ===");
+            var current:Vector.<Pin> = findNearbyPins();
+            trace("Found " + current.length + " nearby pins");
+            handleCollisionChanges(current);
+            trace("=== END COLLISION DETECTION ===");
+        }
+
+		/**
+		 * Принудительно завершает ВСЕ текущие коллизии (вызывать при отпускании атома).
+		 * 🔥 ИЗМЕНЕНИЕ: Теперь НЕ разрывает соединения, а только очищает состояние
+		 */
+		public function forceClearCollisions():void {
+			trace("🧹 Clearing collision state (without breaking connections) for pin: " + this.name);
+			
+			// 🔥 Только очищаем список коллизий, НЕ вызываем onCollisionEnd
+			// Это предотвращает разрыв существующих соединений
+			_currentCollisions = new Vector.<Pin>();
+			
+			trace("✅ Collision state cleared for pin: " + this.name);
+		}
+
+        private function findNearbyPins():Vector.<Pin> {
+            var nearby:Vector.<Pin> = new Vector.<Pin>();
+            var thisView:PinView = findPinView(this);
+            if (!thisView) {
+                trace("❌ findNearbyPins: No PinView found for " + this.name);
+                return nearby;
+            }
+            if (!thisView.stage) {
+                trace("❌ findNearbyPins: PinView not on stage");
+                return nearby;
+            }
+
+            var allPins:Vector.<Pin> = getAllPinsInWindow();
+            trace("🔍 Scanning " + allPins.length + " pins in window");
             
-            trace("=== PIN START TRACK CREATION ===");
-            trace("Output pin: " + this.name);
-            
-            _isCreatingTrack = true;
-            _creationStartPos = globalStartPos.clone();
-            
-            // Create temporary track visualization
-            var window:Window = findParentWindow();
-            if (window && window.overlayLayer) {
-                var localStartPos:Point = window.overlayLayer.globalToLocal(globalStartPos);
-                _tempTrack = new TempTrack(localStartPos);
-                window.overlayLayer.addChild(_tempTrack);
+            for each (var other:Pin in allPins) {
+                if (other === this) {
+                    trace("  ⏩ Skipping self");
+                    continue;
+                }
+                if (other._atom === this._atom) {
+                    trace("  ⏩ Skipping same atom pin");
+                    continue;
+                }
+
+                // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Для input пинов ищем output пины, и наоборот
+                var isConnectionValid:Boolean = false;
+                
+                if (this.type === TYPE_INPUT && other.type === TYPE_OUTPUT) {
+                    // Input пин ищет Output пины
+                    isConnectionValid = isValidConnection(other, this); // other -> this
+                } else if (this.type === TYPE_OUTPUT && other.type === TYPE_INPUT) {
+                    // Output пин ищет Input пины  
+                    isConnectionValid = isValidConnection(this, other); // this -> other
+                } else {
+                    trace("  ⏩ Skipping incompatible pin types: " + this.type + " -> " + other.type);
+                    continue;
+                }
+
+                if (!isConnectionValid) {
+                    trace("  ⏩ Invalid connection to: " + other.name);
+                    continue;
+                }
+
+                var otherView:PinView = findPinView(other);
+                if (!otherView) {
+                    trace("  ❌ No PinView for: " + other.name);
+                    continue;
+                }
+
+                trace("  🔍 Checking collision with: " + other.name + " (" + other.type + ")");
+                if (arePinsVisuallyColliding(thisView, otherView)) {
+                    trace("  ✅ COLLISION DETECTED with: " + other.name);
+                    nearby.push(other);
+                } else {
+                    trace("  ❌ No collision with: " + other.name);
+                }
+            }
+            return nearby;
+        }
+
+		private function arePinsVisuallyColliding(a:PinView, b:PinView):Boolean {
+			var result:Boolean = false;
+			
+			if (!a.stage || !b.stage) {
+				trace("    ❌ One pin not on stage");
+				return false;
+			}
+			
+			// 🔥 ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА - есть ли hitArea
+			if (!a.hitArea || !b.hitArea) {
+				trace("    ❌ One pin missing hitArea");
+				return false;
+			}
+
+			try {
+				// Используем hitTestObject для проверки пересечения hitArea
+				result = a.hitTestObject(b);
+				
+				trace("    🎯 HitArea collision check:");
+				trace("      A: " + a.name + " at " + a.localToGlobal(new Point(0, 0)));
+				trace("      B: " + b.name + " at " + b.localToGlobal(new Point(0, 0)));
+				trace("      Result: " + result);
+				
+			} catch (e:Error) {
+				trace("    ❌ Error in collision check: " + e.message);
+				result = false;
+			}
+			
+			return result;
+		}
+
+        private function handleCollisionChanges(current:Vector.<Pin>):void {
+            // Новые коллизии
+            for each (var newPin:Pin in current) {
+                if (_currentCollisions.indexOf(newPin) === -1) {
+                    trace("🎯 NEW COLLISION with: " + newPin.name);
+                    onCollisionStart(newPin);
+                } else {
+                    trace("🔄 EXISTING collision with: " + newPin.name);
+                }
             }
             
-            // Add global mouse listeners
+            // Пропавшие коллизии
+            for (var i:int = _currentCollisions.length - 1; i >= 0; i--) {
+                var oldPin:Pin = _currentCollisions[i];
+                if (current.indexOf(oldPin) === -1) {
+                    trace("🚫 COLLISION ENDED with: " + oldPin.name);
+                    onCollisionEnd(oldPin);
+                }
+            }
+            _currentCollisions = current;
+        }
+
+        private function onCollisionStart(otherPin:Pin):void {
+            trace("🔥 COLLISION START: " + this.name + " (" + this.type + ") → " + otherPin.name + " (" + otherPin.type + ")");
+            
+            // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Определяем направление подключения
+            if (this.type === TYPE_OUTPUT && otherPin.type === TYPE_INPUT) {
+                // Output -> Input
+                createAutoConnection(otherPin);
+            } else if (this.type === TYPE_INPUT && otherPin.type === TYPE_OUTPUT) {
+                // Input -> Output (обратное направление)
+                otherPin.createAutoConnection(this);
+            }
+            
+            Impulsys.emit(new Impulse("PIN_COLLISION_STARTED", {
+                pin1: this,
+                pin2: otherPin
+            }));
+        }
+
+		private function onCollisionEnd(otherPin:Pin):void {
+			trace("💤 COLLISION END: " + this.name + " (" + this.type + ") → " + otherPin.name + " (" + otherPin.type + ")");
+			
+			// 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Двустороннее удаление автоподключений
+			if (this.type === TYPE_OUTPUT && otherPin.type === TYPE_INPUT) {
+				// Output -> Input: удаляем соединение с нашей стороны
+				removeAutoConnection(otherPin);
+			} else if (this.type === TYPE_INPUT && otherPin.type === TYPE_OUTPUT) {
+				// Input -> Output: просим output пин удалить соединение
+				otherPin.removeAutoConnection(this);
+			}
+			
+			Impulsys.emit(new Impulse("PIN_COLLISION_ENDED", {
+				pin1: this,
+				pin2: otherPin
+			}));
+		}
+
+		/**
+		 * Безопасно очищает только те автоподключения, которые больше не активны
+		 * Вызывается при отпускании атома для очистки "висячих" соединений
+		 */
+		public function cleanupInactiveAutoConnections():void {
+			trace("🧹 Cleaning up inactive auto-connections for pin: " + this.name);
+			
+			var tracksToRemove:Vector.<Track> = new Vector.<Track>();
+			
+			// Проверяем каждое автоподключение
+			for each (var track:Track in _autoTracks) {
+				var otherPin:Pin = (this.type === TYPE_OUTPUT) ? track.toPin : track.fromPin;
+				var otherView:PinView = findPinView(otherPin);
+				var thisView:PinView = findPinView(this);
+				
+				// Если пины больше не пересекаются - помечаем для удаления
+				if (!thisView || !otherView || !arePinsVisuallyColliding(thisView, otherView)) {
+					tracksToRemove.push(track);
+					trace("🗑️ Marking inactive auto-connection: " + this.name + " → " + otherPin.name);
+				}
+			}
+			
+			// Удаляем неактивные соединения
+			for each (var inactiveTrack:Track in tracksToRemove) {
+				inactiveTrack.dispose();
+				removeTrackFromAutoTracks(inactiveTrack);
+			}
+			
+			trace("✅ Inactive auto-connections cleaned for pin: " + this.name);
+		}
+
+		// =============================================================================
+        // AUTO-CONNECTION MANAGEMENT (output pin only)
+        // =============================================================================
+		internal function createAutoConnection(targetPin:Pin):void {
+			trace("=== ATTEMPTING AUTO-CONNECTION ===");
+			trace("From: " + this.name + " (" + this.type + ") → To: " + targetPin.name + " (" + targetPin.type + ")");
+			
+			// 🔥 ПРОВЕРКА: Только output пины могут создавать подключения
+			if (this.type !== TYPE_OUTPUT) {
+				trace("❌ Only output pins can create auto-connections");
+				return;
+			}
+			
+			if (!isValidConnection(this, targetPin)) {
+				trace("❌ Invalid auto-connection attempt");
+				return;
+			}
+			if (hasExistingConnection(this, targetPin)) {
+				trace("⚠ Connection already exists, skipping auto-connection");
+				return;
+			}
+			
+			try {
+				trace("🔧 Creating track...");
+				var track:Track = finalizeTrackCreation(targetPin);
+				_autoTracks.push(track);
+
+				trace("✅ AUTO-CONNECTION CREATED: " + this.name + " → " + targetPin.name);
+				Impulsys.emit(new Impulse("AUTO_CONNECTION_CREATED", {
+					fromPin: this,
+					toPin: targetPin,
+					track: track
+				}));
+			} catch (error:Error) {
+				trace("❌ AUTO-CONNECTION FAILED: " + error.message);
+			}
+		}
+
+		internal function removeAutoConnection(targetPin:Pin):void {
+			trace("🗑️ Removing auto-connection: " + this.name + " → " + targetPin.name);
+			var track:Track = findAutoTrackBetween(this, targetPin);
+			if (track) {
+				track.dispose();
+				removeTrackFromAutoTracks(track);
+				trace("✅ Auto-connection removed successfully");
+			} else {
+				// Также проверяем обратное направление
+				track = findAutoTrackBetween(targetPin, this);
+				if (track) {
+					track.dispose();
+					removeTrackFromAutoTracks(track);
+					trace("✅ Reverse auto-connection removed successfully");
+				} else {
+					trace("⚠ No auto-track found to remove between " + this.name + " and " + targetPin.name);
+				}
+			}
+		}
+
+		/**
+		 * Принудительно удаляет все автоподключения этого пина.
+		 * Вызывается при остановке перетаскивания атома.
+		 */
+		public function forceClearAllAutoConnections():void {
+			trace("🧹 Force clearing all auto-connections for pin: " + this.name);
+			var tracksToRemove:Vector.<Track> = _autoTracks.concat();
+			for each (var track:Track in tracksToRemove) {
+				track.dispose();
+			}
+			_autoTracks = new Vector.<Track>();
+			trace("✅ All auto-connections cleared for pin: " + this.name);
+		}
+
+		private function findAutoTrackBetween(fromPin:Pin, toPin:Pin):Track {
+			for each (var t:Track in _autoTracks) {
+				if ((t.fromPin === fromPin && t.toPin === toPin) || 
+					(t.fromPin === toPin && t.toPin === fromPin)) {
+					return t;
+				}
+			}
+			return null;
+		}
+
+        private function removeTrackFromAutoTracks(track:Track):void {
+            var i:int = _autoTracks.indexOf(track);
+            if (i !== -1) {
+                _autoTracks.splice(i, 1);
+                trace("✓ Auto-track removed from list");
+            }
+        }
+
+        private function hasExistingConnection(fromPin:Pin, toPin:Pin):Boolean {
+            var reg:TrackRegistry = TrackRegistry.getInstance();
+            if (!reg) {
+                trace("⚠ No TrackRegistry instance");
+                return false;
+            }
+            
+            var tracks:Vector.<Track> = reg.getTracksByPin(toPin);
+            trace("🔍 Checking " + tracks.length + " existing tracks for pin: " + toPin.name);
+            
+            for each (var t:Track in tracks) {
+                if (t.fromPin === fromPin && t.toPin === toPin) {
+                    trace("⚠ Connection already exists via track: " + t.connectionId);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // =============================================================================
+        // TRACK CREATION (MANUAL)
+        // =============================================================================
+        public function startTrackCreation(globalStartPos:Point):void {
+            if (type !== TYPE_OUTPUT) return;
+            _isCreatingTrack = true;
+            _creationStartPos = globalStartPos.clone();
+            var window:Window = findParentWindow();
+            if (window && window.overlayLayer) {
+                var localStart:Point = window.overlayLayer.globalToLocal(globalStartPos);
+                _tempTrack = new TempTrack(localStart);
+                window.overlayLayer.addChild(_tempTrack);
+            }
             var stage:Stage = getStage();
             if (stage) {
                 stage.addEventListener(MouseEvent.MOUSE_MOVE, handleTrackDrag);
                 stage.addEventListener(MouseEvent.MOUSE_UP, handleTrackFinalize);
             }
-            
-            trace("Track creation started successfully");
         }
 
-        /**
-         * Handles track dragging during creation.
-         * Updates temporary track visualization in real-time.
-         *
-         * @private
-         * @param {MouseEvent} event - Mouse move event
-         */
         private function handleTrackDrag(event:MouseEvent):void {
             if (!_isCreatingTrack || !_tempTrack) return;
-            
-            var window:Window = findParentWindow();
-            if (window && window.overlayLayer) {
-                var localPos:Point = window.overlayLayer.globalToLocal(new Point(event.stageX, event.stageY));
-                _tempTrack.update(localPos);
+            var win:Window = findParentWindow();
+            if (win && win.overlayLayer) {
+                var local:Point = win.overlayLayer.globalToLocal(new Point(event.stageX, event.stageY));
+                _tempTrack.update(local);
             }
         }
 
-        /**
-         * Finalizes track creation when mouse is released.
-         * Performs target pin search and creates permanent track on validation.
-         *
-         * @private
-         * @param {MouseEvent} event - Mouse up event
-         */
         private function handleTrackFinalize(event:MouseEvent):void {
             if (!_isCreatingTrack) return;
-            
-            trace("=== PIN FINALIZE TRACK CREATION ===");
-            
             try {
                 event.stopPropagation();
-                event.stopImmediatePropagation();
-
-                // Find target pin under mouse
-                var targetPin:Pin = findPinUnderMouse(event.stageX, event.stageY);
-                
-                // Cleanup temporary track
+                var target:Pin = findPinUnderMouse(event.stageX, event.stageY);
                 cleanupTrackCreation();
-                
-                // Create permanent track if valid connection
-                if (targetPin && isValidConnection(this, targetPin)) {
-                    var track:Track = finalizeTrackCreation(targetPin);
-                    trace("Track created successfully: " + track.connectionId);
-                } else {
-                    trace("Track creation cancelled - no valid target pin");
-                    Impulsys.emit(new Impulse("TRACK_CONNECTION_FAILED", {
-                        fromPin: this,
-                        toPin: targetPin,
-                        reason: targetPin ? "Invalid connection" : "No target pin found"
-                    }));
+                if (target && isValidConnection(this, target)) {
+                    finalizeTrackCreation(target);
                 }
-                
-            } catch (error:Error) {
-                trace("ERROR in track finalization: " + error.message);
+            } catch (e:Error) {
                 cleanupTrackCreation();
             }
-            
-            trace("=== END TRACK FINALIZATION ===");
         }
 
-        /**
-         * Creates permanent track connection to target pin.
-         *
-         * @public
-         * @param {Pin} targetPin - Target pin for connection
-         * @return {Track} Newly created track
-         * @throws {Error} If connection is invalid
-         */
         public function finalizeTrackCreation(targetPin:Pin):Track {
             if (!targetPin || !isValidConnection(this, targetPin)) {
                 throw new Error("Invalid track connection");
             }
-            
-            // Remove existing connections to target pin
             removeExistingConnections(targetPin);
-            
-            // Create new track
             var track:Track = new Track(this, targetPin);
-            
-            trace("Finalized track creation: " + this.name + " → " + targetPin.name);
+            trace("✅ MANUAL TRACK CREATED: " + this.name + " → " + targetPin.name);
             return track;
         }
 
-        /**
-         * Cancels track creation process.
-         * Cleans up temporary resources and listeners.
-         *
-         * @public
-         */
         public function cancelTrackCreation():void {
-            trace("Cancelling track creation for pin: " + this.name);
             cleanupTrackCreation();
         }
 
-        /**
-         * Cleans up track creation resources.
-         *
-         * @private
-         */
         private function cleanupTrackCreation():void {
             _isCreatingTrack = false;
-            
-            // Remove temporary track
             if (_tempTrack && _tempTrack.parent) {
                 _tempTrack.parent.removeChild(_tempTrack);
                 _tempTrack = null;
             }
-            
-            // Remove global listeners
             var stage:Stage = getStage();
             if (stage) {
                 stage.removeEventListener(MouseEvent.MOUSE_MOVE, handleTrackDrag);
                 stage.removeEventListener(MouseEvent.MOUSE_UP, handleTrackFinalize);
             }
-            
             _creationStartPos = null;
         }
 
-        /**
-         * Finds pin under mouse coordinates.
-         * Uses spatial search with distance checking.
-         *
-         * @private
-         * @param {Number} stageX - Mouse X coordinate
-         * @param {Number} stageY - Mouse Y coordinate
-         * @return {Pin} Found target pin or null
-         */
+        // =============================================================================
+        // SEARCH & NAVIGATION
+        // =============================================================================
         private function findPinUnderMouse(stageX:Number, stageY:Number):Pin {
-            var mousePos:Point = new Point(stageX, stageY);
-            var allPins:Vector.<Pin> = getAllPinsInWindow();
-            var closestPin:Pin = null;
-            var minDistance:Number = 3;
-
-            for each (var pin:Pin in allPins) {
+            var mouse:Point = new Point(stageX, stageY);
+            var all:Vector.<Pin> = getAllPinsInWindow();
+            var closest:Pin = null;
+            var minDist:Number = Number.MAX_VALUE;
+            for each (var pin:Pin in all) {
                 if (pin === this) continue;
-
-                var pinView:PinView = findPinView(pin);
-                if (!pinView) continue;
-
-                var pinGlobalPos:Point = pinView.localToGlobal(new Point(0, 0));
-                var distance:Number = Point.distance(mousePos, pinGlobalPos);
-
-                if (distance <= minDistance && isValidConnection(this, pin)) {
-                    closestPin = pin;
-                    minDistance = distance;
+                var view:PinView = findPinView(pin);
+                if (!view) continue;
+                if (view.hitTestPoint(stageX, stageY, true) && isValidConnection(this, pin)) {
+                    var center:Point = view.localToGlobal(new Point(0, 0));
+                    var d:Number = Point.distance(mouse, center);
+                    if (d < minDist) {
+                        closest = pin;
+                        minDist = d;
+                    }
                 }
             }
-
-            return closestPin;
+            return closest;
         }
 
-        /**
-         * Gets all pins in current window.
-         *
-         * @private
-         * @return {Vector.<Pin>} Array of all pins in window
-         */
         private function getAllPinsInWindow():Vector.<Pin> {
-            var allPins:Vector.<Pin> = new Vector.<Pin>();
-            var atomManager:AtomManager = AtomManager.getInstance();
-            var window:Window = findParentWindow();
-            
-            if (!window || !atomManager) return allPins;
-
-            var allAtoms:Array = atomManager.getAtomsForWindow(window.windowType);
-            for each (var atomData:Object in allAtoms) {
-                var atom:Atom = atomData.atom;
-                
-                // Add all pins from atom
-                for each (var inputPin:Pin in atom.inputs) {
-                    allPins.push(inputPin);
-                }
-                for each (var outputPin:Pin in atom.outputs) {
-                    allPins.push(outputPin);
-                }
+            var out:Vector.<Pin> = new Vector.<Pin>();
+            var mgr:AtomManager = AtomManager.getInstance();
+            var win:Window = findParentWindow();
+            if (!win || !mgr) {
+                trace("❌ Cannot get pins: no window or atom manager");
+                return out;
             }
-
-            return allPins;
+            
+            var atoms:Array = mgr.getAtomsForWindow(win.windowType);
+            trace("🔍 Found " + atoms.length + " atoms in window: " + win.windowType);
+            
+            for each (var a:Object in atoms) {
+                var atom:Atom = a.atom;
+                for each (var inp:Pin in atom.inputs) out.push(inp);
+                for each (var outp:Pin in atom.outputs) out.push(outp);
+            }
+            
+            trace("📌 Total pins found: " + out.length);
+            return out;
         }
 
-        /**
-         * Finds PinView for a pin.
-         *
-         * @private
-         * @param {Pin} pin - Pin to find view for
-         * @return {PinView} Found PinView or null
-         */
         private function findPinView(pin:Pin):PinView {
             var atom:Atom = getAtomByPin(pin);
-            if (!atom) return null;
+            if (!atom) {
+                trace("❌ findPinView: No atom for pin " + pin.name);
+                return null;
+            }
             
-            var atomManager:AtomManager = AtomManager.getInstance();
-            var atomData:Object = atomManager.getAtomById(atom.id);
-            if (!atomData || !atomData.view) return null;
+            var mgr:AtomManager = AtomManager.getInstance();
+            var data:Object = mgr.getAtomById(atom.id);
+            if (!data || !data.view) {
+                trace("❌ findPinView: No view data for atom " + atom.id);
+                return null;
+            }
             
-            var atomView:AtomView = atomData.view;
-            
-            // Search through atom view children for PinView
-            for (var i:int = 0; i < atomView.numChildren; i++) {
-                var child:DisplayObject = atomView.getChildAt(i);
-                if (child is PinView && (child as PinView).pin === pin) {
-                    return child as PinView;
+            var view:AtomView = data.view;
+            for (var i:int = 0; i < view.numChildren; i++) {
+                var child:DisplayObject = view.getChildAt(i);
+                if (child is PinView && PinView(child).pin === pin) {
+                    trace("✅ Found PinView for pin: " + pin.name);
+                    return PinView(child);
                 }
             }
             
+            trace("❌ findPinView: No PinView found for pin: " + pin.name);
             return null;
         }
 
-        /**
-         * Finds parent window for this pin.
-         *
-         * @private
-         * @return {Window} Parent window or null
-         */
         private function findParentWindow():Window {
             var atom:Atom = getAtomByPin(this);
-            if (!atom) return null;
-            
-            var atomManager:AtomManager = AtomManager.getInstance();
-            var atomData:Object = atomManager.getAtomById(atom.id);
-            if (!atomData || !atomData.view) return null;
-            
-            var atomView:AtomView = atomData.view;
-            if (!atomView.stage) return null;
-            
-            return atomView.stage.nativeWindow as Window;
-        }
-
-        /**
-         * Gets stage for global event listeners.
-         *
-         * @private
-         * @return {Stage} Stage reference or null
-         */
-        private function getStage():Stage {
-            var window:Window = findParentWindow();
-            return window ? window.stage : null;
-        }
-
-        /**
-         * Removes existing connections to target pin.
-         *
-         * @private
-         * @param {Pin} targetPin - Target pin to remove connections from
-         */
-        private function removeExistingConnections(targetPin:Pin):void {
-            var trackRegistry:TrackRegistry = TrackRegistry.getInstance();
-            if (!trackRegistry) return;
-            
-            var existingTracks:Vector.<Track> = trackRegistry.getTracksByPin(targetPin);
-            for each (var track:Track in existingTracks) {
-                track.dispose();
+            if (!atom) {
+                trace("❌ findParentWindow: No atom for pin " + this.name);
+                return null;
             }
+            
+            var mgr:AtomManager = AtomManager.getInstance();
+            var data:Object = mgr.getAtomById(atom.id);
+            if (!data || !data.view) {
+                trace("❌ findParentWindow: No view for atom " + atom.id);
+                return null;
+            }
+            
+            var atomView:AtomView = data.view;
+            if (!atomView.stage) {
+                trace("❌ findParentWindow: AtomView not on stage");
+                return null;
+            }
+            
+            var window:Window = atomView.stage.nativeWindow as Window;
+            if (window) {
+                trace("✅ Found parent window: " + window.windowType);
+            } else {
+                trace("❌ findParentWindow: Cannot get window from stage");
+            }
+            return window;
         }
 
-        /**
-         * Validates connection between pins.
-         * Checks pin types, atom ownership and prevents self-connections.
-         *
-         * @private
-         * @param {Pin} fromPin - Source pin
-         * @param {Pin} toPin - Target pin
-         * @return {Boolean} True if connection is valid
-         */
+        private function getStage():Stage {
+            var win:Window = findParentWindow();
+            return win ? win.stage : null;
+        }
+
+        private function removeExistingConnections(targetPin:Pin):void {
+            var reg:TrackRegistry = TrackRegistry.getInstance();
+            if (!reg) return;
+            var tracks:Vector.<Track> = reg.getTracksByPin(targetPin);
+            trace("🗑️ Removing " + tracks.length + " existing connections from: " + targetPin.name);
+            for each (var t:Track in tracks) t.dispose();
+        }
+
+        // =============================================================================
+        // VALIDATION
+        // =============================================================================
         private function isValidConnection(fromPin:Pin, toPin:Pin):Boolean {
-            if (!fromPin || !toPin) return false;
-            if (fromPin === toPin) return false;
-            
-            // Check type compatibility: output → input
-            if (fromPin.type !== TYPE_OUTPUT || toPin.type !== TYPE_INPUT) return false;
-            
-            // Check atom ownership
+            if (!fromPin || !toPin) {
+                trace("❌ Invalid: null pins");
+                return false;
+            }
+            if (fromPin === toPin) {
+                trace("❌ Invalid: same pin");
+                return false;
+            }
+            if (fromPin.type !== TYPE_OUTPUT || toPin.type !== TYPE_INPUT) {
+                trace("❌ Invalid: pin types (from: " + fromPin.type + ", to: " + toPin.type + ")");
+                return false;
+            }
             var fromAtom:Atom = getAtomByPin(fromPin);
             var toAtom:Atom = getAtomByPin(toPin);
-            if (!fromAtom || !toAtom) return false;
+            if (!fromAtom || !toAtom) {
+                trace("❌ Invalid: no atoms for pins");
+                return false;
+            }
+            if (fromAtom.id == toAtom.id) {
+                trace("❌ Invalid: same atom");
+                return false;
+            }
             
-            // Prevent connection of pins from same atom
-            if (fromAtom.id == toAtom.id) return false;
-            
+            trace("✅ Valid connection: " + fromPin.name + " → " + toPin.name);
             return true;
         }
 
-        /**
-         * Gets atom that owns this pin.
-         *
-         * @private
-         * @param {Pin} pin - Pin to find owner for
-         * @return {Atom} Owning atom or null
-         */
         private function getAtomByPin(pin:Pin):Atom {
-            var trackRegistry:TrackRegistry = TrackRegistry.getInstance();
-            return trackRegistry ? trackRegistry.getAtomByPin(pin) : null;
+            var reg:TrackRegistry = TrackRegistry.getInstance();
+            var atom:Atom = reg ? reg.getAtomByPin(pin) : null;
+            if (!atom) {
+                trace("❌ getAtomByPin: No atom found for pin " + pin.name);
+            }
+            return atom;
         }
 
         // =============================================================================
-        // EXISTING METHODS (UNCHANGED)
+        // LISTENERS & SUBSCRIPTIONS
         // =============================================================================
-
         public function addListener(listener:Function):void {
             if (_listeners.indexOf(listener) === -1) {
                 _listeners.push(listener);
@@ -439,10 +689,8 @@
         }
 
         public function removeListener(listener:Function):void {
-            var index:int = _listeners.indexOf(listener);
-            if (index !== -1) {
-                _listeners.splice(index, 1);
-            }
+            var i:int = _listeners.indexOf(listener);
+            if (i !== -1) _listeners.splice(i, 1);
         }
 
         private function notifyListeners(newValue:*, oldValue:*):void {
@@ -451,33 +699,22 @@
             }
         }
 
-        public function notifyConnected():void {
-            if (this.type === TYPE_OUTPUT) {
-                var event:PinEvent = new PinEvent(PIN_CONNECTED, this, this.value);
-            }
-        }
-
-        public function notifyDisconnected():void {
-            if (this.type === TYPE_OUTPUT) {
-                var event:PinEvent = new PinEvent(PIN_DISCONNECTED, this, this.value);
-            }
-        }
-
         public function subscribeToPin(targetPin:Pin, eventTypes:*, callback:Function):Boolean {
             if (!targetPin || targetPin === this) {
-                trace("Pin.subscribeToPin: Invalid target pin");
+                trace("❌ Invalid subscription target");
                 return false;
             }
             var events:Array = normalizeEventTypes(eventTypes);
-            var subscription:PinSubscription = new PinSubscription(targetPin, events, callback);
-            if (hasExistingSubscription(subscription)) {
-                trace("Pin.subscribeToPin: Subscription already exists for pin: " + targetPin.name);
+            var sub:PinSubscription = new PinSubscription(targetPin, events, callback);
+            if (hasExistingSubscription(sub)) {
+                trace("⚠ Subscription already exists");
                 return false;
             }
-            for each (var eventType:String in events) {
-                targetPin.addEventListener(eventType, callback);
+            for each (var e:String in events) {
+                targetPin.addEventListener(e, callback, false, 0, true);
             }
-            _targetedSubscriptions.push(subscription);
+            _targetedSubscriptions.push(sub);
+            trace("✅ Pin subscription created: " + this.name + " → " + targetPin.name);
             return true;
         }
 
@@ -485,15 +722,15 @@
             var events:Array = normalizeEventTypes(eventTypes);
             var removed:Boolean = false;
             for (var i:int = _targetedSubscriptions.length - 1; i >= 0; i--) {
-                var subscription:PinSubscription = _targetedSubscriptions[i];
-                if (subscription.targetPin === targetPin) {
+                var sub:PinSubscription = _targetedSubscriptions[i];
+                if (sub.targetPin === targetPin) {
                     if (events.length > 0) {
-                        removed = removeSpecificEvents(subscription, events) || removed;
-                        if (subscription.eventTypes.length === 0) {
+                        removed = removeSpecificEvents(sub, events) || removed;
+                        if (sub.eventTypes.length === 0) {
                             _targetedSubscriptions.splice(i, 1);
                         }
                     } else {
-                        removeAllEvents(subscription);
+                        removeAllEvents(sub);
                         _targetedSubscriptions.splice(i, 1);
                         removed = true;
                     }
@@ -503,77 +740,10 @@
         }
 
         public function unsubscribeFromAllPins():void {
-            for each (var subscription:PinSubscription in _targetedSubscriptions) {
-                removeAllEvents(subscription);
+            for each (var sub:PinSubscription in _targetedSubscriptions) {
+                removeAllEvents(sub);
             }
             _targetedSubscriptions = new Vector.<PinSubscription>();
-        }
-
-        public function getSubscriptions():Array {
-            var result:Array = [];
-            for each (var subscription:PinSubscription in _targetedSubscriptions) {
-                result.push({
-                    targetPin: subscription.targetPin.name,
-                    targetPinId: subscription.targetPin.id,
-                    eventTypes: subscription.eventTypes.slice(),
-                    callback: subscription.callback
-                });
-            }
-            return result;
-        }
-
-        public function isSubscribedTo(targetPin:Pin, eventType:String = null):Boolean {
-            for each (var subscription:PinSubscription in _targetedSubscriptions) {
-                if (subscription.targetPin === targetPin) {
-                    if (!eventType) return true;
-                    if (subscription.eventTypes.indexOf(eventType) !== -1) return true;
-                }
-            }
-            return false;
-        }
-
-        private function generateId():String {
-            return "pin_" + new Date().getTime() + "_" + Math.floor(Math.random() * 1000000);
-        }
-
-        public function clone():Pin {
-            var newPin:Pin = new Pin(name, type, _value, cloneObject(data));
-            newPin.id = this.id;
-            return newPin;
-        }
-
-        public function cloneWithValue(newValue:*):Pin {
-            var newPin:Pin = new Pin(name, type, newValue, cloneObject(data));
-            newPin.id = this.id;
-            return newPin;
-        }
-
-        private function cloneObject(obj:Object):Object {
-            var cloned:Object = {};
-            for (var key:String in obj) {
-                cloned[key] = obj[key];
-            }
-            return cloned;
-        }
-
-        /**
-         * Disposes pin resources and cleans up track creation if active.
-         *
-         * @public
-         */
-        public function dispose():void {
-            notifyDisconnected();
-            unsubscribeFromAllPins();
-            if (_eventManager) {
-                _eventManager.unregisterPin(this);
-            }
-            _listeners = null;
-            _targetedSubscriptions = null;
-            
-            // Cleanup track creation if active
-            if (_isCreatingTrack) {
-                cancelTrackCreation();
-            }
         }
 
         private function normalizeEventTypes(eventTypes:*):Array {
@@ -582,46 +752,90 @@
             return [PIN_VALUE_CHANGED];
         }
 
-        private function hasExistingSubscription(newSubscription:PinSubscription):Boolean {
-            for each (var existing:PinSubscription in _targetedSubscriptions) {
-                if (existing.targetPin === newSubscription.targetPin &&
-                    existing.callback === newSubscription.callback) {
-                    for each (var eventType:String in newSubscription.eventTypes) {
-                        if (existing.eventTypes.indexOf(eventType) !== -1) return true;
+        private function hasExistingSubscription(newSub:PinSubscription):Boolean {
+            for each (var sub:PinSubscription in _targetedSubscriptions) {
+                if (sub.targetPin === newSub.targetPin && sub.callback === newSub.callback) {
+                    for each (var e:String in newSub.eventTypes) {
+                        if (sub.eventTypes.indexOf(e) !== -1) return true;
                     }
                 }
             }
             return false;
         }
 
-        private function removeSpecificEvents(subscription:PinSubscription, eventsToRemove:Array):Boolean {
-            var removed:Boolean = false;
-            for each (var eventType:String in eventsToRemove) {
-                var index:int = subscription.eventTypes.indexOf(eventType);
-                if (index !== -1) {
-                    subscription.eventTypes.splice(index, 1);
-                    subscription.targetPin.removeEventListener(eventType, subscription.callback);
-                    removed = true;
+        private function removeSpecificEvents(sub:PinSubscription, toRemove:Array):Boolean {
+            var r:Boolean = false;
+            for each (var e:String in toRemove) {
+                var i:int = sub.eventTypes.indexOf(e);
+                if (i !== -1) {
+                    sub.eventTypes.splice(i, 1);
+                    sub.targetPin.removeEventListener(e, sub.callback);
+                    r = true;
                 }
             }
-            return removed;
+            return r;
         }
 
-        private function removeAllEvents(subscription:PinSubscription):void {
-            for each (var eventType:String in subscription.eventTypes) {
-                subscription.targetPin.removeEventListener(eventType, subscription.callback);
+        private function removeAllEvents(sub:PinSubscription):void {
+            for each (var e:String in sub.eventTypes) {
+                sub.targetPin.removeEventListener(e, sub.callback);
             }
         }
 
-        public static function getSystemStats():Object {
-            return _eventManager ? _eventManager.getStats() : { totalPins: 0 };
+        // =============================================================================
+        // EVENTS & GETTERS
+        // =============================================================================
+        public function notifyConnected():void {
+            if (type === TYPE_OUTPUT) {
+                dispatchEvent(new PinEvent(PIN_CONNECTED, this, value));
+            }
         }
 
-        // =============================================================================
-        // PUBLIC ACCESSORS
-        // =============================================================================
+        public function notifyDisconnected():void {
+            if (type === TYPE_OUTPUT) {
+                dispatchEvent(new PinEvent(PIN_DISCONNECTED, this, value));
+            }
+        }
 
         public function get isCreatingTrack():Boolean { return _isCreatingTrack; }
         public function get tempTrack():TempTrack { return _tempTrack; }
+        public function get atom():Atom { return _atom; }
+        public function get collidingPins():Vector.<Pin> { return _currentCollisions.concat(); }
+        public function get autoTracks():Vector.<Track> { return _autoTracks.concat(); }
+
+        // =============================================================================
+        // DEBUG METHODS
+        // =============================================================================
+        /**
+         * Отладочный метод для проверки подписок
+         */
+        public function debugSubscriptions():void {
+            trace("=== PIN SUBSCRIPTIONS DEBUG ===");
+            trace("Pin: " + this.name + " (" + this.type + ")");
+            trace("Value: " + this.value);
+            trace("Targeted subscriptions: " + _targetedSubscriptions.length);
+            
+            for each (var sub:PinSubscription in _targetedSubscriptions) {
+                trace("  → Sub to: " + sub.targetPin.name + ", Events: " + sub.eventTypes.join(", "));
+            }
+            
+            trace("Listeners: " + _listeners.length);
+            trace("=== END DEBUG ===");
+        }
+        
+        /**
+         * Отладочный метод для проверки состояния
+         */
+        public function debugState():void {
+            trace("=== PIN STATE DEBUG ===");
+            trace("Name: " + this.name);
+            trace("Type: " + this.type);
+            trace("ID: " + this.id);
+            trace("Value: " + this.value);
+            trace("Atom: " + (_atom ? _atom.name : "null"));
+            trace("Current collisions: " + _currentCollisions.length);
+            trace("Auto tracks: " + _autoTracks.length);
+            trace("=== END STATE DEBUG ===");
+        }
     }
 }
