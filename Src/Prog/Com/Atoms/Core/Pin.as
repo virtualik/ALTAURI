@@ -319,28 +319,45 @@
 		 */
 		public function cleanupInactiveAutoConnections():void {
 			trace("🧹 Cleaning up inactive auto-connections for pin: " + this.name);
-			
+
 			var tracksToRemove:Vector.<Track> = new Vector.<Track>();
-			
+
 			// Проверяем каждое автоподключение
 			for each (var track:Track in _autoTracks) {
-				var otherPin:Pin = (this.type === TYPE_OUTPUT) ? track.toPin : track.fromPin;
-				var otherView:PinView = findPinView(otherPin);
-				var thisView:PinView = findPinView(this);
-				
-				// Если пины больше не пересекаются - помечаем для удаления
-				if (!thisView || !otherView || !arePinsVisuallyColliding(thisView, otherView)) {
-					tracksToRemove.push(track);
-					trace("🗑️ Marking inactive auto-connection: " + this.name + " → " + otherPin.name);
+				try {
+					var otherPin:Pin = (this.type === TYPE_OUTPUT) ? track.toPin : track.fromPin;
+					
+					// Проверяем, что пины все еще валидны
+					if (!otherPin || !otherPin.atom) {
+						tracksToRemove.push(track);
+						trace("🗑️ Marking inactive auto-connection (invalid pin): " + this.name + " → " + (otherPin ? otherPin.name : "null"));
+						continue;
+					}
+					
+					var otherView:PinView = findPinView(otherPin);
+					var thisView:PinView = findPinView(this);
+
+					// Если не можем найти view или пины больше не пересекаются - помечаем для удаления
+					if (!thisView || !otherView || !arePinsVisuallyColliding(thisView, otherView)) {
+						tracksToRemove.push(track);
+						trace("🗑️ Marking inactive auto-connection: " + this.name + " → " + otherPin.name);
+					}
+				} catch (error:Error) {
+					trace("❌ Error checking auto-connection: " + error.message);
+					tracksToRemove.push(track); // В случае ошибки удаляем соединение
 				}
 			}
-			
+
 			// Удаляем неактивные соединения
 			for each (var inactiveTrack:Track in tracksToRemove) {
-				inactiveTrack.dispose();
-				removeTrackFromAutoTracks(inactiveTrack);
+				try {
+					inactiveTrack.dispose();
+					removeTrackFromAutoTracks(inactiveTrack);
+				} catch (error:Error) {
+					trace("❌ Error disposing track: " + error.message);
+				}
 			}
-			
+
 			trace("✅ Inactive auto-connections cleaned for pin: " + this.name);
 		}
 
@@ -570,32 +587,58 @@
             return out;
         }
 
-        private function findPinView(pin:Pin):PinView {
-            var atom:Atom = getAtomByPin(pin);
-            if (!atom) {
-                trace("❌ findPinView: No atom for pin " + pin.name);
-                return null;
-            }
-            
-            var mgr:AtomManager = AtomManager.getInstance();
-            var data:Object = mgr.getAtomById(atom.id);
-            if (!data || !data.view) {
-                trace("❌ findPinView: No view data for atom " + atom.id);
-                return null;
-            }
-            
-            var view:AtomView = data.view;
-            for (var i:int = 0; i < view.numChildren; i++) {
-                var child:DisplayObject = view.getChildAt(i);
-                if (child is PinView && PinView(child).pin === pin) {
-                    trace("✅ Found PinView for pin: " + pin.name);
-                    return PinView(child);
-                }
-            }
-            
-            trace("❌ findPinView: No PinView found for pin: " + pin.name);
-            return null;
-        }
+		private function findPinView(pin:Pin):PinView {
+			var result:PinView = null;
+			
+			if (!pin) {
+				trace("❌ findPinView: Pin is null");
+				return result;
+			}
+			
+			var atom:Atom = getAtomByPin(pin);
+			if (!atom) {
+				trace("❌ findPinView: No atom for pin " + pin.name);
+				return result;
+			}
+
+			var mgr:AtomManager = AtomManager.getInstance();
+			if (!mgr) {
+				trace("❌ findPinView: AtomManager is null");
+				return result;
+			}
+			
+			var data:Object = mgr.getAtomById(atom.id);
+			if (!data || !data.view) {
+				trace("❌ findPinView: No view data for atom " + atom.id);
+				return result;
+			}
+
+			var view:AtomView = data.view;
+			
+			if (!view.stage) {
+				trace("❌ findPinView: AtomView not on stage for atom " + atom.id);
+				return result;
+			}
+
+			try {
+				for (var i:int = 0; i < view.numChildren; i++) {
+					var child:DisplayObject = view.getChildAt(i);
+					if (child is PinView && PinView(child).pin === pin) {
+						trace("✅ Found PinView for pin: " + pin.name);
+						result = PinView(child);
+						break;
+					}
+				}
+			} catch (error:Error) {
+				trace("❌ findPinView: Error searching for PinView: " + error.message);
+			}
+
+			if (!result) {
+				trace("❌ findPinView: No PinView found for pin: " + pin.name);
+			}
+			
+			return result;
+		}
 
         private function findParentWindow():Window {
             var atom:Atom = getAtomByPin(this);
@@ -670,15 +713,60 @@
             return true;
         }
 
-        private function getAtomByPin(pin:Pin):Atom {
-            var reg:TrackRegistry = TrackRegistry.getInstance();
-            var atom:Atom = reg ? reg.getAtomByPin(pin) : null;
-            if (!atom) {
-                trace("❌ getAtomByPin: No atom found for pin " + pin.name);
-            }
-            return atom;
-        }
+		private function getAtomByPin(pin:Pin):Atom {
+			// Создаем переменную для результата
+			var result:Atom = null;
+			
+			if (!pin) {
+				trace("❌ getAtomByPin: Pin is null");
+				return result; // возвращаем null, но тип Atom (null совместим)
+			}
+			
+			var reg:TrackRegistry = TrackRegistry.getInstance();
+			if (!reg) {
+				trace("❌ getAtomByPin: TrackRegistry is null");
+				return result;
+			}
+			
+			try {
+				result = reg.getAtomByPin(pin);
+				if (!result) {
+					trace("❌ getAtomByPin: No atom found for pin " + pin.name);
+				}
+			} catch (error:Error) {
+				trace("❌ getAtomByPin: Error getting atom: " + error.message);
+				result = null;
+			}
+			
+			return result;
+		}
 
+/** альтернативный вариант с единой точкой возврата 	
+private function getAtomByPin(pin:Pin):Atom {
+    var result:Atom = null;
+    
+    if (pin) {
+        var reg:TrackRegistry = TrackRegistry.getInstance();
+        if (reg) {
+            try {
+                result = reg.getAtomByPin(pin);
+                if (!result) {
+                    trace("❌ getAtomByPin: No atom found for pin " + pin.name);
+                }
+            } catch (error:Error) {
+                trace("❌ getAtomByPin: Error getting atom: " + error.message);
+            }
+        } else {
+            trace("❌ getAtomByPin: TrackRegistry is null");
+        }
+    } else {
+        trace("❌ getAtomByPin: Pin is null");
+    }
+    
+    return result;
+}	
+*/	
+	
         // =============================================================================
         // LISTENERS & SUBSCRIPTIONS
         // =============================================================================

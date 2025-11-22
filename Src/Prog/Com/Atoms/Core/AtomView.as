@@ -526,14 +526,28 @@
 		 */
 		private function cleanupInactiveConnectionsAfterDrag():void {
 			trace("=== CLEANING UP INACTIVE CONNECTIONS AFTER DRAG ===");
-			
-			for each (var inputPin:Pin in _atom.inputs) {
-				inputPin.cleanupInactiveAutoConnections();
+
+			// Проверяем, что атом все еще существует
+			if (!_atom) {
+				trace("❌ Atom is null, skipping cleanup");
+				return;
 			}
-			for each (var outputPin:Pin in _atom.outputs) {
-				outputPin.cleanupInactiveAutoConnections();
+
+			try {
+				for each (var inputPin:Pin in _atom.inputs) {
+					if (inputPin) {
+						inputPin.cleanupInactiveAutoConnections();
+					}
+				}
+				for each (var outputPin:Pin in _atom.outputs) {
+					if (outputPin) {
+						outputPin.cleanupInactiveAutoConnections();
+					}
+				}
+			} catch (error:Error) {
+				trace("❌ Error during connection cleanup: " + error.message);
 			}
-			
+
 			trace("=== INACTIVE CONNECTIONS CLEANUP COMPLETE ===");
 		}
 

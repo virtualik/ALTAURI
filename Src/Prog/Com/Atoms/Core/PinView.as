@@ -43,7 +43,7 @@
 			// Создаем спрайт для hitArea
 			var hitAreaSprite:Sprite = new Sprite();
 			hitAreaSprite.graphics.beginFill(0x222222, 0.5); // Полностью прозрачный
-			hitAreaSprite.graphics.drawCircle(0, 0, 4);    // Радиус коллизий - 6 пикселей
+			hitAreaSprite.graphics.drawCircle(0, 0, 8);    // Радиус коллизий - 6 пикселей
 			hitAreaSprite.graphics.endFill();
 			
 			// Устанавливаем hitArea
