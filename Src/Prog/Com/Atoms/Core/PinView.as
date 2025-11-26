@@ -1,9 +1,11 @@
 ﻿package Src.Prog.Com.Atoms.Core {
+	import flash.display.Stage;
     import flash.display.Sprite;
     import flash.events.MouseEvent;
+    import flash.geom.Point;
+	import flash.filters.GlowFilter;
     import Src.Prog.Core.Impulsys.Impulsys;
     import Src.Prog.Core.Impulsys.Impulse;
-    import flash.geom.Point;
     import Src.Prog.Core.Managers.AtomManager;
 
     /**
@@ -21,37 +23,32 @@
         }
 
 		private function draw():void {
-			this.graphics.clear();
-			
-			// 🔥 УБИРАЕМ НЕВИДИМЫЙ КРУГ - оставляем только видимую часть
-			var color:uint = (_pin.type == Pin.TYPE_INPUT) ? 0xFF4444 : 0x44FF44;
-			this.graphics.beginFill(color);
-			this.graphics.drawCircle(0, 0, 4); // Видимая часть - радиус 4
-			this.graphics.endFill();
-			
-			// 🔥 СОЗДАЕМ ТОЧНУЮ HITAREA ДЛЯ КОЛЛИЗИЙ
-			createHitArea();
-			
-			this.buttonMode = true;
-			this.useHandCursor = true;
-		}
+			graphics.clear();
 
-		/**
-		 * Создает точную область для коллизий вокруг пина
-		 */
-		private function createHitArea():void {
-			// Создаем спрайт для hitArea
-			var hitAreaSprite:Sprite = new Sprite();
-			hitAreaSprite.graphics.beginFill(0x222222, 0.5); // Полностью прозрачный
-			hitAreaSprite.graphics.drawCircle(0, 0, 8);    // Радиус коллизий - 6 пикселей
-			hitAreaSprite.graphics.endFill();
-			
-			// Устанавливаем hitArea
-			this.hitArea = hitAreaSprite;
-			this.addChild(hitAreaSprite);
-			
-			// 🔥 ВАЖНО: Включаем флаг для использования hitArea
-			this.mouseEnabled = true;
+			// === Визуальная часть ===
+			var fillColor:uint = (_pin.type === Pin.TYPE_OUTPUT) ? 0x0088FF : 0xFF8800;
+			var borderColor:uint = 0xFFFFFF;
+
+			graphics.lineStyle(2, borderColor);
+			graphics.beginFill(fillColor);
+			graphics.drawCircle(0, 0, 4); // ВИЗУАЛЬНЫЙ радиус 4px
+			graphics.endFill();
+
+			// === Создаём хит-зону с радиусом 6px для коллизий ===
+			var hitCircle:Sprite = new Sprite();
+			hitCircle.graphics.beginFill(0x000000, 0);     // полностью прозрачная
+			hitCircle.graphics.drawCircle(0, 0, 6);        // радиус 6 — для коллизий
+			hitCircle.graphics.endFill();
+
+			// КРИТИЧЕСКИ ВАЖНО: добавляем хит-зону на дисплей-лист!
+			this.addChild(hitCircle);
+
+			// Назначаем как hitArea
+			this.hitArea = hitCircle;
+
+			// Обязательно для правильной работы hitArea!
+			this.mouseChildren = false;   // чтобы клики не "проваливались"
+			this.mouseEnabled = true;     // чтобы события приходили
 		}
 
         private function setupInteractions():void {
@@ -60,15 +57,31 @@
             this.mouseChildren = false;
         }
 
-        private function onMouseDown(event:MouseEvent):void {
-            event.stopPropagation();
-            if (_pin.type === Pin.TYPE_OUTPUT) {
-                trace("=== OUTPUT PIN CLICKED: " + _pin.name + " ===");
-                var startPos:Point = new Point(event.stageX, event.stageY);
-                _pin.startTrackCreation(startPos);
-            }
-            // Input pins — больше ничего не делают при нажатии
-        }
+		/**
+		 * Handles mouse down on the pin.
+		 * Starts track creation from ANY pin (input or output) with visual feedback.
+		 */
+		private function onMouseDown(event:MouseEvent):void {
+			event.stopPropagation();
+
+			// Запускаем создание дорожки с любого пина
+			var startPos:Point = new Point(event.stageX, event.stageY);
+			_pin.startTrackCreation(startPos);
+
+			// Визуальная подсветка: пин светится, пока тянем дорожку
+			this.filters = [new GlowFilter(0x00FFFF, 1.0, 10, 10, 3, 3)];
+
+			// Снимаем подсветку при отпускании мыши в любом месте
+			var stage:Stage = this.stage;
+			if (stage) {
+				var onMouseUp:Function = function(e:MouseEvent):void {
+					// Убираем свечение
+					this.filters = [];
+					stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+				};
+				stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+			}
+		}
 
         public function get pin():Pin {
             return _pin;

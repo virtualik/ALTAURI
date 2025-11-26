@@ -70,20 +70,37 @@ package Src.Prog.Com.Atoms.Core {
         }
 
         /**
-         * UPDATED: Mutates Pin.value in-place instead of cloning Pin.
+         * Mutates Pin.value in-place instead of cloning Pin.
          * Returns a new Atom (immutable interface), but Pin objects are reused.
          */
         public function setPinValue(pinName:String, value:*, isInput:Boolean = true):Atom {
+            trace("=== ATOM SET PIN VALUE ===");
+            trace("Atom: " + this.id + ", Pin: " + pinName + ", Value: " + value + ", IsInput: " + isInput);
+
             var newAtom:Atom = new Atom(id, type, position, name);
             newAtom.data = cloneData(this.data);
-            // Обновляем значение существующего Pin — не создаём новый!
-            if (isInput) {
-                updatePinValueInPlace(inputs, pinName, value);
-            } else {
-                updatePinValueInPlace(outputs, pinName, value);
+
+            // Обновляем значение существующего Pin
+            var pins:Vector.<Pin> = isInput ? inputs : outputs;
+            var pinUpdated:Boolean = false;
+
+            for each (var pin:Pin in pins) {
+                if (pin.name == pinName) {
+                    trace("Updating pin: " + pin.name + " to value: " + value);
+                    pin.value = value; // ← Это вызовет PinEvent!
+                    pinUpdated = true;
+                    break;
+                }
             }
+
+            if (!pinUpdated) {
+                trace("⚠ Pin not found: " + pinName);
+            }
+
             newAtom.inputs = inputs;
             newAtom.outputs = outputs;
+
+            trace("=== END SET PIN VALUE ===");
             return newAtom;
         }
 
@@ -187,6 +204,9 @@ package Src.Prog.Com.Atoms.Core {
             // Create pins from definition
             createPinsFromDefinition(atom, definition.pins);
 
+            // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устанавливаем владельца для всех пинов
+            setOwnerForAllPins(atom);
+
             // Initialize behavior if defined
             if (definition.behavior && definition.behavior.initialize is Function) {
                 atom = definition.behavior.initialize(atom);
@@ -195,7 +215,8 @@ package Src.Prog.Com.Atoms.Core {
             // Create view
             var view:AtomView = new AtomView(atom, windowType);
 
-            trace("AtomFactory: Created atom - " + type + " (" + atom.id + ")");
+            trace("AtomFactory: Created atom - " + type + " (" + atom.id + ") with " +
+                  atom.inputs.length + " inputs and " + atom.outputs.length + " outputs");
 
             return { atom: atom, view: view };
         }
@@ -213,8 +234,6 @@ package Src.Prog.Com.Atoms.Core {
 				// Создаем пин с расширенными возможностями
 				var pin:Pin = new Pin(pinDef.name, pinDef.type, null, pinDef);
 
-
-
 				// Добавляем в соответствующие коллекции
 				if (pinDef.type == "input") {
 					atom.inputs.push(pin);
@@ -223,6 +242,28 @@ package Src.Prog.Com.Atoms.Core {
 				}
 			}
 		}
+
+		/**
+         * Устанавливает атом-владелец для всех пинов.
+         * 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Без этого автоподключения не работают!
+         *
+         * @static
+         * @private
+         * @param {Atom} atom - Atom instance
+         */
+        private static function setOwnerForAllPins(atom:Atom):void {
+            trace("🔗 Setting owner for all pins of atom: " + atom.name);
+
+            for each (var inputPin:Pin in atom.inputs) {
+                inputPin.setOwnerAtom(atom);
+                trace("  ✅ Input pin owner set: " + inputPin.name);
+            }
+
+            for each (var outputPin:Pin in atom.outputs) {
+                outputPin.setOwnerAtom(atom);
+                trace("  ✅ Output pin owner set: " + outputPin.name);
+            }
+        }
 
         /**
          * Generates a unique ID for an atom.
@@ -316,6 +357,7 @@ package Src.Prog.Com.Atoms.Core {
      * Universal view class that renders any atom type based on its data definition.
      * Enhanced with mouse release handling for button-like atoms.
      * FIXED: Mouse event conflicts with PinView and proper drag operation cleanup.
+     * ADDED: Collision detection for pins during atom dragging.
      *
      * @class AtomView
      * @extends Sprite
@@ -368,11 +410,13 @@ package Src.Prog.Com.Atoms.Core {
             this.x = _atom.position.x;
             this.y = _atom.position.y;
 			Impulsys.subscribeToImpulse("WINDOW_LEFT_RELEASE", handle_release_outside);
+
+            trace("✅ AtomView created for: " + atom.name + " with " +
+                  atom.inputs.length + " inputs, " + atom.outputs.length + " outputs");
         }
 
 		private function handle_release_outside(impulse: Impulse):void {
-			// If button was pressed, handle release
-				trace("-=[i]=- release outside Impulse received in AtomView")
+			trace("-=[i]=- release outside Impulse received in AtomView")
 			if (_isPressed) {
 				 _isPressed = false;
 				handleInteraction("release");
@@ -574,6 +618,7 @@ package Src.Prog.Com.Atoms.Core {
                 inputPin.mouseChildren = false;
 
                 this.addChild(inputPin);
+                trace("✅ Created input PinView: " + _atom.inputs[j].name + " at " + inputPin.x + "," + inputPin.y);
             }
 
             // Create output pin views
@@ -587,6 +632,7 @@ package Src.Prog.Com.Atoms.Core {
                 outputPin.mouseChildren = false;
 
                 this.addChild(outputPin);
+                trace("✅ Created output PinView: " + _atom.outputs[k].name + " at " + outputPin.x + "," + outputPin.y);
             }
         }
 
@@ -599,11 +645,12 @@ package Src.Prog.Com.Atoms.Core {
          * @param {MouseEvent} event - Mouse down event
          */
         private function onMouseDown(event:MouseEvent):void {
-            // ADDED: Check if click was on a pin
+            // Check if click was on a pin
             var target:DisplayObject = event.target as DisplayObject;
             while (target && target != this) {
                 if (target is PinView) {
                     // Click was on pin - let PinView handle it
+                    trace("⚠ Click on PinView - skipping AtomView handling");
                     return;
                 }
                 target = target.parent;
@@ -688,6 +735,7 @@ package Src.Prog.Com.Atoms.Core {
             stage.addEventListener(MouseEvent.MOUSE_MOVE, onDrag);
             stage.addEventListener(MouseEvent.MOUSE_UP, onDragEnd);
 
+            trace("🚀 DRAG STARTED for atom: " + _atom.name);
             Impulsys.emit(new Impulse("ATOM_DRAG_START", {
                 atom: _atom,
                 view: this,
@@ -701,57 +749,147 @@ package Src.Prog.Com.Atoms.Core {
          * @private
          * @param {MouseEvent} event - Mouse move event
          */
-        private function onDrag(event:MouseEvent):void {
-            if (!_isDragging || !parent) return;
+		private function onDrag(event:MouseEvent):void {
+			if (!_isDragging || !parent) return;
 
-            var mouseWorld:Point = parent.globalToLocal(new Point(event.stageX, event.stageY));
-            var newX:Number = mouseWorld.x - _dragOffset.x;
-            var newY:Number = mouseWorld.y - _dragOffset.y;
+			var mouseWorld:Point = parent.globalToLocal(new Point(event.stageX, event.stageY));
+			var newX:Number = mouseWorld.x - _dragOffset.x;
+			var newY:Number = mouseWorld.y - _dragOffset.y;
 
-            var newAtom:Atom = _atom.setPosition(new Point(newX, newY));
+			var newAtom:Atom = _atom.setPosition(new Point(newX, newY));
 
-            Impulsys.emit(new Impulse("ATOM_MOVED", {
-                oldAtom: _atom,
-                newAtom: newAtom,
-                updateTracks: true,
-                isDragging: false
-            }));
+			Impulsys.emit(new Impulse("ATOM_MOVED", {
+				oldAtom: _atom,
+				newAtom: newAtom,
+				updateTracks: true,
+				isDragging: false
+			}));
 
-            _atom = newAtom;
-            this.x = _atom.position.x;
-            this.y = _atom.position.y;
-        }
+			_atom = newAtom;
+			this.x = _atom.position.x;
+			this.y = _atom.position.y;
 
-        /**
+			// 🔥 ОБНОВЛЯЕМ КОЛЛИЗИИ ДЛЯ ВСЕХ ПИНОВ - И INPUT И OUTPUT
+			trace("🔄 Updating pin collisions during drag...");
+			updatePinCollisionsDuringDrag();
+		}
+
+		/**
+		 * Обновляет коллизии ВСЕХ пинов этого атома во время перетаскивания.
+		 * 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Теперь обновляем и input и output пины
+		 */
+		private function updatePinCollisionsDuringDrag():void {
+			trace("=== UPDATING PIN COLLISIONS ===");
+			trace("Atom: " + _atom.name + ", Input pins: " + _atom.inputs.length + ", Output pins: " + _atom.outputs.length);
+
+			// 🔥 ОБНОВЛЯЕМ ВСЕ ПИНЫ - И INPUT И OUTPUT
+			for each (var inputPin:Pin in _atom.inputs) {
+				trace("🔍 Checking collisions for input pin: " + inputPin.name);
+				inputPin.updateCollisionsDuringDrag();
+			}
+			for each (var outputPin:Pin in _atom.outputs) {
+				trace("🔍 Checking collisions for output pin: " + outputPin.name);
+				outputPin.updateCollisionsDuringDrag();
+			}
+			trace("=== COLLISIONS UPDATE COMPLETE ===");
+		}
+
+		/**
          * Handles drag end.
-         * FIXED: Ensures proper cleanup of drag state.
+         * Ensures proper cleanup of drag state.
          *
          * @private
          * @param {MouseEvent} event - Mouse up event
          */
-        private function onDragEnd(event:MouseEvent):void {
-            if (!_isDragging) return;
+		private function onDragEnd(event:MouseEvent):void {
+			if (!_isDragging) return;
 
-            _isDragging = false;
-            this.alpha = 1.0;
+			_isDragging = false;
+			this.alpha = 1.0;
 
-            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onDrag);
-            stage.removeEventListener(MouseEvent.MOUSE_UP, onDragEnd);
+			stage.removeEventListener(MouseEvent.MOUSE_MOVE, onDrag);
+			stage.removeEventListener(MouseEvent.MOUSE_UP, onDragEnd);
 
-            // Final position update
-            var finalAtom:Atom = _atom.setPosition(new Point(this.x, this.y));
-            Impulsys.emit(new Impulse("ATOM_DRAG_END", {
-                atom: _atom,
-                view: this,
-                finalPosition: new Point(this.x, this.y)
-            }));
+			// Final position update
+			var finalAtom:Atom = _atom.setPosition(new Point(this.x, this.y));
 
-            _atom = finalAtom;
-            this.x = _atom.position.x;
-            this.y = _atom.position.y;
-        }
+			// 🔥 ФИНАЛЬНОЕ обновление коллизий
+			trace("🔄 Final collision check after drag...");
+			updatePinCollisionsDuringDrag();
 
-        /**
+			// 🔥 БЕЗОПАСНАЯ очистка только неактивных соединений
+			cleanupInactiveConnectionsAfterDrag();
+
+			trace("🛑 DRAG ENDED for atom: " + _atom.name);
+
+			Impulsys.emit(new Impulse("ATOM_DRAG_END", {
+				atom: _atom,
+				view: this,
+				finalPosition: new Point(this.x, this.y)
+			}));
+
+			_atom = finalAtom;
+			this.x = _atom.position.x;
+			this.y = _atom.position.y;
+		}
+
+		private function forceClearAllAutoConnections():void {
+			trace("=== FORCE CLEARING ALL AUTO-CONNECTIONS ===");
+			for each (var inputPin:Pin in _atom.inputs) {
+				trace("🧹 Clearing auto-connections for input: " + inputPin.name);
+				inputPin.forceClearAllAutoConnections();
+			}
+			for each (var outputPin:Pin in _atom.outputs) {
+				trace("🧹 Clearing auto-connections for output: " + outputPin.name);
+				outputPin.forceClearAllAutoConnections();
+			}
+			trace("=== AUTO-CONNECTIONS CLEARED ===");
+		}
+
+		private function forceClearAllPinCollisions():void {
+			trace("=== FORCE CLEARING COLLISIONS ===");
+			for each (var inputPin:Pin in _atom.inputs) {
+				trace("🧹 Clearing collisions for input: " + inputPin.name);
+				inputPin.forceClearCollisions();
+			}
+			for each (var outputPin:Pin in _atom.outputs) {
+				trace("🧹 Clearing collisions for output: " + outputPin.name);
+				outputPin.forceClearCollisions();
+			}
+			trace("=== COLLISIONS CLEARED ===");
+		}
+
+		/**
+		 * Безопасная очистка только неактивных автоподключений после перетаскивания
+		 */
+		private function cleanupInactiveConnectionsAfterDrag():void {
+			trace("=== CLEANING UP INACTIVE CONNECTIONS AFTER DRAG ===");
+
+			// Проверяем, что атом все еще существует
+			if (!_atom) {
+				trace("❌ Atom is null, skipping cleanup");
+				return;
+			}
+
+			try {
+				for each (var inputPin:Pin in _atom.inputs) {
+					if (inputPin) {
+						inputPin.cleanupInactiveAutoConnections();
+					}
+				}
+				for each (var outputPin:Pin in _atom.outputs) {
+					if (outputPin) {
+						outputPin.cleanupInactiveAutoConnections();
+					}
+				}
+			} catch (error:Error) {
+				trace("❌ Error during connection cleanup: " + error.message);
+			}
+
+			trace("=== INACTIVE CONNECTIONS CLEANUP COMPLETE ===");
+		}
+
+		/**
          * Updates all visual elements of the atom.
          *
          * @public
@@ -898,6 +1036,10 @@ package Src.Prog.Com.Atoms.Core {
          * @public
          */
         public function dispose():void {
+            // Stop collision detection if still active
+            trace("🧹 Disposing AtomView: " + _atom.name);
+            forceClearAllPinCollisions();
+
             removeEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
             removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
             removeEventListener(MouseEvent.MOUSE_UP, onMouseUp); // Add removal of mouse up handler
@@ -927,330 +1069,67 @@ package Src.Prog.Com.Atoms.Core {
 }
  
 package Src.Prog.Com.Atoms.Core {
-    import flash.display.Sprite;
-    import flash.geom.Point;
-    import flash.events.Event;
-
-    /**
-     * Visual animation system for data flow visualization along tracks.
-     * Creates particle effects and animations to show data movement between pins.
-     *
-     * @class DataFlowAnimation
-     * @extends Sprite
-     * @public
-     */
-    public class DataFlowAnimation extends Sprite {
-
-        /** Collection of active flow particles */
-        private var _particles:Array;
-
-        /** Animation state flag */
-        private var _isAnimating:Boolean = false;
-
-        /** Reference to track manager for coordinate calculations */
-        private var _trackManager:TrackManager;
-
-        /**
-         * Creates a new DataFlowAnimation instance.
-         */
-        public function DataFlowAnimation() {
-            _particles = [];
-            this.mouseEnabled = false;
-            this.mouseChildren = false;
-            _trackManager = TrackManager.getInstance();
-        }
-
-        /**
-         * Starts the data flow animation between two pins.
-         * Creates visual particles moving from source to target.
-         *
-         * @public
-         * @param {Pin} fromPin - Source pin (output)
-         * @param {Pin} toPin - Target pin (input)
-         * @param {*} value - Data value for particle styling
-         */
-        public function animate(fromPin:Pin, toPin:Pin, value:*):void {
-            _isAnimating = true;
-            clearParticles();
-
-            // Get global pin positions
-            var fromPos:Point = _trackManager.getGlobalPinPosition(fromPin);
-            var toPos:Point = _trackManager.getGlobalPinPosition(toPin);
-
-            // Convert to local coordinates
-            var localFrom:Point = this.parent.globalToLocal(fromPos);
-            var localTo:Point = this.parent.globalToLocal(toPos);
-
-            // Create particles based on value type
-            createParticles(localFrom, localTo, value);
-
-            // Start animation loop
-            this.addEventListener(Event.ENTER_FRAME, updateAnimation);
-        }
-
-        /**
-         * Creates visual particles for the data flow animation.
-         * Particle count and color are determined by data value type.
-         *
-         * @private
-         * @param {Point} fromPos - Start position in local coordinates
-         * @param {Point} toPos - End position in local coordinates
-         * @param {*} value - Data value for styling
-         */
-        private function createParticles(fromPos:Point, toPos:Point, value:*):void {
-            var particleCount:int = getParticleCount(value);
-            var color:uint = getParticleColor(value);
-
-            for (var i:int = 0; i < particleCount; i++) {
-                var particle:FlowParticle = new FlowParticle();
-                particle.initialize(fromPos, toPos, color, i * 0.3);
-                _particles.push(particle);
-                this.addChild(particle);
-            }
-        }
-
-        /**
-         * Updates the animation frame for all active particles.
-         *
-         * @private
-         * @param {Event} event - ENTER_FRAME event
-         */
-        private function updateAnimation(event:Event):void {
-            var activeParticles:int = 0;
-
-            for (var i:int = _particles.length - 1; i >= 0; i--) {
-                var particle:FlowParticle = _particles[i];
-
-                if (particle.isComplete) {
-                    this.removeChild(particle);
-                    _particles.splice(i, 1);
-                } else {
-                    particle.update();
-                    activeParticles++;
-                }
-            }
-
-            // Stop animation when all particles are complete
-            if (activeParticles === 0) {
-                this.removeEventListener(Event.ENTER_FRAME, updateAnimation);
-                _isAnimating = false;
-            }
-        }
-
-        /**
-         * Determines the number of particles based on data value type.
-         *
-         * @private
-         * @param {*} value - Data value to analyze
-         * @return {int} Number of particles to create
-         */
-        private function getParticleCount(value:*):int {
-            if (value === true || value === false) return 1;
-            if (typeof value == "number") return Math.min(3, Math.abs(value));
-            return 2;
-        }
-
-        /**
-         * Determines particle color based on data value type.
-         *
-         * @private
-         * @param {*} value - Data value to analyze
-         * @return {uint} Particle color value
-         */
-        private function getParticleColor(value:*):uint {
-            if (value === true) return 0xFFFFCC;    // Green for true
-            if (value === false) return 0xFF0000;   // Red for false
-            if (typeof value == "number") return 0x0088FF; // Blue for numbers
-            return 0xFFFFFF; // White for other types
-        }
-
-        /**
-         * Clears all active particles from the animation.
-         *
-         * @private
-         */
-        private function clearParticles():void {
-            for each (var particle:FlowParticle in _particles) {
-                if (this.contains(particle)) {
-                    this.removeChild(particle);
-                }
-            }
-            _particles = [];
-        }
-
-        /**
-         * Cleans up animation resources and stops all activity.
-         *
-         * @public
-         */
-        public function dispose():void {
-            _isAnimating = false;
-            this.removeEventListener(Event.ENTER_FRAME, updateAnimation);
-            clearParticles();
-            _trackManager = null;
-        }
-
-        /**
-         * Checks if animation is currently running.
-         *
-         * @public
-         * @return {Boolean} True if animation is active
-         */
-        public function get isAnimating():Boolean {
-            return _isAnimating;
-        }
-    }
-}
- 
-package Src.Prog.Com.Atoms.Core {
-    import flash.display.Sprite;
-    import flash.geom.Point;
-
-    /**
-     * Individual particle for data flow animation.
-     * Represents a single unit of data moving along a track.
-     *
-     * @class FlowParticle
-     * @extends Sprite
-     * @public
-     */
-    public class FlowParticle extends Sprite {
-
-        /** Start position of the particle */
-        private var _startPos:Point;
-
-        /** End position of the particle */
-        private var _endPos:Point;
-
-        /** Current animation progress (0 to 1) */
-        private var _progress:Number;
-
-        /** Animation speed multiplier */
-        private var _speed:Number;
-
-        /** Particle color based on data type */
-        private var _color:uint;
-
-        /** Completion state flag */
-        private var _isComplete:Boolean;
-
-        /**
-         * Initializes the particle with animation parameters.
-         *
-         * @public
-         * @param {Point} startPos - Starting position
-         * @param {Point} endPos - Ending position
-         * @param {uint} color - Particle color
-         * @param {Number} delay - Animation delay in seconds
-         */
-        public function initialize(startPos:Point, endPos:Point, color:uint, delay:Number = 0):void {
-            _startPos = startPos;
-            _endPos = endPos;
-            _color = color;
-            _progress = -delay; // Negative progress for delayed start
-            _speed = 3; // Base animation speed
-            _isComplete = false;
-
-            draw();
-        }
-
-        /**
-         * Draws the visual representation of the particle.
-         *
-         * @private
-         */
-        private function draw():void {
-            this.graphics.clear();
-            this.graphics.beginFill(_color, 1.0);
-            this.graphics.drawCircle(0, 0, 2);
-            this.graphics.endFill();
-        }
-
-        /**
-         * Updates the particle position and animation state.
-         *
-         * @public
-         */
-        public function update():void {
-            if (_isComplete) return;
-
-            _progress += 0.016 * _speed; // Assuming 60fps
-
-            if (_progress < 0) {
-                // Still in delay phase
-                return;
-            }
-
-            if (_progress >= 1) {
-                // Animation complete
-                _progress = 1;
-                _isComplete = true;
-            }
-
-            // Calculate current position using linear interpolation
-            var currentX:Number = _startPos.x + (_endPos.x - _startPos.x) * _progress;
-            var currentY:Number = _startPos.y + (_endPos.y - _startPos.y) * _progress;
-
-            this.x = currentX;
-            this.y = currentY;
-
-            // Optional: Add scale or alpha effects
-            this.scaleX = this.scaleY = 1 + Math.sin(_progress * Math.PI) * 0.5;
-            this.alpha = 1 - (_progress * 0.5); // Fade out towards end
-        }
-
-        /**
-         * Checks if the particle animation is complete.
-         *
-         * @public
-         * @return {Boolean} True if animation is finished
-         */
-        public function get isComplete():Boolean {
-            return _isComplete;
-        }
-    }
-}
- 
-package Src.Prog.Com.Atoms.Core {
     import flash.events.EventDispatcher;
     import flash.events.Event;
+    import flash.geom.Point;
+    import flash.events.MouseEvent;
+    import flash.display.Stage;
+    import Src.Prog.Core.Impulsys.Impulsys;
+    import Src.Prog.Core.Impulsys.Impulse;
+    import Src.Prog.Core.Windows.Window;
+    import Src.Prog.Core.Managers.AtomManager;
+    import flash.display.DisplayObject;
+    import flash.geom.Rectangle;
 
     /**
      * Represents a connection point (input or output) for data flow between atoms.
-     * Manages data listeners for direct peer-to-peer communication.
-     * Implements targeted subscriptions to isolate data propagation without global events.
-     *
-     * Key changes:
-     * - Removed _eventManager.dispatchToAll() from set value
-     * - Only direct subscriptions are used
+     * Collision detection is triggered ONLY during atom drag and uses strict visual overlap.
      *
      * @class Pin
      * @extends EventDispatcher
-     * @public
      */
     public class Pin extends EventDispatcher {
-        public static const VERSION:String = "PIN_CLASS_V2_WITH_EVENTS";
+        // =============================================================================
+        // CONSTANTS AND STATIC PROPERTIES
+        // =============================================================================
+        public static const VERSION:String = "PIN_CLASS_V9_FIXED_INPUT_AUTO_CONNECT";
         public static const PIN_VALUE_CHANGED:String = "pinValueChanged";
         public static const PIN_CONNECTED:String = "pinConnected";
         public static const PIN_DISCONNECTED:String = "pinDisconnected";
         public static const TYPE_INPUT:String = "input";
         public static const TYPE_OUTPUT:String = "output";
 
-        public var id:String;
-        public var name:String;
-        public var type:String;
-        public var data:Object;
-
-        private var _listeners:Vector.<Function>;
-        private var _value:*;
-        private var _targetedSubscriptions:Vector.<PinSubscription>;
         private static var _eventManager:PinEventManager;
-
         private static function initializeEventManager():void {
             if (!_eventManager) {
                 _eventManager = new PinEventManager();
             }
         }
+
+        public static function getSystemStats():Object {
+            return _eventManager ? _eventManager.getStats() : { totalPins: 0 };
+        }
+
+        // =============================================================================
+        // BASIC PROPERTIES AND CONSTRUCTOR
+        // =============================================================================
+        public var id:String;
+        public var name:String;
+        public var type:String;
+        public var data:Object;
+        private var _listeners:Vector.<Function>;
+        private var _value:*;
+        private var _targetedSubscriptions:Vector.<PinSubscription>;
+        private var _atom:Atom;
+
+        // Track creation properties
+        private var _tempTrack:TempTrack;
+        private var _isCreatingTrack:Boolean = false;
+        private var _creationStartPos:Point;
+
+        // Collision state (used ONLY during drag)
+        private var _currentCollisions:Vector.<Pin> = new Vector.<Pin>();
+        private var _autoTracks:Vector.<Track> = new Vector.<Track>();
 
         public function Pin(name:String, type:String, value:* = null, data:Object = null) {
             super();
@@ -1263,34 +1142,704 @@ package Src.Prog.Com.Atoms.Core {
             this._listeners = new Vector.<Function>();
             this._targetedSubscriptions = new Vector.<PinSubscription>();
             _eventManager.registerPin(this);
+
+            trace("✓ Pin created: " + name + " (" + type + ")");
         }
 
+        // =============================================================================
+        // PIN STATE MANAGEMENT
+        // =============================================================================
         public function get value():* {
             return _value;
         }
 
         public function set value(newValue:*):void {
             if (_value === newValue) return;
+
             var oldValue:* = _value;
             _value = newValue;
-            trace("=== PIN VALUE CHANGE (V2) ===");
-            trace("Pin " + this.name + " (" + this.type + ")");
-            trace("Old value: " + oldValue);
-            trace("New value: " + newValue);
+
+            trace("=== PIN VALUE CHANGE ===");
+            trace("Pin: " + this.name + " (" + this.id + ")");
+            trace("Old: " + oldValue + " → New: " + newValue);
+
+            // 1. Уведомляем локальных слушателей
             notifyListeners(newValue, oldValue);
+
+            // 2. Диспатчим событие
             var pinEvent:PinEvent = new PinEvent(PIN_VALUE_CHANGED, this, newValue, oldValue);
-            trace("🚀 DISPATCHING PIN_VALUE_CHANGED EVENT FOR PIN: " + this.name);
-            trace("Event details: " + pinEvent.type + ", value: " + pinEvent.newValue);
             this.dispatchEvent(pinEvent);
-            trace("✅ Event dispatched successfully");
-            // ← УДАЛЕНО: _eventManager.dispatchToAll(this, pinEvent);
+
             trace("=== END PIN VALUE CHANGE ===");
         }
 
-        // =============================================================================
-        // LISTENER METHODS
-        // =============================================================================
+        public function setOwnerAtom(atom:Atom):void {
+            _atom = atom;
+            trace("✓ Pin " + this.name + " now owned by atom: " + atom.name);
+        }
 
+        public function dispose():void {
+            // Просто очищаем — таймера нет
+            forceClearCollisions();
+            notifyDisconnected();
+            unsubscribeFromAllPins();
+            if (_eventManager) {
+                _eventManager.unregisterPin(this);
+            }
+            _listeners = null;
+            _targetedSubscriptions = null;
+            if (_isCreatingTrack) {
+                cancelTrackCreation();
+            }
+            _currentCollisions = null;
+            _atom = null;
+        }
+
+        private function generateId():String {
+            return "pin_" + new Date().getTime() + "_" + Math.floor(Math.random() * 1000000);
+        }
+
+        // =============================================================================
+        // COLLISION LOGIC — ONLY DURING DRAG (NO TIMER)
+        // =============================================================================
+        /**
+         * Вызывается ВНЕШНЕ (например, из AtomView) при каждом шаге перетаскивания.
+         * Обновляет коллизии ДЛЯ ВСЕХ пинов - и input и output.
+         */
+        public function updateCollisionsDuringDrag():void {
+            if (!_atom) {
+                trace("⚠ updateCollisionsDuringDrag: No atom");
+                return;
+            }
+
+            trace("=== COLLISION DETECTION FOR PIN: " + this.name + " (" + this.type + ") ===");
+            var current:Vector.<Pin> = findNearbyPins();
+            trace("Found " + current.length + " nearby pins");
+            handleCollisionChanges(current);
+            trace("=== END COLLISION DETECTION ===");
+        }
+
+		/**
+		 * Принудительно завершает ВСЕ текущие коллизии (вызывать при отпускании атома).
+		 * 🔥 ИЗМЕНЕНИЕ: Теперь НЕ разрывает соединения, а только очищает состояние
+		 */
+		public function forceClearCollisions():void {
+			trace("🧹 Clearing collision state (without breaking connections) for pin: " + this.name);
+
+			// 🔥 Только очищаем список коллизий, НЕ вызываем onCollisionEnd
+			// Это предотвращает разрыв существующих соединений
+			_currentCollisions = new Vector.<Pin>();
+
+			trace("✅ Collision state cleared for pin: " + this.name);
+		}
+
+        private function findNearbyPins():Vector.<Pin> {
+            var nearby:Vector.<Pin> = new Vector.<Pin>();
+            var thisView:PinView = findPinView(this);
+            if (!thisView) {
+                trace("❌ findNearbyPins: No PinView found for " + this.name);
+                return nearby;
+            }
+            if (!thisView.stage) {
+                trace("❌ findNearbyPins: PinView not on stage");
+                return nearby;
+            }
+
+            var allPins:Vector.<Pin> = getAllPinsInWindow();
+            trace("🔍 Scanning " + allPins.length + " pins in window");
+
+            for each (var other:Pin in allPins) {
+                if (other === this) {
+                    trace("  ⏩ Skipping self");
+                    continue;
+                }
+                if (other._atom === this._atom) {
+                    trace("  ⏩ Skipping same atom pin");
+                    continue;
+                }
+
+                // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Для input пинов ищем output пины, и наоборот
+                var isConnectionValid:Boolean = false;
+
+                if (this.type === TYPE_INPUT && other.type === TYPE_OUTPUT) {
+                    // Input пин ищет Output пины
+                    isConnectionValid = isValidConnection(other, this); // other -> this
+                } else if (this.type === TYPE_OUTPUT && other.type === TYPE_INPUT) {
+                    // Output пин ищет Input пины
+                    isConnectionValid = isValidConnection(this, other); // this -> other
+                } else {
+                    trace("  ⏩ Skipping incompatible pin types: " + this.type + " -> " + other.type);
+                    continue;
+                }
+
+                if (!isConnectionValid) {
+                    trace("  ⏩ Invalid connection to: " + other.name);
+                    continue;
+                }
+
+                var otherView:PinView = findPinView(other);
+                if (!otherView) {
+                    trace("  ❌ No PinView for: " + other.name);
+                    continue;
+                }
+
+                trace("  🔍 Checking collision with: " + other.name + " (" + other.type + ")");
+                if (arePinsVisuallyColliding(thisView, otherView)) {
+                    trace("  ✅ COLLISION DETECTED with: " + other.name);
+                    nearby.push(other);
+                } else {
+                    trace("  ❌ No collision with: " + other.name);
+                }
+            }
+            return nearby;
+        }
+
+		private function arePinsVisuallyColliding(a:PinView, b:PinView):Boolean {
+			var result:Boolean = false;
+
+			if (!a.stage || !b.stage) {
+				trace("    ❌ One pin not on stage");
+				return false;
+			}
+
+			// 🔥 ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА - есть ли hitArea
+			if (!a.hitArea || !b.hitArea) {
+				trace("    ❌ One pin missing hitArea");
+				return false;
+			}
+
+			try {
+				// Используем hitTestObject для проверки пересечения hitArea
+				result = a.hitTestObject(b);
+
+				trace("    🎯 HitArea collision check:");
+				trace("      A: " + a.name + " at " + a.localToGlobal(new Point(0, 0)));
+				trace("      B: " + b.name + " at " + b.localToGlobal(new Point(0, 0)));
+				trace("      Result: " + result);
+
+			} catch (e:Error) {
+				trace("    ❌ Error in collision check: " + e.message);
+				result = false;
+			}
+
+			return result;
+		}
+
+        private function handleCollisionChanges(current:Vector.<Pin>):void {
+            // Новые коллизии
+            for each (var newPin:Pin in current) {
+                if (_currentCollisions.indexOf(newPin) === -1) {
+                    trace("🎯 NEW COLLISION with: " + newPin.name);
+                    onCollisionStart(newPin);
+                } else {
+                    trace("🔄 EXISTING collision with: " + newPin.name);
+                }
+            }
+
+            // Пропавшие коллизии
+            for (var i:int = _currentCollisions.length - 1; i >= 0; i--) {
+                var oldPin:Pin = _currentCollisions[i];
+                if (current.indexOf(oldPin) === -1) {
+                    trace("🚫 COLLISION ENDED with: " + oldPin.name);
+                    onCollisionEnd(oldPin);
+                }
+            }
+            _currentCollisions = current;
+        }
+
+        private function onCollisionStart(otherPin:Pin):void {
+            trace("🔥 COLLISION START: " + this.name + " (" + this.type + ") → " + otherPin.name + " (" + otherPin.type + ")");
+
+            // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Определяем направление подключения
+            if (this.type === TYPE_OUTPUT && otherPin.type === TYPE_INPUT) {
+                // Output -> Input
+                createAutoConnection(otherPin);
+            } else if (this.type === TYPE_INPUT && otherPin.type === TYPE_OUTPUT) {
+                // Input -> Output (обратное направление)
+                otherPin.createAutoConnection(this);
+            }
+
+            Impulsys.emit(new Impulse("PIN_COLLISION_STARTED", {
+                pin1: this,
+                pin2: otherPin
+            }));
+        }
+
+		private function onCollisionEnd(otherPin:Pin):void {
+			trace("💤 COLLISION END: " + this.name + " (" + this.type + ") → " + otherPin.name + " (" + otherPin.type + ")");
+
+			// 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Двустороннее удаление автоподключений
+			if (this.type === TYPE_OUTPUT && otherPin.type === TYPE_INPUT) {
+				// Output -> Input: удаляем соединение с нашей стороны
+				removeAutoConnection(otherPin);
+			} else if (this.type === TYPE_INPUT && otherPin.type === TYPE_OUTPUT) {
+				// Input -> Output: просим output пин удалить соединение
+				otherPin.removeAutoConnection(this);
+			}
+
+			Impulsys.emit(new Impulse("PIN_COLLISION_ENDED", {
+				pin1: this,
+				pin2: otherPin
+			}));
+		}
+
+		/**
+		 * Безопасно очищает только те автоподключения, которые больше не активны
+		 * Вызывается при отпускании атома для очистки "висячих" соединений
+		 */
+		public function cleanupInactiveAutoConnections():void {
+			trace("🧹 Cleaning up inactive auto-connections for pin: " + this.name);
+
+			var tracksToRemove:Vector.<Track> = new Vector.<Track>();
+
+			// Проверяем каждое автоподключение
+			for each (var track:Track in _autoTracks) {
+				try {
+					var otherPin:Pin = (this.type === TYPE_OUTPUT) ? track.toPin : track.fromPin;
+
+					// Проверяем, что пины все еще валидны
+					if (!otherPin || !otherPin.atom) {
+						tracksToRemove.push(track);
+						trace("🗑️ Marking inactive auto-connection (invalid pin): " + this.name + " → " + (otherPin ? otherPin.name : "null"));
+						continue;
+					}
+
+					var otherView:PinView = findPinView(otherPin);
+					var thisView:PinView = findPinView(this);
+
+					// Если не можем найти view или пины больше не пересекаются - помечаем для удаления
+					if (!thisView || !otherView || !arePinsVisuallyColliding(thisView, otherView)) {
+						tracksToRemove.push(track);
+						trace("🗑️ Marking inactive auto-connection: " + this.name + " → " + otherPin.name);
+					}
+				} catch (error:Error) {
+					trace("❌ Error checking auto-connection: " + error.message);
+					tracksToRemove.push(track); // В случае ошибки удаляем соединение
+				}
+			}
+
+			// Удаляем неактивные соединения
+			for each (var inactiveTrack:Track in tracksToRemove) {
+				try {
+					inactiveTrack.dispose();
+					removeTrackFromAutoTracks(inactiveTrack);
+				} catch (error:Error) {
+					trace("❌ Error disposing track: " + error.message);
+				}
+			}
+
+			trace("✅ Inactive auto-connections cleaned for pin: " + this.name);
+		}
+
+		// =============================================================================
+        // AUTO-CONNECTION MANAGEMENT (output pin only)
+        // =============================================================================
+		internal function createAutoConnection(targetPin:Pin):void {
+			trace("=== ATTEMPTING AUTO-CONNECTION ===");
+			trace("From: " + this.name + " (" + this.type + ") → To: " + targetPin.name + " (" + targetPin.type + ")");
+
+			// 🔥 ПРОВЕРКА: Только output пины могут создавать подключения
+			if (this.type !== TYPE_OUTPUT) {
+				trace("❌ Only output pins can create auto-connections");
+				return;
+			}
+
+			if (!isValidConnection(this, targetPin)) {
+				trace("❌ Invalid auto-connection attempt");
+				return;
+			}
+			if (hasExistingConnection(this, targetPin)) {
+				trace("⚠ Connection already exists, skipping auto-connection");
+				return;
+			}
+
+			try {
+				trace("🔧 Creating track...");
+				var track:Track = finalizeTrackCreation(targetPin);
+				_autoTracks.push(track);
+
+				trace("✅ AUTO-CONNECTION CREATED: " + this.name + " → " + targetPin.name);
+				Impulsys.emit(new Impulse("AUTO_CONNECTION_CREATED", {
+					fromPin: this,
+					toPin: targetPin,
+					track: track
+				}));
+			} catch (error:Error) {
+				trace("❌ AUTO-CONNECTION FAILED: " + error.message);
+			}
+		}
+
+		internal function removeAutoConnection(targetPin:Pin):void {
+			trace("🗑️ Removing auto-connection: " + this.name + " → " + targetPin.name);
+			var track:Track = findAutoTrackBetween(this, targetPin);
+			if (track) {
+				track.dispose();
+				removeTrackFromAutoTracks(track);
+				trace("✅ Auto-connection removed successfully");
+			} else {
+				// Также проверяем обратное направление
+				track = findAutoTrackBetween(targetPin, this);
+				if (track) {
+					track.dispose();
+					removeTrackFromAutoTracks(track);
+					trace("✅ Reverse auto-connection removed successfully");
+				} else {
+					trace("⚠ No auto-track found to remove between " + this.name + " and " + targetPin.name);
+				}
+			}
+		}
+
+		/**
+		 * Принудительно удаляет все автоподключения этого пина.
+		 * Вызывается при остановке перетаскивания атома.
+		 */
+		public function forceClearAllAutoConnections():void {
+			trace("🧹 Force clearing all auto-connections for pin: " + this.name);
+			var tracksToRemove:Vector.<Track> = _autoTracks.concat();
+			for each (var track:Track in tracksToRemove) {
+				track.dispose();
+			}
+			_autoTracks = new Vector.<Track>();
+			trace("✅ All auto-connections cleared for pin: " + this.name);
+		}
+
+		private function findAutoTrackBetween(fromPin:Pin, toPin:Pin):Track {
+			for each (var t:Track in _autoTracks) {
+				if ((t.fromPin === fromPin && t.toPin === toPin) ||
+					(t.fromPin === toPin && t.toPin === fromPin)) {
+					return t;
+				}
+			}
+			return null;
+		}
+
+        private function removeTrackFromAutoTracks(track:Track):void {
+            var i:int = _autoTracks.indexOf(track);
+            if (i !== -1) {
+                _autoTracks.splice(i, 1);
+                trace("✓ Auto-track removed from list");
+            }
+        }
+
+        private function hasExistingConnection(fromPin:Pin, toPin:Pin):Boolean {
+            var reg:TrackRegistry = TrackRegistry.getInstance();
+            if (!reg) {
+                trace("⚠ No TrackRegistry instance");
+                return false;
+            }
+
+            var tracks:Vector.<Track> = reg.getTracksByPin(toPin);
+            trace("🔍 Checking " + tracks.length + " existing tracks for pin: " + toPin.name);
+
+            for each (var t:Track in tracks) {
+                if (t.fromPin === fromPin && t.toPin === toPin) {
+                    trace("⚠ Connection already exists via track: " + t.connectionId);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // =============================================================================
+        // TRACK CREATION (MANUAL)
+        // =============================================================================
+        public function startTrackCreation(globalStartPos:Point):void {
+            if (type !== TYPE_OUTPUT) return;
+            _isCreatingTrack = true;
+            _creationStartPos = globalStartPos.clone();
+            var window:Window = findParentWindow();
+            if (window && window.overlayLayer) {
+                var localStart:Point = window.overlayLayer.globalToLocal(globalStartPos);
+                _tempTrack = new TempTrack(localStart);
+                window.overlayLayer.addChild(_tempTrack);
+            }
+            var stage:Stage = getStage();
+            if (stage) {
+                stage.addEventListener(MouseEvent.MOUSE_MOVE, handleTrackDrag);
+                stage.addEventListener(MouseEvent.MOUSE_UP, handleTrackFinalize);
+            }
+        }
+
+        private function handleTrackDrag(event:MouseEvent):void {
+            if (!_isCreatingTrack || !_tempTrack) return;
+            var win:Window = findParentWindow();
+            if (win && win.overlayLayer) {
+                var local:Point = win.overlayLayer.globalToLocal(new Point(event.stageX, event.stageY));
+                _tempTrack.update(local);
+            }
+        }
+
+        private function handleTrackFinalize(event:MouseEvent):void {
+            if (!_isCreatingTrack) return;
+            try {
+                event.stopPropagation();
+                var target:Pin = findPinUnderMouse(event.stageX, event.stageY);
+                cleanupTrackCreation();
+                if (target && isValidConnection(this, target)) {
+                    finalizeTrackCreation(target);
+                }
+            } catch (e:Error) {
+                cleanupTrackCreation();
+            }
+        }
+
+        public function finalizeTrackCreation(targetPin:Pin):Track {
+            if (!targetPin || !isValidConnection(this, targetPin)) {
+                throw new Error("Invalid track connection");
+            }
+            removeExistingConnections(targetPin);
+            var track:Track = new Track(this, targetPin);
+            trace("✅ MANUAL TRACK CREATED: " + this.name + " → " + targetPin.name);
+            return track;
+        }
+
+        public function cancelTrackCreation():void {
+            cleanupTrackCreation();
+        }
+
+        private function cleanupTrackCreation():void {
+            _isCreatingTrack = false;
+            if (_tempTrack && _tempTrack.parent) {
+                _tempTrack.parent.removeChild(_tempTrack);
+                _tempTrack = null;
+            }
+            var stage:Stage = getStage();
+            if (stage) {
+                stage.removeEventListener(MouseEvent.MOUSE_MOVE, handleTrackDrag);
+                stage.removeEventListener(MouseEvent.MOUSE_UP, handleTrackFinalize);
+            }
+            _creationStartPos = null;
+        }
+
+        // =============================================================================
+        // SEARCH & NAVIGATION
+        // =============================================================================
+        private function findPinUnderMouse(stageX:Number, stageY:Number):Pin {
+            var mouse:Point = new Point(stageX, stageY);
+            var all:Vector.<Pin> = getAllPinsInWindow();
+            var closest:Pin = null;
+            var minDist:Number = Number.MAX_VALUE;
+            for each (var pin:Pin in all) {
+                if (pin === this) continue;
+                var view:PinView = findPinView(pin);
+                if (!view) continue;
+                if (view.hitTestPoint(stageX, stageY, true) && isValidConnection(this, pin)) {
+                    var center:Point = view.localToGlobal(new Point(0, 0));
+                    var d:Number = Point.distance(mouse, center);
+                    if (d < minDist) {
+                        closest = pin;
+                        minDist = d;
+                    }
+                }
+            }
+            return closest;
+        }
+
+        private function getAllPinsInWindow():Vector.<Pin> {
+            var out:Vector.<Pin> = new Vector.<Pin>();
+            var mgr:AtomManager = AtomManager.getInstance();
+            var win:Window = findParentWindow();
+            if (!win || !mgr) {
+                trace("❌ Cannot get pins: no window or atom manager");
+                return out;
+            }
+
+            var atoms:Array = mgr.getAtomsForWindow(win.windowType);
+            trace("🔍 Found " + atoms.length + " atoms in window: " + win.windowType);
+
+            for each (var a:Object in atoms) {
+                var atom:Atom = a.atom;
+                for each (var inp:Pin in atom.inputs) out.push(inp);
+                for each (var outp:Pin in atom.outputs) out.push(outp);
+            }
+
+            trace("📌 Total pins found: " + out.length);
+            return out;
+        }
+
+		private function findPinView(pin:Pin):PinView {
+			var result:PinView = null;
+
+			if (!pin) {
+				trace("❌ findPinView: Pin is null");
+				return result;
+			}
+
+			var atom:Atom = getAtomByPin(pin);
+			if (!atom) {
+				trace("❌ findPinView: No atom for pin " + pin.name);
+				return result;
+			}
+
+			var mgr:AtomManager = AtomManager.getInstance();
+			if (!mgr) {
+				trace("❌ findPinView: AtomManager is null");
+				return result;
+			}
+
+			var data:Object = mgr.getAtomById(atom.id);
+			if (!data || !data.view) {
+				trace("❌ findPinView: No view data for atom " + atom.id);
+				return result;
+			}
+
+			var view:AtomView = data.view;
+
+			if (!view.stage) {
+				trace("❌ findPinView: AtomView not on stage for atom " + atom.id);
+				return result;
+			}
+
+			try {
+				for (var i:int = 0; i < view.numChildren; i++) {
+					var child:DisplayObject = view.getChildAt(i);
+					if (child is PinView && PinView(child).pin === pin) {
+						trace("✅ Found PinView for pin: " + pin.name);
+						result = PinView(child);
+						break;
+					}
+				}
+			} catch (error:Error) {
+				trace("❌ findPinView: Error searching for PinView: " + error.message);
+			}
+
+			if (!result) {
+				trace("❌ findPinView: No PinView found for pin: " + pin.name);
+			}
+
+			return result;
+		}
+
+        private function findParentWindow():Window {
+            var atom:Atom = getAtomByPin(this);
+            if (!atom) {
+                trace("❌ findParentWindow: No atom for pin " + this.name);
+                return null;
+            }
+
+            var mgr:AtomManager = AtomManager.getInstance();
+            var data:Object = mgr.getAtomById(atom.id);
+            if (!data || !data.view) {
+                trace("❌ findParentWindow: No view for atom " + atom.id);
+                return null;
+            }
+
+            var atomView:AtomView = data.view;
+            if (!atomView.stage) {
+                trace("❌ findParentWindow: AtomView not on stage");
+                return null;
+            }
+
+            var window:Window = atomView.stage.nativeWindow as Window;
+            if (window) {
+                trace("✅ Found parent window: " + window.windowType);
+            } else {
+                trace("❌ findParentWindow: Cannot get window from stage");
+            }
+            return window;
+        }
+
+        private function getStage():Stage {
+            var win:Window = findParentWindow();
+            return win ? win.stage : null;
+        }
+
+        private function removeExistingConnections(targetPin:Pin):void {
+            var reg:TrackRegistry = TrackRegistry.getInstance();
+            if (!reg) return;
+            var tracks:Vector.<Track> = reg.getTracksByPin(targetPin);
+            trace("🗑️ Removing " + tracks.length + " existing connections from: " + targetPin.name);
+            for each (var t:Track in tracks) t.dispose();
+        }
+
+        // =============================================================================
+        // VALIDATION
+        // =============================================================================
+        private function isValidConnection(fromPin:Pin, toPin:Pin):Boolean {
+            if (!fromPin || !toPin) {
+                trace("❌ Invalid: null pins");
+                return false;
+            }
+            if (fromPin === toPin) {
+                trace("❌ Invalid: same pin");
+                return false;
+            }
+            if (fromPin.type !== TYPE_OUTPUT || toPin.type !== TYPE_INPUT) {
+                trace("❌ Invalid: pin types (from: " + fromPin.type + ", to: " + toPin.type + ")");
+                return false;
+            }
+            var fromAtom:Atom = getAtomByPin(fromPin);
+            var toAtom:Atom = getAtomByPin(toPin);
+            if (!fromAtom || !toAtom) {
+                trace("❌ Invalid: no atoms for pins");
+                return false;
+            }
+            if (fromAtom.id == toAtom.id) {
+                trace("❌ Invalid: same atom");
+                return false;
+            }
+
+            trace("✅ Valid connection: " + fromPin.name + " → " + toPin.name);
+            return true;
+        }
+
+		private function getAtomByPin(pin:Pin):Atom {
+			// Создаем переменную для результата
+			var result:Atom = null;
+
+			if (!pin) {
+				trace("❌ getAtomByPin: Pin is null");
+				return result; // возвращаем null, но тип Atom (null совместим)
+			}
+
+			var reg:TrackRegistry = TrackRegistry.getInstance();
+			if (!reg) {
+				trace("❌ getAtomByPin: TrackRegistry is null");
+				return result;
+			}
+
+			try {
+				result = reg.getAtomByPin(pin);
+				if (!result) {
+					trace("❌ getAtomByPin: No atom found for pin " + pin.name);
+				}
+			} catch (error:Error) {
+				trace("❌ getAtomByPin: Error getting atom: " + error.message);
+				result = null;
+			}
+
+			return result;
+		}
+
+/** альтернативный вариант с единой точкой возврата
+private function getAtomByPin(pin:Pin):Atom {
+    var result:Atom = null;
+
+    if (pin) {
+        var reg:TrackRegistry = TrackRegistry.getInstance();
+        if (reg) {
+            try {
+                result = reg.getAtomByPin(pin);
+                if (!result) {
+                    trace("❌ getAtomByPin: No atom found for pin " + pin.name);
+                }
+            } catch (error:Error) {
+                trace("❌ getAtomByPin: Error getting atom: " + error.message);
+            }
+        } else {
+            trace("❌ getAtomByPin: TrackRegistry is null");
+        }
+    } else {
+        trace("❌ getAtomByPin: Pin is null");
+    }
+
+    return result;
+}
+*/
+
+        // =============================================================================
+        // LISTENERS & SUBSCRIPTIONS
+        // =============================================================================
         public function addListener(listener:Function):void {
             if (_listeners.indexOf(listener) === -1) {
                 _listeners.push(listener);
@@ -1298,10 +1847,8 @@ package Src.Prog.Com.Atoms.Core {
         }
 
         public function removeListener(listener:Function):void {
-            var index:int = _listeners.indexOf(listener);
-            if (index !== -1) {
-                _listeners.splice(index, 1);
-            }
+            var i:int = _listeners.indexOf(listener);
+            if (i !== -1) _listeners.splice(i, 1);
         }
 
         private function notifyListeners(newValue:*, oldValue:*):void {
@@ -1310,39 +1857,22 @@ package Src.Prog.Com.Atoms.Core {
             }
         }
 
-        public function notifyConnected():void {
-            if (this.type === TYPE_OUTPUT) {
-                var event:PinEvent = new PinEvent(PIN_CONNECTED, this, this.value);
-                // dispatchToAll intentionally removed — not needed with direct subscriptions
-            }
-        }
-
-        public function notifyDisconnected():void {
-            if (this.type === TYPE_OUTPUT) {
-                var event:PinEvent = new PinEvent(PIN_DISCONNECTED, this, this.value);
-                // dispatchToAll intentionally removed
-            }
-        }
-
-        // =============================================================================
-        // TARGETED SUBSCRIPTION METHODS
-        // =============================================================================
-
         public function subscribeToPin(targetPin:Pin, eventTypes:*, callback:Function):Boolean {
             if (!targetPin || targetPin === this) {
-                trace("Pin.subscribeToPin: Invalid target pin");
+                trace("❌ Invalid subscription target");
                 return false;
             }
             var events:Array = normalizeEventTypes(eventTypes);
-            var subscription:PinSubscription = new PinSubscription(targetPin, events, callback);
-            if (hasExistingSubscription(subscription)) {
-                trace("Pin.subscribeToPin: Subscription already exists for pin: " + targetPin.name);
+            var sub:PinSubscription = new PinSubscription(targetPin, events, callback);
+            if (hasExistingSubscription(sub)) {
+                trace("⚠ Subscription already exists");
                 return false;
             }
-            for each (var eventType:String in events) {
-                targetPin.addEventListener(eventType, callback);
+            for each (var e:String in events) {
+                targetPin.addEventListener(e, callback, false, 0, true);
             }
-            _targetedSubscriptions.push(subscription);
+            _targetedSubscriptions.push(sub);
+            trace("✅ Pin subscription created: " + this.name + " → " + targetPin.name);
             return true;
         }
 
@@ -1350,15 +1880,15 @@ package Src.Prog.Com.Atoms.Core {
             var events:Array = normalizeEventTypes(eventTypes);
             var removed:Boolean = false;
             for (var i:int = _targetedSubscriptions.length - 1; i >= 0; i--) {
-                var subscription:PinSubscription = _targetedSubscriptions[i];
-                if (subscription.targetPin === targetPin) {
+                var sub:PinSubscription = _targetedSubscriptions[i];
+                if (sub.targetPin === targetPin) {
                     if (events.length > 0) {
-                        removed = removeSpecificEvents(subscription, events) || removed;
-                        if (subscription.eventTypes.length === 0) {
+                        removed = removeSpecificEvents(sub, events) || removed;
+                        if (sub.eventTypes.length === 0) {
                             _targetedSubscriptions.splice(i, 1);
                         }
                     } else {
-                        removeAllEvents(subscription);
+                        removeAllEvents(sub);
                         _targetedSubscriptions.splice(i, 1);
                         removed = true;
                     }
@@ -1368,76 +1898,11 @@ package Src.Prog.Com.Atoms.Core {
         }
 
         public function unsubscribeFromAllPins():void {
-            for each (var subscription:PinSubscription in _targetedSubscriptions) {
-                removeAllEvents(subscription);
+            for each (var sub:PinSubscription in _targetedSubscriptions) {
+                removeAllEvents(sub);
             }
             _targetedSubscriptions = new Vector.<PinSubscription>();
         }
-
-        public function getSubscriptions():Array {
-            var result:Array = [];
-            for each (var subscription:PinSubscription in _targetedSubscriptions) {
-                result.push({
-                    targetPin: subscription.targetPin.name,
-                    targetPinId: subscription.targetPin.id,
-                    eventTypes: subscription.eventTypes.slice(),
-                    callback: subscription.callback
-                });
-            }
-            return result;
-        }
-
-        public function isSubscribedTo(targetPin:Pin, eventType:String = null):Boolean {
-            for each (var subscription:PinSubscription in _targetedSubscriptions) {
-                if (subscription.targetPin === targetPin) {
-                    if (!eventType) return true;
-                    if (subscription.eventTypes.indexOf(eventType) !== -1) return true;
-                }
-            }
-            return false;
-        }
-
-        // =============================================================================
-        // UTILS
-        // =============================================================================
-
-        private function generateId():String {
-            return "pin_" + new Date().getTime() + "_" + Math.floor(Math.random() * 1000000);
-        }
-
-        public function clone():Pin {
-            var newPin:Pin = new Pin(name, type, _value, cloneObject(data));
-            newPin.id = this.id;
-            return newPin;
-        }
-
-        public function cloneWithValue(newValue:*):Pin {
-            var newPin:Pin = new Pin(name, type, newValue, cloneObject(data));
-            newPin.id = this.id;
-            return newPin;
-        }
-
-        private function cloneObject(obj:Object):Object {
-            var cloned:Object = {};
-            for (var key:String in obj) {
-                cloned[key] = obj[key];
-            }
-            return cloned;
-        }
-
-        public function dispose():void {
-            notifyDisconnected();
-            unsubscribeFromAllPins();
-            if (_eventManager) {
-                _eventManager.unregisterPin(this);
-            }
-            _listeners = null;
-            _targetedSubscriptions = null;
-        }
-
-        // =============================================================================
-        // HELPER METHODS
-        // =============================================================================
 
         private function normalizeEventTypes(eventTypes:*):Array {
             if (eventTypes is String) return [eventTypes];
@@ -1445,43 +1910,90 @@ package Src.Prog.Com.Atoms.Core {
             return [PIN_VALUE_CHANGED];
         }
 
-        private function hasExistingSubscription(newSubscription:PinSubscription):Boolean {
-            for each (var existing:PinSubscription in _targetedSubscriptions) {
-                if (existing.targetPin === newSubscription.targetPin &&
-                    existing.callback === newSubscription.callback) {
-                    for each (var eventType:String in newSubscription.eventTypes) {
-                        if (existing.eventTypes.indexOf(eventType) !== -1) return true;
+        private function hasExistingSubscription(newSub:PinSubscription):Boolean {
+            for each (var sub:PinSubscription in _targetedSubscriptions) {
+                if (sub.targetPin === newSub.targetPin && sub.callback === newSub.callback) {
+                    for each (var e:String in newSub.eventTypes) {
+                        if (sub.eventTypes.indexOf(e) !== -1) return true;
                     }
                 }
             }
             return false;
         }
 
-        private function removeSpecificEvents(subscription:PinSubscription, eventsToRemove:Array):Boolean {
-            var removed:Boolean = false;
-            for each (var eventType:String in eventsToRemove) {
-                var index:int = subscription.eventTypes.indexOf(eventType);
-                if (index !== -1) {
-                    subscription.eventTypes.splice(index, 1);
-                    subscription.targetPin.removeEventListener(eventType, subscription.callback);
-                    removed = true;
+        private function removeSpecificEvents(sub:PinSubscription, toRemove:Array):Boolean {
+            var r:Boolean = false;
+            for each (var e:String in toRemove) {
+                var i:int = sub.eventTypes.indexOf(e);
+                if (i !== -1) {
+                    sub.eventTypes.splice(i, 1);
+                    sub.targetPin.removeEventListener(e, sub.callback);
+                    r = true;
                 }
             }
-            return removed;
+            return r;
         }
 
-        private function removeAllEvents(subscription:PinSubscription):void {
-            for each (var eventType:String in subscription.eventTypes) {
-                subscription.targetPin.removeEventListener(eventType, subscription.callback);
+        private function removeAllEvents(sub:PinSubscription):void {
+            for each (var e:String in sub.eventTypes) {
+                sub.targetPin.removeEventListener(e, sub.callback);
             }
         }
 
         // =============================================================================
-        // STATIC METHODS
+        // EVENTS & GETTERS
         // =============================================================================
+        public function notifyConnected():void {
+            if (type === TYPE_OUTPUT) {
+                dispatchEvent(new PinEvent(PIN_CONNECTED, this, value));
+            }
+        }
 
-        public static function getSystemStats():Object {
-            return _eventManager ? _eventManager.getStats() : { totalPins: 0 };
+        public function notifyDisconnected():void {
+            if (type === TYPE_OUTPUT) {
+                dispatchEvent(new PinEvent(PIN_DISCONNECTED, this, value));
+            }
+        }
+
+        public function get isCreatingTrack():Boolean { return _isCreatingTrack; }
+        public function get tempTrack():TempTrack { return _tempTrack; }
+        public function get atom():Atom { return _atom; }
+        public function get collidingPins():Vector.<Pin> { return _currentCollisions.concat(); }
+        public function get autoTracks():Vector.<Track> { return _autoTracks.concat(); }
+
+        // =============================================================================
+        // DEBUG METHODS
+        // =============================================================================
+        /**
+         * Отладочный метод для проверки подписок
+         */
+        public function debugSubscriptions():void {
+            trace("=== PIN SUBSCRIPTIONS DEBUG ===");
+            trace("Pin: " + this.name + " (" + this.type + ")");
+            trace("Value: " + this.value);
+            trace("Targeted subscriptions: " + _targetedSubscriptions.length);
+
+            for each (var sub:PinSubscription in _targetedSubscriptions) {
+                trace("  → Sub to: " + sub.targetPin.name + ", Events: " + sub.eventTypes.join(", "));
+            }
+
+            trace("Listeners: " + _listeners.length);
+            trace("=== END DEBUG ===");
+        }
+
+        /**
+         * Отладочный метод для проверки состояния
+         */
+        public function debugState():void {
+            trace("=== PIN STATE DEBUG ===");
+            trace("Name: " + this.name);
+            trace("Type: " + this.type);
+            trace("ID: " + this.id);
+            trace("Value: " + this.value);
+            trace("Atom: " + (_atom ? _atom.name : "null"));
+            trace("Current collisions: " + _currentCollisions.length);
+            trace("Auto tracks: " + _autoTracks.length);
+            trace("=== END STATE DEBUG ===");
         }
     }
 }
@@ -1667,73 +2179,19 @@ package Src.Prog.Com.Atoms.Core {
 }
  
 package Src.Prog.Com.Atoms.Core {
-    /**
-     * Сервис для управления подписками между пинами
-     */
-    public class PinSubscriptionService {
-        private static var _instance:PinSubscriptionService;
-
-        public static function getInstance():PinSubscriptionService {
-            if (!_instance) _instance = new PinSubscriptionService();
-            return _instance;
-        }
-
-        /**
-         * Создание подписки между пинами атомов
-         */
-        public function createAtomPinSubscription(sourceAtom:Atom, targetAtom:Atom,
-                                                sourcePinName:String, targetPinName:String):Boolean {
-            var sourcePin:Pin = findPinByName(sourceAtom.outputs, sourcePinName);
-            var targetPin:Pin = findPinByName(targetAtom.inputs, targetPinName);
-
-            if (sourcePin && targetPin) {
-                return targetPin.subscribeToPin(sourcePin, Pin.PIN_VALUE_CHANGED,
-                    function(event:PinEvent):void {
-                        // Автоматическая синхронизация
-                        targetPin.value = event.newValue;
-                    });
-            }
-            return false;
-        }
-
-        /**
-         * Получение статистики системы подписок
-         */
-        public function getSubscriptionStats():Object {
-            return Pin.getSystemStats();
-        }
-    }
-}
- 
-package Src.Prog.Com.Atoms.Core {
     import flash.display.Sprite;
     import flash.events.MouseEvent;
     import Src.Prog.Core.Impulsys.Impulsys;
     import Src.Prog.Core.Impulsys.Impulse;
-    import flash.display.DisplayObject;
     import flash.geom.Point;
-    import flash.utils.getQualifiedClassName;
     import Src.Prog.Core.Managers.AtomManager;
-    import flash.display.DisplayObjectContainer;
 
     /**
-     * Visual representation of a pin with interactive capabilities.
-     * Handles mouse interactions for creating connections between atoms.
-     * FIXED: Null object reference errors and improved pin targeting logic.
-     *
-     * @class PinView
-     * @extends Sprite
-     * @public
+     * Visual representation of a pin. Only output pins initiate track creation.
      */
     public class PinView extends Sprite {
         private var _pin:Pin;
 
-        /**
-         * Creates a new PinView instance.
-         *
-         * @constructor
-         * @param {Pin} pin - Logical pin model for visualization
-         */
         public function PinView(pin:Pin) {
             _pin = pin;
             super();
@@ -1742,480 +2200,63 @@ package Src.Prog.Com.Atoms.Core {
             this.name = "PinView_" + pin.name;
         }
 
-        /**
-         * Draws the visual representation of the pin.
-         * Uses color coding based on pin type (input/output).
-         * Increases hit box for better user experience.
-         *
-         * @private
-         */
-        private function draw():void {
-            this.graphics.clear();
+		private function draw():void {
+			this.graphics.clear();
 
-            // Invisible area for increased hit box (better UX)
-            this.graphics.beginFill(0x000000, 0);
-            this.graphics.drawCircle(0, 0, 8); // Hit box radius increased
-            this.graphics.endFill();
+			// 🔥 УБИРАЕМ НЕВИДИМЫЙ КРУГ - оставляем только видимую часть
+			var color:uint = (_pin.type == Pin.TYPE_INPUT) ? 0xFF4444 : 0x44FF44;
+			this.graphics.beginFill(color);
+			this.graphics.drawCircle(0, 0, 4); // Видимая часть - радиус 4
+			this.graphics.endFill();
 
-            // Visual pin representation
-            var color:uint = (_pin.type == Pin.TYPE_INPUT) ? 0xFF4444 : 0x44FF44;
-            this.graphics.beginFill(color);
-            this.graphics.drawCircle(0, 0, 4); // Visual size remains compact
-            this.graphics.endFill();
+			// 🔥 СОЗДАЕМ ТОЧНУЮ HITAREA ДЛЯ КОЛЛИЗИЙ
+			createHitArea();
 
-            this.buttonMode = true;
-            this.useHandCursor = true;
-        }
+			this.buttonMode = true;
+			this.useHandCursor = true;
+		}
 
-        /**
-         * Sets up mouse handlers for drag and connection creation operations.
-         *
-         * @private
-         */
+		/**
+		 * Создает точную область для коллизий вокруг пина
+		 */
+		private function createHitArea():void {
+			// Создаем спрайт для hitArea
+			var hitAreaSprite:Sprite = new Sprite();
+			hitAreaSprite.graphics.beginFill(0x222222, 0.5); // Полностью прозрачный
+			hitAreaSprite.graphics.drawCircle(0, 0, 8);    // Радиус коллизий - 6 пикселей
+			hitAreaSprite.graphics.endFill();
+
+			// Устанавливаем hitArea
+			this.hitArea = hitAreaSprite;
+			this.addChild(hitAreaSprite);
+
+			// 🔥 ВАЖНО: Включаем флаг для использования hitArea
+			this.mouseEnabled = true;
+		}
+
         private function setupInteractions():void {
             this.addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
-
-            // Ensure these flags are set:
             this.mouseEnabled = true;
-            this.mouseChildren = false; // Prevent children from intercepting events
+            this.mouseChildren = false;
         }
 
-        /**
-         * Handles mouse down for starting pin drag operation.
-         * Stops event propagation to prevent atom processing.
-         *
-         * @private
-         * @param {MouseEvent} event - Mouse down event
-         */
         private function onMouseDown(event:MouseEvent):void {
-            event.stopPropagation(); // Prevent atom processing
-           // event.stopImmediatePropagation(); // Immediate stop to prevent conflicts
-
-            Impulsys.emit(new Impulse("PIN_DRAG_START", {
-                pin: _pin,
-                startX: event.stageX,
-                startY: event.stageY,
-                windowType: "Editor"
-            }));
-
-            // Subscribe to mouse move and up events on stage
-            if (stage) {
-                stage.addEventListener(MouseEvent.MOUSE_MOVE, on_MouseMove);
-                stage.addEventListener(MouseEvent.MOUSE_UP, on_MouseUp);
+            event.stopPropagation();
+            if (_pin.type === Pin.TYPE_OUTPUT) {
+                trace("=== OUTPUT PIN CLICKED: " + _pin.name + " ===");
+                var startPos:Point = new Point(event.stageX, event.stageY);
+                _pin.startTrackCreation(startPos);
             }
+            // Input pins — больше ничего не делают при нажатии
         }
 
-        /**
-         * Handles mouse movement during dragging.
-         * Updates real-time visual feedback.
-         *
-         * @private
-         * @param {MouseEvent} event - Mouse move event
-         */
-        private function on_MouseMove(event:MouseEvent):void {
-            Impulsys.emit(new Impulse("PIN_DRAG_UPDATE", {
-                pin: _pin,
-                currentX: event.stageX,
-                currentY: event.stageY
-            }));
-        }
-
-        /**
-         * Handles mouse up for completing drag operations.
-         * Performs target pin search and creates connection on validation.
-         * FIXED: Added null checks and error handling to prevent crashes.
-         *
-         * @private
-         * @param {MouseEvent} event - Mouse up event
-         */
-		// В PinView - улучшенная версия on_MouseUp
-		private function on_MouseUp(event:MouseEvent):void {
-			trace("[--TEST [in PinView]--]")
-			try {
-				event.stopPropagation();
-				event.stopImmediatePropagation();
-
-				trace("=== PIN MOUSE_UP HANDLER ===");
-				trace("Pin: " + _pin.name + " (" + _pin.type + ")");
-
-				// удаляем обработчики stage
-				if (stage) {
-					stage.removeEventListener(MouseEvent.MOUSE_MOVE, on_MouseMove);
-					stage.removeEventListener(MouseEvent.MOUSE_UP, on_MouseUp);
-				}
-
-				var trackManager:TrackManager = TrackManager.getInstance();
-				var currentDragPin:Pin = trackManager ? trackManager.getCurrentDragPin() : null;
-
-				trace("-=[]=- Current drag pin: " + (currentDragPin ? currentDragPin.name : "null"));
-
-				// Ищем целевой пин с улучшенной логикой
-				var targetPin:Pin = findPinUnderMouseEx(event.stageX, event.stageY, currentDragPin);
-
-				trace("Target pin found: " + (targetPin ? targetPin.name : "null"));
-trace("---------> pin: " + _pin + "toPin: " + targetPin + "endX: " + event.stageX + "endY: " + event.stageY + "currentDragPin: " + currentDragPin);
-
-
-
-
-
-				Impulsys.emit(new Impulse("PIN_DRAG_END", {
-					pin: _pin,
-					toPin: targetPin,
-					endX: event.stageX,
-					endY: event.stageY,
-					currentDragPin: currentDragPin
-				}));
-
-				trace("=== END PIN MOUSE_UP ===");
-			} catch (error:Error) {
-				trace("ERROR in PinView.on_MouseUp: " + error.message);
-				// Аварийная очистка
-				if (stage) {
-					stage.removeEventListener(MouseEvent.MOUSE_MOVE, on_MouseMove);
-					stage.removeEventListener(MouseEvent.MOUSE_UP, on_MouseUp);
-				}
-			}
-		}
-
-        /** PinView - улучшенный поиск пинов
-         */
-		private function findPinUnderMouseEx(stageX:Number, stageY:Number, currentDragPin:Pin):Pin {
-			try {
-				if (!stage) return null;
-
-				var mousePos:Point = new Point(stageX, stageY);
-				var allPins:Array = getAllPinsInView();
-				var closestPin:Pin = null;
-				var minDistance:Number = 25; // Уменьшенный радиус для точности
-
-				trace("=== ENHANCED PIN SEARCH ===");
-				trace("Mouse: " + stageX + ", " + stageY);
-				trace("Pins in view: " + allPins.length);
-
-				for each (var pinView:PinView in allPins) {
-					if (!pinView || !pinView.pin) continue;
-
-					var pin:Pin = pinView.pin;
-					if (pin === currentDragPin) continue;
-
-					// Получаем глобальную позицию пина
-					var pinGlobalPos:Point = pinView.localToGlobal(new Point(0, 0));
-					var distance:Number = Point.distance(mousePos, pinGlobalPos);
-
-					trace("Checking pin: " + pin.name + " at distance " + distance.toFixed(1));
-
-					if (distance <= minDistance) {
-						if (isValidConnection(currentDragPin, pin)) {
-							closestPin = pin;
-							minDistance = distance; // Обновляем для поиска ближайшего
-							trace("VALID PIN: " + pin.name + " at " + distance.toFixed(1));
-						}
-					}
-				}
-
-				trace("Final closest pin: " + (closestPin ? closestPin.name : "null"));
-				trace("=== END ENHANCED SEARCH ===");
-
-			} catch (error:Error) {
-				trace("ERROR in findPinUnderMouseEx: " + error.message);
-				return null;
-			}
-				return closestPin;
-		}
-
-		// Получить все PinView в текущем виде
-		private function getAllPinsInView():Array {
-			var pins:Array = [];
-			var atomManager:AtomManager = AtomManager.getInstance();
-
-			if (!atomManager) return pins;
-
-			var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
-			for each (var atomData:Object in allAtoms) {
-				var atomView:AtomView = atomData.view;
-				if (!atomView) continue;
-
-				for (var i:int = 0; i < atomView.numChildren; i++) {
-					var child:DisplayObject = atomView.getChildAt(i);
-					if (child is PinView) {
-						pins.push(child as PinView);
-					}
-				}
-			}
-
-			return pins;
-		}
-
-        /**
-         * Finds pin under mouse coordinates with extended validation.
-         * Uses spatial search and distance checking for precise targeting.
-         * FIXED: Added comprehensive null checking and error handling.
-         *
-         * @private
-         * @param {Number} stageX - Mouse X coordinate in stage space
-         * @param {Number} stageY - Mouse Y coordinate in stage space
-         * @param {Pin} currentDragPin - Currently dragging pin
-         * @return {Pin} Found target pin or null
-         */
-        private function findPinUnderMouse(stageX:Number, stageY:Number, currentDragPin:Pin):Pin {
-            try {
-                // FIXED: Validate input parameters
-                if (!stage || isNaN(stageX) || isNaN(stageY)) {
-                    trace("Invalid parameters for pin search");
-                    return null;
-                }
-
-                var mousePos:Point = new Point(stageX, stageY);
-
-                trace("=== PIN SEARCH DEBUG ===");
-                trace("Mouse position: " + stageX + ", " + stageY);
-
-                var closestPin:PinView = null;
-                var minDistance:Number = Number.MAX_VALUE;
-                var searchRadius:Number = 35; // INCREASED: Better targeting
-
-                var objects:Array = stage.getObjectsUnderPoint(mousePos);
-                trace("Total objects under mouse: " + (objects ? objects.length : 0));
-
-                // DIAGNOSTICS: Output all objects under cursor
-                if (objects) {
-                    for (var i:int = 0; i < objects.length; i++) {
-                        var debugObj:DisplayObject = objects[i];
-                        if (debugObj) {
-                            var debugPos:Point = debugObj.localToGlobal(new Point(0, 0));
-                            trace("Object " + i + ": " + getQualifiedClassName(debugObj) +
-                                  ", name: " + debugObj.name +
-                                  ", globalPos: " + debugPos.x + ", " + debugPos.y +
-                                  ", parent: " + (debugObj.parent ? getQualifiedClassName(debugObj.parent) : "none"));
-                        }
-                    }
-
-                    // MAIN SEARCH: Look for PinView
-                    for each (var obj:DisplayObject in objects) {
-                        if (!obj) continue;
-
-                        var className:String = getQualifiedClassName(obj);
-                        trace("Checking object: " + className + ", name: " + obj.name);
-
-                        if (obj is PinView) {
-                            var targetPinView:PinView = obj as PinView;
-
-                            // FIXED: Validate PinView and its pin
-                            if (!targetPinView || !targetPinView.pin) {
-                                trace("  - Skipping invalid PinView");
-                                continue;
-                            }
-
-                            var targetPin:Pin = targetPinView.pin;
-
-                            if (targetPin === currentDragPin) {
-                                trace("  - Skipping current drag pin");
-                                continue;
-                            }
-
-                            trace("  - Found PinView: " + targetPin.name);
-
-                            var pinPos:Point = targetPinView.localToGlobal(new Point(0, 0));
-                            var distance:Number = Point.distance(mousePos, pinPos);
-
-                            trace("  - Pin global position: " + pinPos.x + ", " + pinPos.y);
-                            trace("  - Distance: " + distance + " pixels");
-
-                            if (distance <= searchRadius && distance < minDistance) {
-                                if (currentDragPin && isValidConnection(currentDragPin, targetPin)) {
-                                    closestPin = targetPinView;
-                                    minDistance = distance;
-                                    trace("  - VALID PIN FOUND!");
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (closestPin && closestPin.pin) {
-                    trace("FOUND TARGET PIN IN MAIN SEARCH: " + closestPin.pin.name);
-                    return closestPin.pin;
-                }
-
-                trace("No pin found in main search");
-
-                // ALTERNATIVE SEARCH: Recursively search all scene objects
-                trace("=== ALTERNATIVE SEARCH ===");
-                var alternativePin:Pin = findPinRecursive(stage, mousePos, currentDragPin, searchRadius);
-                if (alternativePin) {
-                    trace("Found pin via alternative search: " + alternativePin.name);
-                    return alternativePin;
-                }
-
-                trace("=== END PIN SEARCH ===");
-            } catch (error:Error) {
-                trace("ERROR in findPinUnderMouse: " + error.message);
-                return null;
-            }
-			return null;
-        }
-
-        /**
-         * Recursive pin search throughout display hierarchy.
-         * FIXED: Added null checking and error handling.
-         *
-         * @private
-         * @param {DisplayObjectContainer} container - Container to search in
-         * @param {Point} mousePos - Mouse position
-         * @param {Pin} currentDragPin - Currently dragging pin
-         * @param {Number} radius - Search radius
-         * @return {Pin} Found pin or null
-         */
-        private function findPinRecursive(container:DisplayObjectContainer, mousePos:Point, currentDragPin:Pin, radius:Number):Pin {
-            try {
-                if (!container) return null;
-
-                var closestPin:Pin = null;
-                var minDistance:Number = Number.MAX_VALUE;
-
-                for (var i:int = 0; i < container.numChildren; i++) {
-                    var child:DisplayObject = container.getChildAt(i);
-                    if (!child) continue;
-
-                    // If this is PinView
-                    if (child is PinView) {
-                        var pinView:PinView = child as PinView;
-
-                        // FIXED: Validate PinView and its pin
-                        if (!pinView || !pinView.pin) continue;
-
-                        var pin:Pin = pinView.pin;
-
-                        if (pin === currentDragPin) continue;
-
-                        var pinPos:Point = pinView.localToGlobal(new Point(0, 0));
-                        var distance:Number = Point.distance(mousePos, pinPos);
-
-                        trace("Alternative found PinView: " + pin.name + " at distance " + distance.toFixed(2));
-
-                        if (distance <= radius && distance < minDistance) {
-                            if (isValidConnection(currentDragPin, pin)) {
-                                closestPin = pin;
-                                minDistance = distance;
-                            }
-                        }
-                    }
-
-                    // Recursively check child containers
-                    if (child is DisplayObjectContainer) {
-                        var foundPin:Pin = findPinRecursive(child as DisplayObjectContainer, mousePos, currentDragPin, radius);
-                        if (foundPin) {
-                            var trackManager:TrackManager = TrackManager.getInstance();
-                            if (trackManager) {
-                                var foundPinPos:Point = trackManager.getGlobalPinPosition(foundPin);
-                                var foundDistance:Number = Point.distance(mousePos, foundPinPos);
-
-                                if (foundDistance <= radius && foundDistance < minDistance) {
-                                    closestPin = foundPin;
-                                    minDistance = foundDistance;
-                                }
-                            }
-                        }
-                    }
-                }
-
-            } catch (error:Error) {
-                trace("ERROR in findPinRecursive: " + error.message);
-                return null;
-            }
-		return closestPin;
-       }
-
-        /**
-         * Validates connection possibility between two pins.
-         * Checks pin types, atom ownership and existing connections.
-         * FIXED: Added null safety and better error reporting.
-         *
-         * @private
-         * @param {Pin} fromPin - Source pin (must be output)
-         * @param {Pin} toPin - Target pin (must be input)
-         * @return {Boolean} True if connection is allowed
-         */
-        private function isValidConnection(fromPin:Pin, toPin:Pin):Boolean {
-            try {
-                if (!fromPin || !toPin) {
-                    trace("Invalid: one or both pins are null");
-                    return false;
-                }
-
-                // Prevent self-connection
-                if (fromPin === toPin) {
-                    trace("Invalid: cannot connect to self");
-                    return false;
-                }
-
-                // Check type compatibility: output → input
-                var validTypes:Boolean = (fromPin.type == Pin.TYPE_OUTPUT && toPin.type == Pin.TYPE_INPUT);
-                if (!validTypes) {
-                    trace("Invalid pin types: " + fromPin.type + " -> " + toPin.type);
-                    return false;
-                }
-
-                // Get atoms for ownership validation
-                var trackManager:TrackManager = TrackManager.getInstance();
-                if (!trackManager) {
-                    trace("Invalid: TrackManager not available");
-                    return false;
-                }
-
-                var fromAtom:Atom = trackManager.getAtomByPin(fromPin);
-                var toAtom:Atom = trackManager.getAtomByPin(toPin);
-
-                if (!fromAtom || !toAtom) {
-                    trace("Invalid: could not find atoms for pins");
-                    return false;
-                }
-
-                // Prevent connection of pins from same atom
-                if (fromAtom.id == toAtom.id) {
-                    trace("Invalid: cannot connect pins of the same atom");
-                    return false;
-                }
-
-                trace("Connection VALID: " + fromAtom.type + "." + fromPin.name +
-                      " -> " + toAtom.type + "." + toPin.name);
-            } catch (error:Error) {
-                trace("ERROR in isValidConnection: " + error.message);
-                return false;
-            }
-			return true;
-        }
-
-        /**
-         * Returns the logical pin model associated with this view.
-         *
-         * @public
-         * @return {Pin} Associated pin model
-         */
         public function get pin():Pin {
             return _pin;
         }
 
-        /**
-         * Clean up resources and event listeners.
-         * FIXED: Added comprehensive cleanup.
-         *
-         * @public
-         */
         public function dispose():void {
-            try {
-                this.removeEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
-
-                if (stage) {
-                    stage.removeEventListener(MouseEvent.MOUSE_MOVE, on_MouseMove);
-                    stage.removeEventListener(MouseEvent.MOUSE_UP, on_MouseUp);
-                }
-
-                _pin = null;
-            } catch (error:Error) {
-                trace("ERROR in PinView.dispose: " + error.message);
-            }
+            this.removeEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
+            _pin = null;
         }
     }
 }
@@ -2265,15 +2306,13 @@ package Src.Prog.Com.Atoms.Core {
 
     /**
      * Visual and logical connection between two pins.
-     * Manages data flow and visualization between connected atoms.
+     * Now fully autonomous - manages its own lifecycle and event subscriptions.
      *
      * Key changes:
-     * - All data propagation now handled via direct onInputChange → updateAtom()
-     * - On dispose, emits PIN_DISCONNECTED to reset target pin to null
-     *
-     * @class Track
-     * @extends Sprite
-     * @public
+     * - Removed TrackManager dependency
+     * - Self-registration in TrackRegistry
+     * - Autonomous event handling
+     * - Self-contained visual management
      */
     public class Track extends Sprite {
         /** Source pin (output) */
@@ -2284,38 +2323,58 @@ package Src.Prog.Com.Atoms.Core {
         private var _connectionId:String;
         /** Whether the track is actively transferring data */
         private var _isActive:Boolean = false;
-        /** Reference to track manager for coordinate calculations */
-        private var _trackManager:TrackManager;
-        /** Data flow animation visual */
-        private var _flowAnimation:DataFlowAnimation;
+        /** Parent window reference */
+        private var _parentWindow:Window;
 
         /**
          * Creates a new Track connection between pins.
+         * Automatically registers itself and sets up subscriptions.
          *
          * @constructor
          * @param {Pin} fromPin - Source pin (must be OUTPUT type)
          * @param {Pin} toPin - Target pin (must be INPUT type)
-         * @param {TrackManager} trackManager - Track manager reference
          */
-        public function Track(fromPin:Pin, toPin:Pin, trackManager:TrackManager) {
+        public function Track(fromPin:Pin, toPin:Pin) {
             if (fromPin.type != Pin.TYPE_OUTPUT) {
                 throw new ArgumentError("From pin must be OUTPUT type");
             }
             if (toPin.type != Pin.TYPE_INPUT) {
                 throw new ArgumentError("To pin must be INPUT type");
             }
+
             _fromPin = fromPin;
             _toPin = toPin;
-            _trackManager = trackManager;
             _connectionId = generateConnectionId();
-            setupPinSubscription();
+            _parentWindow = findParentWindow();
+
+            // Auto-register with track registry
+            TrackRegistry.getInstance().registerTrack(this);
+
+            // Setup all necessary components
             setupEventListeners();
+            setupPinSubscription();
+            addToVisualLayer();
             drawTrack();
+            createLogicalConnection();
+
+            trace("Track created: " + _connectionId);
+        }
+
+        /**
+         * Sets up all event listeners for autonomous operation.
+         *
+         * @private
+         */
+        private function setupEventListeners():void {
+            Impulsys.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
+            this.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
         }
 
         /**
          * Sets up direct pin-to-pin data subscription.
          * Entirely self-contained: calls onInputChange → updateAtom().
+         *
+         * @private
          */
         private function setupPinSubscription():void {
             trace("Track setting up DIRECT pin subscription for: " + _connectionId);
@@ -2325,63 +2384,161 @@ package Src.Prog.Com.Atoms.Core {
             // Колбэк подписки
             var onPinEvent:Function = function(event:PinEvent):void {
                 if (event.type == Pin.PIN_VALUE_CHANGED) {
-                    trace("=== DIRECT PIN SUBSCRIPTION TRIGGERED ===");
-                    trace("Track: " + _connectionId);
-                    trace("From: " + event.sourcePin.name + " → To: " + _toPin.name + " = " + event.newValue);
-
-                    var targetAtom:Atom = _trackManager.getAtomByPin(_toPin);
-                    if (!targetAtom) {
-                        trace("ERROR: Target atom not found for pin: " + _toPin.name);
-                        return;
-                    }
-                    var newAtom:Atom;
-                    var definition:Object = AtomDefinitions.getAtomDefinition(targetAtom.type);
-                    if (definition && definition.behavior && definition.behavior.onInputChange) {
-                        newAtom = definition.behavior.onInputChange(targetAtom, _toPin.name, event.newValue);
-                        AtomManager.getInstance().updateAtom(newAtom);
-                    } else {
-                        newAtom = targetAtom.setPinValue(_toPin.name, event.newValue, true);
-                        AtomManager.getInstance().updateAtom(newAtom);
-                    }
-                    trace("=== DIRECT SUBSCRIPTION → VIEW UPDATED ===");
+                    handleValueChange(event);
                 }
                 else if (event.type == Pin.PIN_DISCONNECTED) {
-                    trace("=== DIRECT PIN SUBSCRIPTION: DISCONNECTED ===");
-                    // При отключении — сбрасываем значение на null
-                    var targetAtom:Atom = _trackManager.getAtomByPin(_toPin);
-                    if (!targetAtom) return;
-                    var definition:Object = AtomDefinitions.getAtomDefinition(targetAtom.type);
-                    if (definition && definition.behavior && definition.behavior.onInputChange) {
-                        var newAtom:Atom = definition.behavior.onInputChange(targetAtom, _toPin.name, null);
-                        AtomManager.getInstance().updateAtom(newAtom);
-                    } else {
-                        var newAtom:Atom = targetAtom.setPinValue(_toPin.name, null, true);
-                        AtomManager.getInstance().updateAtom(newAtom);
-                    }
+                    handleDisconnection();
                 }
             };
 
-            var subscriptionCreated:Boolean = _toPin.subscribeToPin(_fromPin, [Pin.PIN_VALUE_CHANGED, Pin.PIN_DISCONNECTED], onPinEvent);
+            // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Правильная подписка
+            var subscriptionCreated:Boolean = _toPin.subscribeToPin(_fromPin,
+                [Pin.PIN_VALUE_CHANGED, Pin.PIN_DISCONNECTED], onPinEvent);
 
             if (subscriptionCreated) {
                 trace("✓ Direct pin subscription created successfully");
 
-                // === ПЕРЕДАЧА НАЧАЛЬНОГО ЗНАЧЕНИЯ ===
+                // === НЕМЕДЛЕННАЯ ПЕРЕДАЧА ТЕКУЩЕГО ЗНАЧЕНИЯ ===
                 if (_fromPin.value !== undefined && _fromPin.value !== null) {
                     trace("➡️ Propagating initial value on connection: " + _fromPin.value);
-                    var initEvent:PinEvent = new PinEvent(Pin.PIN_VALUE_CHANGED, _fromPin, _fromPin.value, undefined);
-                    onPinEvent(initEvent);
+                    // Создаем событие для немедленной передачи текущего значения
+                    var initialEvent:PinEvent = new PinEvent(
+                        Pin.PIN_VALUE_CHANGED,
+                        _fromPin,
+                        _fromPin.value,
+                        undefined
+                    );
+                    onPinEvent(initialEvent);
                 }
             } else {
                 trace("✗ Failed to create direct pin subscription");
             }
         }
 
-        private function setupEventListeners():void {
-            Impulsys.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
-            this.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
+        /**
+         * Handles value changes from source pin.
+         * FIXED: Proper value propagation to target atom
+         *
+         * @private
+         * @param {PinEvent} event - Pin value change event
+         */
+        private function handleValueChange(event:PinEvent):void {
+            trace("=== DIRECT PIN SUBSCRIPTION TRIGGERED ===");
+            trace("Track: " + _connectionId);
+            trace("From: " + event.sourcePin.name + " → To: " + _toPin.name + " = " + event.newValue);
+
+            var targetAtom:Atom = getAtomByPin(_toPin);
+            if (!targetAtom) {
+                trace("ERROR: Target atom not found for pin: " + _toPin.name);
+                return;
+            }
+
+            var newAtom:Atom;
+            var definition:Object = AtomDefinitions.getAtomDefinition(targetAtom.type);
+
+            // 🔥 ИСПРАВЛЕНИЕ: Правильное обновление атома
+            if (definition && definition.behavior && definition.behavior.onInputChange) {
+                newAtom = definition.behavior.onInputChange(targetAtom, _toPin.name, event.newValue);
+            } else {
+                // Прямое обновление значения пина
+                newAtom = targetAtom.setPinValue(_toPin.name, event.newValue, true);
+            }
+
+            if (newAtom !== targetAtom) {
+                AtomManager.getInstance().updateAtom(newAtom);
+                trace("✓ Atom updated via behavior");
+            } else {
+                trace("⚠ Atom not changed by behavior");
+            }
+
+            trace("=== DIRECT SUBSCRIPTION COMPLETE ===");
         }
 
+        /**
+         * Handles pin disconnection events.
+         *
+         * @private
+         */
+		private function handleDisconnection():void {
+			trace("=== TRACK DISCONNECTION HANDLER ===");
+
+			var targetAtom:Atom = getAtomByPin(_toPin);
+			if (!targetAtom) {
+				trace("WARNING: Target atom not found for pin: " + _toPin.name);
+				return;
+			}
+
+			trace("Resetting input pin: " + _toPin.name + " to undefined");
+
+			var definition:Object = AtomDefinitions.getAtomDefinition(targetAtom.type);
+			var newAtom:Atom;
+
+			if (definition && definition.behavior && definition.behavior.onInputChange) {
+				// Используем behavior для правильного сброса
+				newAtom = definition.behavior.onInputChange(targetAtom, _toPin.name, undefined);
+			} else {
+				// Прямое обновление пина
+				newAtom = targetAtom.setPinValue(_toPin.name, undefined, true);
+			}
+
+			AtomManager.getInstance().updateAtom(newAtom);
+			trace("Input pin successfully reset to undefined");
+		}
+
+        /**
+         * Adds track to the appropriate visual layer.
+         *
+         * @private
+         */
+        private function addToVisualLayer():void {
+            if (_parentWindow && _parentWindow.tracksLayer) {
+                _parentWindow.tracksLayer.addChild(this);
+                trace("Track added to tracksLayer");
+            } else if (_parentWindow && _parentWindow.contentLayer) {
+                _parentWindow.contentLayer.addChild(this);
+                trace("Track added to contentLayer (fallback)");
+            } else {
+                trace("WARNING: No suitable layer found for track");
+            }
+        }
+
+        /**
+         * Finds parent window for this track.
+         *
+         * @private
+         * @return {Window} Parent window or null
+         */
+        private function findParentWindow():Window {
+            var fromAtom:Atom = getAtomByPin(_fromPin);
+            if (!fromAtom) return null;
+
+            var atomManager:AtomManager = AtomManager.getInstance();
+            var atomData:Object = atomManager.getAtomById(fromAtom.id);
+            if (!atomData || !atomData.view) return null;
+
+            var atomView:AtomView = atomData.view;
+            if (!atomView.stage) return null;
+
+            return atomView.stage.nativeWindow as Window;
+        }
+
+        /**
+         * Gets atom that owns the specified pin.
+         *
+         * @private
+         * @param {Pin} pin - Pin to find owner for
+         * @return {Atom} Atom that owns the pin, or null if not found
+         */
+        private function getAtomByPin(pin:Pin):Atom {
+            return TrackRegistry.getInstance().getAtomByPin(pin);
+        }
+
+        /**
+         * Handles atom movement to update track visualization.
+         *
+         * @private
+         * @param {Impulse} impulse - ATOM_MOVED impulse
+         */
         private function onAtomMoved(impulse:Impulse):void {
             var movedAtom:Atom = impulse.data.newAtom;
             if (isConnectedToAtom(movedAtom.id)) {
@@ -2389,6 +2546,12 @@ package Src.Prog.Com.Atoms.Core {
             }
         }
 
+        /**
+         * Handles right-click for context menu.
+         *
+         * @private
+         * @param {MouseEvent} event - Right mouse down event
+         */
         private function onRightMouseDown(event:MouseEvent):void {
             event.stopPropagation();
             Impulsys.emit(new Impulse("TRACK_RIGHT_CLICK", {
@@ -2399,37 +2562,152 @@ package Src.Prog.Com.Atoms.Core {
             }));
         }
 
+        /**
+         * Draws the track visualization between pins.
+         *
+         * @public
+         */
         public function drawTrack():void {
             this.graphics.clear();
-            var fromPos:Point = _trackManager.getGlobalPinPosition(_fromPin);
-            var toPos:Point = _trackManager.getGlobalPinPosition(_toPin);
+
+            var fromPos:Point = getGlobalPinPosition(_fromPin);
+            var toPos:Point = getGlobalPinPosition(_toPin);
+
+            if (!_parentWindow) return;
+
             var tracksLayer:Sprite = this.parent as Sprite;
             if (!tracksLayer) return;
+
             var localFrom:Point = tracksLayer.globalToLocal(fromPos);
             var localTo:Point = tracksLayer.globalToLocal(toPos);
+
             var lineColor:uint = 0x777777;
             var lineAlpha:Number = 0.5;
-            var lineThickness:Number = 2;
+            var lineThickness:Number = 4;
+
             this.graphics.lineStyle(lineThickness, lineColor, lineAlpha);
             this.graphics.moveTo(localFrom.x, localFrom.y);
             this.graphics.lineTo(localTo.x, localTo.y);
         }
 
+        /**
+         * Gets global position of a pin.
+         *
+         * @private
+         * @param {Pin} pin - Pin to get position for
+         * @return {Point} Global position coordinates
+         */
+		private function getGlobalPinPosition(pin:Pin):Point {
+			var pinView:PinView = findPinView(pin);
+			if (pinView && pinView.stage) {
+				return pinView.localToGlobal(new Point(0, 0));
+			}
+
+			// Fallback: calculate from atom position
+			var atom:Atom = getAtomByPin(pin);
+			var atomView:AtomView = TrackRegistry.getInstance().getAtomView(atom);
+			if (atomView && atomView.stage) {
+				// ВМЕСТО TrackRegistry.getInstance().getPinIndex() используем локальный расчет:
+				var pinIndex:int = calculatePinIndex(atom, pin);
+				var totalPins:int = pin.type == Pin.TYPE_INPUT ? atom.inputs.length : atom.outputs.length;
+				var pinY:Number = atomView.height * (pinIndex + 1) / (totalPins + 1);
+				var pinX:Number = pin.type == Pin.TYPE_INPUT ? 0 : atomView.width;
+
+				var atomGlobal:Point = atomView.localToGlobal(new Point(pinX, pinY));
+				return atomGlobal;
+			}
+
+			return new Point(100, 100); // Fallback position
+		}
+
+		/**
+		 * Calculates pin index within its parent atom's pin collection.
+		 * @private
+		 */
+		private function calculatePinIndex(atom:Atom, pin:Pin):int {
+			var pins:Vector.<Pin> = pin.type == Pin.TYPE_INPUT ? atom.inputs : atom.outputs;
+			for (var i:int = 0; i < pins.length; i++) {
+				if (pins[i] === pin) {
+					return i;
+				}
+			}
+			return 0;
+		}
+
+		/**
+         * Finds PinView for a given Pin.
+         *
+         * @private
+         * @param {Pin} pin - Pin to find view for
+         * @return {PinView} Found PinView or null
+         */
+        private function findPinView(pin:Pin):PinView {
+            var atom:Atom = getAtomByPin(pin);
+            if (!atom) return null;
+
+            var atomManager:AtomManager = AtomManager.getInstance();
+            var atomData:Object = atomManager.getAtomById(atom.id);
+            if (!atomData || !atomData.view) return null;
+
+            var atomView:AtomView = atomData.view;
+
+            // Search through atom view children for PinView
+            for (var i:int = 0; i < atomView.numChildren; i++) {
+                var child:Object = atomView.getChildAt(i);
+                if (child is PinView) {
+                    var pinView:PinView = child as PinView;
+                    if (pinView.pin === pin) {
+                        return pinView;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /**
+         * Updates track visual (alias for drawTrack).
+         *
+         * @public
+         */
         public function updateVisual():void {
             drawTrack();
         }
 
+        /**
+         * Checks if track is connected to specified atom.
+         *
+         * @public
+         * @param {String} atomId - Atom identifier to check
+         * @return {Boolean} True if connected to atom
+         */
         public function isConnectedToAtom(atomId:String):Boolean {
-            return _connectionId.indexOf(atomId) !== -1;
+            var fromAtom:Atom = getAtomByPin(_fromPin);
+            var toAtom:Atom = getAtomByPin(_toPin);
+
+            return (fromAtom && fromAtom.id == atomId) || (toAtom && toAtom.id == atomId);
         }
 
+        /**
+         * Checks if track is connected to specified pin.
+         *
+         * @public
+         * @param {Pin} pin - Pin to check
+         * @return {Boolean} True if connected to pin
+         */
         public function isConnectedToPin(pin:Pin):Boolean {
             return _fromPin == pin || _toPin == pin;
         }
 
+        /**
+         * Gets connection information.
+         *
+         * @public
+         * @return {Object} Connection information object
+         */
         public function getConnectionInfo():Object {
-            var fromAtom:Atom = _trackManager.getAtomByPin(_fromPin);
-            var toAtom:Atom = _trackManager.getAtomByPin(_toPin);
+            var fromAtom:Atom = getAtomByPin(_fromPin);
+            var toAtom:Atom = getAtomByPin(_toPin);
             return {
                 fromAtom: fromAtom ? fromAtom.id : "unknown",
                 fromPin: _fromPin.name,
@@ -2440,9 +2718,15 @@ package Src.Prog.Com.Atoms.Core {
             };
         }
 
+        /**
+         * Generates unique connection identifier.
+         *
+         * @private
+         * @return {String} Unique connection ID
+         */
         private function generateConnectionId():String {
-            var fromAtom:Atom = _trackManager.getAtomByPin(_fromPin);
-            var toAtom:Atom = _trackManager.getAtomByPin(_toPin);
+            var fromAtom:Atom = getAtomByPin(_fromPin);
+            var toAtom:Atom = getAtomByPin(_toPin);
             if (!fromAtom || !toAtom) {
                 return "track_invalid_" + Math.random().toString(36).substr(2, 9);
             }
@@ -2450,14 +2734,11 @@ package Src.Prog.Com.Atoms.Core {
                    toAtom.id + "_" + _toPin.name;
         }
 
-        private function startDataFlowAnimation(value:*):void {
-            if (!_flowAnimation) {
-                _flowAnimation = new DataFlowAnimation();
-                this.addChild(_flowAnimation);
-            }
-            _flowAnimation.animate(_fromPin, _toPin, value);
-        }
-
+        /**
+         * Creates logical connection and notifies system.
+         *
+         * @public
+         */
         public function createLogicalConnection():void {
             _isActive = true;
             Impulsys.emit(new Impulse("TRACK_CONNECTED", {
@@ -2468,993 +2749,153 @@ package Src.Prog.Com.Atoms.Core {
             }));
         }
 
+        /**
+         * Completely disposes the track and all its resources.
+         * Enhanced with autonomous cleanup.
+         *
+         * @public
+         */
         public function dispose():void {
+            trace("=== TRACK DISPOSE ===");
+            trace("Disposing track: " + _connectionId);
+
             _isActive = false;
 
-			if (_toPin && _fromPin) {
-				// === СБРОС ЗНАЧЕНИЯ В ПОЛУЧАТЕЛЕ ===
-				var targetAtom:Atom = _trackManager.getAtomByPin(_toPin);
-				if (targetAtom) {
-					var definition:Object = AtomDefinitions.getAtomDefinition(targetAtom.type);
-					if (definition.behavior.onInputChange) {
-						// Вызываем onInputChange с null
-						var newAtom:Atom = definition.behavior.onInputChange(targetAtom, _toPin.name, null);
-						AtomManager.getInstance().updateAtom(newAtom);
-					} else {
-						var newAtom:Atom = targetAtom.setPinValue(_toPin.name, null, true);
-						AtomManager.getInstance().updateAtom(newAtom);
-					}
-				}
+            // 1. Сбрасываем значение входного пина в undefined
+            handleDisconnection();
 
-				// Теперь отписываемся
-				_toPin.unsubscribeFromPin(_fromPin, Pin.PIN_VALUE_CHANGED);
-				trace("Track: Removed direct pin subscription and reset receiver to null");
-			}
+            // 2. Отписываемся от событий пинов
+            if (_toPin && _fromPin) {
+                _toPin.unsubscribeFromPin(_fromPin);
+                trace("Track: Removed pin subscription");
+            }
 
+            // 3. Удаляем слушатели Impulsys
             Impulsys.removeImpulse("ATOM_MOVED", onAtomMoved);
             this.removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
 
-            if (_flowAnimation != null) {
-                if (_flowAnimation.hasOwnProperty("dispose")) {
-                    try {
-                        _flowAnimation["dispose"]();
-                    } catch (e:Error) {
-                        trace("Track.dispose: Error disposing flow animation - " + e.message);
-                    }
-                }
-                if (this.contains(_flowAnimation)) {
-                    this.removeChild(_flowAnimation);
-                }
-                _flowAnimation = null;
-            }
+            // 4. Очищаем графику
             this.graphics.clear();
+
+            // 5. Удаляем из TrackRegistry
+            TrackRegistry.getInstance().unregisterTrack(this);
+
+            // 6. Уведомляем систему
             Impulsys.emit(new Impulse("TRACK_DISCONNECTED", {
                 track: this,
                 connectionId: _connectionId
             }));
+
+            // 7. Удаляем из родительского контейнера
             if (this.parent != null) {
                 this.parent.removeChild(this);
+                trace("Track: Removed from display list");
             }
+
+            // 8. Очищаем ссылки
             _fromPin = null;
             _toPin = null;
-            _trackManager = null;
+            _parentWindow = null;
+
+            trace("=== TRACK DISPOSED: " + _connectionId + " ===");
         }
+
+        // =========================================================================
+        // PUBLIC ACCESSORS
+        // =========================================================================
 
         public function get fromPin():Pin { return _fromPin; }
         public function get toPin():Pin { return _toPin; }
         public function get connectionId():String { return _connectionId; }
         public function get isActive():Boolean { return _isActive; }
+        public function get parentWindow():Window { return _parentWindow; }
     }
 }
  
 package Src.Prog.Com.Atoms.Core {
-    import flash.display.Sprite;
-    import flash.geom.Point;
-    import Src.Prog.Core.Impulsys.Impulsys;
-    import Src.Prog.Core.Impulsys.Impulse;
-    import Src.Prog.Core.Windows.Window;
-    import Src.Prog.Core.Managers.WindowsManager;
+    import flash.utils.Dictionary;
     import Src.Prog.Core.Managers.AtomManager;
-    import flash.events.Event;
-    import flash.events.MouseEvent;
 
-    /**
-     * Centralized manager for creating, managing track lifecycle and calculating pin positions.
-     * Handles all track-related operations including pin positioning, atom detection
-     * and connection validation using direct pin-to-pin subscriptions for optimal performance.
-     *
-     * Key improvements:
-     * - Added existing connection validation
-     * - Enhanced impulse handling with detailed logging
-     * - Optimized radius-based pin search
-     * - Extended debug information
-     * - FIXED: Temporary track cleanup issues
-     * - FIXED: Recursive event loops in pin subscriptions
-     *
-     * @class TrackManager
-     * @public
-     */
-    public class TrackManager {
+    public class TrackRegistry {
+        private static var _instance:TrackRegistry;
+        private var _activeTracks:Vector.<Track>;
+        private var _tracksById:Dictionary;
 
-        /** Singleton instance */
-        private static var _instance:TrackManager;
-
-        /** Active tracks storage by connection ID */
-        private var _activeTracks:Object;
-
-        /** Temporary track during drag operations */
-        private var _tempTrack:Sprite;
-
-        /** Currently dragging pin reference */
-        private var _currentDragPin:Pin;
-
-        /** Current window context */
-        private var _currentWindow:Window;
-
-        /**
-         * Private constructor for singleton pattern.
-         * Initializes track storage and sets up impulse listeners.
-         */
-        public function TrackManager() {
-            _activeTracks = {};
-            setupImpulseListeners();
+        public function TrackRegistry() {
+            if (_instance) throw new Error("TrackRegistry is singleton");
+            _activeTracks = new Vector.<Track>();
+            _tracksById = new Dictionary();
         }
 
-        /**
-         * Gets the singleton instance of TrackManager.
-         *
-         * @static
-         * @public
-         * @return {TrackManager} Singleton instance
-         */
-        public static function getInstance():TrackManager {
-            if (!_instance) {
-                _instance = new TrackManager();
-            }
+        public static function getInstance():TrackRegistry {
+            if (!_instance) _instance = new TrackRegistry();
             return _instance;
         }
 
-        /**
-         * Gets the currently dragging pin for external access.
-         * Used by PinView for connection validation.
-         *
-         * @public
-         * @return {Pin} Currently dragging pin or null
-         */
-        public function getCurrentDragPin():Pin {
-            return _currentDragPin;
-        }
-
-        /**
-         * Initializes the track manager system.
-         * Must be called before using track management functionality.
-         *
-         * @static
-         * @public
-         */
-        public static function initialize():void {
-            getInstance();
-        }
-
-        // =========================================================================
-        // CONNECTION VALIDATION METHODS
-        // =========================================================================
-
-        /**
-         * Checks if a connection between pins already exists in active tracks.
-         * Prevents creation of duplicate connections.
-         *
-         * @public
-         * @param {Pin} fromPin - Source pin
-         * @param {Pin} toPin - Target pin
-         * @return {Boolean} True if connection already exists
-         */
-        public function connectionExists(fromPin:Pin, toPin:Pin):Boolean {
-            for (var connectionId:String in _activeTracks) {
-                var track:Track = _activeTracks[connectionId];
-                if ((track.fromPin === fromPin && track.toPin === toPin) ||
-                    (track.fromPin === toPin && track.toPin === fromPin)) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        /**
-         * Validates if a connection between two pins is allowed.
-         * Checks pin types, atom ownership, and existing connections.
-         *
-         * @private
-         * @param {Pin} fromPin - Source pin (must be output)
-         * @param {Pin} toPin - Target pin (must be input)
-         * @return {Boolean} True if connection is valid and allowed
-         */
-        private function isValidConnection(fromPin:Pin, toPin:Pin):Boolean {
-            if (!fromPin || !toPin) {
-                trace("Invalid: one or both pins are null");
-                return false;
-            }
-
-            // Prevent self-connection
-            if (fromPin === toPin) {
-                trace("Invalid: cannot connect to self");
-                return false;
-            }
-
-            // Check type compatibility: output → input
-            var validTypes:Boolean = (fromPin.type == Pin.TYPE_OUTPUT && toPin.type == Pin.TYPE_INPUT);
-            if (!validTypes) {
-                trace("Invalid pin types: " + fromPin.type + " -> " + toPin.type);
-                return false;
-            }
-
-            // Get atoms for ownership validation
-            var fromAtom:Atom = getAtomByPin(fromPin);
-            var toAtom:Atom = getAtomByPin(toPin);
-
-            if (!fromAtom || !toAtom) {
-                trace("Invalid: could not find atoms for pins");
-                return false;
-            }
-
-            // Prevent connection of pins from same atom
-            if (fromAtom.id == toAtom.id) {
-                trace("Invalid: cannot connect pins of the same atom");
-                return false;
-            }
-
-            // REMOVED EXISTING CONNECTIONS CHECK - allow reconnection
-            trace("Connection VALID: " + fromAtom.type + "." + fromPin.name +
-                  " -> " + toAtom.type + "." + toPin.name);
-            return true;
-        }
-
-        // =========================================================================
-        // PIN SEARCH AND VALIDATION METHODS
-        // =========================================================================
-
-        /**
-         * Gets all pins in current window context for connection searching.
-         *
-         * @private
-         * @return {Array} Array of all pins in current window
-         */
-        private function getAllPinsInWindow():Array {
-            var allPins:Array = [];
-            var atomManager:AtomManager = AtomManager.getInstance();
-
-            if (!_currentWindow) {
-                trace("WARNING: No current window for pin search");
-                return allPins;
-            }
-
-            var allAtoms:Array = atomManager.getAtomsForWindow(_currentWindow.windowType);
-            trace("Found " + allAtoms.length + " atoms in window: " + _currentWindow.windowType);
-
-            for each (var atomData:Object in allAtoms) {
-                var atom:Atom = atomData.atom;
-
-                // Add input pins
-                for each (var inputPin:Pin in atom.inputs) {
-                    allPins.push(inputPin);
-                }
-
-                // Add output pins
-                for each (var outputPin:Pin in atom.outputs) {
-                    allPins.push(outputPin);
-                }
-            }
-
-            trace("Total pins collected: " + allPins.length);
-            return allPins;
-        }
-
-        /**
-         * FIXED: Public method to get all pins in window for AtomManager
-         *
-         * @public
-         * @return {Array} Array of all pins in current window
-         */
-        public function getAllPinsInWindowPublic():Array {
-            return getAllPinsInWindow();
-        }
-
-        // =========================================================================
-        // IMPULSE LISTENERS SETUP
-        // =========================================================================
-
-        /**
-         * Sets up all impulse listeners for track management system.
-         * Handles pin dragging, atom movement, window events, and track commands.
-         * Added detailed logging for debugging.
-         *
-         * @private
-         */
-        private function setupImpulseListeners():void {
-            // Track creation process
-            Impulsys.subscribeToImpulse("PIN_DRAG_START", onPinDragStart);
-            Impulsys.subscribeToImpulse("PIN_DRAG_UPDATE", onPinDragUpdate);
-            Impulsys.subscribeToImpulse("PIN_DRAG_END", onPinDragEnd);
-
-            // Atom movement events
-            Impulsys.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
-
-            // Window events
-            Impulsys.subscribeToImpulse("WINDOW_ACTIVATED", onWindowActivated);
-            Impulsys.subscribeToImpulse("WINDOW_CLOSING", onWindowClosing);
-
-            // Track management commands
-            Impulsys.subscribeToImpulse("TRACK_DELETE_REQUEST", onTrackDeleteRequest);
-
-            // ADDED: Force cleanup impulse for window deactivation
-            Impulsys.subscribeToImpulse("FORCE_CLEANUP_TEMP_TRACK", onForceCleanup);
-
-            trace("TrackManager: Impulse listeners setup complete");
-        }
-
-        // =========================================================================
-        // EVENT HANDLERS
-        // =========================================================================
-
-        /**
-         * Handles pin drag start impulse for connection creation.
-         * Initializes temporary track visualization and stores drag context.
-         * ADDED: Previous state cleanup to prevent conflicts.
-         *
-         * @private
-         * @param {Impulse} impulse - PIN_DRAG_START impulse with pin and position data
-         */
-        private function onPinDragStart(impulse:Impulse):void {
-            // ADDED: Clean up previous state before starting new drag operation
-            if (_currentDragPin) {
-                trace("WARNING: Previous drag operation not cleaned up properly. Forcing cleanup.");
-                cleanupTempTrack();
-                _currentDragPin = null;
-            }
-
-            _currentDragPin = impulse.data.pin;
-            _currentWindow = findWindowByType(impulse.data.windowType);
-
-            trace("=== PIN DRAG START ===");
-            trace("Drag pin: " + (_currentDragPin ? _currentDragPin.name : "null"));
-            trace("Target window: " + (_currentWindow ? _currentWindow.windowType : "null"));
-
-            if (_currentWindow && _currentDragPin) {
-                startTempTrack(impulse.data.startX, impulse.data.startY);
-                trace("Temporary track started successfully");
-            } else {
-                trace("ERROR: Failed to start temporary track - missing window or pin");
+        public function registerTrack(track:Track):void {
+            if (!_tracksById[track.connectionId]) {
+                _activeTracks.push(track);
+                _tracksById[track.connectionId] = track;
             }
         }
 
-        /**
-         * Handles pin drag update impulse for temporary track visualization.
-         * Updates the temporary track position during drag operations.
-         *
-         * @private
-         * @param {Impulse} impulse - PIN_DRAG_UPDATE impulse with current position
-         */
-        private function onPinDragUpdate(impulse:Impulse):void {
-            if (_tempTrack && _currentDragPin) {
-                updateTempTrack(impulse.data.currentX, impulse.data.currentY);
-            }
+        public function unregisterTrack(track:Track):void {
+            var index:int = _activeTracks.indexOf(track);
+            if (index !== -1) _activeTracks.splice(index, 1);
+            delete _tracksById[track.connectionId];
         }
 
-        /**
-         * Handles pin drag end impulse for finalizing connections.
-         * Validates and creates permanent tracks or cleans up temporary state.
-         * Enhanced logic with fallback radius search.
-         *
-         * @private
-         * @param {Impulse} impulse - PIN_DRAG_END impulse with end position and target pin
-         */
-		 private function onPinDragEnd(impulse:Impulse):void {
-			trace("=== TRACK MANAGER PIN_DRAG_END ===");
-			trace("Impulse data: " + JSON.stringify(impulse.data));
+        public function getTracksByAtom(atom:Atom):Vector.<Track> {
+            var result:Vector.<Track> = new Vector.<Track>();
+            for each (var track:Track in _activeTracks) {
+                if (track.isConnectedToAtom(atom.id)) result.push(track);
+            }
+            return result;
+        }
 
-			if (!_currentDragPin) {
-				trace("ERROR: No current drag pin!");
-				return;
+        public function getTracksByPin(pin:Pin):Vector.<Track> {
+            var result:Vector.<Track> = new Vector.<Track>();
+            for each (var track:Track in _activeTracks) {
+                if (track.isConnectedToPin(pin)) result.push(track);
+            }
+            return result;
+        }
+
+		public function getTrackBetweenPins(pin1:Pin, pin2:Pin):Track {
+			var tracksForPin1:Vector.<Track> = getTracksByPin(pin1);
+			for each (var track:Track in tracksForPin1) {
+				if ((track.fromPin === pin1 && track.toPin === pin2) ||
+					(track.fromPin === pin2 && track.toPin === pin1)) {
+					return track;
+				}
 			}
+			return null;
+		}
 
-           trace("=== PIN DRAG END PROCESSING ===");
-
-            try {
-                var fromPin:Pin = _currentDragPin;
-                var toPin:Pin = impulse.data.toPin;
-
-                trace("From pin: " + fromPin.name);
-                trace("Direct target pin: " + (toPin ? toPin.name + " (" + toPin.type + ")" : "null"));
-
-                cleanupTempTrack();
-
-                // Create track if connection is valid
-                if (toPin && isValidConnection(fromPin, toPin)) {
-                    // BEFORE creating new connection, remove existing ones
-                    removeExistingConnections(toPin);
-
-                    trace("Creating track: " + fromPin.name + " -> " + toPin.name);
-                    createTrack(fromPin, toPin);
-                } else {
-                    trace("Track creation skipped - invalid connection");
-
-                    // Notify about failed connection attempt
-                    Impulsys.emit(new Impulse("TRACK_CONNECTION_FAILED", {
-                        fromPin: fromPin,
-                        toPin: toPin,
-                        reason: toPin ? "Invalid connection" : "No target pin found"
-                    }));
-                }
-
-                _currentDragPin = null;
-                trace("=== PIN DRAG END COMPLETE ===");
-            } catch (error:Error) {
-                trace("ERROR in onPinDragEnd: " + error.message);
-                cleanupTempTrack();
-                _currentDragPin = null;
-
-                Impulsys.emit(new Impulse("TRACK_CREATION_ERROR", {
-                    error: "Drag end processing failed: " + error.message
-                }));
-            }
-        }
-
-        /**
-         * Removes existing connections to target pin.
-         *
-         * @private
-         * @param {Pin} toPin - Target pin to remove connections from
-         */
-        private function removeExistingConnections(toPin:Pin):void {
-            var tracksToRemove:Array = [];
-
-            // Find all tracks connected to target pin
-            for each (var track:Track in _activeTracks) {
-                if (track.toPin === toPin) {
-                    tracksToRemove.push(track);
-                    trace("Found existing track to remove: " + track.connectionId);
-                }
-            }
-
-            // Remove found tracks
-            for each (var trackToRemove:Track in tracksToRemove) {
-                removeTrack(trackToRemove);
-                trace("Removed existing track: " + trackToRemove.connectionId);
-            }
-        }
-
-        /**
-         * Handles force cleanup impulse for emergency state reset.
-         * ADDED: Ensures clean state on window deactivation or system errors.
-         *
-         * @private
-         * @param {Impulse} impulse - FORCE_CLEANUP_TEMP_TRACK impulse
-         */
-        private function onForceCleanup(impulse:Impulse):void {
-            trace("TrackManager: Received force cleanup request");
-            forceCleanup();
-        }
-
-        /**
-         * Handles atom movement to update connected track visualizations.
-         * Redraws all tracks connected to moved atoms for proper visual alignment.
-         *
-         * @private
-         * @param {Impulse} impulse - ATOM_MOVED impulse with atom data
-         */
-        private function onAtomMoved(impulse:Impulse):void {
-            var movedAtom:Atom = impulse.data.newAtom;
-            var atomId:String = movedAtom.id;
-            var updateTracks:Boolean = impulse.data.updateTracks;
-
-            trace("Atom moved: " + atomId + ", update tracks: " + updateTracks);
-
-            if (updateTracks) {
-                updateTracksForAtom(atomId);
-            }
-        }
-
-        /**
-         * Handles window activation to update track management context.
-         * Sets the current window reference for pin searches and track operations.
-         *
-         * @private
-         * @param {Impulse} impulse - WINDOW_ACTIVATED impulse with window data
-         */
-        private function onWindowActivated(impulse:Impulse):void {
-            _currentWindow = impulse.data.window;
-            trace("Window activated: " + (_currentWindow ? _currentWindow.windowType : "null"));
-        }
-
-        /**
-         * Handles window closing to cleanup tracks associated with the window.
-         * Prevents orphaned tracks and maintains clean state management.
-         *
-         * @private
-         * @param {Impulse} impulse - WINDOW_CLOSING impulse with window data
-         */
-        private function onWindowClosing(impulse:Impulse):void {
-            var closingWindow:Window = impulse.data.window;
-            var windowType:String = closingWindow.windowType;
-            trace("Window closing: " + windowType + ", cleaning up tracks...");
-            cleanupTracksByWindow(windowType);
-        }
-
-        /**
-         * Handles track deletion requests from context menus or commands.
-         * Safely removes tracks and cleans up all associated resources.
-         *
-         * @private
-         * @param {Impulse} impulse - TRACK_DELETE_REQUEST impulse with track reference
-         */
-        private function onTrackDeleteRequest(impulse:Impulse):void {
-            var track:Track = impulse.data.track;
-            trace("Track delete request: " + (track ? track.connectionId : "null"));
-
-            if (track) {
-                removeTrack(track);
-                Impulsys.emit(new Impulse("TRACK_DELETED", {
-                    track: track,
-                    connectionId: track.connectionId
-                }));
-            }
-        }
-
-        // =========================================================================
-        // TRACK OPERATIONS
-        // =========================================================================
-
-        /**
-         * Creates a new track between pins with validation and proper setup.
-         * Establishes direct pin-to-pin subscription for optimal data transfer without recursion.
-         * FIXED: Removed global event dependencies that caused infinite loops.
-         *
-         * @private
-         * @param {Pin} fromPin - Source pin (output)
-         * @param {Pin} toPin - Target pin (input)
-         */
-        private function createTrack(fromPin:Pin, toPin:Pin):void {
-            try {
-                trace("=== TRACK CREATION START ===");
-                trace("From pin: " + fromPin.name + " (" + fromPin.type + ")");
-                trace("To pin: " + toPin.name + " (" + toPin.type + ")");
-
-                // FIXED: Create track first, then setup subscriptions
-                var track:Track = new Track(fromPin, toPin, this);
-                var connectionId:String = generateConnectionId(fromPin, toPin);
-
-                trace("Track created, connection ID: " + connectionId);
-
-                // Add track to appropriate window layer
-                if (_currentWindow && _currentWindow.tracksLayer) {
-                    _currentWindow.tracksLayer.addChild(track);
-                    trace("Track added to tracksLayer");
-                } else if (_currentWindow && _currentWindow.contentLayer) {
-                    _currentWindow.contentLayer.addChild(track);
-                    trace("Track added to contentLayer (fallback)");
-                } else {
-                    trace("ERROR: No suitable layer found for track");
-                    return;
-                }
-
-                _activeTracks[connectionId] = track;
-
-                track.drawTrack();
-                track.createLogicalConnection();
-
-                trace("Track successfully created and activated");
-
-                Impulsys.emit(new Impulse("TRACK_CREATED", {
-                    track: track,
-                    fromPin: fromPin,
-                    toPin: toPin,
-                    connectionId: connectionId,
-                    windowType: _currentWindow ? _currentWindow.windowType : "unknown"
-                }));
-
-                trace("=== TRACK CREATION COMPLETE ===");
-
-            } catch (error:Error) {
-                trace("ERROR in track creation: " + error.message);
-                Impulsys.emit(new Impulse("TRACK_CREATION_ERROR", {
-                    fromPin: fromPin,
-                    toPin: toPin,
-                    error: error.message
-                }));
-            }
-        }
-
-        /**
-         * Updates all tracks connected to a specific atom.
-         * Typically called when atoms are moved or their visual state changes.
-         *
-         * @private
-         * @param {String} atomId - ID of the atom to update tracks for
-         */
-        private function updateTracksForAtom(atomId:String):void {
-            var updatedCount:int = 0;
-            for each (var track:Track in _activeTracks) {
-                if (track.isConnectedToAtom(atomId)) {
-                    track.updateVisual();
-                    updatedCount++;
-                }
-            }
-            trace("Updated " + updatedCount + " tracks for atom: " + atomId);
-        }
-
-        // =========================================================================
-        // TEMPORARY TRACK METHODS
-        // =========================================================================
-
-        /**
-         * Starts temporary track visualization during drag operations.
-         * Creates visual feedback for potential connections.
-         *
-         * @private
-         * @param {Number} startX - Starting X coordinate
-         * @param {Number} startY - Starting Y coordinate
-         */
-        private function startTempTrack(startX:Number, startY:Number):void {
-            var fromPos:Point = getGlobalPinPosition(_currentDragPin);
-            var localFrom:Point = _currentWindow.overlayLayer.globalToLocal(fromPos);
-
-            _tempTrack = new TempTrack(localFrom);
-
-            if (_currentWindow && _currentWindow.overlayLayer) {
-                _currentWindow.overlayLayer.addChild(_tempTrack);
-                updateTempTrack(startX, startY);
-                trace("Temporary track visualization started");
-            }
-        }
-
-        /**
-         * Updates temporary track position during drag operations.
-         * Provides real-time visual feedback for connection targeting.
-         *
-         * @private
-         * @param {Number} currentX - Current X coordinate
-         * @param {Number} currentY - Current Y coordinate
-         */
-        private function updateTempTrack(currentX:Number, currentY:Number):void {
-            if (!_tempTrack || !_currentDragPin || !_currentWindow) return;
-
-            var localTo:Point = _currentWindow.overlayLayer.globalToLocal(new Point(currentX, currentY));
-            (_tempTrack as TempTrack).update(localTo);
-        }
-
-        /**
-         * Cleans up temporary track resources after drag operations.
-         * Removes visual elements and resets temporary state.
-         *
-         * @private
-         */
-        private function cleanupTempTrack():void {
-            if (_tempTrack && _tempTrack.parent) {
-                _tempTrack.parent.removeChild(_tempTrack);
-                trace("Temporary track cleaned up");
-            }
-            _tempTrack = null;
-        }
-
-        // =========================================================================
-        // UTILITY METHODS
-        // =========================================================================
-
-        /**
-         * Generates unique connection identifier based on pin and atom information.
-         *
-         * @private
-         * @param {Pin} fromPin - Source pin
-         * @param {Pin} toPin - Target pin
-         * @return {String} Unique connection identifier
-         */
-        private function generateConnectionId(fromPin:Pin, toPin:Pin):String {
-            var fromAtom:Atom = getAtomByPin(fromPin);
-            var toAtom:Atom = getAtomByPin(toPin);
-
-            if (!fromAtom || !toAtom) {
-                return "invalid_connection_" + Math.random().toString(36).substr(2, 9);
-            }
-
-            return "track_" + fromAtom.id + "_" + fromPin.name +
-                   "_to_" + toAtom.id + "_" + toPin.name;
-        }
-
-        /**
-         * Finds a window by type using WindowsManager.
-         *
-         * @private
-         * @param {String} windowType - Type of window to find
-         * @return {Window} Found window or null
-         */
-        private function findWindowByType(windowType:String):Window {
-            var windowsManager:WindowsManager = WindowsManager.getInstance();
-            return windowsManager ? windowsManager.findWindow(windowType) : null;
-        }
-
-        /**
-         * Cleans up all tracks associated with a specific window type.
-         * Typically called during window closure or context switching.
-         *
-         * @private
-         * @param {String} windowType - Window type to cleanup tracks for
-         */
-        private function cleanupTracksByWindow(windowType:String):void {
-            var removedCount:int = 0;
-            for (var connectionId:String in _activeTracks) {
-                var track:Track = _activeTracks[connectionId];
-                if (_currentWindow && _currentWindow.windowType == windowType) {
-                    removeTrack(track);
-                    removedCount++;
-                }
-            }
-            trace("Cleaned up " + removedCount + " tracks for window: " + windowType);
-        }
-
-        // =========================================================================
-        // PUBLIC API
-        // =========================================================================
-
-        /**
-         * Removes a track from the system with proper cleanup.
-         * Handles pin subscription removal and resource disposal.
-         *
-         * @public
-         * @param {Track} track - Track to remove
-         */
-        public function removeTrack(track:Track):void {
-            var connectionId:String = track.connectionId;
-
-            if (_activeTracks[connectionId]) {
-                track.dispose();
-                delete _activeTracks[connectionId];
-                trace("Track removed: " + connectionId);
-
-                Impulsys.emit(new Impulse("TRACK_REMOVED", {
-                    track: track,
-                    connectionId: connectionId
-                }));
-            }
-        }
-
-        /**
-         * ADDED: Force cleanup of all temporary state.
-         * Emergency method to reset track manager state.
-         *
-         * @public
-         */
-        public function forceCleanup():void {
-            trace("TrackManager: FORCING cleanup of all temporary state");
-            cleanupTempTrack();
-            _currentDragPin = null;
-
-            // Emit cleanup completion
-            Impulsys.emit(new Impulse("TEMP_TRACK_CLEANUP_COMPLETE", {
-                timestamp: new Date().getTime()
-            }));
-        }
-
-        /**
-         * Removes a track by its connection identifier.
-         *
-         * @public
-         * @param {String} connectionId - Unique connection identifier
-         * @return {Track} The removed track or null if not found
-         */
-        public function removeTrackById(connectionId:String):Track {
-            var track:Track = _activeTracks[connectionId];
-            if (track) removeTrack(track);
-            return track;
-        }
-
-        /**
-         * Gets all active tracks in the system.
-         *
-         * @public
-         * @return {Object} Dictionary of active tracks by connection ID
-         */
-        public function getActiveTracks():Object {
-            return _activeTracks;
-        }
-
-        /**
-         * Gets a specific track by its connection identifier.
-         *
-         * @public
-         * @param {String} connectionId - Unique connection identifier
-         * @return {Track} Track instance or null if not found
-         */
-        public function getTrackById(connectionId:String):Track {
-            return _activeTracks[connectionId];
-        }
-
-        /**
-         * Gets all tracks connected to a specific atom.
-         *
-         * @public
-         * @param {String} atomId - Atom identifier to search for
-         * @return {Array} Array of connected tracks
-         */
-        public function getTracksByAtom(atomId:String):Array {
-            var connectedTracks:Array = [];
-            for each (var track:Track in _activeTracks) {
-                if (track.isConnectedToAtom(atomId)) connectedTracks.push(track);
-            }
-            return connectedTracks;
-        }
-
-        /**
-         * Gets all tracks connected to a specific pin.
-         *
-         * @public
-         * @param {Pin} pin - Pin to search for connections
-         * @return {Array} Array of connected tracks
-         */
-        public function getTracksByPin(pin:Pin):Array {
-            var connectedTracks:Array = [];
-            for each (var track:Track in _activeTracks) {
-                if (track.isConnectedToPin(pin)) connectedTracks.push(track);
-            }
-            return connectedTracks;
-        }
-
-        /**
-         * Gets the total count of active tracks in the system.
-         *
-         * @public
-         * @return {int} Number of active tracks
-         */
-        public function getActiveTracksCount():int {
-            var count:int = 0;
-            for (var key:String in _activeTracks) count++;
-            return count;
-        }
-
-        // =========================================================================
-        // PIN POSITION CALCULATION METHODS
-        // =========================================================================
-
-        /**
-         * Gets the global position of a pin for track visualization.
-         * Searches for PinView in display hierarchy first, falls back to atom-based calculation.
-         *
-         * @public
-         * @param {Pin} pin - Pin to get position for
-         * @return {Point} Global position coordinates
-         */
-        public function getGlobalPinPosition(pin:Pin):Point {
-            // Find the PinView in the display hierarchy
-            var pinView:PinView = findPinView(pin);
-            if (pinView && pinView.stage) {
-                return pinView.localToGlobal(new Point(0, 0));
-            }
-
-            // Fallback: use atom position if PinView not found
-            var atom:Atom = getAtomByPin(pin);
-            var atomView:AtomView = getAtomView(atom);
-            if (atomView && atomView.stage) {
-                var pinIndex:int = getPinIndex(atom, pin);
-                var totalPins:int = pin.type == Pin.TYPE_INPUT ? atom.inputs.length : atom.outputs.length;
-                var pinY:Number = atomView.height * (pinIndex + 1) / (totalPins + 1);
-                var pinX:Number = pin.type == Pin.TYPE_INPUT ? 0 : atomView.width;
-
-                var atomGlobal:Point = atomView.localToGlobal(new Point(pinX, pinY));
-                return atomGlobal;
-            }
-
-            return new Point(100, 100); // Fallback position
-        }
-
-        /**
-         * Finds the PinView instance for a given Pin by searching through all atoms.
-         *
-         * @public
-         * @param {Pin} pin - Pin to find view for
-         * @return {PinView} Found PinView or null if not found
-         */
-        public function findPinView(pin:Pin):PinView {
-            var atomManager:AtomManager = AtomManager.getInstance();
-            var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
-
-            for each (var atomData:Object in allAtoms) {
-                var atom:Atom = atomData.atom;
-                var atomView:AtomView = atomData.view;
-
-                for (var i:int = 0; i < atomView.numChildren; i++) {
-                    var child:* = atomView.getChildAt(i);
-                    if (child is PinView) {
-                        var pinView:PinView = child as PinView;
-                        if (pinView.pin.id == pin.id) {
-                            return pinView;
-                        }
-                    }
-                }
-            }
-
-            return null;
-        }
-
-        /**
-         * Gets the atom that owns the specified pin by searching through all registered atoms.
-         *
-         * @public
-         * @param {Pin} pin - Pin to find owner for
-         * @return {Atom} Atom that owns the pin, or null if not found
-         */
         public function getAtomByPin(pin:Pin):Atom {
             var atomManager:AtomManager = AtomManager.getInstance();
             var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
 
             for each (var atomData:Object in allAtoms) {
                 var atom:Atom = atomData.atom;
-
-                // Check input pins
                 for each (var inputPin:Pin in atom.inputs) {
-                    if (inputPin.id == pin.id) {
-                        return atom;
-                    }
+                    if (inputPin === pin) return atom;
                 }
-
-                // Check output pins
                 for each (var outputPin:Pin in atom.outputs) {
-                    if (outputPin.id == pin.id) {
-                        return atom;
-                    }
+                    if (outputPin === pin) return atom;
                 }
             }
-
             return null;
         }
 
-        /**
-         * Gets the AtomView for a given Atom instance.
-         *
-         * @public
-         * @param {Atom} atom - Atom to find view for
-         * @return {AtomView} Found AtomView or null if not found
-         */
         public function getAtomView(atom:Atom):AtomView {
             var atomManager:AtomManager = AtomManager.getInstance();
-            var allAtoms:Array = atomManager.getAtomsForWindow("Editor");
-
-            for each (var atomData:Object in allAtoms) {
-                if (atomData.atom === atom) {
-                    return atomData.view;
-                }
-            }
-            return null;
+            return atomManager.getAtomView(atom);
         }
 
-        /**
-         * Gets the index of a pin within its parent atom's pin collection.
-         * Used for calculating pin positions relative to atom view.
-         *
-         * @public
-         * @param {Atom} atom - Atom containing the pin
-         * @param {Pin} pin - Pin to find index for
-         * @return {int} Index of the pin in its collection
-         */
-        public function getPinIndex(atom:Atom, pin:Pin):int {
-            var pins:Vector.<Pin> = pin.type == Pin.TYPE_INPUT ? atom.inputs : atom.outputs;
-            for (var i:int = 0; i < pins.length; i++) {
-                if (pins[i] === pin) {
-                    return i;
-                }
-            }
-            return 0;
-        }
-
-        /**
-         * Disposes all track manager resources and cleans up system state.
-         * Removes all impulse listeners and active tracks.
-         */
-        public function dispose():void {
-            trace("TrackManager: Disposing all resources...");
-
-            // Remove all impulse listeners
-            Impulsys.removeImpulse("PIN_DRAG_START", onPinDragStart);
-            Impulsys.removeImpulse("PIN_DRAG_UPDATE", onPinDragUpdate);
-            Impulsys.removeImpulse("PIN_DRAG_END", onPinDragEnd);
-            Impulsys.removeImpulse("ATOM_MOVED", onAtomMoved);
-            Impulsys.removeImpulse("WINDOW_ACTIVATED", onWindowActivated);
-            Impulsys.removeImpulse("WINDOW_CLOSING", onWindowClosing);
-            Impulsys.removeImpulse("TRACK_DELETE_REQUEST", onTrackDeleteRequest);
-            Impulsys.removeImpulse("FORCE_CLEANUP_TEMP_TRACK", onForceCleanup);
-
-            // Dispose all active tracks
-            var trackCount:int = 0;
-            for each (var track:Track in _activeTracks) {
-                track.dispose();
-                trackCount++;
-            }
-            _activeTracks = {};
-
-            // Cleanup temporary state
-            cleanupTempTrack();
-            _currentDragPin = null;
-            _currentWindow = null;
-
-            trace("TrackManager: Disposed " + trackCount + " tracks and cleaned up resources");
+        // УДАЛЯЕМ проблемный метод findPinView - переносим логику в Pin
+        public function getAllTracks():Vector.<Track> {
+            return _activeTracks.slice();
         }
     }
 }
@@ -3468,6 +2909,10 @@ package Src.Prog.Com.Atoms.Data {
     import flash.display.Graphics;
     import Src.Prog.Com.Atoms.Core.Pin;
     import Src.Prog.Com.Atoms.Core.AtomView;
+	// Behaviors
+    import Src.Prog.Com.Atoms.Data.Behaviors.ButtonBehavior;
+    import Src.Prog.Com.Atoms.Data.Behaviors.LEDBehavior;
+    import Src.Prog.Com.Atoms.Data.Behaviors.NumberDisplayBehavior;
 
     /**
      * Central registry for all atom definitions in the system.
@@ -3566,19 +3011,9 @@ package Src.Prog.Com.Atoms.Data {
                 pins: [
                     {name: "output", type: "output", dataType: "boolean", description: "Sends TRUE when pressed, FALSE when released"}
                 ],
-				behavior: {
-					onInteraction: function(atom:Atom, interactionType:String):Atom {
-						if (interactionType == "press") {
-							trace("Button pressed - sending TRUE signal");
-							return atom.setPinValue("output", true, false);
-						}
-						return atom;
-					},
-					onRelease: function(atom:Atom):Atom {
-						trace("Button released - sending FALSE signal");
-						return atom.setPinValue("output", false, false);
-					}
-                },
+
+				behavior: new ButtonBehavior(), // ← УКАЗАТЕЛЬ НА КЛАСС C ПОВЕДЕНИЕМ
+
                 viewConfig: {
                     width: 60,
                     height: 30,
@@ -3592,7 +3027,8 @@ package Src.Prog.Com.Atoms.Data {
                         textColor: 0x000000,
                         cornerRadius: 8
                     },
-                    Editor: {}
+                    Editor: {},
+					Device: {}
                 }
             });
 
@@ -3619,29 +3055,6 @@ package Src.Prog.Com.Atoms.Data {
                 }
             });
 
-            registerAtomType("Slider", {
-                displayName: "Slider",
-                category: "Input",
-                description: "A slider for selecting numeric values",
-                pins: [
-                    {name: "value", type: "output", dataType: "number", description: "Current slider value"}
-                ],
-                viewConfig: {
-                    width: 100,
-                    height: 30,
-                    backgroundColor: 0xCC6633
-                },
-                visuals: {
-                    base: {
-                        width: 100,
-                        height: 30,
-                        color: 0xCC6633,
-                        textColor: 0x000000
-                    },
-                    Editor: {}
-                }
-            });
-
 			registerAtomType("LED", {
 				displayName: "LED Indicator",
 				category: "Output",
@@ -3649,20 +3062,9 @@ package Src.Prog.Com.Atoms.Data {
 				pins: [
 					{name: "input", type: "input", dataType: "boolean", description: "LED state (on/off)"}
 				],
-				behavior: {
-					onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
-						trace("=== LED INPUT CHANGE ===");
-						trace("LED " + atom.id + " received value: " + value + " from pin: " + pinName);
 
-						// Только true = включено. false, null, undefined → выключено.
-						var isOn:Boolean = (value === true);
-						var newAtom:Atom = atom.setData("isOn", isOn);
+                behavior: new LEDBehavior(), // ← УКАЗАТЕЛЬ НА КЛАСС C ПОВЕДЕНИЕМ
 
-						trace("LED data updated - isOn: " + newAtom.data.isOn);
-						AtomManager.getInstance().updateAtom(newAtom);
-						return newAtom;
-					}
-				},
 				visuals: {
 					base: {
 						width: 30,
@@ -3993,32 +3395,6 @@ package Src.Prog.Com.Atoms.Data {
                 }
             });
 
-            registerAtomType("Timer", {
-                displayName: "Timer",
-                category: "Logic",
-                description: "Generates impulses at regular intervals",
-                pins: [
-                    {name: "start", type: "input", dataType: "impulse", description: "Start timer"},
-                    {name: "stop", type: "input", dataType: "impulse", description: "Stop timer"},
-                    {name: "interval", type: "input", dataType: "number", description: "Timer interval in ms"},
-                    {name: "output", type: "output", dataType: "impulse", description: "Timer impulse output"}
-                ],
-                viewConfig: {
-                    width: 70,
-                    height: 35,
-                    backgroundColor: 0xCC9966
-                },
-                visuals: {
-                    base: {
-                        width: 70,
-                        height: 35,
-                        color: 0xCC9966,
-                        textColor: 0x000000
-                    },
-                    Editor: {}
-                }
-            });
-
             // Output Atoms
             registerAtomType("NumberDisplay", {
                 displayName: "Number Display",
@@ -4028,12 +3404,9 @@ package Src.Prog.Com.Atoms.Data {
                     {name: "value", type: "input", dataType: "number", description: "Numeric value to display"},
                     {name: "trigger", type: "input", dataType: "impulse", description: "Update display"}
                 ],
-                behavior: {
-                    onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
-                        trace("NumberDisplay: Value changed to " + value);
-                        return atom;
-                    }
-                },
+
+				behavior: new NumberDisplayBehavior(), // ← УКАЗАТЕЛЬ НА КЛАСС C ПОВЕДЕНИЕМ
+
                 viewConfig: {
                     width: 80,
                     height: 40,
@@ -4307,6 +3680,86 @@ package Src.Prog.Com.Atoms.Data {
             _initialized = false;
             trace("AtomDefinitions: Cleared all definitions");
         }
+    }
+}
+ 
+package Src.Prog.Com.Atoms.Data.Behaviors {
+    import Src.Prog.Com.Atoms.Core.Atom;
+
+    public class BaseBehavior {
+        public function onInteraction(atom:Atom, interactionType:String):Atom {
+            return atom; // Базовая реализация - без изменений
+        }
+
+        public function onRelease(atom:Atom):Atom {
+            return atom;
+        }
+
+        public function onInputChange(atom:Atom, pinName:String, value:*):Atom {
+            return atom;
+        }
+
+        public function initialize(atom:Atom):Atom {
+            return atom;
+        }
+    }
+}
+ 
+package Src.Prog.Com.Atoms.Data.Behaviors {
+    import Src.Prog.Com.Atoms.Core.Atom;
+
+    public class ButtonBehavior extends BaseBehavior {
+        override public function onInteraction(atom:Atom, interactionType:String):Atom {
+            if (interactionType == "press") {
+                trace("Button pressed - sending TRUE signal");
+                return atom.setPinValue("output", true, false);
+            }
+            return atom;
+        }
+
+        override public function onRelease(atom:Atom):Atom {
+            trace("Button released - sending FALSE signal");
+            return atom.setPinValue("output", false, false);
+        }
+    }
+}
+ 
+package Src.Prog.Com.Atoms.Data.Behaviors {
+    import Src.Prog.Com.Atoms.Core.Atom;
+    import Src.Prog.Core.Managers.AtomManager;
+
+    public class LEDBehavior extends BaseBehavior {
+        override public function onInputChange(atom:Atom, pinName:String, value:*):Atom {
+            trace("=== LED INPUT CHANGE ===");
+            trace("LED " + atom.id + " received value: " + value + " from pin: " + pinName);
+
+            var isOn:Boolean = (value === true);
+            var newAtom:Atom = atom.setData("isOn", isOn);
+
+            trace("LED data updated - isOn: " + newAtom.data.isOn);
+            AtomManager.getInstance().updateAtom(newAtom);
+            return newAtom;
+        }
+    }
+}
+ 
+package Src.Prog.Com.Atoms.Data.Behaviors {
+	import Src.Prog.Com.Atoms.Core.Atom;
+
+	public class NumberDisplayBehavior extends BaseBehavior {
+		override public function onInputChange(atom: Atom, pinName: String, value: * ): Atom {
+			trace("NumberDisplay: Value changed to " + value);
+			return atom;
+		}
+	}
+}
+ 
+package Src.Prog.Com.Atoms.Data.Visuals.Behaviors {
+    import Src.Prog.Com.Atoms.Core.Atom;
+
+    public class Visuals extends BaseVisual {
+        override public function onInteraction(atom:Atom, interactionType:String):Atom {
+
     }
 }
  
@@ -5343,19 +4796,13 @@ package Src.Prog.Core.Managers {
     import Src.Prog.Com.Atoms.Core.AtomFactory;
     import Src.Prog.Com.Atoms.Data.AtomDefinitions;
     import Src.Prog.Com.Atoms.Core.Pin;
-    import Src.Prog.Com.Atoms.Core.TrackManager;
     import Src.Prog.Com.Atoms.Core.Track;
+    import Src.Prog.Com.Atoms.Core.TrackRegistry;
     import Src.Prog.Core.Commands.CreateAtom;
 
     /**
-     * Manages atoms in the application using the new data-driven architecture.
-     * Enhanced with support for button release interactions.
-     * FIXED: PIN_VALUE_CHANGED handler now properly processes target atoms.
-     * Uses singleton pattern with full lifecycle management.
-     *
-     * @class AtomManager
-     * @singleton
-     * @public
+     * Manages atoms in the application.
+     * Updated to use TrackRegistry for track management.
      */
     public class AtomManager {
 
@@ -5370,10 +4817,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Gets the singleton instance of AtomManager.
-         *
-         * @static
-         * @public
-         * @return {AtomManager} Singleton instance
          */
         public static function getInstance():AtomManager {
             if (!_instance) {
@@ -5384,10 +4827,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Creates a new AtomManager instance.
-         * Private constructor to enforce singleton pattern.
-         *
-         * @constructor
-         * @private
          */
         public function AtomManager() {
             if (_instance) {
@@ -5400,9 +4839,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Sets up impulse listeners for atom management.
-         * Enhanced with support for release interactions.
-         *
-         * @private
          */
         private function setupImpulseListeners():void {
             // Atom creation and management
@@ -5415,9 +4851,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Handles visual update request for a specific atom.
-         *
-         * @private
-         * @param {Impulse} impulse - ATOM_VISUAL_UPDATE impulse
          */
         private function onAtomVisualUpdate(impulse:Impulse):void {
             var atomId:String = impulse.data.atomId;
@@ -5430,9 +4863,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Handles atom creation from context menu selection.
-         *
-         * @private
-         * @param {Impulse} impulse - ATOM_CONTEXT_MENU_SELECTED impulse
          */
         private function onAtomContextMenuSelected(impulse:Impulse):void {
             var atomType:String = impulse.data.atomType;
@@ -5443,9 +4873,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Handles atom movement updates.
-         *
-         * @private
-         * @param {Impulse} impulse - ATOM_MOVED impulse
          */
         private function onAtomMoved(impulse:Impulse):void {
             var newAtom:Atom = impulse.data.newAtom;
@@ -5463,10 +4890,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Handles atom interaction events (press and release).
-         * Enhanced to support release interactions.
-         *
-         * @private
-         * @param {Impulse} impulse - ATOM_INTERACTION impulse
          */
         private function onAtomInteraction(impulse:Impulse):void {
             var atom:Atom = impulse.data.atom;
@@ -5490,7 +4913,7 @@ package Src.Prog.Core.Managers {
 
                     if (newAtom !== atom) {
                         updateAtom(newAtom);
-					}
+                    }
                 } catch (error:Error) {
                     trace("ERROR in atom interaction: " + error.message);
                 }
@@ -5500,9 +4923,7 @@ package Src.Prog.Core.Managers {
 
         /**
          * Handles atom deletion requests with connected track cleanup.
-         *
-         * @private
-         * @param {Impulse} impulse - ATOM_DELETE_REQUEST impulse
+         * Updated to use TrackRegistry instead of TrackManager.
          */
         private function onAtomDeleteRequest(impulse:Impulse):void {
             var atom:Atom = impulse.data.atom;
@@ -5513,26 +4934,19 @@ package Src.Prog.Core.Managers {
 
         /**
          * Remove all tracks connected to the specified atom.
-         *
-         * @private
-         * @param {Atom} atom - Atom to remove tracks for
+         * Updated to use TrackRegistry.
          */
         private function removeConnectedTracks(atom:Atom):void {
-            var trackManager:TrackManager = TrackManager.getInstance();
-            var connectedTracks:Array = trackManager.getTracksByAtom(atom.id);
+            var trackRegistry:TrackRegistry = TrackRegistry.getInstance();
+            var connectedTracks:Vector.<Track> = trackRegistry.getTracksByAtom(atom);
             trace("AtomManager: Removing " + connectedTracks.length + " tracks connected to atom: " + atom.id);
             for each (var track:Track in connectedTracks) {
-                trackManager.removeTrack(track);
+                track.dispose();
             }
         }
 
         /**
          * Adds an atom to a specific window.
-         *
-         * @public
-         * @param {String} windowType - The type of window ("Editor", "Device")
-         * @param {Atom} atom - The atom instance
-         * @param {AtomView} view - The atom view
          */
         public function addAtomToWindow(windowType:String, atom:Atom, view:AtomView):void {
             trace("Adding atom to window: " + windowType + ", atom: " + atom.id);
@@ -5563,14 +4977,15 @@ package Src.Prog.Core.Managers {
 
         /**
          * Removes an atom by ID with enhanced cleanup.
-         *
-         * @public
-         * @param {String} atomId - The ID of the atom to remove
+         * Automatically removes connected tracks via TrackRegistry.
          */
         public function removeAtom(atomId:String):void {
             if (_atoms[atomId]) {
                 var atomData:Object = _atoms[atomId];
                 trace("AtomManager: Removing atom: " + atomId);
+
+                // Remove connected tracks first
+                removeConnectedTracks(atomData.atom);
 
                 if (atomData.view && atomData.view.parent) {
                     atomData.view.parent.removeChild(atomData.view as DisplayObject);
@@ -5599,9 +5014,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Updates an atom in the manager and refreshes its view.
-         *
-         * @public
-         * @param {Atom} newAtom - The updated atom instance
          */
         public function updateAtom(newAtom:Atom):void {
             trace("=== ATOM MANAGER UPDATE ATOM ===");
@@ -5620,10 +5032,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Gets all atoms for a specific window.
-         *
-         * @public
-         * @param {String} windowType - The window type
-         * @return {Array} Array of atom data objects
          */
         public function getAtomsForWindow(windowType:String):Array {
             var result:Array = [];
@@ -5638,28 +5046,7 @@ package Src.Prog.Core.Managers {
         }
 
         /**
-         * Finds a pin by name in a pin vector.
-         *
-         * @private
-         * @param {Vector.<Pin>} pins - Vector of pins to search
-         * @param {String} pinName - Name of pin to find
-         * @return {Pin} Found pin or null
-         */
-        private function findPinByName(pins:Vector.<Pin>, pinName:String):Pin {
-            for each (var pin:Pin in pins) {
-                if (pin.name == pinName) {
-                    return pin;
-                }
-            }
-            return null;
-        }
-
-        /**
          * Gets atom data by ID.
-         *
-         * @public
-         * @param {String} atomId - The atom ID to find
-         * @return {Object} Atom data object or null if not found
          */
         public function getAtomById(atomId:String):Object {
             return _atoms[atomId];
@@ -5667,9 +5054,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Gets total count of atoms in manager.
-         *
-         * @public
-         * @return {int} Number of atoms
          */
         public function getAtomCount():int {
             var count:int = 0;
@@ -5681,10 +5065,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Gets the AtomView for a given Atom instance.
-         *
-         * @public
-         * @param {Atom} atom - Atom to find view for
-         * @return {AtomView} Found AtomView or null if not found
          */
         public function getAtomView(atom:Atom):AtomView {
             var atomData:Object = _atoms[atom.id];
@@ -5693,9 +5073,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Gets all available atom definitions for menu creation.
-         *
-         * @public
-         * @return {Array} Array of atom definition objects with type, name, and category
          */
         public function getAtomDefinitionsForMenu():Array {
             var result:Array = [];
@@ -5715,9 +5092,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Gets supported atom types from definitions.
-         *
-         * @public
-         * @return {Array} Array of supported atom type strings
          */
         public function getSupportedAtomTypes():Array {
             return AtomDefinitions.getSupportedTypes();
@@ -5725,8 +5099,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Log all atoms for debugging.
-         *
-         * @public
          */
         public function logAllAtoms():void {
             trace("=== ALL ATOMS ===");
@@ -5739,8 +5111,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Cleans up all resources and listeners.
-         *
-         * @public
          */
         public function dispose():void {
             Impulsys.removeImpulse("ATOM_CONTEXT_MENU_SELECTED", onAtomContextMenuSelected);
@@ -5845,15 +5215,12 @@ package Src.Prog.Core.Managers {
     import Src.Prog.Core.Commands.InvokeFunction;
     import Src.Prog.Core.Commands.CommandErrorEvent;
     import Src.Prog.Com.Atoms.Core.AtomFactory;
-    import Src.Prog.Com.Atoms.Core.TrackManager;
+    import Src.Prog.Com.Atoms.Core.TrackRegistry;
     import Src.Prog.Com.Atoms.Data.AtomDefinitions;
 
     /**
-     * Director - main initialization pipeline manager for data-driven architecture
-     * Coordinates application startup sequence using command pattern
-     *
-     * @class Director
-     * @public
+     * Director - main initialization pipeline manager
+     * Updated to initialize TrackRegistry instead of TrackManager.
      */
     public class Director {
         private static var _initSequence:SerialCommand;
@@ -5862,17 +5229,16 @@ package Src.Prog.Core.Managers {
          * Starts the main initialization pipeline.
          */
         public static function Run():void {
-            trace("Director: Starting initialization pipeline for data-driven architecture");
+            trace("Director: Starting initialization pipeline for decentralized architecture");
 
             _initSequence = new SerialCommand(0,
-				new InvokeFunction(initializeCoreSystems),
-				new InvokeFunction(initializeImpulsys),
-				new InvokeFunction(WindowsManager.createWindows),
-				new InvokeFunction(initializeAtomSystem),  // AtomDefinitions должны быть здесь
-				new InvokeFunction(initializeMenuSystem),  // MenuManager зависит от атомов
-				new InvokeFunction(initializeTrackSystem), // TrackManager зависит от атомов
-				new InvokeFunction(finalizeInitialization)
-
+                new InvokeFunction(initializeCoreSystems),
+                new InvokeFunction(initializeImpulsys),
+                new InvokeFunction(WindowsManager.createWindows),
+                new InvokeFunction(initializeAtomSystem),
+                new InvokeFunction(initializeMenuSystem),
+                new InvokeFunction(initializeTrackSystem), // Updated to TrackRegistry
+                new InvokeFunction(finalizeInitialization)
             );
 
             _initSequence.addEventListener(Event.COMPLETE, onInitSequenceComplete);
@@ -5882,80 +5248,68 @@ package Src.Prog.Core.Managers {
 
         /**
          * Initializes core systems.
-         *
-         * @private
          */
         private static function initializeCoreSystems():void {
             trace("Director: Initializing core systems");
-
-            // Initialize DataManager if needed
-            // DataManager is static and doesn't require explicit initialization
-
             Impulsys.emit(new Impulse("CORE_SYSTEMS_INITIALIZED"));
         }
 
         /**
          * Initializes Impulsys communication system.
-         *
-         * @private
          */
         private static function initializeImpulsys():void {
             trace("Director: Initializing Impulsys");
-
-            // Impulsys is static and self-initializing
-            // Just verify it's working by emitting a test impulse
             Impulsys.emit(new Impulse("SYSTEM_READY", {
                 message: "Impulsys initialized successfully"
             }));
         }
 
-		/**
-		 * Initializes the atom system with data-driven architecture.
-		 *
-		 * @private
-		 */
-		private static function initializeAtomSystem():void {
-			trace("Director: Initializing data-driven atom system");
-
-			try {
-				// ИНИЦИАЛИЗИРУЕМ AtomDefinitions ПЕРЕД ИХ ИСПОЛЬЗОВАНИЕМ
-				AtomDefinitions.initialize();
-				AtomDefinitions.validateDefinitions(); // Опционально: для проверки определений
-
-				// Initialize AtomManager (creates singleton instance)
-				var atomManager:AtomManager = AtomManager.getInstance();
-				trace("AtomManager initialized with supported types: " + atomManager.getSupportedAtomTypes().join(", "));
-
-				// Инициализируем AtomFactory
-				AtomFactory.initialize();
-
-				Impulsys.emit(new Impulse("ATOM_SYSTEM_INITIALIZED", {
-					supportedTypes: atomManager.getSupportedAtomTypes()
-				}));
-
-			} catch (error:Error) {
-				trace("Error initializing atom system: " + error.message);
-				Impulsys.emit(new Impulse("ERROR", {
-					source: "Director",
-					message: "Atom system initialization failed: " + error.message
-				}));
-			}
-		}
-
         /**
-         * Initializes the track management system.
-         *
-         * @private
+         * Initializes the atom system with data-driven architecture.
          */
-        private static function initializeTrackSystem():void {
-            trace("Director: Initializing track system");
+        private static function initializeAtomSystem():void {
+            trace("Director: Initializing data-driven atom system");
 
             try {
-                // Initialize TrackManager
-                TrackManager.initialize();
-                trace("TrackManager initialized");
+                // Initialize AtomDefinitions before use
+                AtomDefinitions.initialize();
+                AtomDefinitions.validateDefinitions();
 
-                Impulsys.emit(new Impulse("TRACK_SYSTEM_INITIALIZED"));
+                // Initialize AtomManager (creates singleton instance)
+                var atomManager:AtomManager = AtomManager.getInstance();
+                trace("AtomManager initialized with supported types: " + atomManager.getSupportedAtomTypes().join(", "));
+
+                // Initialize AtomFactory
+                AtomFactory.initialize();
+
+                Impulsys.emit(new Impulse("ATOM_SYSTEM_INITIALIZED", {
+                    supportedTypes: atomManager.getSupportedAtomTypes()
+                }));
+
+            } catch (error:Error) {
+                trace("Error initializing atom system: " + error.message);
+                Impulsys.emit(new Impulse("ERROR", {
+                    source: "Director",
+                    message: "Atom system initialization failed: " + error.message
+                }));
+            }
+        }
+
+        /**
+         * Initializes the track management system with TrackRegistry.
+         */
+        private static function initializeTrackSystem():void {
+            trace("Director: Initializing decentralized track system");
+
+            try {
+                // Initialize TrackRegistry (lazy initialization)
+                var trackRegistry:TrackRegistry = TrackRegistry.getInstance();
+                trace("TrackRegistry initialized - ready for autonomous track management");
+
+                Impulsys.emit(new Impulse("TRACK_SYSTEM_INITIALIZED", {
+                    architecture: "decentralized",
+                    registry: "TrackRegistry"
+                }));
 
             } catch (error:Error) {
                 trace("Error initializing track system: " + error.message);
@@ -5968,8 +5322,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Initializes the menu management system.
-         *
-         * @private
          */
         private static function initializeMenuSystem():void {
             trace("Director: Initializing menu system");
@@ -5990,32 +5342,29 @@ package Src.Prog.Core.Managers {
             }
         }
 
-		/**
+        /**
          * Final initialization procedure.
-         *
-         * @private
          */
         private static function finalizeInitialization():void {
             trace("Director: Finalizing initialization");
 
             Impulsys.emit(new Impulse("APP_READY", {
-                architecture: "data-driven",
+                architecture: "decentralized",
+                trackSystem: "autonomous",
                 timestamp: new Date().getTime()
             }));
         }
 
         /**
          * Pipeline completion handler.
-         *
-         * @private
-         * @param {Event} event - Completion event
          */
         private static function onInitSequenceComplete(event:Event):void {
-            trace("Director: Data-driven initialization complete");
+            trace("Director: Decentralized initialization complete");
 
             Impulsys.emit(new Impulse("APP_STARTUP_COMPLETE", {
-                message: "Data-driven architecture ready",
-                atomTypes: AtomManager.getInstance().getSupportedAtomTypes()
+                message: "Decentralized architecture ready",
+                atomTypes: AtomManager.getInstance().getSupportedAtomTypes(),
+                trackArchitecture: "autonomous"
             }));
 
             // Clean up
@@ -6026,9 +5375,6 @@ package Src.Prog.Core.Managers {
 
         /**
          * Pipeline error handler.
-         *
-         * @private
-         * @param {CommandErrorEvent} event - Error event
          */
         private static function onInitSequenceError(event:CommandErrorEvent):void {
             trace("Director: Initialization error: " + event.errorMessage);
@@ -6350,9 +5696,13 @@ package Src.Prog.Core.Managers {
                 var items:Array = [{
                     label: "Delete Track",
                     action: "delete_track",
+
                     callback: function(action:String):void {
                         menu.close();
-                        Impulsys.emit(new Impulse("TRACK_DELETE_REQUEST", { track: track }));
+						track.dispose();
+                        Impulsys.emit(new Impulse("TRACK_DELETE_REQUEST", {
+							track: track,
+							connectionId: track.connectionId }));
                     },
                     category: "Danger"
                 }];
@@ -6767,7 +6117,6 @@ package Src.Prog.Core.Windows {
     import Src.Prog.Core.Menus.ContextMenu;
     import Src.Prog.Core.Menus.ContextMenuItem;
     import Src.Prog.Core.Managers.MenuManager;
-    import Src.Prog.Com.Atoms.Core.TrackManager;
 
     /**
      * Universal application window with comprehensive mouse event handling system.
@@ -6924,11 +6273,6 @@ package Src.Prog.Core.Windows {
 						return; // Компоненты обрабатывают события сами
 					}
 
-					// Force cleanup on any mouse down to prevent stuck temporary tracks
-					var trackManager:TrackManager = TrackManager.getInstance();
-					if (trackManager.getCurrentDragPin()) {
-						trackManager.forceCleanup();
-					}
 					var isMenu: Boolean = isMenuElement(e.target as DisplayObject);
 						if(!isMenu) {
 							// Now we'll close Menu
@@ -7084,9 +6428,6 @@ package Src.Prog.Core.Windows {
 		private function onWindowDeactivate(event:Event):void {
 			trace("Window deactivated: " + _type + ", forcing cleanup of temporary tracks");
 
-			// Force cleanup of temporary track state
-			var trackManager:TrackManager = TrackManager.getInstance();
-			trackManager.forceCleanup();
 
 			// Also close any open context menus
 			MenuManager.getInstance().closeCurrentMenu();
@@ -7789,6 +7130,7 @@ package Src.Prog {
     import Src.Prog.Core.Commands.RegisterData;
     import Src.Prog.Core.Managers.Director;
 
+	/** Это не просто «кнопка → светодиод» — это полноценная low-code среда с визуальными компонентами и реактивными связями. **/
     /**
      * Main application class - entry point
      * Initializes system, manages application lifecycle, coordinates components via Director

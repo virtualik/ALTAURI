@@ -1,7 +1,7 @@
 ﻿package Src.Prog.Com.Atoms.Core {
 /**
  * Event manager for pin system
- * FIXED: Simplified to prevent recursive notifications
+ * Simplified to prevent recursive notifications
  */	class PinEventManager {
 		private var _allPins:Vector.<Pin> = new Vector.<Pin>();
 		private var _subscriptions:Object = {};
@@ -25,48 +25,11 @@
 			}
 		}
 
-		// FIXED: Remove dangerous global subscription methods that cause recursion
-		/*
-		public function subscribeToAll(eventType:String, listener:Function):void {
-			for each (var pin:Pin in _allPins) {
-				pin.addEventListener(eventType, listener);
-			}
-		}
-
-		public function subscribeToPinType(eventType:String, pinType:String, listener:Function):void {
-			for each (var pin:Pin in _allPins) {
-				if (pin.type === pinType) {
-					pin.addEventListener(eventType, listener);
-				}
-			}
-
-			var key:String = eventType + "_" + pinType;
-			if (!_subscriptions[key]) {
-				_subscriptions[key] = new Vector.<Function>();
-			}
-			_subscriptions[key].push(listener);
-		}
-
-		public function subscribeToDataType(eventType:String, dataType:String, listener:Function):void {
-			for each (var pin:Pin in _allPins) {
-				if (pin.data && pin.data.dataType === dataType) {
-					pin.addEventListener(eventType, listener);
-				}
-			}
-
-			var key:String = eventType + "_datatype_" + dataType;
-			if (!_subscriptions[key]) {
-				_subscriptions[key] = new Vector.<Function>();
-			}
-			_subscriptions[key].push(listener);
-		}
-		*/
-
 		/**
-		 * FIXED: Limited dispatch to prevent input->input notification storms
+		 * Limited dispatch to prevent input->input notification storms
 		 */
 		public function dispatchToAll(sourcePin:Pin, event:PinEvent):void {
-			// FIXED: Only dispatch from output pins to prevent recursion
+			// Only dispatch from output pins to prevent recursion
 			if (sourcePin.type !== Pin.TYPE_OUTPUT) {
 				return;
 			}
@@ -119,7 +82,7 @@
 				inputPins: inputPins,
 				outputPins: outputPins,
 				totalTargetedSubscriptions: totalSubscriptions,
-				subscriptionTypes: 0 // FIXED: Global subscriptions disabled
+				subscriptionTypes: 0 // Global subscriptions disabled
 			};
 		}
 
