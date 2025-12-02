@@ -429,5 +429,41 @@
         public function get autoTracks():Vector.<Track> { return _collisions.autoTracks; }
         public function get isCreatingTrack():Boolean { return _isCreatingTrack; }
         public function get tempTrack():TempTrack { return _tempTrack; }
+        
+        /**
+         * 🔥 НОВОЕ СВОЙСТВО: Проверяет, подключен ли пин через Track.
+         * Используется LEDBehavior для определения источника сигнала.
+         */
+        public function get isConnected():Boolean {
+            // Проверяем через TrackRegistry есть ли Track к этому пину
+            var reg:TrackRegistry = TrackRegistry.getInstance();
+            if (!reg) return false;
+            
+            var tracks:Vector.<Track> = reg.getTracksByPin(this);
+            return tracks.length > 0;
+        }
+        
+        /**
+         * 🔥 НОВЫЙ МЕТОД: Получает информацию о подключениях пина.
+         */
+        public function getConnectionInfo():Object {
+            var reg:TrackRegistry = TrackRegistry.getInstance();
+            var tracks:Vector.<Track> = reg ? reg.getTracksByPin(this) : new Vector.<Track>();
+            
+            return {
+                pinId: this.id,
+                pinName: this.name,
+                pinType: this.type,
+                isConnected: tracks.length > 0,
+                trackCount: tracks.length,
+                tracks: tracks.map(function(track:Track):Object {
+                    return {
+                        connectionId: track.connectionId,
+                        fromPin: track.fromPin ? track.fromPin.name : "unknown",
+                        toPin: track.toPin ? track.toPin.name : "unknown"
+                    };
+                })
+            };
+        }
     }
 }

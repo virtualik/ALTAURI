@@ -7,7 +7,7 @@
     import flash.display.Graphics;
     import Src.Prog.Com.Atoms.Core.Pin;
     import Src.Prog.Com.Atoms.Core.AtomView;
-	// Behaviors
+    // Behaviors
     import Src.Prog.Com.Atoms.Data.Behaviors.ButtonBehavior;
     import Src.Prog.Com.Atoms.Data.Behaviors.LEDBehavior;
     import Src.Prog.Com.Atoms.Data.Behaviors.NumberDisplayBehavior;
@@ -17,10 +17,11 @@
      * ALL atoms must be registered here to be available in the application.
      * Ensures data-driven behavior with proper pin-to-data synchronization.
      *
-     * Changes:
-     * - Added trace statements in LED onInputChange for testing cross-class flow.
-     * - Ensured updateAtom is called to trigger view refresh.
-     * - For testing: Run the app, press button, check console for "LED INPUT CHANGE" and "LED data updated".
+     * IMPORTANT UPDATE:
+     * - Button and LED now have DUAL output/input systems:
+     *   1. Pin system (legacy) - for backward compatibility
+     *   2. Contact system (new) - for new connection architecture
+     * - This allows testing both systems simultaneously
      *
      * @class AtomDefinitions
      * @public
@@ -105,28 +106,72 @@
             registerAtomType("Button", {
                 displayName: "Button",
                 category: "Input",
-                description: "A simple push button that sends TRUE when pressed and FALSE when released",
+                description: "Button with DUAL output systems (Pin and Contact) - sends TRUE when pressed, FALSE when released",
                 pins: [
-                    {name: "output", type: "output", dataType: "boolean", description: "Sends TRUE when pressed, FALSE when released"}
+                    // Pin system (legacy) - square ports
+                    {name: "output_pin", type: "output", dataType: "boolean", description: "Pin-based output (legacy system)"},
+                    
+                    // Contact system (new) - round ports  
+                    {name: "output_contact", type: "output", dataType: "boolean", description: "Contact-based output (new system)"}
                 ],
 				
 				behavior: new ButtonBehavior(), // ← УКАЗАТЕЛЬ НА КЛАСС C ПОВЕДЕНИЕМ
 
                 viewConfig: {
-                    width: 60,
+                    width: 70,  // Slightly wider for two outputs
                     height: 30,
-                    backgroundColor: 0x3366CC
+                    backgroundColor: 0x3366CC,
+                    // Visual hints for dual systems
+                    dualSystemHint: true,
+                    pinPortColor: 0x888888,    // Gray for pin ports
+                    contactPortColor: 0x00AAFF  // Blue for contact ports
                 },
                 visuals: {
                     base: {
-                        width: 60,
+                        width: 70,
                         height: 30,
                         color: 0x3366CC,
-                        textColor: 0x000000,
-                        cornerRadius: 8
+                        textColor: 0xFFFFFF,
+                        cornerRadius: 8,
+                        // Custom draw function to show dual ports
+                        draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+                            var width:Number = config.width || 70;
+                            var height:Number = config.height || 30;
+                            
+                            graphics.clear();
+                            
+                            // Draw background
+                            graphics.beginFill(config.color || 0x3366CC);
+                            graphics.drawRoundRect(0, 0, width, height, 8, 8);
+                            graphics.endFill();
+                            
+                            // Draw border
+                            graphics.lineStyle(2, 0xFFFFFF);
+                            graphics.drawRoundRect(1, 1, width-2, height-2, 6, 6);
+                            
+                            // Draw label
+                            graphics.lineStyle(1, 0xFFFFFF);
+                            graphics.drawRect(width/2 - 15, height/2 - 8, 30, 16);
+                            
+                            // Draw button text
+                            // (Text rendering would be done elsewhere)
+                            
+                            // Draw port indicators on right side
+                            // Pin port (top) - square
+                            graphics.lineStyle(1, 0x888888);
+                            graphics.beginFill(0x666666);
+                            graphics.drawRect(width - 8, height/4 - 4, 8, 8);
+                            graphics.endFill();
+                            
+                            // Contact port (bottom) - circle  
+                            graphics.lineStyle(1, 0x00AAFF);
+                            graphics.beginFill(0x0088CC);
+                            graphics.drawCircle(width - 4, 3*height/4, 4);
+                            graphics.endFill();
+                        }
                     },
                     Editor: {},
-					Device: {}
+                    Device: {}
                 }
             });
 
@@ -156,45 +201,82 @@
 			registerAtomType("LED", {
 				displayName: "LED Indicator",
 				category: "Output",
-				description: "Visual indicator that lights up when active",
+				description: "LED with DUAL input systems (Pin and Contact) - lights up when active",
 				pins: [
-					{name: "input", type: "input", dataType: "boolean", description: "LED state (on/off)"}
+                    // Pin system (legacy) - square ports
+					{name: "input_pin", type: "input", dataType: "boolean", description: "Pin-based input (legacy system)"},
+                    
+                    // Contact system (new) - round ports
+					{name: "input_contact", type: "input", dataType: "boolean", description: "Contact-based input (new system)"}
 				],
 
                 behavior: new LEDBehavior(), // ← УКАЗАТЕЛЬ НА КЛАСС C ПОВЕДЕНИЕМ
 				
 				visuals: {
 					base: {
-						width: 30,
+						width: 40,  // Wider for two inputs
 						height: 30,
 						color: 0x333333,
 						textColor: 0xFFFFFF,
-						draw: function(graphics:Graphics, atom:Atom, config:Object):void {
-							AtomDefinitions.drawLED(graphics, atom, config);
-						}
+                        // Custom draw for LED with dual ports
+                        draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+                            // First draw the standard LED
+                            AtomDefinitions.drawLED(graphics, atom, config);
+                            
+                            // Then add port indicators on left side
+                            var width:Number = config.width || 40;
+                            var height:Number = config.height || 30;
+                            
+                            // Pin port (top) - square
+                            graphics.lineStyle(1, 0x888888);
+                            graphics.beginFill(0x666666);
+                            graphics.drawRect(0, height/4 - 4, 8, 8);
+                            graphics.endFill();
+                            
+                            // Contact port (bottom) - circle
+                            graphics.lineStyle(1, 0x00AAFF);
+                            graphics.beginFill(0x0088CC);
+                            graphics.drawCircle(4, 3*height/4, 4);
+                            graphics.endFill();
+                        }
 					},
 					Editor: {
-						width: 30,
+						width: 40,
 						height: 30,
 						color: 0x333333,
 						textColor: 0xFFFFFF,
-						draw: function(graphics:Graphics, atom:Atom, config:Object):void {
-							AtomDefinitions.drawLED(graphics, atom, config);
-						}
+                        draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+                            AtomDefinitions.drawLED(graphics, atom, config);
+                            
+                            var width:Number = config.width || 40;
+                            var height:Number = config.height || 30;
+                            
+                            // Pin port indicator
+                            graphics.lineStyle(1, 0x888888);
+                            graphics.beginFill(0x666666);
+                            graphics.drawRect(0, height/4 - 4, 8, 8);
+                            graphics.endFill();
+                            
+                            // Contact port indicator
+                            graphics.lineStyle(1, 0x00AAFF);
+                            graphics.beginFill(0x0088CC);
+                            graphics.drawCircle(4, 3*height/4, 4);
+                            graphics.endFill();
+                        }
 					},
 					Device: {
-						width: 30,
+						width: 40,
 						height: 30,
 						color: 0x333333,
 						textColor: 0xFFFFFF,
-						draw: function(graphics:Graphics, atom:Atom, config:Object):void {
-							AtomDefinitions.drawLED(graphics, atom, config);
-						}
+                        draw: function(graphics:Graphics, atom:Atom, config:Object):void {
+                            AtomDefinitions.drawLED(graphics, atom, config);
+                        }
 					}
 				}
 			});
 
-			// Logic Atoms
+			// Logic Atoms (keep as is for now)
 			registerAtomType("AND", {
                 displayName: "AND Gate",
                 category: "Logic",
@@ -335,18 +417,18 @@
                     {name: "input", type: "input", dataType: "boolean", description: "Input signal"},
                     {name: "output", type: "output", dataType: "boolean", description: "Output signal (inverse of input)"}
                 ],
-			behavior: {
-				onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
-					trace("=== NOT INPUT CHANGE ===");
-					trace("Pin: " + pinName + ", Value: " + value);
-					var inputValue:Boolean = Boolean(value);
-					trace("Input: " + inputValue);
-					var result:Boolean = !inputValue; // <-- Добавь трейс
-					trace("NOT Result (output): " + result);
-					var newAtom:Atom = atom.setPinValue("output", result, false);
-					trace("=== END NOT GATE ===");
-					return newAtom;
-				},
+                behavior: {
+                    onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
+                        trace("=== NOT INPUT CHANGE ===");
+                        trace("Pin: " + pinName + ", Value: " + value);
+                        var inputValue:Boolean = Boolean(value);
+                        trace("Input: " + inputValue);
+                        var result:Boolean = !inputValue;
+                        trace("NOT Result (output): " + result);
+                        var newAtom:Atom = atom.setPinValue("output", result, false);
+                        trace("=== END NOT GATE ===");
+                        return newAtom;
+                    },
                     initialize: function(atom:Atom):Atom {
                         trace("NOT Gate initialized");
                         return atom.setPinValue("output", true, false);
@@ -598,6 +680,11 @@
 
             _initialized = true;
             trace("AtomDefinitions: Initialization complete - " + getSupportedTypes().length + " atom types registered");
+            
+            // Special announcement for dual system support
+            trace("🚀 DUAL SYSTEM SUPPORT: Button and LED now have Pin AND Contact ports!");
+            trace("   Button ports: output_pin (square, gray) and output_contact (circle, blue)");
+            trace("   LED ports: input_pin (square, gray) and input_contact (circle, blue)");
         }
 
         /**
@@ -613,7 +700,13 @@
                 trace("WARNING: Overwriting existing atom definition: " + type);
             }
             _definitions[type] = definition;
-            trace("AtomDefinitions: Registered - " + type);
+            
+            // Special trace for dual system atoms
+            if (type === "Button" || type === "LED") {
+                trace("AtomDefinitions: Registered DUAL SYSTEM - " + type + " (has both Pin and Contact ports)");
+            } else {
+                trace("AtomDefinitions: Registered - " + type);
+            }
         }
 
         /**
@@ -747,7 +840,26 @@
                     trace("WARNING: " + type + " - no pins defined");
                     warnings++;
                 } else {
-                    for each (var pin:Object in definition.pins) {
+                    // Special check for dual system atoms
+                    if (type === "Button" || type === "LED") {
+                        var pinCount:int = definition.pins.length;
+                        var hasPinPorts:Boolean = false;
+                        var hasContactPorts:Boolean = false;
+                        
+                        for each (var pin:Object in definition.pins) {
+                            if (pin.name && pin.name.indexOf("_pin") !== -1) hasPinPorts = true;
+                            if (pin.name && pin.name.indexOf("_contact") !== -1) hasContactPorts = true;
+                        }
+                        
+                        if (hasPinPorts && hasContactPorts) {
+                            trace("✅ DUAL SYSTEM: " + type + " - has both Pin and Contact ports (" + pinCount + " total)");
+                        } else {
+                            trace("⚠️ SINGLE SYSTEM: " + type + " - missing dual ports");
+                            warnings++;
+                        }
+                    }
+                    
+                    for each (pin in definition.pins) {
                         if (!pin.name) {
                             trace("WARNING: " + type + " - pin missing name");
                             warnings++;
