@@ -1,56 +1,19 @@
-﻿package Src.Prog.Com.Atoms.Data {
-
+package Src.Prog.Com.Atoms.Data {
     import Src.Prog.Com.Atoms.Core.Atom;
     import Src.Prog.Core.Impulsys.Impulsys;
     import Src.Prog.Core.Impulsys.Impulse;
     import Src.Prog.Core.Managers.AtomManager;
     import flash.display.Graphics;
-   // import Src.Prog.Com.Contact.Core.Contact;
     import Src.Prog.Com.Atoms.Core.AtomView;
-    // Behaviors
     import Src.Prog.Com.Atoms.Data.Behaviors.ButtonBehavior;
     import Src.Prog.Com.Atoms.Data.Behaviors.LEDBehavior;
     import Src.Prog.Com.Atoms.Data.Behaviors.NumberDisplayBehavior;
 
-    /**
-     * Central registry for all atom definitions in the system.
-     * ALL atoms must be registered here to be available in the application.
-     * Ensures data-driven behavior with proper pin-to-data synchronization.
-     *
-     * IMPORTANT UPDATE:
-     * - Button and LED now have DUAL output/input systems:
-     *   1. Pin system (legacy) - for backward compatibility
-     *   2. Contact system (new) - for new connection architecture
-     * - This allows testing both systems simultaneously
-     *
-     * @class AtomDefinitions
-     * @public
-     * @static
-     */
     public class AtomDefinitions {
-
-        /** Registry of all atom type definitions */
         private static var _definitions:Object = {};
-
-        /** Initialization state */
         private static var _initialized:Boolean = false;
 
-        /**
-         * Static helper function for drawing LED atoms.
-         * Uses atom.data.isOn for state visualization.
-         *
-         * @public
-         * @static
-         * @param {Graphics} graphics - Graphics object to draw on
-         * @param {Atom} atom - Atom instance with data
-         * @param {Object} config - Visual configuration
-         */
         public static function drawLED(graphics:Graphics, atom:Atom, config:Object):void {
-            trace("=== LED CUSTOM DRAW FUNCTION EXECUTING ===");
-            trace("Atom data in draw: " + JSON.stringify(atom.data));
-            trace("isOn value: " + atom.data.isOn);
-            trace("Config width: " + config.width + ", height: " + config.height);
-
             var width:Number = config.width || 30;
             var height:Number = config.height || 30;
             var centerX:Number = width / 2;
@@ -59,8 +22,6 @@
             var isOn:Boolean = atom.data.isOn === true;
             var color:uint = isOn ? 0x00FF00 : 0x333333;
             var glowColor:uint = isOn ? 0x80FF80 : 0x666666;
-
-            trace("Drawing LED - isOn: " + isOn + ", color: " + color.toString(16) + ", center: " + centerX + "," + centerY);
 
             graphics.clear();
             try {
@@ -78,49 +39,34 @@
 
                 graphics.lineStyle(1, 0x666666);
                 graphics.drawCircle(centerX, centerY, ledRadius);
-
-                trace("=== LED CUSTOM DRAW FUNCTION COMPLETED ===");
             } catch (error:Error) {
-                trace("ERROR in LED drawing: " + error.message);
                 graphics.beginFill(0xFF0000);
                 graphics.drawRect(0, 0, width, height);
                 graphics.endFill();
             }
         }
 
-        /**
-         * Register all atom definitions - call this once at app startup.
-         *
-         * @public
-         * @static
-         */
         public static function initialize():void {
             if (_initialized) {
-                trace("AtomDefinitions: Already initialized");
                 return;
             }
 
-            trace("AtomDefinitions: Initializing atom registry...");
-
-            // Input Atoms
             registerAtomType("Button", {
                 displayName: "Button",
                 category: "Input",
                 description: "Button with DUAL output systems (Pin and Contact) - sends TRUE when pressed, FALSE when released",
 				pins: [
-					{name: "output", type: "output", dataType: "boolean"} // Только один!
+					{name: "output", type: "output", dataType: "boolean"}
 				],
-				
-				behavior: new ButtonBehavior(), // ← УКАЗАТЕЛЬ НА КЛАСС C ПОВЕДЕНИЕМ
 
+				behavior: new ButtonBehavior(),
                 viewConfig: {
-                    width: 70,  // Slightly wider for two outputs
+                    width: 70,
                     height: 30,
                     backgroundColor: 0x3366CC,
-                    // Visual hints for dual systems
                     dualSystemHint: true,
-                    pinPortColor: 0x888888,    // Gray for pin ports
-                    contactPortColor: 0x00AAFF  // Blue for contact ports
+                    pinPortColor: 0x888888,
+                    contactPortColor: 0x00AAFF
                 },
                 visuals: {
                     base: {
@@ -129,37 +75,22 @@
                         color: 0x3366CC,
                         textColor: 0xFFFFFF,
                         cornerRadius: 8,
-                        // Custom draw function to show dual ports
                         draw: function(graphics:Graphics, atom:Atom, config:Object):void {
                             var width:Number = config.width || 70;
                             var height:Number = config.height || 30;
-                            
+
                             graphics.clear();
-                            
-                            // Draw background
                             graphics.beginFill(config.color || 0x3366CC);
                             graphics.drawRoundRect(0, 0, width, height, 8, 8);
                             graphics.endFill();
-                            
-                            // Draw border
                             graphics.lineStyle(2, 0xFFFFFF);
                             graphics.drawRoundRect(1, 1, width-2, height-2, 6, 6);
-                            
-                            // Draw label
                             graphics.lineStyle(1, 0xFFFFFF);
                             graphics.drawRect(width/2 - 15, height/2 - 8, 30, 16);
-                            
-                            // Draw button text
-                            // (Text rendering would be done elsewhere)
-                            
-                            // Draw port indicators on right side
-                            // Pin port (top) - square
                             graphics.lineStyle(1, 0x888888);
                             graphics.beginFill(0x666666);
                             graphics.drawRect(width - 8, height/4 - 4, 8, 8);
                             graphics.endFill();
-                            
-                            // Contact port (bottom) - circle  
                             graphics.lineStyle(1, 0x00AAFF);
                             graphics.beginFill(0x0088CC);
                             graphics.drawCircle(width - 4, 3*height/4, 4);
@@ -201,31 +132,21 @@
 				pins: [
 					{name: "input", type: "input", dataType: "boolean"},
 				],
-
-                behavior: new LEDBehavior(), // ← УКАЗАТЕЛЬ НА КЛАСС C ПОВЕДЕНИЕМ
-				
+                behavior: new LEDBehavior(),
 				visuals: {
 					base: {
-						width: 40,  // Wider for two inputs
+						width: 40,
 						height: 30,
 						color: 0x333333,
 						textColor: 0xFFFFFF,
-                        // Custom draw for LED with dual ports
                         draw: function(graphics:Graphics, atom:Atom, config:Object):void {
-                            // First draw the standard LED
                             AtomDefinitions.drawLED(graphics, atom, config);
-                            
-                            // Then add port indicators on left side
                             var width:Number = config.width || 40;
                             var height:Number = config.height || 30;
-                            
-                            // Pin port (top) - square
                             graphics.lineStyle(1, 0x888888);
                             graphics.beginFill(0x666666);
                             graphics.drawRect(0, height/4 - 4, 8, 8);
                             graphics.endFill();
-                            
-                            // Contact port (bottom) - circle
                             graphics.lineStyle(1, 0x00AAFF);
                             graphics.beginFill(0x0088CC);
                             graphics.drawCircle(4, 3*height/4, 4);
@@ -239,17 +160,12 @@
 						textColor: 0xFFFFFF,
                         draw: function(graphics:Graphics, atom:Atom, config:Object):void {
                             AtomDefinitions.drawLED(graphics, atom, config);
-                            
                             var width:Number = config.width || 40;
                             var height:Number = config.height || 30;
-                            
-                            // Pin port indicator
                             graphics.lineStyle(1, 0x888888);
                             graphics.beginFill(0x666666);
                             graphics.drawRect(0, height/4 - 4, 8, 8);
                             graphics.endFill();
-                            
-                            // Contact port indicator
                             graphics.lineStyle(1, 0x00AAFF);
                             graphics.beginFill(0x0088CC);
                             graphics.drawCircle(4, 3*height/4, 4);
@@ -268,7 +184,6 @@
 				}
 			});
 
-			// Logic Atoms (keep as is for now)
 			registerAtomType("AND", {
                 displayName: "AND Gate",
                 category: "Logic",
@@ -280,20 +195,14 @@
                 ],
                 behavior: {
                     onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
-                        trace("=== AND GATE INPUT CHANGE ===");
-                        trace("Pin: " + pinName + ", Value: " + value);
                         var newAtom:Atom = atom.setData(pinName, Boolean(value));
                         var input1:Boolean = newAtom.data.input1 === true;
                         var input2:Boolean = newAtom.data.input2 === true;
-                        trace("Input1: " + input1 + ", Input2: " + input2);
                         var result:Boolean = input1 && input2;
-                        trace("AND Result: " + result);
                         var finalAtom:Atom = newAtom.setPinValue("output", result, false);
-                        trace("=== END AND GATE ===");
                         return finalAtom;
                     },
                     initialize: function(atom:Atom):Atom {
-                        trace("AND Gate initialized");
                         var newAtom:Atom = atom;
                         if (!atom.hasValue("input1")) newAtom = newAtom.setData("input1", false);
                         if (!atom.hasValue("input2")) newAtom = newAtom.setData("input2", false);
@@ -343,20 +252,14 @@
                 ],
                 behavior: {
                     onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
-                        trace("=== OR GATE INPUT CHANGE ===");
-                        trace("Pin: " + pinName + ", Value: " + value);
                         var newAtom:Atom = atom.setData(pinName, Boolean(value));
                         var input1:Boolean = newAtom.data.input1 === true;
                         var input2:Boolean = newAtom.data.input2 === true;
-                        trace("Input1: " + input1 + ", Input2: " + input2);
                         var result:Boolean = input1 || input2;
-                        trace("OR Result: " + result);
                         var finalAtom:Atom = newAtom.setPinValue("output", result, false);
-                        trace("=== END OR GATE ===");
                         return finalAtom;
                     },
                     initialize: function(atom:Atom):Atom {
-                        trace("OR Gate initialized");
                         var newAtom:Atom = atom;
                         if (!atom.hasValue("input1")) newAtom = newAtom.setData("input1", false);
                         if (!atom.hasValue("input2")) newAtom = newAtom.setData("input2", false);
@@ -411,18 +314,12 @@
                 ],
                 behavior: {
                     onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
-                        trace("=== NOT INPUT CHANGE ===");
-                        trace("Pin: " + pinName + ", Value: " + value);
                         var inputValue:Boolean = Boolean(value);
-                        trace("Input: " + inputValue);
                         var result:Boolean = !inputValue;
-                        trace("NOT Result (output): " + result);
                         var newAtom:Atom = atom.setContactValue("output", result, false);
-                        trace("=== END NOT GATE ===");
                         return newAtom;
                     },
                     initialize: function(atom:Atom):Atom {
-                        trace("NOT Gate initialized");
                         return atom.setContactValue("output", true, false);
                     }
                 },
@@ -475,20 +372,14 @@
                 ],
                 behavior: {
                     onInputChange: function(atom:Atom, pinName:String, value:*):Atom {
-                        trace("=== NAND GATE INPUT CHANGE ===");
-                        trace("Pin: " + pinName + ", Value: " + value);
                         var newAtom:Atom = atom.setData(pinName, Boolean(value));
                         var input1:Boolean = newAtom.data.input1 === true;
                         var input2:Boolean = newAtom.data.input2 === true;
-                        trace("Input1: " + input1 + ", Input2: " + input2);
                         var result:Boolean = !(input1 && input2);
-                        trace("NAND Result: " + result);
                         var finalAtom:Atom = newAtom.setContactValue("output", result, false);
-                        trace("=== END NAND GATE ===");
                         return finalAtom;
                     },
                     initialize: function(atom:Atom):Atom {
-                        trace("NAND Gate initialized");
                         var newAtom:Atom = atom;
                         if (!atom.hasValue("input1")) newAtom = newAtom.setData("input1", false);
                         if (!atom.hasValue("input2")) newAtom = newAtom.setData("input2", false);
@@ -567,7 +458,6 @@
                 }
             });
 
-            // Output Atoms
             registerAtomType("NumberDisplay", {
                 displayName: "Number Display",
                 category: "Output",
@@ -576,9 +466,7 @@
                     {name: "value", type: "input", dataType: "number", description: "Numeric value to display"},
                     {name: "trigger", type: "input", dataType: "impulse", description: "Update display"}
                 ],
-				
-				behavior: new NumberDisplayBehavior(), // ← УКАЗАТЕЛЬ НА КЛАСС C ПОВЕДЕНИЕМ
-
+				behavior: new NumberDisplayBehavior(),
                 viewConfig: {
                     width: 80,
                     height: 40,
@@ -619,7 +507,6 @@
                 }
             });
 
-            // System Atoms
             registerAtomType("Clock", {
                 displayName: "System Clock",
                 category: "System",
@@ -671,66 +558,24 @@
             });
 
             _initialized = true;
-            trace("AtomDefinitions: Initialization complete - " + getSupportedTypes().length + " atom types registered");
-            
-            // Special announcement for dual system support
-            trace("🚀 DUAL SYSTEM SUPPORT: Button and LED now have Pin AND Contact ports!");
-            trace("   Button ports: output_pin (square, gray) and output_contact (circle, blue)");
-            trace("   LED ports: input_pin (square, gray) and input_contact (circle, blue)");
         }
 
-        /**
-         * Register a single atom type.
-         *
-         * @public
-         * @static
-         * @param {String} type - Atom type identifier
-         * @param {Object} definition - Complete atom definition
-         */
         public static function registerAtomType(type:String, definition:Object):void {
             if (_definitions[type]) {
-                trace("WARNING: Overwriting existing atom definition: " + type);
             }
             _definitions[type] = definition;
-            
-            // Special trace for dual system atoms
-            if (type === "Button" || type === "LED") {
-                trace("AtomDefinitions: Registered DUAL SYSTEM - " + type + " (has both Pin and Contact ports)");
-            } else {
-                trace("AtomDefinitions: Registered - " + type);
-            }
         }
 
-        /**
-         * Get atom definition by type.
-         *
-         * @public
-         * @static
-         * @param {String} type - Atom type identifier
-         * @return {Object} Atom definition or null
-         */
         public static function getAtomDefinition(type:String):Object {
             if (!_initialized) {
-                trace("ERROR: AtomDefinitions not initialized!");
                 return null;
             }
             var definition:Object = _definitions[type];
-            if (!definition) {
-                trace("WARNING: Atom definition not found: " + type);
-            }
             return definition;
         }
 
-        /**
-         * Get all supported atom types.
-         *
-         * @public
-         * @static
-         * @return {Array} Array of atom type strings
-         */
         public static function getSupportedTypes():Array {
             if (!_initialized) {
-                trace("ERROR: AtomDefinitions not initialized!");
                 return [];
             }
             var types:Array = [];
@@ -741,14 +586,6 @@
             return types;
         }
 
-        /**
-         * Get atom types by category.
-         *
-         * @public
-         * @static
-         * @param {String} category - Category to filter
-         * @return {Array} Array of atom types in category
-         */
         public static function getTypesByCategory(category:String):Array {
             var result:Array = [];
             var allTypes:Array = getSupportedTypes();
@@ -761,13 +598,6 @@
             return result;
         }
 
-        /**
-         * Get all available categories.
-         *
-         * @public
-         * @static
-         * @return {Array} Array of category strings
-         */
         public static function getCategories():Array {
             var categories:Object = {};
             var allTypes:Array = getSupportedTypes();
@@ -785,102 +615,48 @@
             return result;
         }
 
-        /**
-         * Check if atom type is registered.
-         *
-         * @public
-         * @static
-         * @param {String} type - Atom type to check
-         * @return {Boolean} True if registered
-         */
         public static function isAtomTypeRegistered(type:String):Boolean {
             return _definitions[type] != null;
         }
 
-        /**
-         * Validate all atom definitions.
-         *
-         * @public
-         * @static
-         */
         public static function validateDefinitions():void {
-            trace("=== ATOM DEFINITIONS VALIDATION ===");
             var supportedTypes:Array = getSupportedTypes();
-            trace("Total registered atoms: " + supportedTypes.length);
             var errors:int = 0;
             var warnings:int = 0;
 
             for each (var type:String in supportedTypes) {
                 var definition:Object = getAtomDefinition(type);
                 if (!definition) {
-                    trace("ERROR: " + type + " - definition missing");
                     errors++;
                     continue;
                 }
 
                 if (!definition.displayName) {
-                    trace("WARNING: " + type + " - missing displayName");
                     warnings++;
                 }
 
                 if (!definition.category) {
-                    trace("WARNING: " + type + " - missing category");
                     warnings++;
                 }
 
                 if (!definition.pins || definition.pins.length == 0) {
-                    trace("WARNING: " + type + " - no pins defined");
                     warnings++;
                 } else {
-                    // Special check for dual system atoms
-                    if (type === "Button" || type === "LED") {
-                        var pinCount:int = definition.pins.length;
-                        var hasPinPorts:Boolean = false;
-                        var hasContactPorts:Boolean = false;
-                        
-                        for each (var pin:Object in definition.pins) {
-                            if (pin.name && pin.name.indexOf("_pin") !== -1) hasPinPorts = true;
-                            if (pin.name && pin.name.indexOf("_contact") !== -1) hasContactPorts = true;
-                        }
-                        
-                        if (hasPinPorts && hasContactPorts) {
-                            trace("✅ DUAL SYSTEM: " + type + " - has both Pin and Contact ports (" + pinCount + " total)");
-                        } else {
-                            trace("⚠️ SINGLE SYSTEM: " + type + " - missing dual ports");
-                            warnings++;
-                        }
-                    }
-                    
-                    for each (pin in definition.pins) {
+                    for each (var pin:Object in definition.pins) {
                         if (!pin.name) {
-                            trace("WARNING: " + type + " - pin missing name");
                             warnings++;
                         }
                         if (!pin.type || (pin.type != "input" && pin.type != "output")) {
-                            trace("WARNING: " + type + " - pin '" + pin.name + "' has invalid type: " + pin.type);
                             warnings++;
                         }
                     }
                 }
-
-                trace("VALID: " + type + " (" + definition.displayName + ") - " +
-                      (definition.pins ? definition.pins.length : 0) + " pins");
             }
-
-            trace("Validation complete - Errors: " + errors + ", Warnings: " + warnings);
-            trace("=== END VALIDATION ===");
         }
 
-        /**
-         * Clear all definitions (for testing).
-         *
-         * @public
-         * @static
-         */
         public static function clear():void {
             _definitions = new Object();
             _initialized = false;
-            trace("AtomDefinitions: Cleared all definitions");
         }
     }
 }

@@ -1,14 +1,9 @@
-﻿package Src.Prog.Core.Menus {
+package Src.Prog.Core.Menus {
     import flash.display.Sprite;
     import flash.text.TextField;
     import flash.text.TextFormat;
     import flash.events.MouseEvent;
 
-    /**
-     * Universal context menu item that supports label, category, and callback.
-     *
-     * @class ContextMenuItem
-     */
     public class ContextMenuItem extends Sprite {
         public var action:String;
         private var _label:TextField;
@@ -16,12 +11,6 @@
         private var _category:String;
         private var _callback:Function;
 
-        /**
-         * @param {String} label - Display text
-         * @param {String} action - Action identifier (e.g., "delete", "Button")
-         * @param {Function} callback - Function to call on click: callback(action:String):void
-         * @param {String} category - Visual category ("Danger", "Info", or custom like "Input")
-         */
         public function ContextMenuItem(label:String, action:String, callback:Function, category:String = "Default") {
             this.action = action;
             this._callback = callback;
@@ -74,7 +63,6 @@
             } else if (_category == "Info") {
                 color = _isHighlighted ? 0x66A3FF : 0xCCE0FF;
             } else {
-                // Use category as visual hint (e.g., "Input" → blue tint)
                 color = _isHighlighted ? 0x3399FF : 0xFFFFFF;
             }
 

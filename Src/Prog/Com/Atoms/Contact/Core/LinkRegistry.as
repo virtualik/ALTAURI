@@ -1,18 +1,15 @@
-﻿package Src.Prog.Com.Atoms.Contact.Core {
+package Src.Prog.Com.Atoms.Contact.Core {
     import flash.utils.Dictionary;
     import Src.Prog.Com.Atoms.Contact.View.Link;
 
-    /**
-     * Централизованный реестр всех активных Link-соединений.
-     */
     public class LinkRegistry {
         private static var _instance:LinkRegistry;
-        private var _activeLinks:Array; // ← ИЗМЕНЕНО: Vector → Array
+        private var _activeLinks:Array;
         private var _linksById:Dictionary;
 
         public function LinkRegistry() {
             if (_instance) throw new Error("LinkRegistry is singleton. Use getInstance() instead.");
-            _activeLinks = new Array(); // ← ИЗМЕНЕНО
+            _activeLinks = new Array();
             _linksById = new Dictionary();
         }
 
@@ -25,7 +22,6 @@
             if (!_linksById[link.connectionId]) {
                 _activeLinks.push(link);
                 _linksById[link.connectionId] = link;
-                trace("🔗 LinkRegistry: Registered link - " + link.connectionId);
             }
         }
 
@@ -35,11 +31,10 @@
             if (_linksById[link.connectionId]) {
                 delete _linksById[link.connectionId];
             }
-            trace("🧹 LinkRegistry: Unregistered link - " + link.connectionId);
         }
 
-        public function getLinksByAtom(atomId:String):Array { // ← ИЗМЕНЕНО: Vector.<Link> → Array
-            var result:Array = new Array(); // ← ИЗМЕНЕНО
+        public function getLinksByAtom(atomId:String):Array {
+            var result:Array = new Array();
             for each (var link:Link in _activeLinks) {
                 if (link.isConnectedToAtom(atomId)) {
                     result.push(link);
@@ -48,8 +43,8 @@
             return result;
         }
 
-        public function getLinksByContact(contact:Contact):Array { // ← ИЗМЕНЕНО
-            var result:Array = new Array(); // ← ИЗМЕНЕНО
+        public function getLinksByContact(contact:Contact):Array {
+            var result:Array = new Array();
             for each (var link:Link in _activeLinks) {
                 if (link.fromContact === contact || link.toContact === contact) {
                     result.push(link);
@@ -58,7 +53,7 @@
             return result;
         }
 
-        public function getAllLinks():Array { // ← ИЗМЕНЕНО
+        public function getAllLinks():Array {
             return _activeLinks.slice();
         }
 

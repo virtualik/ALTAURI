@@ -1,31 +1,14 @@
-﻿package Src.Prog.Core.Menus {
+package Src.Prog.Core.Menus {
     import flash.display.Sprite;
     import flash.geom.Point;
     import flash.events.MouseEvent;
     import Src.Prog.Core.Windows.Window;
 
-    /**
-     * Universal, parameterized context menu.
-     * Usage:
-     *   var menu = new ContextMenu(items, window, globalClickPos);
-     *   window.overlayLayer.addChild(menu);
-     *
-     * @class ContextMenu
-     */
     public class ContextMenu extends Sprite {
         private var _items:Array;
         private var _window:Window;
         private var _globalClickPos:Point;
 
-        /**
-         * @param {Array} items - Array of item config objects:
-         *   - label: String
-         *   - action: String
-         *   - callback: Function(action:String):void
-         *   - category: String ("Danger", "Info", "Input", etc.)
-         * @param {Window} window - Target window
-         * @param {Point} globalClickPos - Stage coordinates of click
-         */
         public function ContextMenu(items:Array, window:Window, globalClickPos:Point) {
             _items = items;
             _window = window;

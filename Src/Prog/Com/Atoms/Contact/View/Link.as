@@ -1,4 +1,4 @@
-﻿package Src.Prog.Com.Atoms.Contact.View {
+package Src.Prog.Com.Atoms.Contact.View {
     import flash.display.Sprite;
     import flash.geom.Point;
     import flash.events.MouseEvent;
@@ -12,10 +12,6 @@
     import Src.Prog.Com.Atoms.Contact.Core.LinkRegistry;
     import Src.Prog.Com.Atoms.Core.AtomView;
 
-    /**
-     * Визуальное представление соединения между двумя контактами.
-     * Упрощенная версия БЕЗ лишней сложности.
-     */
     public class Link extends Sprite {
         private var _fromContact:Contact;
         private var _toContact:Contact;
@@ -28,9 +24,6 @@
         private static const LINE_ALPHA:Number = 0.7;
         private static const LINE_THICKNESS:Number = 4;
 
-        /**
-         * Создает новое соединение между контактами.
-         */
         public function Link(fromContact:Contact, toContact:Contact) {
             super();
 
@@ -46,16 +39,12 @@
             _connectionId = generateConnectionId();
             this.name = "Link_" + _connectionId;
 
-            // 1. Создаем логическое соединение (подписка)
             var subscriptionSuccess:Boolean = _toContact.subscribeTo(_fromContact);
             if (!subscriptionSuccess) {
                 throw new Error("Failed to create subscription");
             }
 
-            // 2. Добавляем в реестр
             LinkRegistry.getInstance().registerLink(this);
-
-            // 3. Настраиваем визуальную часть
             setupInteractions();
             addToParentWindow();
 
@@ -64,8 +53,6 @@
             } else {
                 this.addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
             }
-
-            trace("✅ Link created: " + _connectionId);
         }
 
         private function onAddedToStage(event:Event):void {
@@ -73,9 +60,6 @@
             draw();
         }
 
-        /**
-         * Настраиваем взаимодействия.
-         */
         private function setupInteractions():void {
             this.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
             this.addEventListener(MouseEvent.MOUSE_OVER, onMouseOver);
@@ -85,9 +69,6 @@
             this.useHandCursor = true;
         }
 
-        /**
-         * Добавляем в визуальный слой родительского окна.
-         */
         private function addToParentWindow():void {
             _parentWindow = getParentWindow();
             if (!_parentWindow) return;
@@ -101,9 +82,6 @@
             }
         }
 
-        /**
-         * Находит родительское окно.
-         */
         private function getParentWindow():Window {
             if (!_fromContact.atom) return null;
             var atomManager:AtomManager = AtomManager.getInstance();
@@ -113,17 +91,10 @@
             return (atomView.stage) ? atomView.stage.nativeWindow as Window : null;
         }
 
-        /**
-         * Обработчик правого клика для удаления.
-         */
         private function onRightMouseDown(event:MouseEvent):void {
             event.stopPropagation();
             var pos:Point = new Point(event.stageX, event.stageY);
-            
-            // 🔥 Прямой вызов вместо импульса (упрощение)
             this.dispose();
-            
-            // Можно оставить для совместимости
             Impulsys.emit(new Impulse("LINK_RIGHT_CLICK", {
                 link: this,
                 globalPosition: pos,
@@ -141,9 +112,6 @@
             draw();
         }
 
-        /**
-         * Отрисовывает линию соединения.
-         */
         public function draw():void {
             this.graphics.clear();
 
@@ -160,16 +128,11 @@
             var localTo:Point = container.globalToLocal(toPos);
 
             var lineColor:uint = _isHighlighted ? HIGHLIGHT_COLOR : LINE_COLOR;
-            
-            // Зелёный для активного сигнала
             if (_fromContact.value === true) lineColor = 0x00FF00;
 
             drawStraightLine(localFrom, localTo, lineColor);
         }
 
-        /**
-         * Получает контейнер для рисования.
-         */
         private function getLinkContainer():Sprite {
             if (!_parentWindow) return null;
             return _parentWindow.tracksLayer ||
@@ -177,34 +140,27 @@
                    _parentWindow.contentLayer;
         }
 
-        /**
-         * Получает глобальную позицию контакта.
-         */
         private function getGlobalContactPosition(contact:Contact):Point {
             var view:ContactView = findContactView(contact);
             if (view && view.stage) return view.localToGlobal(new Point(0, 0));
 
-            // Fallback: используем позицию атома
             if (!contact.atom) return new Point(100, 100);
             var mgr:AtomManager = AtomManager.getInstance();
             var data:Object = mgr.getAtomById(contact.atom.id);
             if (!data || !data.view) return new Point(100, 100);
-            
+
             var atomView:AtomView = data.view;
             var isInput:Boolean = contact.type === Contact.TYPE_INPUT;
             var xPos:Number = isInput ? 0 : atomView.width;
             return atomView.localToGlobal(new Point(xPos, atomView.height / 2));
         }
 
-        /**
-         * Находит ContactView для контакта.
-         */
         private function findContactView(contact:Contact):ContactView {
             if (!contact.atom) return null;
             var mgr:AtomManager = AtomManager.getInstance();
             var data:Object = mgr.getAtomById(contact.atom.id);
             if (!data || !data.view) return null;
-            
+
             var view:AtomView = data.view;
             for (var i:int = 0; i < view.numChildren; i++) {
                 var child:* = view.getChildAt(i);
@@ -218,49 +174,31 @@
             return null;
         }
 
-        /**
-         * Рисует прямую линию.
-         */
         private function drawStraightLine(fromPos:Point, toPos:Point, color:uint):void {
             this.graphics.lineStyle(LINE_THICKNESS, color, LINE_ALPHA);
             this.graphics.moveTo(fromPos.x, fromPos.y);
             this.graphics.lineTo(toPos.x, toPos.y);
         }
 
-        /**
-         * Генерирует уникальный ID соединения.
-         */
         private function generateConnectionId():String {
             var a1:String = _fromContact.atom ? _fromContact.atom.id : "unknown";
             var a2:String = _toContact.atom ? _toContact.atom.id : "unknown";
             return "contact_link_" + a1 + "_" + a2 + "_" + new Date().getTime();
         }
 
-        /**
-         * Обновляет визуальное представление.
-         */
-        public function updateVisual():void { 
-            draw(); 
+        public function updateVisual():void {
+            draw();
         }
 
-        /**
-         * Проверяет подключенность к атому.
-         */
         public function isConnectedToAtom(atomId:String):Boolean {
             return (_fromContact.atom && _fromContact.atom.id === atomId) ||
                    (_toContact.atom && _toContact.atom.id === atomId);
         }
 
-        /**
-         * Проверяет подключенность к контакту.
-         */
-        public function isConnectedToContact(c:Contact):Boolean { 
-            return _fromContact === c || _toContact === c; 
+        public function isConnectedToContact(c:Contact):Boolean {
+            return _fromContact === c || _toContact === c;
         }
 
-        /**
-         * Получает информацию о соединении.
-         */
         public function getConnectionInfo():Object {
             return {
                 from: _fromContact.name,
@@ -270,43 +208,25 @@
             };
         }
 
-        /**
-         * Освобождает ресурсы.
-         */
         public function dispose():void {
-            trace("🧹 Disposing Link: " + _connectionId);
-
-            // 1. Удаляем из реестра
             LinkRegistry.getInstance().unregisterLink(this);
-
-            // 2. Удаляем слушатели
             this.removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
             this.removeEventListener(MouseEvent.MOUSE_OVER, onMouseOver);
             this.removeEventListener(MouseEvent.MOUSE_OUT, onMouseOut);
             this.removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
 
-            // 3. Разрываем логическое соединение
             if (_toContact && _toContact.source === _fromContact) {
                 _toContact.unsubscribe();
             }
 
-            // 4. Очищаем графику
             this.graphics.clear();
-
-            // 5. Удаляем из родительского контейнера
             if (this.parent) this.parent.removeChild(this);
 
-            // 6. Очищаем ссылки
             _fromContact = null;
             _toContact = null;
             _parentWindow = null;
-
-            trace("✅ Link disposed: " + _connectionId);
         }
 
-        // =========================================================================
-        // GETTERS
-        // =========================================================================
         public function get fromContact():Contact { return _fromContact; }
         public function get toContact():Contact { return _toContact; }
         public function get connectionId():String { return _connectionId; }

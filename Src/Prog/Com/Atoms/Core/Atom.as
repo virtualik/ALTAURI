@@ -1,4 +1,4 @@
-﻿package Src.Prog.Com.Atoms.Core {
+package Src.Prog.Com.Atoms.Core {
     import flash.geom.Point;
     import Src.Prog.Com.Atoms.Contact.Core.Contact;
     import Src.Prog.Core.Impulsys.Impulsys;
@@ -23,7 +23,6 @@
             this.data = new Object();
             this.contactInputs = new Array();
             this.contactOutputs = new Array();
-            trace("🔧 Atom created: " + this.name + " (" + this.id + ")");
         }
 
         public function setPosition(newPosition:Point):Atom {
@@ -45,9 +44,6 @@
         }
 
         public function setContactValue(contactName:String, value:*, isInput:Boolean = true):Atom {
-            trace("=== ATOM SET CONTACT VALUE ===");
-            trace("Atom: " + this.id + ", Contact: " + contactName + ", Value: " + value + ", IsInput: " + isInput);
-
             var newAtom:Atom = this.setPosition(this.position);
             newAtom.data = cloneData(this.data);
             var contactUpdated:Boolean = false;
@@ -55,18 +51,12 @@
 
             for each (var contact:Contact in contacts) {
                 if (contact.name == contactName) {
-                    trace("Updating contact: " + contact.name + " to value: " + value);
                     contact.value = value;
                     contactUpdated = true;
                     break;
                 }
             }
 
-            if (!contactUpdated) {
-                trace("⚠ Contact not found: " + contactName);
-            }
-
-            trace("=== END SET CONTACT VALUE ===");
             return newAtom;
         }
 
@@ -74,7 +64,6 @@
             var newAtom:Atom = this.setPosition(this.position);
             newAtom.data = cloneData(this.data);
             newAtom.data[key] = value;
-            trace("📝 Atom data set: " + key + " = " + value);
             return newAtom;
         }
 
@@ -102,7 +91,6 @@
                 newAtom.contactOutputs.push(contact);
             }
 
-            trace("➕ Added contact: " + contact.name);
             return newAtom;
         }
 
@@ -114,7 +102,6 @@
                 if (Contact(contacts[i]).name == contactName) {
                     Contact(contacts[i]).dispose();
                     contacts.splice(i, 1);
-                    trace("🗑️ Removed contact: " + contactName);
                 }
             }
 
@@ -126,7 +113,6 @@
             var targetContact:Contact = targetAtom.getContactByName(targetContactName, true);
 
             if (!sourceContact || !targetContact) {
-                trace("❌ Connection failed: contacts not found");
                 return false;
             }
 
@@ -134,8 +120,6 @@
         }
 
         public function disposeContacts():void {
-            trace("🧹 Disposing contacts for atom: " + this.name);
-
             for each (var inputContact:Contact in this.contactInputs) {
                 inputContact.unsubscribe();
                 inputContact.dispose();
@@ -148,7 +132,6 @@
 
             this.contactInputs = new Array();
             this.contactOutputs = new Array();
-            trace("✅ Atom contacts disposed: " + this.name);
         }
 
         public function getContactsStats():Object {
@@ -159,7 +142,7 @@
             for each (var input:Contact in contactInputs) {
                 if (input.isConnected) connectedInputs++;
             }
-            
+
             for each (var output:Contact in contactOutputs) {
                 if (output.isConnected) {
                     connectedOutputs++;
@@ -223,7 +206,6 @@
                 atom: this,
                 timestamp: new Date().getTime()
             }));
-            trace("🔄 Atom update triggered: " + this.name);
         }
 
         public function getContactValue(contactName:String, isInput:Boolean = true):* {
@@ -252,7 +234,6 @@
                 outputContact.value = getDefaultValue(outputContact.data.dataType);
             }
 
-            trace("🔄 All contact values reset for atom: " + this.name);
             return newAtom;
         }
 
