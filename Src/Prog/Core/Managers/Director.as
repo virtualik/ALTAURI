@@ -7,7 +7,6 @@
     import Src.Prog.Core.Commands.InvokeFunction;
     import Src.Prog.Core.Commands.CommandErrorEvent;
     import Src.Prog.Com.Atoms.Core.AtomFactory;
-    import Src.Prog.Com.Atoms.Core.TrackRegistry;
     import Src.Prog.Com.Atoms.Data.AtomDefinitions;
 
     /**
@@ -29,7 +28,6 @@
                 new InvokeFunction(WindowsManager.createWindows),
                 new InvokeFunction(initializeAtomSystem),
                 new InvokeFunction(initializeMenuSystem),
-                new InvokeFunction(initializeTrackSystem), // Updated to TrackRegistry
                 new InvokeFunction(finalizeInitialization)
             );
 
@@ -69,13 +67,13 @@
 
                 // Initialize AtomManager (creates singleton instance)
                 var atomManager:AtomManager = AtomManager.getInstance();
-                trace("AtomManager initialized with supported types: " + atomManager.getSupportedAtomTypes().join(", "));
 
                 // Initialize AtomFactory
                 AtomFactory.initialize();
 
+                // 🔥 ИСПРАВЛЕНО: Используем AtomFactory вместо AtomManager
                 Impulsys.emit(new Impulse("ATOM_SYSTEM_INITIALIZED", {
-                    supportedTypes: atomManager.getSupportedAtomTypes()
+                    supportedTypes: AtomFactory.getCreatableAtomTypes() // ← ЗДЕСЬ ИСПРАВЛЕНИЕ
                 }));
 
             } catch (error:Error) {
@@ -83,31 +81,6 @@
                 Impulsys.emit(new Impulse("ERROR", {
                     source: "Director",
                     message: "Atom system initialization failed: " + error.message
-                }));
-            }
-        }
-
-        /**
-         * Initializes the track management system with TrackRegistry.
-         */
-        private static function initializeTrackSystem():void {
-            trace("Director: Initializing decentralized track system");
-
-            try {
-                // Initialize TrackRegistry (lazy initialization)
-                var trackRegistry:TrackRegistry = TrackRegistry.getInstance();
-                trace("TrackRegistry initialized - ready for autonomous track management");
-
-                Impulsys.emit(new Impulse("TRACK_SYSTEM_INITIALIZED", {
-                    architecture: "decentralized",
-                    registry: "TrackRegistry"
-                }));
-
-            } catch (error:Error) {
-                trace("Error initializing track system: " + error.message);
-                Impulsys.emit(new Impulse("ERROR", {
-                    source: "Director",
-                    message: "Track system initialization failed: " + error.message
                 }));
             }
         }
@@ -153,9 +126,10 @@
         private static function onInitSequenceComplete(event:Event):void {
             trace("Director: Decentralized initialization complete");
 
+            // 🔥 ИСПРАВЛЕНО: Используем AtomFactory вместо AtomManager
             Impulsys.emit(new Impulse("APP_STARTUP_COMPLETE", {
                 message: "Decentralized architecture ready",
-                atomTypes: AtomManager.getInstance().getSupportedAtomTypes(),
+                atomTypes: AtomFactory.getCreatableAtomTypes(), // ← ЗДЕСЬ ИСПРАВЛЕНИЕ
                 trackArchitecture: "autonomous"
             }));
 

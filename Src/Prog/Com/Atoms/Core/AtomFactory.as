@@ -5,20 +5,14 @@
     import Src.Prog.Com.Atoms.Contact.Core.Contact;
 
     /**
-     * Validating atom factory - создает атомы с параллельными Pin и Contact системами.
+     * Validating atom factory - создает атомы ТОЛЬКО с Contact системой.
      */
     public class AtomFactory {
 
-        /** Factory initialization flag */
         private static var _initialized:Boolean = false;
-        /** Counter for generating unique atom IDs */
         private static var _atomCounter:int = 0;
-        /** Флаг для отладки */
         private static var _debugMode:Boolean = true;
 
-        /**
-         * Initializes the factory system.
-         */
         public static function initialize():void {
             if (_initialized) return;
 
@@ -28,20 +22,18 @@
             }
 
             _initialized = true;
-            trace("✅ AtomFactory: Initialized - ready to create atoms with DUAL contact systems");
+            trace("✅ AtomFactory: Initialized - creating atoms with SINGLE contact system");
         }
 
         /**
-         * Creates a complete atom instance with both Pin and Contact systems.
+         * Creates a complete atom instance with Contact system only.
          */
         public static function createAtom(type:String, position:Point, windowType:String = "Editor", name:String = null):Object {
-            // Validate factory state
             if (!_initialized) {
                 trace("AtomFactory: ERROR - Factory not initialized");
-                initialize(); // Auto-initialize
+                initialize();
             }
 
-            // Validate atom type
             var definition:Object = AtomDefinitions.getAtomDefinition(type);
             if (!definition) {
                 trace("AtomFactory: ERROR - Atom type not registered: " + type);
@@ -51,8 +43,8 @@
             // Create atom instance
             var atom:Atom = new Atom(generateId(), type, position, name || type);
 
-            // Create pins AND contacts from definition (ПАРАЛЛЕЛЬНЫЕ СИСТЕМЫ)
-            createDualSystemsFromDefinition(atom, definition.pins);
+            // Create contacts from definition (ТОЛЬКО Contact система)
+            createContactsFromDefinition(atom, definition.pins);
 
             // Initialize behavior if defined
             if (definition.behavior && definition.behavior.initialize is Function) {
@@ -64,7 +56,6 @@
 
             if (_debugMode) {
                 trace("🎯 AtomFactory: Created atom - " + type + " (" + atom.id + ")");
-                trace("   📌 Pins: " + atom.inputs.length + " inputs, " + atom.outputs.length + " outputs");
                 trace("   🔗 Contacts: " + atom.contactInputs.length + " inputs, " + atom.contactOutputs.length + " outputs");
                 trace("   📍 Position: " + position);
             }
@@ -73,57 +64,33 @@
         }
 
         /**
-         * Creates both Pin and Contact systems from definition.
-         * Каждый пин создает соответствующий контакт с теми же параметрами.
+         * Creates Contact system from definition.
          */
-        private static function createDualSystemsFromDefinition(atom:Atom, pinsDefinition:Array):void {
+        private static function createContactsFromDefinition(atom:Atom, pinsDefinition:Array):void {
             if (!pinsDefinition || pinsDefinition.length === 0) {
                 trace("⚠ AtomFactory: No pins definition for atom type: " + atom.type);
                 return;
             }
 
             for each (var pinDef:Object in pinsDefinition) {
-                // 1. Создаем пин (СТАРАЯ СИСТЕМА)
-                var pin:Pin = createPinFromDefinition(pinDef);
-                
-                // 2. Создаем контакт (НОВАЯ СИСТЕМА)
+                // Создаем контакт
                 var contact:Contact = createContactFromDefinition(pinDef);
                 
-                // 3. Устанавливаем атом-владельца
-                pin.setOwnerAtom(atom);
+                // Устанавливаем атом-владельца
                 contact.setOwnerAtom(atom);
-                
-                // 4. Добавляем в соответствующие коллекции
+
+                // Добавляем в соответствующие коллекции
                 if (pinDef.type == "input") {
-                    atom.inputs.push(pin);
                     atom.contactInputs.push(contact);
                 } else {
-                    atom.outputs.push(pin);
                     atom.contactOutputs.push(contact);
                 }
-                
+
                 if (_debugMode) {
-                    trace("   ➕ Created: " + pinDef.type + " '" + pinDef.name + "'");
-                    trace("     📌 Pin: " + pin.id);
+                    trace("   ➕ Created contact: " + pinDef.type + " '" + pinDef.name + "'");
                     trace("     🔗 Contact: " + contact.id);
                 }
             }
-        }
-
-        /**
-         * Creates a Pin from definition.
-         */
-        private static function createPinFromDefinition(pinDef:Object):Pin {
-            return new Pin(
-                pinDef.name,
-                pinDef.type,
-                getDefaultValue(pinDef.dataType),
-                {
-                    dataType: pinDef.dataType || "any",
-                    description: pinDef.description || "",
-                    defaultValue: getDefaultValue(pinDef.dataType)
-                }
-            );
         }
 
         /**
@@ -131,7 +98,7 @@
          */
         private static function createContactFromDefinition(pinDef:Object):Contact {
             var contactType:String = pinDef.type == "input" ? Contact.TYPE_INPUT : Contact.TYPE_OUTPUT;
-            
+
             return new Contact(
                 pinDef.name,
                 contactType,
@@ -140,7 +107,7 @@
                     dataType: pinDef.dataType || "any",
                     description: pinDef.description || "",
                     defaultValue: getDefaultValue(pinDef.dataType),
-                    originalPinDef: pinDef // Сохраняем ссылку на оригинальное определение
+                    originalPinDef: pinDef
                 }
             );
         }
@@ -176,11 +143,11 @@
         /**
          * Gets all creatable atom types.
          */
-        public static function getCreatableAtomTypes():Array {
-            return AtomDefinitions.getSupportedTypes();
-        }
+		public static function getCreatableAtomTypes():Array {
+			return AtomDefinitions.getSupportedTypes();
+		}
 
-        /**
+		/**
          * Gets creatable atom types by category.
          */
         public static function getCreatableAtomTypesByCategory(category:String):Array {
@@ -199,22 +166,6 @@
          */
         public static function get atomsCreated():int {
             return _atomCounter;
-        }
-
-        /**
-         * Enables debug mode for detailed logging.
-         */
-        public static function enableDebugMode():void {
-            _debugMode = true;
-            trace("🔍 AtomFactory debug mode ENABLED");
-        }
-
-        /**
-         * Disables debug mode.
-         */
-        public static function disableDebugMode():void {
-            _debugMode = false;
-            trace("🔍 AtomFactory debug mode DISABLED");
         }
 
         /**

@@ -1,35 +1,50 @@
 ﻿package Src.Prog.Core.Managers {
-    import flash.utils.Dictionary;
-    import flash.display.DisplayObject;
     import flash.geom.Point;
-    import Src.Prog.Core.Impulsys.Impulsys;
-    import Src.Prog.Core.Impulsys.Impulse;
-    import Src.Prog.Core.Windows.Window;
+    import flash.utils.Dictionary;
     import Src.Prog.Com.Atoms.Core.Atom;
     import Src.Prog.Com.Atoms.Core.AtomView;
     import Src.Prog.Com.Atoms.Core.AtomFactory;
-    import Src.Prog.Com.Atoms.Data.AtomDefinitions;
-    import Src.Prog.Com.Atoms.Core.Pin;
-    import Src.Prog.Com.Atoms.Core.Track;
-    import Src.Prog.Com.Atoms.Core.TrackRegistry;
-    import Src.Prog.Core.Commands.CreateAtom;
+    import Src.Prog.Core.Windows.Window;
+    import Src.Prog.Core.Managers.WindowsManager;
+    import Src.Prog.Core.Impulsys.Impulsys;
+    import Src.Prog.Core.Impulsys.Impulse;
     import Src.Prog.Com.Atoms.Contact.Core.Contact;
-    import Src.Prog.Com.Atoms.Contact.Interaction.LinkCreator;
-    import Src.Prog.Com.Atoms.Contact.View.Link;
+	import Src.Prog.Com.Atoms.Contact.View.Link;
+    import Src.Prog.Com.Atoms.Contact.Core.LinkRegistry;
 
     /**
-     * Manages atoms in the application with support for both Pin and Contact systems.
+     * Centralized manager for all atoms in the application.
+     * Manages atom lifecycle, state updates, and cross-window coordination.
+     * Updated for Contact-only system (Pin system removed).
      */
     public class AtomManager {
-
-        /** Singleton instance */
+        
+        /** Singleton instance reference */
         private static var _instance:AtomManager;
-        /** Storage for atom data: atomId -> {atom: Atom, view: AtomView} */
-        private var _atoms:Dictionary;
-        /** Window-specific atom tracking: windowType -> array of atomIds */
-        private var _windowAtoms:Dictionary;
-        /** LinkCreator for Contact system */
-        private var _linkCreator:LinkCreator;
+        
+        /** Collection of all atoms in the system */
+        private var _allAtoms:Array;
+        /** Fast lookup dictionary for atoms by ID */
+        private var _atomsById:Dictionary;
+        /** Windows manager for window operations */
+        private var _windowsManager:WindowsManager;
+
+        /**
+         * Private constructor for singleton pattern.
+         */
+        public function AtomManager() {
+            if (_instance) {
+                throw new Error("AtomManager is singleton. Use getInstance() instead.");
+            }
+            
+            _allAtoms = new Array();
+            _atomsById = new Dictionary();
+            _windowsManager = WindowsManager.getInstance();
+            
+            setupImpulseListeners();
+            
+            trace("✅ AtomManager: Initialized for Contact-only system");
+        }
 
         /**
          * Gets the singleton instance of AtomManager.
@@ -42,463 +57,502 @@
         }
 
         /**
-         * Creates a new AtomManager instance.
+         * Initializes the AtomManager system.
          */
-        public function AtomManager() {
-            if (_instance) {
-                throw new Error("AtomManager is a singleton. Use getInstance() instead.");
-            }
-            _atoms = new Dictionary();
-            _windowAtoms = new Dictionary();
-            _linkCreator = LinkCreator.getInstance();
-            setupImpulseListeners();
-            
-            trace("✅ AtomManager initialized with DUAL contact systems");
+        public static function initialize():void {
+            getInstance();
         }
 
         /**
-         * Sets up impulse listeners for atom management.
+         * Sets up impulse listeners for atom lifecycle management.
          */
         private function setupImpulseListeners():void {
-            // Atom creation and management
+            // Atom creation and deletion
             Impulsys.subscribeToImpulse("ATOM_CONTEXT_MENU_SELECTED", onAtomContextMenuSelected);
-            Impulsys.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
             Impulsys.subscribeToImpulse("ATOM_DELETE_REQUEST", onAtomDeleteRequest);
-            Impulsys.subscribeToImpulse("ATOM_INTERACTION", onAtomInteraction);
-            Impulsys.subscribeToImpulse("ATOM_VISUAL_UPDATE", onAtomVisualUpdate);
-            Impulsys.subscribeToImpulse("CONTACT_CONNECTION_REQUEST", onContactConnectionRequest);
             
-            trace("📡 AtomManager: Impulse listeners setup complete");
+            // Atom movement and updates
+            Impulsys.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
+            Impulsys.subscribeToImpulse("ATOM_DRAG_END", onAtomDragEnd);
+            
+            // Window management
+            Impulsys.subscribeToImpulse("WINDOW_CREATED", onWindowCreated);
+            Impulsys.subscribeToImpulse("WINDOW_CLOSED", onWindowClosed);
+        }
+
+        // =========================================================================
+        // ATOM LIFECYCLE MANAGEMENT
+        // =========================================================================
+
+        /**
+         * Creates a new atom at the specified position.
+         */
+        public function createAtom(type:String, position:Point, windowType:String = "Editor", name:String = null):Object {
+            trace("AtomManager: Creating atom - " + type + " at " + position);
+            
+            var creationResult:Object = AtomFactory.createAtom(type, position, windowType, name);
+            if (!creationResult) {
+                trace("AtomManager: ERROR - Atom creation failed for type: " + type);
+                return null;
+            }
+            
+            var atom:Atom = creationResult.atom;
+            var view:AtomView = creationResult.view;
+            
+            // Register atom
+            _allAtoms.push({ atom: atom, view: view, windowType: windowType });
+            _atomsById[atom.id] = { atom: atom, view: view, windowType: windowType };
+            
+            // Add to appropriate window
+            var window:Window = _windowsManager.findWindow(windowType);
+            if (window && window.contentLayer) {
+                window.contentLayer.addChild(view);
+                trace("AtomManager: Atom view added to window: " + windowType);
+            }
+            
+            // Emit creation event
+            Impulsys.emit(new Impulse("ATOM_CREATED", {
+                atom: atom,
+                view: view,
+                window: window,
+                windowType: windowType
+            }));
+            
+            trace("AtomManager: Atom created successfully - " + atom.name + " (" + atom.id + ")");
+            return creationResult;
         }
 
         /**
-         * Handles Contact connection requests.
+         * Deletes an atom and all its associated resources.
          */
-        private function onContactConnectionRequest(impulse:Impulse):void {
-            var fromContact:Contact = impulse.data.fromContact;
-            var toContact:Contact = impulse.data.toContact;
+        public function deleteAtom(atomId:String):Boolean {
+            trace("AtomManager: Deleting atom - " + atomId);
             
-            if (fromContact && toContact) {
-                trace("🔗 Contact connection request received");
-                var link:Link = _linkCreator.createConnection(fromContact, toContact);
-                if (link) {
-                    trace("✅ Contact connection created successfully");
-                } else {
-                    trace("❌ Failed to create contact connection");
+            var atomData:Object = getAtomById(atomId);
+            if (!atomData) {
+                trace("AtomManager: Atom not found for deletion: " + atomId);
+                return false;
+            }
+            
+            var atom:Atom = atomData.atom;
+            var view:AtomView = atomData.view;
+            
+            // Dispose atom contacts (this will also disconnect all Links)
+            atom.disposeContacts();
+            
+            // Remove from registry
+            var index:int = findAtomIndex(atomId);
+            if (index !== -1) {
+                _allAtoms.splice(index, 1);
+            }
+            delete _atomsById[atomId];
+            
+            // Remove view from display
+            if (view && view.parent) {
+                view.parent.removeChild(view);
+                view.dispose();
+            }
+            
+            // Emit deletion event
+            Impulsys.emit(new Impulse("ATOM_DELETED", {
+                atom: atom,
+                atomId: atomId
+            }));
+            
+            trace("AtomManager: Atom deleted successfully - " + atom.name + " (" + atomId + ")");
+            return true;
+        }
+
+        // =========================================================================
+        // ATOM STATE MANAGEMENT
+        // =========================================================================
+
+        /**
+         * Updates an atom in the system.
+         * For Contact system - Links update automatically through Contact.notifySubscribers()
+         */
+        public function updateAtom(updatedAtom:Atom):void {
+            if (!updatedAtom) {
+                trace("AtomManager: Cannot update null atom");
+                return;
+            }
+
+            var atomData:Object = getAtomById(updatedAtom.id);
+            if (!atomData) {
+                trace("AtomManager: Atom not found for update: " + updatedAtom.id);
+                return;
+            }
+
+            var oldAtom:Atom = atomData.atom;
+            var view:AtomView = atomData.view;
+
+            // Update registry
+            _atomsById[updatedAtom.id] = { atom: updatedAtom, view: view, windowType: atomData.windowType };
+
+            // Update view
+            if (view) {
+                view.updateAtom(updatedAtom);
+            }
+
+            // 🔥 ВАЖНО: Для Contact системы Links обновляются автоматически
+            // через Contact.notifySubscribers() при изменении значения
+
+            // Emit update event
+            Impulsys.emit(new Impulse("ATOM_UPDATED", {
+                oldAtom: oldAtom,
+                newAtom: updatedAtom,
+                view: view,
+                updateLinks: true // Contact система сама обновит Links
+            }));
+
+            trace("AtomManager: Atom updated - " + updatedAtom.name + " (" + updatedAtom.id + ")");
+        }
+
+        /**
+         * Updates atom position and handles visual updates.
+         */
+        public function updateAtomPosition(atomId:String, newPosition:Point):void {
+            var atomData:Object = getAtomById(atomId);
+            if (!atomData || !atomData.atom) return;
+            
+            var oldAtom:Atom = atomData.atom;
+            var newAtom:Atom = oldAtom.setPosition(newPosition);
+            
+            // Update in registry
+            atomData.atom = newAtom;
+            _atomsById[atomId] = atomData;
+            
+            // Update view position
+            if (atomData.view) {
+                atomData.view.updateAtom(newAtom);
+            }
+            
+            // Update all Links connected to this atom
+            updateLinksForAtom(atomId);
+            
+            trace("AtomManager: Atom position updated - " + newAtom.name + " to " + newPosition);
+        }
+
+		/**
+		 * Updates all Links connected to an atom.
+		 */
+		private function updateLinksForAtom(atomId:String):void {
+			var linkRegistry:LinkRegistry = LinkRegistry.getInstance();
+			if (!linkRegistry) return;
+			
+			// 🔥 ИСПРАВЛЕНО: Теперь getLinksByAtom возвращает Array
+			var links:Array = linkRegistry.getLinksByAtom(atomId);
+			for each (var link:Link in links) {
+				if (link && link.updateVisual is Function) {
+					link.updateVisual();
+				}
+			}
+}
+
+        // =========================================================================
+        // ATOM QUERY AND RETRIEVAL
+        // =========================================================================
+
+        /**
+         * Gets all atoms for a specific window type.
+         */
+        public function getAtomsForWindow(windowType:String):Array {
+            var result:Array = new Array();
+            
+            for each (var atomData:Object in _allAtoms) {
+                if (atomData.windowType == windowType) {
+                    result.push(atomData);
                 }
             }
+            
+            return result;
         }
 
         /**
-         * Handles visual update request for a specific atom.
+         * Gets an atom by its ID.
          */
-        private function onAtomVisualUpdate(impulse:Impulse):void {
-            var atomId:String = impulse.data.atomId;
-            var atomData:Object = _atoms[atomId];
-            if (atomData) {
-                atomData.view.updateVisuals();
-                trace("🔄 Visual update for atom: " + atomId);
-            }
+        public function getAtomById(atomId:String):Object {
+            return _atomsById[atomId] as Object;
         }
 
         /**
-         * Handles atom creation from context menu selection.
+         * Gets the atom view for a specific atom.
+         */
+        public function getAtomView(atom:Atom):AtomView {
+            var data:Object = getAtomById(atom.id);
+            return data ? data.view : null;
+        }
+
+        /**
+         * Finds the index of an atom in the _allAtoms array.
+         */
+        private function findAtomIndex(atomId:String):int {
+            for (var i:int = 0; i < _allAtoms.length; i++) {
+                if (_allAtoms[i].atom.id == atomId) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        // =========================================================================
+        // IMPULSE HANDLERS
+        // =========================================================================
+
+        /**
+         * Handles atom creation from context menu.
          */
         private function onAtomContextMenuSelected(impulse:Impulse):void {
             var atomType:String = impulse.data.atomType;
             var position:Point = impulse.data.position;
-            var cmd:CreateAtom = new CreateAtom(atomType, position, "Editor");
-            cmd.execute();
-        }
-
-        /**
-         * Handles atom movement updates.
-         */
-        private function onAtomMoved(impulse:Impulse):void {
-            var newAtom:Atom = impulse.data.newAtom;
-            if (_atoms[newAtom.id]) {
-                _atoms[newAtom.id].atom = newAtom;
-                var view:AtomView = _atoms[newAtom.id].view;
-                view.updateAtom(newAtom);
-                
-                trace("📍 Atom moved: " + newAtom.name + " to " + newAtom.position);
-                
-                // Уведомляем систему об обновлении связей
-                updateConnectionsForAtom(newAtom);
-            }
-        }
-
-        /**
-         * Обновляет связи для атома после перемещения.
-         */
-        private function updateConnectionsForAtom(atom:Atom):void {
-            // Обновляем связи в Track системе
-            var trackRegistry:TrackRegistry = TrackRegistry.getInstance();
-            var connectedTracks:Vector.<Track> = trackRegistry.getTracksByAtom(atom);
-            for each (var track:Track in connectedTracks) {
-                track.updateVisual();
-            }
             
-            // TODO: Обновлять связи в Contact системе (Link)
-            // Нужно будет реализовать LinkRegistry аналогично TrackRegistry
-        }
-
-        /**
-         * Handles atom interaction events (press and release).
-         */
-        private function onAtomInteraction(impulse:Impulse):void {
-            var atom:Atom = impulse.data.atom;
-            var interactionType:String = impulse.data.interactionType;
-            
-            trace("🖱️ Atom interaction: " + atom.type + " - " + interactionType);
-
-            var definition:Object = AtomDefinitions.getAtomDefinition(atom.type);
-            if (definition && definition.behavior) {
-                try {
-                    var newAtom:Atom = atom;
-
-                    if (interactionType == "press" && definition.behavior.onInteraction) {
-                        newAtom = definition.behavior.onInteraction(atom, interactionType);
-                    }
-                    else if (interactionType == "release" && definition.behavior.onRelease) {
-                        newAtom = definition.behavior.onRelease(atom);
-                    }
-
-                    if (newAtom !== atom) {
-                        updateAtom(newAtom);
-                    }
-                } catch (error:Error) {
-                    trace("❌ ERROR in atom interaction: " + error.message);
-                }
+            if (atomType && position) {
+                createAtom(atomType, position, "Editor");
             }
         }
 
         /**
-         * Handles atom deletion requests with connected track cleanup.
+         * Handles atom deletion requests.
          */
         private function onAtomDeleteRequest(impulse:Impulse):void {
             var atom:Atom = impulse.data.atom;
-            trace("🗑️ Atom delete request for: " + atom.id);
-            removeConnectedTracks(atom);
-            removeConnectedLinks(atom); // Новая система
-            removeAtom(atom.id);
+            if (atom) {
+                deleteAtom(atom.id);
+            }
         }
 
         /**
-         * Remove all tracks connected to the specified atom (Pin система).
+         * Handles atom movement events.
          */
-        private function removeConnectedTracks(atom:Atom):void {
-            var trackRegistry:TrackRegistry = TrackRegistry.getInstance();
-            var connectedTracks:Vector.<Track> = trackRegistry.getTracksByAtom(atom);
-            trace("🔌 Removing " + connectedTracks.length + " Pin tracks from atom: " + atom.id);
+        private function onAtomMoved(impulse:Impulse):void {
+            var newAtom:Atom = impulse.data.newAtom;
+            var updateLinks:Boolean = impulse.data.updateLinks !== false;
             
-            for each (var track:Track in connectedTracks) {
-                track.dispose();
+            if (newAtom && updateLinks) {
+                updateAtomPosition(newAtom.id, newAtom.position);
             }
         }
 
         /**
-         * Remove all links connected to the specified atom (Contact система).
+         * Handles atom drag end events.
          */
-        private function removeConnectedLinks(atom:Atom):void {
-            // TODO: Реализовать LinkRegistry для управления связями Contact системы
-            // Пока просто освобождаем все контакты атома
-            atom.disposeContacts();
-            trace("🔌 Contact connections removed for atom: " + atom.id);
+        private function onAtomDragEnd(impulse:Impulse):void {
+            var atom:Atom = impulse.data.atom;
+            if (atom) {
+                updateAtomPosition(atom.id, atom.position);
+            }
         }
 
         /**
-         * Adds an atom to a specific window.
+         * Handles window creation events.
          */
-        public function addAtomToWindow(windowType:String, atom:Atom, view:AtomView):void {
-            trace("➕ Adding atom to window: " + windowType + ", atom: " + atom.id);
+        private function onWindowCreated(impulse:Impulse):void {
+            var window:Window = impulse.data.window;
+            trace("AtomManager: Window created - " + (window ? window.windowType : "unknown"));
+        }
 
-            if (!_windowAtoms[windowType]) {
-                _windowAtoms[windowType] = [];
+        /**
+         * Handles window closure events.
+         */
+        private function onWindowClosed(impulse:Impulse):void {
+            var window:Window = impulse.data.window;
+            if (window) {
+                trace("AtomManager: Window closed - " + window.windowType);
+                // Note: Atoms are automatically disposed when window closes
+                // because views are removed from display list
             }
+        }
+
+        // =========================================================================
+        // STATISTICS AND DEBUG INFORMATION
+        // =========================================================================
+
+        /**
+         * Gets the active contact count for a window.
+         * Replaces old getActivePinCount() method.
+         */
+        public function getActiveContactCount(windowType:String):Object {
+            var window:Window = _windowsManager.findWindow(windowType);
+            if (!window) return { active: 0, total: 0 };
             
-            _atoms[atom.id] = { atom: atom, view: view };
-            _windowAtoms[windowType].push(atom.id);
-
-            var windowsManager:WindowsManager = WindowsManager.getInstance();
-            var window:Window = windowsManager.findWindow(windowType);
-            
-            if (window && window.contentLayer) {
-                window.contentLayer.addChild(view as DisplayObject);
-                view.x = atom.position.x;
-                view.y = atom.position.y;
-                view.updateVisuals();
-                
-                trace("✅ Atom view added to contentLayer at: " + atom.position);
-
-                Impulsys.emit(new Impulse("ATOM_ADDED", {
-                    windowType: windowType,
-                    atom: atom,
-                    view: view,
-                    systems: {
-                        pins: atom.inputs.length + atom.outputs.length,
-                        contacts: atom.contactInputs.length + atom.contactOutputs.length
-                    }
-                }));
-            } else {
-                trace("❌ ERROR: Window or contentLayer not found for: " + windowType);
-            }
-        }
-
-        /**
-         * Removes an atom by ID with enhanced cleanup.
-         */
-        public function removeAtom(atomId:String):void {
-            if (_atoms[atomId]) {
-                var atomData:Object = _atoms[atomId];
-                trace("🗑️ Removing atom: " + atomId);
-
-                // Remove connected tracks first (Pin система)
-                removeConnectedTracks(atomData.atom);
-                
-                // Remove connected links (Contact система)
-                removeConnectedLinks(atomData.atom);
-
-                if (atomData.view && atomData.view.parent) {
-                    atomData.view.parent.removeChild(atomData.view as DisplayObject);
-                    trace("👁️ View removed from display");
-                }
-
-                atomData.view.dispose();
-                delete _atoms[atomId];
-
-                for (var windowType:String in _windowAtoms) {
-                    var atomIds:Array = _windowAtoms[windowType];
-                    var index:int = atomIds.indexOf(atomId);
-                    if (index !== -1) {
-                        atomIds.splice(index, 1);
-                        trace("🗂️ Atom removed from window tracking: " + windowType);
-                        break;
-                    }
-                }
-
-                Impulsys.emit(new Impulse("ATOM_REMOVED", { 
-                    atomId: atomId,
-                    timestamp: new Date().getTime()
-                }));
-                
-                trace("✅ Atom removed successfully: " + atomId);
-            } else {
-                trace("⚠ WARNING: Atom not found for removal: " + atomId);
-            }
-        }
-
-        /**
-         * Updates an atom in the manager and refreshes its view.
-         */
-        public function updateAtom(newAtom:Atom):void {
-            trace("🔄 Updating atom: " + newAtom.id + " (" + newAtom.type + ")");
-
-            if (_atoms[newAtom.id]) {
-                _atoms[newAtom.id].atom = newAtom;
-                _atoms[newAtom.id].view.updateAtom(newAtom);
-                
-                // Триггерим обновление атома
-                newAtom.triggerUpdate();
-                
-                trace("✅ Atom updated successfully");
-            } else {
-                trace("⚠ WARNING: Atom not found for update: " + newAtom.id);
-            }
-        }
-
-        /**
-         * Creates a connection between two atoms using Contact system.
-         */
-        public function connectAtoms(sourceAtomId:String, targetAtomId:String, 
-                                    sourceContactName:String, targetContactName:String):Boolean {
-            var sourceData:Object = _atoms[sourceAtomId];
-            var targetData:Object = _atoms[targetAtomId];
-            
-            if (!sourceData || !targetData) {
-                trace("❌ Connection failed: atoms not found");
-                return false;
-            }
-            
-            var result:Boolean = sourceData.atom.connectTo(targetData.atom, sourceContactName, targetContactName);
-            
-            if (result) {
-                trace("✅ Atoms connected: " + sourceAtomId + " → " + targetAtomId);
-                Impulsys.emit(new Impulse("ATOMS_CONNECTED", {
-                    sourceAtom: sourceData.atom,
-                    targetAtom: targetData.atom,
-                    sourceContact: sourceContactName,
-                    targetContact: targetContactName,
-                    timestamp: new Date().getTime()
-                }));
-            } else {
-                trace("❌ Atoms connection failed");
-            }
-            
-            return result;
-        }
-
-        /**
-         * Gets all atoms for a specific window.
-         */
-        public function getAtomsForWindow(windowType:String):Array {
-            var result:Array = [];
-            if (_windowAtoms[windowType]) {
-                for each (var atomId:String in _windowAtoms[windowType]) {
-                    if (_atoms[atomId]) {
-                        result.push(_atoms[atomId]);
-                    }
-                }
-            }
-            return result;
-        }
-
-        /**
-         * Gets atom data by ID.
-         */
-        public function getAtomById(atomId:String):Object {
-            return _atoms[atomId];
-        }
-
-        /**
-         * Gets total count of atoms in manager.
-         */
-        public function getAtomCount():int {
-            var count:int = 0;
-            for (var key:String in _atoms) {
-                count++;
-            }
-            return count;
-        }
-
-        /**
-         * Gets the AtomView for a given Atom instance.
-         */
-        public function getAtomView(atom:Atom):AtomView {
-            var atomData:Object = _atoms[atom.id];
-            return atomData ? atomData.view : null;
-        }
-
-        /**
-         * Gets all available atom definitions for menu creation.
-         */
-        public function getAtomDefinitionsForMenu():Array {
-            var result:Array = [];
-            var supportedTypes:Array = getSupportedAtomTypes();
-            for each (var atomType:String in supportedTypes) {
-                var definition:Object = AtomDefinitions.getAtomDefinition(atomType);
-                if (definition) {
-                    result.push({
-                        type: atomType,
-                        name: definition.displayName || atomType,
-                        category: definition.category || "General",
-                        description: definition.description || "",
-                        pins: definition.pins || []
-                    });
-                }
-            }
-            return result;
-        }
-
-        /**
-         * Gets supported atom types from definitions.
-         */
-        public function getSupportedAtomTypes():Array {
-            return AtomDefinitions.getSupportedTypes();
-        }
-
-        /**
-         * Log all atoms for debugging.
-         */
-        public function logAllAtoms():void {
-            trace("=== ALL ATOMS (" + getAtomCount() + ") ===");
-            for (var atomId:String in _atoms) {
-                var atomData:Object = _atoms[atomId];
-                var atom:Atom = atomData.atom;
-                trace("Atom: " + atom.id);
-                trace("  Type: " + atom.type + ", Name: " + atom.name);
-                trace("  Position: " + atom.position);
-                trace("  Pins: " + atom.inputs.length + " in, " + atom.outputs.length + " out");
-                trace("  Contacts: " + atom.contactInputs.length + " in, " + atom.contactOutputs.length + " out");
-                
-                // Логируем информацию о контактах
-                if (atom.contactOutputs.length > 0) {
-                    trace("  Contact outputs:");
-                    for each (var contact:Contact in atom.contactOutputs) {
-                        trace("    - " + contact.name + ": value=" + contact.value + 
-                              ", connected=" + contact.isConnected + 
-                              ", subscribers=" + contact.subscribers.length);
-                    }
-                }
-            }
-            trace("=== END ATOMS LOG ===");
-        }
-
-        /**
-         * Gets statistics about all managed atoms.
-         */
-        public function getStatistics():Object {
-            var totalPins:int = 0;
+            var atoms:Array = getAtomsForWindow(windowType);
+            var activeContacts:int = 0;
             var totalContacts:int = 0;
-            var connectedPins:int = 0;
-            var connectedContacts:int = 0;
             
-            for (var atomId:String in _atoms) {
-                var atom:Atom = _atoms[atomId].atom;
-                totalPins += atom.inputs.length + atom.outputs.length;
-                totalContacts += atom.contactInputs.length + atom.contactOutputs.length;
-                
-                // Подсчитываем подключенные контакты
-                for each (var output:Contact in atom.contactOutputs) {
-                    if (output.isConnected) connectedContacts += output.subscribers.length;
+            for each (var atomData:Object in atoms) {
+                var atom:Atom = atomData.atom;
+                if (atom) {
+                    // 🔥 ИСПРАВЛЕНО: Используем contactInputs/contactOutputs вместо inputs/outputs
+                    totalContacts += atom.contactInputs.length + atom.contactOutputs.length;
+                    
+                    // Считаем активные контакты (подключенные)
+                    for each (var input:Contact in atom.contactInputs) {
+                        if (input.isConnected) activeContacts++;
+                    }
+                    for each (var output:Contact in atom.contactOutputs) {
+                        if (output.isConnected) activeContacts++;
+                    }
+                }
+            }
+            
+            return { active: activeContacts, total: totalContacts };
+        }
+
+        /**
+         * Gets contact statistics for the entire system.
+         */
+        public function getContactStats():Object {
+            var totalContacts:int = 0;
+            var connectedContacts:int = 0;
+            var totalConnections:int = 0;
+            
+            for each (var atomData:Object in _allAtoms) {
+                var atom:Atom = atomData.atom;
+                if (atom) {
+                    for each (var input:Contact in atom.contactInputs) {
+                        totalContacts++;
+                        if (input.isConnected) connectedContacts++;
+                    }
+                    for each (var output:Contact in atom.contactOutputs) {
+                        totalContacts++;
+                        if (output.isConnected) {
+                            connectedContacts++;
+                            totalConnections += output.subscribers.length;
+                        }
+                    }
                 }
             }
             
             return {
-                totalAtoms: getAtomCount(),
-                totalPins: totalPins,
                 totalContacts: totalContacts,
                 connectedContacts: connectedContacts,
-                windows: getWindowStats()
+                totalConnections: totalConnections,
+                connectionDensity: totalContacts > 0 ? (connectedContacts / totalContacts).toFixed(2) : "0.00"
             };
         }
 
         /**
-         * Gets window statistics.
+         * Gets debug info for all atoms.
          */
-        private function getWindowStats():Object {
+        public function getDebugInfo():Object {
+            var contactStats:Object = getContactStats();
+            
+            return {
+                totalAtoms: _allAtoms.length,
+                contactStats: contactStats,
+                atomsByWindow: getAtomsByWindowStats(),
+                registrySize: Object(_atomsById).length
+            };
+        }
+
+        /**
+         * Gets atom statistics by window.
+         */
+        private function getAtomsByWindowStats():Object {
             var stats:Object = {};
-            for (var windowType:String in _windowAtoms) {
-                stats[windowType] = _windowAtoms[windowType].length;
+            
+            for each (var atomData:Object in _allAtoms) {
+                var windowType:String = atomData.windowType;
+                if (!stats[windowType]) {
+                    stats[windowType] = { count: 0, contacts: 0 };
+                }
+                stats[windowType].count++;
+                
+                var atom:Atom = atomData.atom;
+                if (atom) {
+                    stats[windowType].contacts += atom.contactInputs.length + atom.contactOutputs.length;
+                }
             }
+            
             return stats;
         }
 
         /**
-         * Cleans up all resources and listeners.
+         * Validates atom integrity in the system.
+         */
+        public function validateAtoms():Object {
+            var errors:Array = new Array();
+            var warnings:Array = new Array();
+            
+            for each (var atomData:Object in _allAtoms) {
+                var atom:Atom = atomData.atom;
+                var view:AtomView = atomData.view;
+                
+                if (!atom) {
+                    errors.push("Null atom in registry");
+                    continue;
+                }
+                
+                if (!view) {
+                    warnings.push("Atom '" + atom.name + "' has no view");
+                }
+                
+                if (atom.position.x < 0 || atom.position.y < 0) {
+                    warnings.push("Atom '" + atom.name + "' has negative position: " + atom.position);
+                }
+                
+                // Проверяем контакты
+                for each (var contact:Contact in atom.getAllContacts()) {
+                    if (!contact.atom || contact.atom.id !== atom.id) {
+                        errors.push("Contact '" + contact.name + "' has wrong owner atom");
+                    }
+                }
+            }
+            
+            return {
+                valid: errors.length === 0,
+                errors: errors,
+                warnings: warnings,
+                atomCount: _allAtoms.length
+            };
+        }
+
+        // =========================================================================
+        // SYSTEM MAINTENANCE AND CLEANUP
+        // =========================================================================
+
+        /**
+         * Clears all atoms from the system (for testing).
+         */
+        public function clearAll():void {
+            trace("AtomManager: Clearing all atoms...");
+            
+            // Dispose all atoms
+            for each (var atomData:Object in _allAtoms) {
+                if (atomData.atom) {
+                    atomData.atom.disposeContacts();
+                }
+                if (atomData.view && atomData.view.parent) {
+                    atomData.view.parent.removeChild(atomData.view);
+                    atomData.view.dispose();
+                }
+            }
+            
+            // Clear registries
+            _allAtoms = new Array();
+            _atomsById = new Dictionary();
+            
+            trace("AtomManager: All atoms cleared");
+        }
+
+        /**
+         * Disposes the AtomManager and all its resources.
          */
         public function dispose():void {
-            trace("🧹 Disposing AtomManager...");
+            trace("AtomManager: Disposing...");
             
-            // Удаляем слушатели импульсов
+            clearAll();
+            
+            // Unsubscribe from impulses
             Impulsys.removeImpulse("ATOM_CONTEXT_MENU_SELECTED", onAtomContextMenuSelected);
-            Impulsys.removeImpulse("ATOM_MOVED", onAtomMoved);
             Impulsys.removeImpulse("ATOM_DELETE_REQUEST", onAtomDeleteRequest);
-            Impulsys.removeImpulse("ATOM_INTERACTION", onAtomInteraction);
-            Impulsys.removeImpulse("ATOM_VISUAL_UPDATE", onAtomVisualUpdate);
-            Impulsys.removeImpulse("CONTACT_CONNECTION_REQUEST", onContactConnectionRequest);
-
-            // Удаляем все атомы
-            for (var atomId:String in _atoms) {
-                removeAtom(atomId);
-            }
-
-            _atoms = new Dictionary();
-            _windowAtoms = new Dictionary();
-            _linkCreator = null;
-            _instance = null;
+            Impulsys.removeImpulse("ATOM_MOVED", onAtomMoved);
+            Impulsys.removeImpulse("ATOM_DRAG_END", onAtomDragEnd);
+            Impulsys.removeImpulse("WINDOW_CREATED", onWindowCreated);
+            Impulsys.removeImpulse("WINDOW_CLOSED", onWindowClosed);
             
-            trace("✅ AtomManager disposed");
+            _instance = null;
+            trace("AtomManager: Disposed");
         }
     }
 }

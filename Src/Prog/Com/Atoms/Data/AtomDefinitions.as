@@ -5,7 +5,7 @@
     import Src.Prog.Core.Impulsys.Impulse;
     import Src.Prog.Core.Managers.AtomManager;
     import flash.display.Graphics;
-    import Src.Prog.Com.Atoms.Core.Pin;
+   // import Src.Prog.Com.Contact.Core.Contact;
     import Src.Prog.Com.Atoms.Core.AtomView;
     // Behaviors
     import Src.Prog.Com.Atoms.Data.Behaviors.ButtonBehavior;
@@ -107,13 +107,9 @@
                 displayName: "Button",
                 category: "Input",
                 description: "Button with DUAL output systems (Pin and Contact) - sends TRUE when pressed, FALSE when released",
-                pins: [
-                    // Pin system (legacy) - square ports
-                    {name: "output_pin", type: "output", dataType: "boolean", description: "Pin-based output (legacy system)"},
-                    
-                    // Contact system (new) - round ports  
-                    {name: "output_contact", type: "output", dataType: "boolean", description: "Contact-based output (new system)"}
-                ],
+				pins: [
+					{name: "output", type: "output", dataType: "boolean"} // Только один!
+				],
 				
 				behavior: new ButtonBehavior(), // ← УКАЗАТЕЛЬ НА КЛАСС C ПОВЕДЕНИЕМ
 
@@ -203,11 +199,7 @@
 				category: "Output",
 				description: "LED with DUAL input systems (Pin and Contact) - lights up when active",
 				pins: [
-                    // Pin system (legacy) - square ports
-					{name: "input_pin", type: "input", dataType: "boolean", description: "Pin-based input (legacy system)"},
-                    
-                    // Contact system (new) - round ports
-					{name: "input_contact", type: "input", dataType: "boolean", description: "Contact-based input (new system)"}
+					{name: "input", type: "input", dataType: "boolean"},
 				],
 
                 behavior: new LEDBehavior(), // ← УКАЗАТЕЛЬ НА КЛАСС C ПОВЕДЕНИЕМ
@@ -425,13 +417,13 @@
                         trace("Input: " + inputValue);
                         var result:Boolean = !inputValue;
                         trace("NOT Result (output): " + result);
-                        var newAtom:Atom = atom.setPinValue("output", result, false);
+                        var newAtom:Atom = atom.setContactValue("output", result, false);
                         trace("=== END NOT GATE ===");
                         return newAtom;
                     },
                     initialize: function(atom:Atom):Atom {
                         trace("NOT Gate initialized");
-                        return atom.setPinValue("output", true, false);
+                        return atom.setContactValue("output", true, false);
                     }
                 },
                 viewConfig: {
@@ -491,7 +483,7 @@
                         trace("Input1: " + input1 + ", Input2: " + input2);
                         var result:Boolean = !(input1 && input2);
                         trace("NAND Result: " + result);
-                        var finalAtom:Atom = newAtom.setPinValue("output", result, false);
+                        var finalAtom:Atom = newAtom.setContactValue("output", result, false);
                         trace("=== END NAND GATE ===");
                         return finalAtom;
                     },
@@ -500,7 +492,7 @@
                         var newAtom:Atom = atom;
                         if (!atom.hasValue("input1")) newAtom = newAtom.setData("input1", false);
                         if (!atom.hasValue("input2")) newAtom = newAtom.setData("input2", false);
-                        newAtom = newAtom.setPinValue("output", true, false);
+                        newAtom = newAtom.setContactValue("output", true, false);
                         return newAtom;
                     }
                 },

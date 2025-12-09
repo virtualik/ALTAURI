@@ -178,17 +178,11 @@
 			
 			// Создаем Link
 			try {
-				var link:Link = new Link(fromContact, toContact);
-				trace("✅ Connection created successfully!");
-				
-				// Отправляем событие о создании соединения
-				Impulsys.emit(new Impulse("LINK_CREATED", {
-					link: link,
-					fromContact: fromContact,
-					toContact: toContact,
-					connectionId: link.connectionId
-				}));
-				
+				var link:Link = LinkCreator.getInstance().createConnection(fromContact, toContact);
+				if (link) {
+					trace("✅ Connection created successfully!");
+					// ... события
+				}
 			} catch (error:Error) {
 				trace("❌ Failed to create link: " + error.message);
 			} finally {
@@ -243,27 +237,32 @@
             return closestContact;
         }
         
-        /**
-         * Gets all contacts in the current window.
-         */
-        private function getAllContactsInWindow():Vector.<Contact> {
-            var allContacts:Vector.<Contact> = new Vector.<Contact>();
-            
-            if (!_parentWindow) return allContacts;
-            
-            var atomManager:AtomManager = AtomManager.getInstance();
-            var atoms:Array = atomManager.getAtomsForWindow(_parentWindow.windowType);
-            
-            for each (var atomData:Object in atoms) {
-                var atom:Atom = atomData.atom;
-                if (atom) {
-                    allContacts = allContacts.concat(atom.contactInputs);
-                    allContacts = allContacts.concat(atom.contactOutputs);
-                }
-            }
-            
-            return allContacts;
-        }
+		/**
+		 * Gets all contacts in the current window.
+		 */
+		private function getAllContactsInWindow():Vector.<Contact> {
+			var allContacts:Vector.<Contact> = new Vector.<Contact>();
+
+			if (!_parentWindow) return allContacts;
+
+			var atomManager:AtomManager = AtomManager.getInstance();
+			var atoms:Array = atomManager.getAtomsForWindow(_parentWindow.windowType);
+
+			for each (var atomData:Object in atoms) {
+				var atom:Atom = atomData.atom;
+				if (atom) {
+					// 🔥 ИСПРАВЛЕНИЕ: Правильное объединение Array и Vector
+					for each (var input:Contact in atom.contactInputs) {
+						allContacts.push(input);
+					}
+					for each (var output:Contact in atom.contactOutputs) {
+						allContacts.push(output);
+					}
+				}
+			}
+
+			return allContacts;
+		}
         
         /**
          * Finds ContactView for a contact.

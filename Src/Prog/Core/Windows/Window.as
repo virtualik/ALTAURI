@@ -20,11 +20,11 @@
     import flash.display.DisplayObject;
     import Src.Prog.Com.Atoms.Core.Atom;
     import Src.Prog.Com.Atoms.Core.AtomView;
-    import Src.Prog.Com.Atoms.Core.Track;
-    import Src.Prog.Com.Atoms.Core.Pin;
     import Src.Prog.Core.Menus.ContextMenu;
     import Src.Prog.Core.Menus.ContextMenuItem;
     import Src.Prog.Core.Managers.MenuManager;
+    import Src.Prog.Com.Atoms.Contact.Core.Contact;
+    import Src.Prog.Com.Atoms.Contact.View.Link;
 
     /**
      * Universal application window with comprehensive mouse event handling system.
@@ -177,7 +177,7 @@
 				function(e:MouseEvent):void {
 					transformMouseDown = this;
 
-					if (e.target is AtomView || e.target is Pin || e.target is Track) {
+					if (e.target is AtomView || e.target is Contact || e.target is Link) {
 						return; // Компоненты обрабатывают события сами
 					}					
 					
@@ -193,7 +193,7 @@
 				;}
 			);		
 	
-            stage.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, 
+			stage.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, 
 				function(e:MouseEvent):void {
 					transformRightMouseDown = this;
 
@@ -203,23 +203,25 @@
 					var target:DisplayObject = e.target as DisplayObject;
 					var pos:Point = new Point(e.stageX, e.stageY);
 					
-					// Target detection hierarchy: Atom → Track → Background
+					// 🔥 ИСПРАВЛЕНО: Target detection hierarchy: Atom → Link → Background
 					var atom:Atom = findClickedAtom(target);
-					var track:Track = findClickedTrack(target);
+					var link:Link = findClickedLink(target); // ← ИЗМЕНЕНО: Track → Link
 					
 					if (atom) {
 						// Atom-specific context menu impulse
 						Impulsys.emit(new Impulse("ATOM_RIGHT_CLICK", {
 							atom: atom,
 							globalPosition: pos,
+							window: this,
 							windowType: _type
 						}));
 						e.stopPropagation();
-					} else if (track) {
-						// Track-specific context menu impulse
-						Impulsys.emit(new Impulse("TRACK_RIGHT_CLICK", {
-							track: track,
+					} else if (link) {
+						// Link-specific context menu impulse
+						Impulsys.emit(new Impulse("LINK_RIGHT_CLICK", { // ← ИЗМЕНЕНО: TRACK_RIGHT_CLICK → LINK_RIGHT_CLICK
+							link: link,
 							globalPosition: pos,
+							window: this,
 							windowType: _type
 						}));
 						e.stopPropagation();
@@ -666,7 +668,7 @@
             var cur:DisplayObject = target;
             while (cur && cur != stage) {
                 if (cur is AtomView) return (cur as AtomView).atom;
-                if (cur is Pin) {
+                if (cur is Contact) {
                     var p:DisplayObject = cur.parent;
                     while (p && p != stage) {
                         if (p is AtomView) return (p as AtomView).atom;
@@ -679,21 +681,21 @@
         }
 
         /**
-         * Finds the track associated with a clicked display object.
+         * Finds the Link associated with a clicked display object.
          * Traverses display hierarchy to locate parent Track.
          * 
          * @private
          * @param {DisplayObject} target - Clicked display object
-         * @return {Track} Associated track or null if not found
+         * @return {Link} Associated track or null if not found
          */
-        private function findClickedTrack(target:DisplayObject):Track {
-            var cur:DisplayObject = target;
-            while (cur && cur != stage) {
-                if (cur is Track) return cur as Track;
-                cur = cur.parent;
-            }
-            return null;
-        }
+		private function findClickedLink(target:DisplayObject):Link {
+			var cur:DisplayObject = target;
+			while (cur && cur != stage) {
+				if (cur is Link) return cur as Link;
+				cur = cur.parent;
+			}
+			return null;
+		}		
 
         /**
          * Extracts Pin instance from clicked display object hierarchy.
@@ -702,12 +704,12 @@
          * @param {DisplayObject} target - Clicked display object
          * @return {Pin} Associated pin or null if not found
          */
-        private function getPinFromTarget(target:DisplayObject):Pin {
+        private function getPinFromTarget(target:DisplayObject):Contact {
             var cur:DisplayObject = target;
-            while (cur && !(cur is Pin) && cur.parent) {
+            while (cur && !(cur is Contact) && cur.parent) {
                 cur = cur.parent;
             }
-            return cur as Pin;
+            return cur as Contact;
         }
 
         // =========================================================================

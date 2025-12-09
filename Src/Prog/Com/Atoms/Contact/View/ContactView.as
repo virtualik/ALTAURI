@@ -55,7 +55,7 @@
             // Создаем невидимую хит-зону большего размера для удобства взаимодействия
             var hitCircle:Sprite = new Sprite();
             hitCircle.graphics.beginFill(0x000000, 0); // Полностью прозрачная
-            hitCircle.graphics.drawCircle(0, 0, 6);    // Радиус хит-зоны 6px
+            hitCircle.graphics.drawCircle(0, 0, 4);    // Радиус хит-зоны 
             hitCircle.graphics.endFill();
             this.addChild(hitCircle);
             this.hitArea = hitCircle;
@@ -78,7 +78,7 @@
          */
         private function onMouseDown(event:MouseEvent):void {
             event.stopPropagation();
-
+			trace("🎯 STARTING DRAG FROM CONTACT: " + _contact.name + " (" + _contact.type + ")");
             // 🔥 ИСПРАВЛЕНИЕ: Убрал startPos из конструктора
             _dragManager = new VisualDragManager();
             _dragManager.startDragFromContact(_contact);
