@@ -1,5 +1,0 @@
-Director.as			- Управляет приложением
-WindowsManager.as	- Управляет Окнами 
-DataManager.as		- Хранит Данные 
-AtomManager.as		- Управляет Атомами
-MenuManager.as		- Управляет Меню 
