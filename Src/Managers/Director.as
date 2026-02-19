@@ -1,7 +1,7 @@
 ﻿package Src.Managers {
     import flash.events.Event;
-    import Src.Impulsys.Impulsys;
-    import Src.Impulsys.Impulse;
+    import Src.Impulsator.Impulsys;
+    import Src.Impulsator.Impulse;
     import Src.Commands.SerialCommand;
     import Src.Commands.InvokeFunction;
     import Src.Commands.CommandErrorEvent;
@@ -17,7 +17,7 @@
                 new InvokeFunction(initializeImpulsys),
                 new InvokeFunction(WindowsManager.createWindows),
                 new InvokeFunction(initializeAtomSystem),
-                new InvokeFunction(initializeMenuSystem),
+                new InvokeFunction(initializeContextMenuystem),
                 new InvokeFunction(finalizeInitialization)
             );
 
@@ -56,7 +56,7 @@
             }
         }
 
-        private static function initializeMenuSystem():void {
+        private static function initializeContextMenuystem():void {
             try {
                 MenuManager.initialize();
                 Impulsys.emit(new Impulse("MENU_SYSTEM_INITIALIZED"));

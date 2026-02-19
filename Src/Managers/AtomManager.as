@@ -6,8 +6,8 @@
     import Src.Atom.Core.AtomFactory;
     import Src.Windows.Window;
     import Src.Managers.WindowsManager;
-    import Src.Impulsys.Impulsys;
-    import Src.Impulsys.Impulse;
+    import Src.Impulsator.Impulsys;
+    import Src.Impulsator.Impulse;
     import Src.Contact.Core.Contact;
 	import Src.Contact.View.Link;
     import Src.Contact.Core.LinkRegistry;
@@ -41,7 +41,7 @@
         }
 
         private function setupImpulseListeners():void {
-            Impulsys.subscribeToImpulse("ATOM_CONTEXT_MENU_SELECTED", onAtomContextMenuSelected);
+            Impulsys.subscribeToImpulse("ATOM_CONTEXT_MENU_SELECTED", onAtomContextContextMenuelected);
             Impulsys.subscribeToImpulse("ATOM_DELETE_REQUEST", onAtomDeleteRequest);
             Impulsys.subscribeToImpulse("ATOM_MOVED", onAtomMoved);
             Impulsys.subscribeToImpulse("ATOM_DRAG_END", onAtomDragEnd);
@@ -192,7 +192,7 @@
             return -1;
         }
 
-        private function onAtomContextMenuSelected(impulse:Impulse):void {
+        private function onAtomContextContextMenuelected(impulse:Impulse):void {
             var atomType:String = impulse.data.atomType;
             var position:Point = impulse.data.position;
 
@@ -369,7 +369,7 @@
         public function dispose():void {
             clearAll();
 
-            Impulsys.removeImpulse("ATOM_CONTEXT_MENU_SELECTED", onAtomContextMenuSelected);
+            Impulsys.removeImpulse("ATOM_CONTEXT_MENU_SELECTED", onAtomContextContextMenuelected);
             Impulsys.removeImpulse("ATOM_DELETE_REQUEST", onAtomDeleteRequest);
             Impulsys.removeImpulse("ATOM_MOVED", onAtomMoved);
             Impulsys.removeImpulse("ATOM_DRAG_END", onAtomDragEnd);

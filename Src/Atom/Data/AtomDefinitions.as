@@ -1,7 +1,7 @@
 ﻿package Src.Atom.Data {
     import Src.Atom.Core.Atom;
-    import Src.Impulsys.Impulsys;
-    import Src.Impulsys.Impulse;
+    import Src.Impulsator.Impulsys;
+    import Src.Impulsator.Impulse;
     import Src.Managers.AtomManager;
     import flash.display.Graphics;
     import Src.Atom.Core.AtomView;

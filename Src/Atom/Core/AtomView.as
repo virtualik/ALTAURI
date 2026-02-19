@@ -5,8 +5,8 @@
     import flash.text.TextField;
     import flash.text.TextFormat;
     import flash.text.TextFormatAlign;
-    import Src.Impulsys.Impulsys;
-    import Src.Impulsys.Impulse;
+    import Src.Impulsator.Impulsys;
+    import Src.Impulsator.Impulse;
     import flash.display.Graphics;
     import Src.Windows.Window;
     import Src.Managers.AtomManager;

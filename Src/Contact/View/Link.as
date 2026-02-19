@@ -3,8 +3,8 @@
     import flash.geom.Point;
     import flash.events.MouseEvent;
     import Src.Contact.Core.Contact;
-    import Src.Impulsys.Impulsys;
-    import Src.Impulsys.Impulse;
+    import Src.Impulsator.Impulsys;
+    import Src.Impulsator.Impulse;
     import Src.Managers.AtomManager;
     import Src.Windows.Window;
     import flash.filters.GlowFilter;

@@ -1,8 +1,8 @@
 ﻿package Src.Atom.Core {
     import flash.geom.Point;
     import Src.Contact.Core.Contact;
-    import Src.Impulsys.Impulsys;
-    import Src.Impulsys.Impulse;
+    import Src.Impulsator.Impulsys;
+    import Src.Impulsator.Impulse;
     import Src.Atom.Data.AtomDefinitions;
     import Src.Managers.AtomManager;
 

@@ -1,4 +1,4 @@
-﻿package Src.Impulsys {
+﻿package Src.Impulsator {
     import flash.utils.Dictionary;
 
     public class Impulsys {

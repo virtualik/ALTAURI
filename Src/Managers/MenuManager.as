@@ -1,11 +1,11 @@
 ﻿package Src.Managers {
     import flash.geom.Point;
-    import Src.Impulsys.Impulsys;
-    import Src.Impulsys.Impulse;
+    import Src.Impulsator.Impulsys;
+    import Src.Impulsator.Impulse;
     import Src.Windows.Window;
     import Src.Atom.Core.Atom;
     import Src.Atom.Data.AtomDefinitions;
-    import Src.Menus.ContextMenu;
+    import Src.ContextMenu.ContextMenu;
 
     public class MenuManager {
         private static var _instance:MenuManager;

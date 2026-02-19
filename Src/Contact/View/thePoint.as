@@ -4,8 +4,8 @@
     import flash.geom.Point;
     import Src.Contact.Core.Contact;
     import Src.Contact.Interaction.VisualDragManager;
-    import Src.Impulsys.Impulsys;
-    import Src.Impulsys.Impulse;
+    import Src.Impulsator.Impulsys;
+    import Src.Impulsator.Impulse;
 
     public class thePoint extends Sprite {
         private var _sourceContact:Contact;

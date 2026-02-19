@@ -10,8 +10,8 @@
     import flash.display.Sprite;
     import flash.geom.Point;
     import flash.events.MouseEvent;
-    import Src.Impulsys.Impulsys;
-    import Src.Impulsys.Impulse;
+    import Src.Impulsator.Impulsys;
+    import Src.Impulsator.Impulse;
 
     public class VisualDragManager {
         private var _sourceContact:Contact;

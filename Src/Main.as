@@ -7,8 +7,8 @@
     import flash.display.StageScaleMode;
     import flash.desktop.NativeApplication;
     import flash.display.NativeWindow;
-    import Src.Impulsys.Impulsys;
-    import Src.Impulsys.Impulse;
+    import Src.Impulsator.Impulsys;
+    import Src.Impulsator.Impulse;
     import Src.Commands.SerialCommand;
     import Src.Commands.RegisterData;
     import Src.Managers.Director;

@@ -1,4 +1,4 @@
-﻿package Src.Impulsys {
+﻿package Src.Impulsator {
     public class Impulse implements IImpulse {
         private var _type:String;
         private var _data:Object;

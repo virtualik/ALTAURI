@@ -1,4 +1,4 @@
-﻿package Src.Menus {
+﻿package Src.ContextMenu {
     import flash.display.Sprite;
     import flash.geom.Point;
     import flash.events.MouseEvent;

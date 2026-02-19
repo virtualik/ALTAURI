@@ -15,13 +15,13 @@
     import flash.geom.Point;
     import flash.geom.Rectangle;
     import flash.ui.Keyboard;
-    import Src.Impulsys.Impulsys;
-    import Src.Impulsys.Impulse;
+    import Src.Impulsator.Impulsys;
+    import Src.Impulsator.Impulse;
     import flash.display.DisplayObject;
     import Src.Atom.Core.Atom;
     import Src.Atom.Core.AtomView;
-    import Src.Menus.ContextMenu;
-    import Src.Menus.ContextMenuItem;
+    import Src.ContextMenu.ContextMenu;
+    import Src.ContextMenu.ContextMenuItem;
     import Src.Managers.MenuManager;
     import Src.Contact.Core.Contact;
     import Src.Contact.View.Link;

@@ -1,8 +1,8 @@
 ﻿package Src.Managers {
     import flash.events.Event;
     import flash.system.Capabilities;
-    import Src.Impulsys.Impulsys;
-    import Src.Impulsys.Impulse;
+    import Src.Impulsator.Impulsys;
+    import Src.Impulsator.Impulse;
     import Src.Windows.Window;
     import Src.Commands.InvokeFunction;
     import Src.Commands.ICommand;
