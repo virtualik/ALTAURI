@@ -63,7 +63,7 @@ class ContextMenuItem extends Sprite {
         // Find parent ContextMenu to get coordinates
         var coords = {x: 0.0, y: 0.0};
         var p:DisplayObjectContainer = this.parent;
-        if (Std.is(p, ContextMenu)) {
+        if (Std.isOfType(p, ContextMenu)) {
             coords = cast(p, ContextMenu).getSpawnPosition();
         }
         

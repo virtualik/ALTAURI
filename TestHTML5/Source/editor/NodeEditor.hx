@@ -1,290 +1,296 @@
 package editor;
 
 import openfl.display.Sprite;
-import openfl.geom.Point;
+import openfl.events.Event; // Добавили импорт Event
 import openfl.events.MouseEvent;
+import openfl.geom.Point;
 import core.Assembly;
 import core.Atom;
-import core.AtomDefinitions;
-import core.Blueprint;
-import core.Blueprint.ConnectionDef;
-import core.ContactType;
 import core.Contact;
+import core.ContactType;
 import core.Impulsys;
 import core.Impulse;
 
 class NodeEditor extends Sprite {
-    
+
     private var _assembly:Assembly;
-    private var _blueprint:Blueprint;
-    
-    private var _wireLayer:Sprite;
-    private var _nodes:Map<String, NodeView>;
-    private var _externalPinsView:NodeView; 
-    
-    // --- Wire Drag State ---
-    private var _isDraggingWire:Bool = false;
-    private var _dragStartData:Dynamic; 
-    private var _ghostWire:Sprite; 
-    
+    private var _blueprint:core.Blueprint;
+
+    private var _nodes:Map<String, NodeView> = new Map();
     private var _spawnCounter:Int = 0;
+
+    // Drag state
+    private var _isDraggingPort:Bool = false;
+    private var _dragNodeId:String;
+    private var _dragContactName:String;
+    private var _dragStartX:Float = 0;
+    private var _dragStartY:Float = 0;
+    private var _dragStartIsInput:Bool = false;
+
+    private var _ghostWire:Sprite;
 
     public function new(assembly:Assembly) {
         super();
-        _assembly = assembly;
-        _blueprint = assembly.blueprint;
-        
-        _nodes = new Map();
-        
-        // Layer for permanent wires
-        _wireLayer = new Sprite();
-        _wireLayer.mouseEnabled = false;
-        addChild(_wireLayer);
-        
-        // Layer for "ghost" wire (dragging)
+        this._assembly = assembly;
+        this._blueprint = assembly.blueprint;
+
+        // Create "SELF" node (Root of the assembly)
+        // Передаем assembly, как обсуждали ранее
+        var selfView = new NodeView(null, "SELF", assembly);
+        selfView.x = 150;
+        selfView.y = 50;
+        addChild(selfView);
+        _nodes.set("SELF", selfView);
+
+        // Ghost wire container
         _ghostWire = new Sprite();
-        _ghostWire.mouseEnabled = false;
         addChild(_ghostWire);
 
-        Impulsys.subscribeToImpulse("EDITOR_NODE_MOVED", onNodeMoved);
-        Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION", onMenuAction);
+        // Subscriptions
         Impulsys.subscribeToImpulse("PORT_DRAG_START", onPortDragStart);
+        Impulsys.subscribeToImpulse("EDITOR_NODE_MOVED", onNodeMoved);
 
-        layoutNodes();
-        drawWires();
-    }
-
-    // --- Node Movement ---
-    
-    private function onNodeMoved(impulse:Impulse):Void {
-        drawWires();
-    }
-    
-    // --- Wire Logic ---
-
-    private function onPortDragStart(impulse:Impulse):Void {
-        _isDraggingWire = true;
-        _dragStartData = impulse.data;
-        
-        stage.addEventListener(MouseEvent.MOUSE_MOVE, onWireDragMove);
-        stage.addEventListener(MouseEvent.MOUSE_UP, onWireDragEnd);
-        
-        drawGhostWire(_dragStartData.startX, _dragStartData.startY);
-    }
-    
-    private function onWireDragMove(e:MouseEvent):Void {
-        if (!_isDraggingWire) return;
-        drawGhostWire(_dragStartData.startX, _dragStartData.startY, e.stageX, e.stageY);
-    }
-    
-    private function onWireDragEnd(e:MouseEvent):Void {
-        _isDraggingWire = false;
-        stage.removeEventListener(MouseEvent.MOUSE_MOVE, onWireDragMove);
-        stage.removeEventListener(MouseEvent.MOUSE_UP, onWireDragEnd);
-        
-        _ghostWire.graphics.clear();
-        
-        // --- DETECT TARGET ---
-        var targetData:Dynamic = null;
-        
-        for (nodeId in _nodes.keys()) {
-            var view = _nodes.get(nodeId);
-            
-            // Check Input Ports
-            for (portName in view.inputPorts.keys()) {
-                var port = view.inputPorts.get(portName);
-                if (port.hitTestPoint(e.stageX, e.stageY, true)) {
-                    targetData = { nodeId: nodeId, contactName: portName, isInput: true };
-                    break;
-                }
-            }
-            // Check Output Ports
-            if (targetData == null) {
-                for (portName in view.outputPorts.keys()) {
-                    var port = view.outputPorts.get(portName);
-                    if (port.hitTestPoint(e.stageX, e.stageY, true)) {
-                        targetData = { nodeId: nodeId, contactName: portName, isInput: false };
-                        break;
-                    }
-                }
-            }
-            if (targetData != null) break;
+        // --- FIX: Wait for stage ---
+        // Вместо прямой подписки, слушаем событие добавления на сцену
+        if (stage != null) {
+            initListeners();
+        } else {
+            addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
         }
         
-        // --- VALIDATE CONNECTION ---
-        if (targetData != null) {
-            var from:Dynamic = null;
-            var to:Dynamic = null;
-            
-            if (!_dragStartData.isInput && targetData.isInput) {
-                from = _dragStartData;
-                to = targetData;
-            } else if (_dragStartData.isInput && !targetData.isInput) {
-                from = targetData;
-                to = _dragStartData;
-            } else {
-                trace("Invalid connection.");
-                return;
-            }
-            
-            if (from.nodeId == to.nodeId) {
-                trace("Cannot connect to self.");
-                return;
-            }
-            
-            createConnection(from.nodeId, from.contactName, to.nodeId, to.contactName);
-        }
+        drawWires(); // Initial draw
     }
-    
-    private function drawGhostWire(x1:Float, y1:Float, x2:Float = -1, y2:Float = -1):Void {
-        _ghostWire.graphics.clear();
-        if (x2 < 0) return;
-        
-        _ghostWire.graphics.lineStyle(2, 0xAAAAAA, 0.8);
-        _ghostWire.graphics.moveTo(x1, y1);
-        _ghostWire.graphics.lineTo(x2, y2);
-    }
-    
-    // --- Data Manipulation ---
 
-    private function createConnection(fromNodeId:String, fromPort:String, toNodeId:String, toPort:String):Void {
-        // 1. Add to Blueprint
-        var conn:ConnectionDef = {
-            from: { atomId: fromNodeId, contactName: fromPort },
-            to: { atomId: toNodeId, contactName: toPort }
-        };
-        _blueprint.internalConnections.push(conn);
-        
-        // 2. Link Runtime Contacts
-        var fromAtom:Atom = (fromNodeId == "SELF") 
-            ? _externalPinsView.atom 
-            : cast _assembly.internalAtoms.get(fromNodeId);
-            
-        var toAtom:Atom = (toNodeId == "SELF") 
-            ? _externalPinsView.atom 
-            : cast _assembly.internalAtoms.get(toNodeId);
-            
-        if (fromAtom == null || toAtom == null) return;
-        
-        var fromContact:Contact = null;
-        for (c in fromAtom.getOutputs()) if (c.name == fromPort) fromContact = c;
-        
-        var toContact:Contact = null;
-        for (c in toAtom.getInputs()) if (c.name == toPort) toContact = c;
-        
-        if (fromContact != null && toContact != null) {
-            fromContact.link(toContact);
-            trace("Connected: " + fromNodeId + "." + fromPort + " -> " + toNodeId + "." + toPort);
-        }
-        
-        // 3. Redraw
-        drawWires();
+    private function onAddedToStage(e:Event):Void {
+        removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
+        initListeners();
     }
-    
-    private function onMenuAction(impulse:Impulse):Void {
-        if (impulse.data.action == "ADD_ATOM") {
-            var atomData:Dynamic = impulse.data.data;
-            var stageX:Float = impulse.data.x;
-            var stageY:Float = impulse.data.y;
-            var localPos = this.globalToLocal(new Point(stageX, stageY));
-            createAtom(atomData.typeId, localPos.x, localPos.y);
-        }
+
+    private function initListeners():Void {
+        stage.addEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
+        stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUp);
     }
+
+    // ... rest of methods (createAtom, onPortDragStart, etc) remain the same ...
     
-    public function createAtom(typeId:String, posX:Float, posY:Float):Void {
-        var bp = AtomDefinitions.get(typeId);
-        if (bp == null) return;
-        
+    public function createAtom(typeId:String, posX:Float, posY:Float):Atom {
+        var bp = core.AtomDefinitions.get(typeId);
+        if (bp == null) return null;
+
         var instanceId = typeId + "_" + (_spawnCounter++);
         var atomDef = { instanceId: instanceId, typeId: typeId };
         _blueprint.internalAtoms.push(atomDef);
-        
+
         var inputs = [];
         var outputs = [];
         for (pin in bp.pins) {
-            var c = new Contact(pin.defaultValue, pin.type, pin.name);
+            var c = new core.Contact(pin.defaultValue, pin.type, pin.name);
             if (pin.type == ContactType.INPUT) inputs.push(c);
             else outputs.push(c);
         }
-        
+
         var atom = new Atom(inputs, outputs, bp.logic, instanceId, typeId);
         _assembly.internalAtoms.set(instanceId, atom);
-        
+
         var view = new NodeView(atom, instanceId);
         view.x = posX;
         view.y = posY;
         addChild(view);
         _nodes.set(instanceId, view);
-        
+
+        // Ensure wires are on top
+        addChild(_ghostWire);
+
+        drawWires();
+
+        return atom;
+    }
+
+    private function onPortDragStart(impulse:Impulse):Void {
+        _isDraggingPort = true;
+        _dragNodeId = impulse.data.nodeId;
+        _dragContactName = impulse.data.contactName;
+        _dragStartX = impulse.data.startX;
+        _dragStartY = impulse.data.startY;
+        _dragStartIsInput = impulse.data.isInput;
+    }
+
+    private function onMouseMove(e:MouseEvent):Void {
+        if (_isDraggingPort) {
+            drawGhostWire(_dragStartX, _dragStartY, e.stageX, e.stageY, _dragStartIsInput);
+        }
+    }
+
+    private function onMouseUp(e:MouseEvent):Void {
+		if (_isDraggingPort) {
+			var target = findPortAt(e.stageX, e.stageY);
+			if (target != null) {
+				var fromId = _dragNodeId;
+				var fromContact = _dragContactName;
+				var toId = target.nodeId;
+				var toContact = target.contactName;
+
+				var fromIsInput = _dragStartIsInput;
+
+				if (fromId != toId && fromIsInput != target.isInput) {
+					// Сохраняем в Blueprint
+					var link:core.Blueprint.ConnectionDef = {
+						from: { atomId: fromId, contactName: fromContact },
+						to: { atomId: toId, contactName: toContact }
+					};
+					
+					// Упорядочиваем: всегда Output -> Input
+					var realFrom = fromIsInput ? link.to : link.from;
+					var realTo = fromIsInput ? link.from : link.to;
+
+					_blueprint.internalConnections.push(link);
+
+					// --- ЛОГИКА СОЕДИНЕНИЯ (с поддержкой SELF) ---
+					
+					// Находим выходной контакт (Source)
+					var cOut:Contact = null;
+					if (realFrom.atomId == "SELF") {
+						cOut = _assembly.outputs.get(realFrom.contactName);
+					} else {
+						var atom = _assembly.internalAtoms.get(realFrom.atomId);
+						if (atom != null) cOut = cast(atom, Atom).getOutput(realFrom.contactName);
+					}
+
+					// Находим входной контакт (Target)
+					var cIn:Contact = null;
+					if (realTo.atomId == "SELF") {
+						cIn = _assembly.inputs.get(realTo.contactName);
+					} else {
+						var atom = _assembly.internalAtoms.get(realTo.atomId);
+						if (atom != null) cIn = cast(atom, Atom).getInput(realTo.contactName);
+					}
+
+					// Соединяем
+					if (cOut != null && cIn != null) {
+						cOut.subscribe(function(v) {
+							cIn.value = v;
+						});
+						// Инициализация первым значением
+						cIn.value = cOut.value;
+					}
+
+					drawWires();
+				}
+			}
+
+			// Сброс состояния
+			_isDraggingPort = false;
+			_ghostWire.graphics.clear();
+		}
+	}
+
+    private function findPortAt(x:Float, y:Float):{nodeId:String, contactName:String, isInput:Bool} {
+        for (nodeId in _nodes.keys()) {
+            var view = _nodes.get(nodeId);
+            if (view != null) {
+                // Check Inputs
+                for (name in view.inputPorts.keys()) {
+                    var port = view.inputPorts.get(name);
+                    if (port != null) {
+                        var local = port.globalToLocal(new Point(x, y));
+                        if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) {
+                            return {nodeId: nodeId, contactName: name, isInput: true};
+                        }
+                    }
+                }
+                // Check Outputs
+                for (name in view.outputPorts.keys()) {
+                    var port = view.outputPorts.get(name);
+                    if (port != null) {
+                        var local = port.globalToLocal(new Point(x, y));
+                        if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) {
+                            return {nodeId: nodeId, contactName: name, isInput: false};
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private function onNodeMoved(impulse:Impulse):Void {
         drawWires();
     }
 
-    private function layoutNodes():Void {
-        var extInputs = [];
-        var extOutputs = [];
-        for (p in _blueprint.pins) {
-            var c = new Contact(p.defaultValue, p.type, p.name);
-            if (p.type == ContactType.INPUT) extInputs.push(c);
-            else extOutputs.push(c);
-        }
-        var dummySelfAtom = new Atom(extInputs, extOutputs, function(v) return v, "self_atom", "External IO");
-        
-        _externalPinsView = new NodeView(dummySelfAtom, "SELF");
-        _externalPinsView.x = 50;
-        _externalPinsView.y = 100;
-        
-        addChild(_externalPinsView);
-        _nodes.set("SELF", _externalPinsView);
+    // --- DRAWING LOGIC ---
 
-        var xPos = 250;
-        if (_blueprint.internalAtoms != null) {
-            for (atomDef in _blueprint.internalAtoms) {
-                var atomObj = _assembly.internalAtoms.get(atomDef.instanceId);
-                if (atomObj == null) continue;
-                
-                var realAtom:Atom = cast atomObj;
-                var view = new NodeView(realAtom, atomDef.instanceId);
-                
-                view.x = xPos;
-                view.y = 100;
-                
-                addChild(view);
-                _nodes.set(atomDef.instanceId, view);
-                
-                xPos += 200;
+    private function drawGhostWire(startX:Float, startY:Float, endX:Float, endY:Float, isInput:Bool):Void {
+        var g = _ghostWire.graphics;
+        g.clear();
+        g.lineStyle(3, 0x00FF00, 0.8); // Bright green ghost
+
+        g.moveTo(startX, startY);
+
+        // Рассчитываем "вынос" (натяжение) кривой
+        var dx = Math.abs(endX - startX) * 0.5;
+        // Минимальный вынос, чтобы провод не "ломался" на коротких дистанциях
+        if (dx < 50) dx = 50; 
+
+        if (isInput) {
+            // Тянем ВХОД (слева) -> к Мышке
+            // Контрольные точки идут влево от старта и вправо от конца (мышки)
+            g.cubicCurveTo(startX - dx, startY, endX + dx, endY, endX, endY);
+        } else {
+            // Тянем ВЫХОД (справа) -> к Мышке
+            // Контрольные точки идут вправо от старта и влево от конца
+            g.cubicCurveTo(startX + dx, startY, endX - dx, endY, endX, endY);
+        }
+    }
+
+        private function drawWires():Void {
+        graphics.clear();
+        graphics.lineStyle(2, 0x666666);
+
+        for (link in _blueprint.internalConnections) {
+            var fromView = _nodes.get(link.from.atomId);
+            var toView = _nodes.get(link.to.atomId);
+
+            if (fromView != null && toView != null) {
+                var p1 = fromView.getPortPosition(link.from.contactName);
+                var p2 = toView.getPortPosition(link.to.contactName);
+
+                // --- УМНАЯ ЛОГИКА ИЗГИБА ---
+
+                // 1. Определяем тип портов (Вход или Выход)
+                var isFromInput = fromView.inputPorts.exists(link.from.contactName);
+                var isToInput = toView.inputPorts.exists(link.to.contactName);
+
+                // 2. Рассчитываем натяжение
+                var dist = Math.abs(p2.x - p1.x);
+                var tension = dist * 0.5;
+                if (tension < 50) tension = 50; // Минимальный изгиб
+
+                // 3. Рассчитываем контрольные точки Безье
+                var c1x:Float;
+                var c2x:Float;
+
+                // Точка 1 (старт)
+                if (isFromInput) {
+                    // Если тянем ОТ входа (слева), кривая должна идти влево
+                    c1x = p1.x - tension;
+                } else {
+                    // Если тянем ОТ выхода (справа), кривая идет вправо
+                    c1x = p1.x + tension;
+                }
+
+                // Точка 2 (финиш)
+                if (isToInput) {
+                    // Если тянем КО входу (слева), кривая приходит слева
+                    c2x = p2.x - tension;
+                } else {
+                    // Если тянем К выходу (справа), кривая приходит справа
+                    c2x = p2.x + tension;
+                }
+
+                // Рисуем
+                graphics.moveTo(p1.x, p1.y);
+                graphics.cubicCurveTo(c1x, p1.y, c2x, p2.y, p2.x, p2.y);
             }
         }
-    }
-
-    public function drawWires():Void {
-        _wireLayer.graphics.clear();
-        
-        if (_blueprint.internalConnections == null) return;
-
-        for (conn in _blueprint.internalConnections) {
-            var fromView = _nodes.get(conn.from.atomId);
-            var toView = _nodes.get(conn.to.atomId);
-            
-            if (fromView == null || toView == null) continue;
-            
-            var p1 = fromView.getPortPosition(conn.from.contactName);
-            var p2 = toView.getPortPosition(conn.to.contactName);
-            
-            var dx = p2.x - p1.x;
-            var strength = Math.abs(dx) * 0.5;
-            
-            var cp1x = p1.x + (dx > 0 ? strength : -strength); 
-            var cp2x = p2.x + (dx > 0 ? -strength : strength);
-            
-            _wireLayer.graphics.lineStyle(3, 0x00AAFF, 0.8);
-            _wireLayer.graphics.moveTo(p1.x, p1.y);
-            _wireLayer.graphics.cubicCurveTo(cp1x, p1.y, cp2x, p2.y, p2.x, p2.y);
-        }
-    }
-    
-    public function dispose():Void {
-        Impulsys.removeImpulse("EDITOR_NODE_MOVED", onNodeMoved);
-        Impulsys.removeImpulse("CONTEXT_MENU_ACTION", onMenuAction);
-        Impulsys.removeImpulse("PORT_DRAG_START", onPortDragStart);
     }
 }

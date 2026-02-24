@@ -899,7 +899,7 @@ ApplicationMain.main = function() {
 };
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
-	app.meta.h["build"] = "78";
+	app.meta.h["build"] = "129";
 	app.meta.h["company"] = "Company Name";
 	app.meta.h["file"] = "TestHTML5";
 	app.meta.h["name"] = "TestHTML5";
@@ -3384,7 +3384,8 @@ var Main = function() {
 		};
 	}
 	core_AtomDefinitions.initialize();
-	var assembly = core_AssemblyFactory.createAssembly("Doubler");
+	var emptyBlueprint = new core_Blueprint("main_scheme","Main Scheme",[{ name : "IN", type : core_ContactType.INPUT},{ name : "OUT", type : core_ContactType.OUTPUT}]);
+	var assembly = new core_Assembly("main_asm",emptyBlueprint);
 	this._editor = new editor_NodeEditor(assembly);
 	this.addChild(this._editor);
 	this._menu = new ui_ContextMenu();
@@ -3394,15 +3395,28 @@ var Main = function() {
 	this.stage.addEventListener("rightClick",$bind(this,this.onRightClick));
 	this.stage.addEventListener("keyDown",$bind(this,this.onKeyDown));
 	core_Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION",$bind(this,this.onMenuAction));
+	var fpsAtom = this._editor.createAtom("FPSMonitor",50,50);
+	if(fpsAtom != null) {
+		var fpsContact = fpsAtom.getOutputs()[0];
+		var fpsDriver = new drivers_FPSDriver("sys_fps",fpsContact);
+		drivers_DriverManager.getInstance().register(fpsDriver);
+	}
+	var sensorAtom = this._editor.createAtom("SensorMock",100,200);
+	if(sensorAtom != null) {
+		var contact = sensorAtom.getOutputs()[0];
+		var drv = new drivers_MockSensorDriver("live_sensor",contact,0.5);
+		drivers_DriverManager.getInstance().register(drv);
+	}
+	this._editor.createAtom("AlphaNumericLine",400,200);
 };
 $hxClasses["Main"] = Main;
 Main.__name__ = "Main";
 Main.__super__ = openfl_display_Sprite;
 Main.prototype = $extend(openfl_display_Sprite.prototype,{
 	buildMenu: function() {
-		this._menu.addItem("Add NumberSource","ADD_ATOM",{ typeId : "NumberSource"});
-		this._menu.addItem("Add PassThrough","ADD_ATOM",{ typeId : "PassThrough"});
-		this._menu.addItem("Add Adder","ADD_ATOM",{ typeId : "Adder"});
+		this._menu.addItem("Add Sensor","ADD_ATOM",{ typeId : "SensorMock"});
+		this._menu.addItem("Add Display","ADD_ATOM",{ typeId : "AlphaNumericLine"});
+		this._menu.addItem("Add Pass","ADD_ATOM",{ typeId : "Pass"});
 	}
 	,onRightClick: function(e) {
 		this._menu.show(e.stageX,e.stageY);
@@ -3414,6 +3428,15 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 	}
 	,onMenuAction: function(impulse) {
 		this._menu.hide();
+		var action = impulse.data.action;
+		var data = impulse.data.data;
+		var x = impulse.data.x;
+		var y = impulse.data.y;
+		if(action == "ADD_ATOM") {
+			if(data != null && data.typeId != null) {
+				this._editor.createAtom(data.typeId,x,y);
+			}
+		}
 	}
 	,__class__: Main
 });
@@ -4284,6 +4307,9 @@ core_Atom.prototype = {
 		}
 	}
 	,_onInputChange: function(_) {
+		if(this._process == null) {
+			return;
+		}
 		var _g = [];
 		var _g1 = 0;
 		var _g2 = this._inputs;
@@ -4309,6 +4335,30 @@ core_Atom.prototype = {
 	,getOutputs: function() {
 		return this._outputs;
 	}
+	,getInput: function(name) {
+		var _g = 0;
+		var _g1 = this._inputs;
+		while(_g < _g1.length) {
+			var c = _g1[_g];
+			++_g;
+			if(c.name == name) {
+				return c;
+			}
+		}
+		return null;
+	}
+	,getOutput: function(name) {
+		var _g = 0;
+		var _g1 = this._outputs;
+		while(_g < _g1.length) {
+			var c = _g1[_g];
+			++_g;
+			if(c.name == name) {
+				return c;
+			}
+		}
+		return null;
+	}
 	,dispose: function() {
 		var _g = 0;
 		var _g1 = this._inputs;
@@ -4333,24 +4383,22 @@ core_Atom.prototype = {
 var core_AtomDefinitions = function() { };
 $hxClasses["core.AtomDefinitions"] = core_AtomDefinitions;
 core_AtomDefinitions.__name__ = "core.AtomDefinitions";
+core_AtomDefinitions.reg = function(id,name,pins,logic) {
+	var this1 = core_AtomDefinitions._blueprints;
+	var value = new core_Blueprint(id,name,pins,logic);
+	this1.h[id] = value;
+};
 core_AtomDefinitions.initialize = function() {
 	if(core_AtomDefinitions._initialized) {
 		return;
 	}
-	core_AtomDefinitions.register(new core_Blueprint("NumberSource","Number Source",[{ name : "out", type : core_ContactType.OUTPUT, dataType : "number", defaultValue : 0}],null));
-	core_AtomDefinitions.register(new core_Blueprint("PassThrough","Pass Through",[{ name : "in", type : core_ContactType.INPUT, dataType : "number"},{ name : "out", type : core_ContactType.OUTPUT, dataType : "number"}],function(vals) {
-		return [vals[0]];
-	}));
-	core_AtomDefinitions.register(new core_Blueprint("Adder","Adder",[{ name : "a", type : core_ContactType.INPUT, dataType : "number"},{ name : "b", type : core_ContactType.INPUT, dataType : "number"},{ name : "sum", type : core_ContactType.OUTPUT, dataType : "number"}],function(vals) {
-		var a = vals[0] != null ? vals[0] : 0;
-		var b = vals[1] != null ? vals[1] : 0;
-		return [a + b];
-	}));
-	core_AtomDefinitions.register(new core_Blueprint("Doubler","Doubler (x2)",[{ name : "input", type : core_ContactType.INPUT, dataType : "number"},{ name : "output", type : core_ContactType.OUTPUT, dataType : "number"}],null,[{ instanceId : "adder1", typeId : "Adder"}],[{ from : { atomId : "SELF", contactName : "input"}, to : { atomId : "adder1", contactName : "a"}},{ from : { atomId : "SELF", contactName : "input"}, to : { atomId : "adder1", contactName : "b"}},{ from : { atomId : "adder1", contactName : "sum"}, to : { atomId : "SELF", contactName : "output"}}]));
+	core_AtomDefinitions.reg("SensorMock","Random Sensor",[{ name : "value", type : core_ContactType.OUTPUT, dataType : "number", defaultValue : 0}],null);
+	core_AtomDefinitions.reg("FPSMonitor","FPS Monitor",[{ name : "fps", type : core_ContactType.OUTPUT, dataType : "number", defaultValue : 0}],null);
+	core_AtomDefinitions.reg("AlphaNumericLine","Display",[{ name : "in", type : core_ContactType.INPUT, dataType : "any"}],null);
+	core_AtomDefinitions.reg("Pass","Pass Through",[{ name : "in", type : core_ContactType.INPUT},{ name : "out", type : core_ContactType.OUTPUT}],function(v) {
+		return v;
+	});
 	core_AtomDefinitions._initialized = true;
-};
-core_AtomDefinitions.register = function(bp) {
-	core_AtomDefinitions._blueprints.h[bp.id] = bp;
 };
 core_AtomDefinitions.get = function(id) {
 	return core_AtomDefinitions._blueprints.h[id];
@@ -4522,173 +4570,188 @@ core_Utils.exitDepth = function() {
 core_Utils.resetDepth = function() {
 	core_Utils._currentDepth = 0;
 };
+var drivers_Driver = function() { };
+$hxClasses["drivers.Driver"] = drivers_Driver;
+drivers_Driver.__name__ = "drivers.Driver";
+drivers_Driver.__isInterface__ = true;
+drivers_Driver.prototype = {
+	__class__: drivers_Driver
+};
+var drivers_DriverManager = function() {
+	this._lastTime = 0;
+	this._isRunning = false;
+	this._drivers = new haxe_ds_StringMap();
+};
+$hxClasses["drivers.DriverManager"] = drivers_DriverManager;
+drivers_DriverManager.__name__ = "drivers.DriverManager";
+drivers_DriverManager.getInstance = function() {
+	if(drivers_DriverManager._instance == null) {
+		drivers_DriverManager._instance = new drivers_DriverManager();
+	}
+	return drivers_DriverManager._instance;
+};
+drivers_DriverManager.prototype = {
+	register: function(driver) {
+		if(Object.prototype.hasOwnProperty.call(this._drivers.h,driver.id)) {
+			return;
+		}
+		this._drivers.h[driver.id] = driver;
+		driver.init();
+		this._lastTime = new Date().getTime() / 1000;
+		if(!this._isRunning) {
+			openfl_Lib.get_current().stage.addEventListener("enterFrame",$bind(this,this.onEnterFrame));
+			this._isRunning = true;
+		}
+	}
+	,unregister: function(id) {
+		var driver = this._drivers.h[id];
+		if(driver != null) {
+			driver.dispose();
+			var _this = this._drivers;
+			if(Object.prototype.hasOwnProperty.call(_this.h,id)) {
+				delete(_this.h[id]);
+			}
+		}
+	}
+	,onEnterFrame: function(e) {
+		var now = new Date().getTime() / 1000;
+		var dt = now - this._lastTime;
+		this._lastTime = now;
+		if(dt > 0.1) {
+			dt = 0.1;
+		}
+		var h = this._drivers.h;
+		var driver_h = h;
+		var driver_keys = Object.keys(h);
+		var driver_length = driver_keys.length;
+		var driver_current = 0;
+		while(driver_current < driver_length) {
+			var driver = driver_h[driver_keys[driver_current++]];
+			driver.update(dt);
+		}
+	}
+	,dispose: function() {
+		if(this._isRunning) {
+			openfl_Lib.get_current().stage.removeEventListener("enterFrame",$bind(this,this.onEnterFrame));
+			this._isRunning = false;
+		}
+		var h = this._drivers.h;
+		var driver_h = h;
+		var driver_keys = Object.keys(h);
+		var driver_length = driver_keys.length;
+		var driver_current = 0;
+		while(driver_current < driver_length) {
+			var driver = driver_h[driver_keys[driver_current++]];
+			driver.dispose();
+		}
+		this._drivers = new haxe_ds_StringMap();
+	}
+	,__class__: drivers_DriverManager
+};
+var drivers_FPSDriver = function(id,targetContact) {
+	this._currentFPS = 0;
+	this._elapsed = 0;
+	this._frames = 0;
+	this.id = id;
+	this._targetContact = targetContact;
+};
+$hxClasses["drivers.FPSDriver"] = drivers_FPSDriver;
+drivers_FPSDriver.__name__ = "drivers.FPSDriver";
+drivers_FPSDriver.__interfaces__ = [drivers_Driver];
+drivers_FPSDriver.prototype = {
+	init: function() {
+		haxe_Log.trace("FPS Driver [" + this.id + "] started.",{ fileName : "Source/drivers/FPSDriver.hx", lineNumber : 26, className : "drivers.FPSDriver", methodName : "init"});
+	}
+	,update: function(dt) {
+		this._frames++;
+		this._elapsed += dt;
+		if(this._elapsed >= 0.5) {
+			this._currentFPS = this._frames / this._elapsed;
+			if(this._targetContact != null) {
+				this._targetContact.set_value(Math.round(this._currentFPS));
+			}
+			this._frames = 0;
+			this._elapsed = 0;
+		}
+	}
+	,dispose: function() {
+		this._targetContact = null;
+	}
+	,__class__: drivers_FPSDriver
+};
+var drivers_MockSensorDriver = function(id,targetContact,frequency) {
+	if(frequency == null) {
+		frequency = 1.0;
+	}
+	this._timer = 0;
+	this.id = id;
+	this._targetContact = targetContact;
+	this._frequency = frequency;
+};
+$hxClasses["drivers.MockSensorDriver"] = drivers_MockSensorDriver;
+drivers_MockSensorDriver.__name__ = "drivers.MockSensorDriver";
+drivers_MockSensorDriver.__interfaces__ = [drivers_Driver];
+drivers_MockSensorDriver.prototype = {
+	init: function() {
+		haxe_Log.trace("Driver [" + this.id + "] initialized. Sending data to Contact: " + this._targetContact.name,{ fileName : "Source/drivers/MockSensorDriver.hx", lineNumber : 27, className : "drivers.MockSensorDriver", methodName : "init"});
+	}
+	,update: function(dt) {
+		this._timer += dt;
+		if(this._timer >= this._frequency) {
+			this._timer = 0;
+			var value = Math.random() * 100;
+			if(this._targetContact != null) {
+				this._targetContact.set_value(value);
+			}
+		}
+	}
+	,dispose: function() {
+		this._targetContact = null;
+	}
+	,__class__: drivers_MockSensorDriver
+};
 var editor_NodeEditor = function(assembly) {
+	this._dragStartIsInput = false;
+	this._dragStartY = 0;
+	this._dragStartX = 0;
+	this._isDraggingPort = false;
 	this._spawnCounter = 0;
-	this._isDraggingWire = false;
+	this._nodes = new haxe_ds_StringMap();
 	openfl_display_Sprite.call(this);
 	this._assembly = assembly;
 	this._blueprint = assembly.blueprint;
-	this._nodes = new haxe_ds_StringMap();
-	this._wireLayer = new openfl_display_Sprite();
-	this._wireLayer.mouseEnabled = false;
-	this.addChild(this._wireLayer);
+	var selfView = new editor_NodeView(null,"SELF",assembly);
+	selfView.set_x(150);
+	selfView.set_y(50);
+	this.addChild(selfView);
+	this._nodes.h["SELF"] = selfView;
 	this._ghostWire = new openfl_display_Sprite();
-	this._ghostWire.mouseEnabled = false;
 	this.addChild(this._ghostWire);
-	core_Impulsys.subscribeToImpulse("EDITOR_NODE_MOVED",$bind(this,this.onNodeMoved));
-	core_Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION",$bind(this,this.onMenuAction));
 	core_Impulsys.subscribeToImpulse("PORT_DRAG_START",$bind(this,this.onPortDragStart));
-	this.layoutNodes();
+	core_Impulsys.subscribeToImpulse("EDITOR_NODE_MOVED",$bind(this,this.onNodeMoved));
+	if(this.stage != null) {
+		this.initListeners();
+	} else {
+		this.addEventListener("addedToStage",$bind(this,this.onAddedToStage));
+	}
 	this.drawWires();
 };
 $hxClasses["editor.NodeEditor"] = editor_NodeEditor;
 editor_NodeEditor.__name__ = "editor.NodeEditor";
 editor_NodeEditor.__super__ = openfl_display_Sprite;
 editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
-	onNodeMoved: function(impulse) {
-		this.drawWires();
+	onAddedToStage: function(e) {
+		this.removeEventListener("addedToStage",$bind(this,this.onAddedToStage));
+		this.initListeners();
 	}
-	,onPortDragStart: function(impulse) {
-		this._isDraggingWire = true;
-		this._dragStartData = impulse.data;
-		this.stage.addEventListener("mouseMove",$bind(this,this.onWireDragMove));
-		this.stage.addEventListener("mouseUp",$bind(this,this.onWireDragEnd));
-		this.drawGhostWire(this._dragStartData.startX,this._dragStartData.startY);
-	}
-	,onWireDragMove: function(e) {
-		if(!this._isDraggingWire) {
-			return;
-		}
-		this.drawGhostWire(this._dragStartData.startX,this._dragStartData.startY,e.stageX,e.stageY);
-	}
-	,onWireDragEnd: function(e) {
-		this._isDraggingWire = false;
-		this.stage.removeEventListener("mouseMove",$bind(this,this.onWireDragMove));
-		this.stage.removeEventListener("mouseUp",$bind(this,this.onWireDragEnd));
-		this._ghostWire.get_graphics().clear();
-		var targetData = null;
-		var h = this._nodes.h;
-		var nodeId_h = h;
-		var nodeId_keys = Object.keys(h);
-		var nodeId_length = nodeId_keys.length;
-		var nodeId_current = 0;
-		while(nodeId_current < nodeId_length) {
-			var nodeId = nodeId_keys[nodeId_current++];
-			var view = this._nodes.h[nodeId];
-			var h = view.inputPorts.h;
-			var portName_h = h;
-			var portName_keys = Object.keys(h);
-			var portName_length = portName_keys.length;
-			var portName_current = 0;
-			while(portName_current < portName_length) {
-				var portName = portName_keys[portName_current++];
-				var port = view.inputPorts.h[portName];
-				if(port.hitTestPoint(e.stageX,e.stageY,true)) {
-					targetData = { nodeId : nodeId, contactName : portName, isInput : true};
-					break;
-				}
-			}
-			if(targetData == null) {
-				var h1 = view.outputPorts.h;
-				var portName_h1 = h1;
-				var portName_keys1 = Object.keys(h1);
-				var portName_length1 = portName_keys1.length;
-				var portName_current1 = 0;
-				while(portName_current1 < portName_length1) {
-					var portName1 = portName_keys1[portName_current1++];
-					var port1 = view.outputPorts.h[portName1];
-					if(port1.hitTestPoint(e.stageX,e.stageY,true)) {
-						targetData = { nodeId : nodeId, contactName : portName1, isInput : false};
-						break;
-					}
-				}
-			}
-			if(targetData != null) {
-				break;
-			}
-		}
-		if(targetData != null) {
-			var from = null;
-			var to = null;
-			if(!this._dragStartData.isInput && targetData.isInput) {
-				from = this._dragStartData;
-				to = targetData;
-			} else if(this._dragStartData.isInput && !targetData.isInput) {
-				from = targetData;
-				to = this._dragStartData;
-			} else {
-				haxe_Log.trace("Invalid connection.",{ fileName : "Source/editor/NodeEditor.hx", lineNumber : 126, className : "editor.NodeEditor", methodName : "onWireDragEnd"});
-				return;
-			}
-			if(from.nodeId == to.nodeId) {
-				haxe_Log.trace("Cannot connect to self.",{ fileName : "Source/editor/NodeEditor.hx", lineNumber : 131, className : "editor.NodeEditor", methodName : "onWireDragEnd"});
-				return;
-			}
-			this.createConnection(from.nodeId,from.contactName,to.nodeId,to.contactName);
-		}
-	}
-	,drawGhostWire: function(x1,y1,x2,y2) {
-		if(y2 == null) {
-			y2 = -1;
-		}
-		if(x2 == null) {
-			x2 = -1;
-		}
-		this._ghostWire.get_graphics().clear();
-		if(x2 < 0) {
-			return;
-		}
-		this._ghostWire.get_graphics().lineStyle(2,11184810,0.8);
-		this._ghostWire.get_graphics().moveTo(x1,y1);
-		this._ghostWire.get_graphics().lineTo(x2,y2);
-	}
-	,createConnection: function(fromNodeId,fromPort,toNodeId,toPort) {
-		var conn = { from : { atomId : fromNodeId, contactName : fromPort}, to : { atomId : toNodeId, contactName : toPort}};
-		this._blueprint.internalConnections.push(conn);
-		var fromAtom = fromNodeId == "SELF" ? this._externalPinsView.atom : this._assembly.internalAtoms.h[fromNodeId];
-		var toAtom = toNodeId == "SELF" ? this._externalPinsView.atom : this._assembly.internalAtoms.h[toNodeId];
-		if(fromAtom == null || toAtom == null) {
-			return;
-		}
-		var fromContact = null;
-		var _g = 0;
-		var _g1 = fromAtom.getOutputs();
-		while(_g < _g1.length) {
-			var c = _g1[_g];
-			++_g;
-			if(c.name == fromPort) {
-				fromContact = c;
-			}
-		}
-		var toContact = null;
-		var _g = 0;
-		var _g1 = toAtom.getInputs();
-		while(_g < _g1.length) {
-			var c = _g1[_g];
-			++_g;
-			if(c.name == toPort) {
-				toContact = c;
-			}
-		}
-		if(fromContact != null && toContact != null) {
-			fromContact.link(toContact);
-			haxe_Log.trace("Connected: " + fromNodeId + "." + fromPort + " -> " + toNodeId + "." + toPort,{ fileName : "Source/editor/NodeEditor.hx", lineNumber : 177, className : "editor.NodeEditor", methodName : "createConnection"});
-		}
-		this.drawWires();
-	}
-	,onMenuAction: function(impulse) {
-		if(impulse.data.action == "ADD_ATOM") {
-			var atomData = impulse.data.data;
-			var stageX = impulse.data.x;
-			var stageY = impulse.data.y;
-			var localPos = this.globalToLocal(new openfl_geom_Point(stageX,stageY));
-			this.createAtom(atomData.typeId,localPos.x,localPos.y);
-		}
+	,initListeners: function() {
+		this.stage.addEventListener("mouseMove",$bind(this,this.onMouseMove));
+		this.stage.addEventListener("mouseUp",$bind(this,this.onMouseUp));
 	}
 	,createAtom: function(typeId,posX,posY) {
 		var bp = core_AtomDefinitions.get(typeId);
 		if(bp == null) {
-			return;
+			return null;
 		}
 		var instanceId = typeId + "_" + this._spawnCounter++;
 		var atomDef = { instanceId : instanceId, typeId : typeId};
@@ -4714,86 +4777,170 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		view.set_y(posY);
 		this.addChild(view);
 		this._nodes.h[instanceId] = view;
+		this.addChild(this._ghostWire);
 		this.drawWires();
+		return atom;
 	}
-	,layoutNodes: function() {
-		var extInputs = [];
-		var extOutputs = [];
-		var _g = 0;
-		var _g1 = this._blueprint.pins;
-		while(_g < _g1.length) {
-			var p = _g1[_g];
-			++_g;
-			var c = new core_Contact(p.defaultValue,p.type,p.name);
-			if(p.type == core_ContactType.INPUT) {
-				extInputs.push(c);
-			} else {
-				extOutputs.push(c);
+	,onPortDragStart: function(impulse) {
+		this._isDraggingPort = true;
+		this._dragNodeId = impulse.data.nodeId;
+		this._dragContactName = impulse.data.contactName;
+		this._dragStartX = impulse.data.startX;
+		this._dragStartY = impulse.data.startY;
+		this._dragStartIsInput = impulse.data.isInput;
+	}
+	,onMouseMove: function(e) {
+		if(this._isDraggingPort) {
+			this.drawGhostWire(this._dragStartX,this._dragStartY,e.stageX,e.stageY,this._dragStartIsInput);
+		}
+	}
+	,onMouseUp: function(e) {
+		if(this._isDraggingPort) {
+			var target = this.findPortAt(e.stageX,e.stageY);
+			if(target != null) {
+				var fromId = this._dragNodeId;
+				var fromContact = this._dragContactName;
+				var toId = target.nodeId;
+				var toContact = target.contactName;
+				var fromIsInput = this._dragStartIsInput;
+				if(fromId != toId && fromIsInput != target.isInput) {
+					var link = { from : { atomId : fromId, contactName : fromContact}, to : { atomId : toId, contactName : toContact}};
+					var realFrom = fromIsInput ? link.to : link.from;
+					var realTo = fromIsInput ? link.from : link.to;
+					this._blueprint.internalConnections.push(link);
+					var cOut = null;
+					if(realFrom.atomId == "SELF") {
+						cOut = this._assembly.outputs.h[realFrom.contactName];
+					} else {
+						var atom = this._assembly.internalAtoms.h[realFrom.atomId];
+						if(atom != null) {
+							cOut = (js_Boot.__cast(atom , core_Atom)).getOutput(realFrom.contactName);
+						}
+					}
+					var cIn = null;
+					if(realTo.atomId == "SELF") {
+						cIn = this._assembly.inputs.h[realTo.contactName];
+					} else {
+						var atom = this._assembly.internalAtoms.h[realTo.atomId];
+						if(atom != null) {
+							cIn = (js_Boot.__cast(atom , core_Atom)).getInput(realTo.contactName);
+						}
+					}
+					if(cOut != null && cIn != null) {
+						cOut.subscribe(function(v) {
+							cIn.set_value(v);
+						});
+						cIn.set_value(cOut.get_value());
+					}
+					this.drawWires();
+				}
+			}
+			this._isDraggingPort = false;
+			this._ghostWire.get_graphics().clear();
+		}
+	}
+	,findPortAt: function(x,y) {
+		var h = this._nodes.h;
+		var nodeId_h = h;
+		var nodeId_keys = Object.keys(h);
+		var nodeId_length = nodeId_keys.length;
+		var nodeId_current = 0;
+		while(nodeId_current < nodeId_length) {
+			var nodeId = nodeId_keys[nodeId_current++];
+			var view = this._nodes.h[nodeId];
+			if(view != null) {
+				var h = view.inputPorts.h;
+				var name_h = h;
+				var name_keys = Object.keys(h);
+				var name_length = name_keys.length;
+				var name_current = 0;
+				while(name_current < name_length) {
+					var name = name_keys[name_current++];
+					var port = view.inputPorts.h[name];
+					if(port != null) {
+						var local = port.globalToLocal(new openfl_geom_Point(x,y));
+						if(Math.abs(local.x) < 10 && Math.abs(local.y) < 10) {
+							return { nodeId : nodeId, contactName : name, isInput : true};
+						}
+					}
+				}
+				var h1 = view.outputPorts.h;
+				var name_h1 = h1;
+				var name_keys1 = Object.keys(h1);
+				var name_length1 = name_keys1.length;
+				var name_current1 = 0;
+				while(name_current1 < name_length1) {
+					var name1 = name_keys1[name_current1++];
+					var port1 = view.outputPorts.h[name1];
+					if(port1 != null) {
+						var local1 = port1.globalToLocal(new openfl_geom_Point(x,y));
+						if(Math.abs(local1.x) < 10 && Math.abs(local1.y) < 10) {
+							return { nodeId : nodeId, contactName : name1, isInput : false};
+						}
+					}
+				}
 			}
 		}
-		var dummySelfAtom = new core_Atom(extInputs,extOutputs,function(v) {
-			return v;
-		},"self_atom","External IO");
-		this._externalPinsView = new editor_NodeView(dummySelfAtom,"SELF");
-		this._externalPinsView.set_x(50);
-		this._externalPinsView.set_y(100);
-		this.addChild(this._externalPinsView);
-		this._nodes.h["SELF"] = this._externalPinsView;
-		var xPos = 250;
-		if(this._blueprint.internalAtoms != null) {
-			var _g = 0;
-			var _g1 = this._blueprint.internalAtoms;
-			while(_g < _g1.length) {
-				var atomDef = _g1[_g];
-				++_g;
-				var atomObj = this._assembly.internalAtoms.h[atomDef.instanceId];
-				if(atomObj == null) {
-					continue;
-				}
-				var realAtom = atomObj;
-				var view = new editor_NodeView(realAtom,atomDef.instanceId);
-				view.set_x(xPos);
-				view.set_y(100);
-				this.addChild(view);
-				this._nodes.h[atomDef.instanceId] = view;
-				xPos += 200;
-			}
+		return null;
+	}
+	,onNodeMoved: function(impulse) {
+		this.drawWires();
+	}
+	,drawGhostWire: function(startX,startY,endX,endY,isInput) {
+		var g = this._ghostWire.get_graphics();
+		g.clear();
+		g.lineStyle(3,65280,0.8);
+		g.moveTo(startX,startY);
+		var dx = Math.abs(endX - startX) * 0.5;
+		if(dx < 50) {
+			dx = 50;
+		}
+		if(isInput) {
+			g.cubicCurveTo(startX - dx,startY,endX + dx,endY,endX,endY);
+		} else {
+			g.cubicCurveTo(startX + dx,startY,endX - dx,endY,endX,endY);
 		}
 	}
 	,drawWires: function() {
-		this._wireLayer.get_graphics().clear();
-		if(this._blueprint.internalConnections == null) {
-			return;
-		}
+		this.get_graphics().clear();
+		this.get_graphics().lineStyle(2,6710886);
 		var _g = 0;
 		var _g1 = this._blueprint.internalConnections;
 		while(_g < _g1.length) {
-			var conn = _g1[_g];
+			var link = _g1[_g];
 			++_g;
-			var fromView = this._nodes.h[conn.from.atomId];
-			var toView = this._nodes.h[conn.to.atomId];
-			if(fromView == null || toView == null) {
-				continue;
+			var fromView = this._nodes.h[link.from.atomId];
+			var toView = this._nodes.h[link.to.atomId];
+			if(fromView != null && toView != null) {
+				var p1 = fromView.getPortPosition(link.from.contactName);
+				var p2 = toView.getPortPosition(link.to.contactName);
+				var isFromInput = Object.prototype.hasOwnProperty.call(fromView.inputPorts.h,link.from.contactName);
+				var isToInput = Object.prototype.hasOwnProperty.call(toView.inputPorts.h,link.to.contactName);
+				var dist = Math.abs(p2.x - p1.x);
+				var tension = dist * 0.5;
+				if(tension < 50) {
+					tension = 50;
+				}
+				var c1x;
+				var c2x;
+				if(isFromInput) {
+					c1x = p1.x - tension;
+				} else {
+					c1x = p1.x + tension;
+				}
+				if(isToInput) {
+					c2x = p2.x - tension;
+				} else {
+					c2x = p2.x + tension;
+				}
+				this.get_graphics().moveTo(p1.x,p1.y);
+				this.get_graphics().cubicCurveTo(c1x,p1.y,c2x,p2.y,p2.x,p2.y);
 			}
-			var p1 = fromView.getPortPosition(conn.from.contactName);
-			var p2 = toView.getPortPosition(conn.to.contactName);
-			var dx = p2.x - p1.x;
-			var strength = Math.abs(dx) * 0.5;
-			var cp1x = p1.x + (dx > 0 ? strength : -strength);
-			var cp2x = p2.x + (dx > 0 ? -strength : strength);
-			this._wireLayer.get_graphics().lineStyle(3,43775,0.8);
-			this._wireLayer.get_graphics().moveTo(p1.x,p1.y);
-			this._wireLayer.get_graphics().cubicCurveTo(cp1x,p1.y,cp2x,p2.y,p2.x,p2.y);
 		}
-	}
-	,dispose: function() {
-		core_Impulsys.removeImpulse("EDITOR_NODE_MOVED",$bind(this,this.onNodeMoved));
-		core_Impulsys.removeImpulse("CONTEXT_MENU_ACTION",$bind(this,this.onMenuAction));
-		core_Impulsys.removeImpulse("PORT_DRAG_START",$bind(this,this.onPortDragStart));
 	}
 	,__class__: editor_NodeEditor
 });
-var editor_NodeView = function(atom,nodeId) {
+var editor_NodeView = function(atom,nodeId,assembly) {
 	this._offsetY = 0;
 	this._offsetX = 0;
 	this._isDragging = false;
@@ -4802,12 +4949,14 @@ var editor_NodeView = function(atom,nodeId) {
 	openfl_display_Sprite.call(this);
 	this.atom = atom;
 	this.nodeId = nodeId;
+	this._assembly = assembly;
 	this.inputPorts = new haxe_ds_StringMap();
 	this.outputPorts = new haxe_ds_StringMap();
 	this.draw();
 	this.set_buttonMode(true);
 	this.useHandCursor = true;
 	this.addEventListener("mouseDown",$bind(this,this.onMouseDown));
+	this.bindToValues();
 };
 $hxClasses["editor.NodeView"] = editor_NodeView;
 editor_NodeView.__name__ = "editor.NodeView";
@@ -4820,7 +4969,18 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.get_graphics().drawRoundRect(0,0,this._width,this._height,10,10);
 		this.get_graphics().endFill();
 		var title = new openfl_text_TextField();
-		title.set_text(this.atom.name + "\n(" + this.atom.type + ")");
+		var displayName = "Unknown";
+		var displayType = "Node";
+		if(this.atom != null) {
+			displayName = this.atom.name;
+			displayType = this.atom.type;
+		} else if(this._assembly != null) {
+			displayName = this._assembly.blueprint.name;
+			displayType = "SELF";
+		} else {
+			displayName = this.nodeId;
+		}
+		title.set_text(displayName + "\n(" + displayType + ")");
 		title.set_width(this._width);
 		title.set_height(30);
 		title.set_y(5);
@@ -4830,8 +4990,76 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		fmt.align = 0;
 		title.set_defaultTextFormat(fmt);
 		this.addChild(title);
-		this.drawPorts(this.atom.getInputs(),core_ContactType.INPUT);
-		this.drawPorts(this.atom.getOutputs(),core_ContactType.OUTPUT);
+		this._valueDisplay = new openfl_text_TextField();
+		this._valueDisplay.set_width(this._width - 10);
+		this._valueDisplay.set_height(20);
+		this._valueDisplay.set_x(5);
+		this._valueDisplay.set_y(this._height - 20);
+		var valFmt = new openfl_text_TextFormat("_typewriter",10,65280);
+		valFmt.align = 4;
+		this._valueDisplay.set_defaultTextFormat(valFmt);
+		this._valueDisplay.set_selectable(false);
+		this._valueDisplay.mouseEnabled = false;
+		this._valueDisplay.set_text("");
+		this.addChild(this._valueDisplay);
+		if(this.atom != null) {
+			this.drawPorts(this.atom.getInputs(),core_ContactType.INPUT);
+			this.drawPorts(this.atom.getOutputs(),core_ContactType.OUTPUT);
+		} else if(this._assembly != null) {
+			var _g = [];
+			var h = this._assembly.inputs.h;
+			var c_h = h;
+			var c_keys = Object.keys(h);
+			var c_length = c_keys.length;
+			var c_current = 0;
+			while(c_current < c_length) {
+				var c = c_h[c_keys[c_current++]];
+				_g.push(c);
+			}
+			var ins = _g;
+			var _g = [];
+			var h = this._assembly.outputs.h;
+			var c_h = h;
+			var c_keys = Object.keys(h);
+			var c_length = c_keys.length;
+			var c_current = 0;
+			while(c_current < c_length) {
+				var c = c_h[c_keys[c_current++]];
+				_g.push(c);
+			}
+			var outs = _g;
+			this.drawPorts(ins,core_ContactType.INPUT);
+			this.drawPorts(outs,core_ContactType.OUTPUT);
+		}
+	}
+	,bindToValues: function() {
+		if(this.atom != null) {
+			var outputs = this.atom.getOutputs();
+			var inputs = this.atom.getInputs();
+			var contact = null;
+			if(outputs.length > 0) {
+				contact = outputs[0];
+			} else if(inputs.length > 0) {
+				contact = inputs[0];
+			}
+			if(contact != null) {
+				contact.subscribe($bind(this,this.onValueUpdate));
+				this.onValueUpdate(contact.get_value());
+			}
+		}
+	}
+	,onValueUpdate: function(val) {
+		if(this._valueDisplay == null) {
+			return;
+		}
+		if(val == null) {
+			this._valueDisplay.set_text("null");
+		} else if(typeof(val) == "number") {
+			var f = val;
+			this._valueDisplay.set_text(Std.string(Math.round(f * 100) / 100));
+		} else {
+			this._valueDisplay.set_text(Std.string(val));
+		}
 	}
 	,drawPorts: function(contacts,type) {
 		var count = contacts.length;
@@ -24647,7 +24875,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 117403;
+	this.version = 913926;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";

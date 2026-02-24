@@ -1,64 +1,42 @@
 package core;
 
-// Updated to ensure all necessary types are registered for Serialization lookup
-
 class AtomDefinitions {
     private static var _initialized:Bool = false;
     private static var _blueprints:Map<String, Blueprint> = new Map();
 
+    private static function reg(id:String, name:String, pins:Array<Blueprint.PinDef>, ?logic) {
+        _blueprints.set(id, new Blueprint(id, name, pins, logic));
+    }
+
     public static function initialize():Void {
         if (_initialized) return;
 
-        // --- Primitives ---
+        // --- INPUTS (Sources) ---
         
-        register(new Blueprint("NumberSource", "Number Source",
-            [{name: "out", type: ContactType.OUTPUT, dataType: "number", defaultValue: 0}],
-            null
-        ));
-
-        register(new Blueprint("PassThrough", "Pass Through",
-            [
-                {name: "in", type: ContactType.INPUT, dataType: "number"},
-                {name: "out", type: ContactType.OUTPUT, dataType: "number"}
-            ],
-            function(vals) return [vals[0]]
-        ));
-
-        register(new Blueprint("Adder", "Adder", 
-            [
-                {name: "a", type: ContactType.INPUT, dataType: "number"},
-                {name: "b", type: ContactType.INPUT, dataType: "number"},
-                {name: "sum", type: ContactType.OUTPUT, dataType: "number"}
-            ],
-            function(vals) {
-                var a = (vals[0] != null) ? vals[0] : 0;
-                var b = (vals[1] != null) ? vals[1] : 0;
-                return [a + b]; 
-            }
-        ));
-
-        // --- Composite Example ---
-
-        register(new Blueprint(
-            "Doubler", "Doubler (x2)",
-            [
-                {name: "input", type: ContactType.INPUT, dataType: "number"},
-                {name: "output", type: ContactType.OUTPUT, dataType: "number"}
-            ],
-            null, 
-            [ { instanceId: "adder1", typeId: "Adder" } ],
-            [
-                { from: {atomId: "SELF", contactName: "input"}, to: {atomId: "adder1", contactName: "a"} },
-                { from: {atomId: "SELF", contactName: "input"}, to: {atomId: "adder1", contactName: "b"} },
-                { from: {atomId: "adder1", contactName: "sum"}, to: {atomId: "SELF", contactName: "output"} }
-            ]
-        ));
+        reg("SensorMock", "Random Sensor", 
+            [{name: "value", type: OUTPUT, dataType: "number", defaultValue: 0}],
+            null 
+        );
+		
+		reg("FPSMonitor", "FPS Monitor", 
+            [{name: "fps", type: OUTPUT, dataType: "number", defaultValue: 0}],
+            null 
+        );
+        // --- OUTPUTS (Displays) ---
+        
+        reg("AlphaNumericLine", "Display", 
+            [{name: "in", type: INPUT, dataType: "any"}],
+            null // Logic is handled by View, usually
+        );
+        
+        // --- LOGIC (Basics) ---
+        
+        reg("Pass", "Pass Through", 
+            [{name: "in", type: INPUT}, {name: "out", type: OUTPUT}],
+            function(v) return v
+        );
 
         _initialized = true;
-    }
-
-    public static function register(bp:Blueprint):Void {
-        _blueprints.set(bp.id, bp);
     }
 
     public static function get(id:String):Blueprint {

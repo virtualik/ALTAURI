@@ -20,7 +20,7 @@ class ApplicationMain
 
 		#if (js && html5)
 		#if (munit || (utest && openfl_enable_utest_legacy_mode))
-		lime.system.System.embed("TestHTML5", null, 0, 0);
+		lime.system.System.embed("TestHTML5", null, 800, 600);
 		#end
 		#else
 		create(null);
@@ -35,7 +35,7 @@ class ApplicationMain
 		ManifestResources.init(config);
 		#end
 
-		app.meta["build"] = "129";
+		app.meta["build"] = "100";
 		app.meta["company"] = "Company Name";
 		app.meta["file"] = "TestHTML5";
 		app.meta["name"] = "TestHTML5";
@@ -47,21 +47,21 @@ class ApplicationMain
 		#if !flash
 		
 		var attributes:lime.ui.WindowAttributes = {
-			allowHighDPI: true,
+			allowHighDPI: false,
 			alwaysOnTop: false,
 			borderless: false,
 			// display: 0,
 			element: null,
-			frameRate: 60,
+			frameRate: 30,
 			#if !web fullscreen: false, #end
-			height: 0,
+			height: 600,
 			hidden: #if munit true #else false #end,
 			maximized: false,
 			minimized: false,
 			parameters: {},
 			resizable: true,
 			title: "TestHTML5",
-			width: 0,
+			width: 800,
 			x: null,
 			y: null,
 		};
@@ -105,7 +105,7 @@ class ApplicationMain
 		app.window.title = "TestHTML5";
 		#else
 		app.window.context.attributes.background = 16777215;
-		app.window.frameRate = 60;
+		app.window.frameRate = 30;
 		#end
 
 		var preloader = getPreloader();
