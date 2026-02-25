@@ -91,12 +91,21 @@ class Main extends Sprite {
         // Create one display atom
         _editor.createAtom("AlphaNumericLine", 400, 200);
     }
-    
-    private function buildMenu():Void {
-        _menu.addItem("Add Sensor", "ADD_ATOM", {typeId: "SensorMock"});
-        _menu.addItem("Add Display", "ADD_ATOM", {typeId: "AlphaNumericLine"});
-        _menu.addItem("Add Pass", "ADD_ATOM", {typeId: "Pass"});
-    }
+   
+	private function buildMenu():Void {
+		var ids = AtomDefinitions.getAllIds();
+		
+		// Сортируем для красоты
+		ids.sort(function(a, b) return Reflect.compare(a, b));
+
+		for (id in ids) {
+			// Получаем чертеж, чтобы узнать красивое имя
+			var bp = AtomDefinitions.get(id);
+			if (bp != null) {
+				_menu.addItem("Add " + bp.name, "ADD_ATOM", {typeId: id});
+			}
+		}
+	}
     
     private function onRightClick(e:MouseEvent):Void {
         _menu.show(e.stageX, e.stageY);

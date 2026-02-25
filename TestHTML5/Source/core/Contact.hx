@@ -1,7 +1,9 @@
 package core;
 
 /**
- * CONTACT v3.5 (Stable + Loop Protection)
+ * CONTACT v4.0 (Optimized + Queue Based)
+ * Устранена рекурсивная передача данных.
+ * Использует SignalQueue для планирования обновлений.
  */
 class Contact {
     
@@ -9,13 +11,17 @@ class Contact {
     public var type(default, null):ContactType;
     public var name(default, null):String;
     
+    // Ссылка на владельца (для быстрого уведомления Атома без замыканий)
+    public var owner:Atom; 
+    
     public var value(get, set):Dynamic;
     private var _value:Dynamic;
     
     private var linkedTargets:Array<Contact>;
     private var callbackTargets:Array<Dynamic -> Void>;
-
-    // Removed local isProcessing, using global Utils depth counter
+    
+    // Флаг для защиты от повторного планирования одной и той же задачи
+    private var _isScheduled:Bool = false;
 
     public function new(initialValue:Dynamic = null, ?type:ContactType, ?name:String = "unnamed") {
         this.id = "c_" + Std.random(100000);
@@ -32,6 +38,7 @@ class Contact {
         if (hasLink(target)) return;
         linkedTargets.push(target);
         
+        // Инициализация значения
         if (_value != null) {
             target.value = _value;
         }
@@ -60,11 +67,17 @@ class Contact {
     }
 
     private function set_value(newValue:Dynamic):Dynamic {
-        // Optimisation: Stop if value didn't change (reduces noise)
+        // Оптимизация: Если значение не изменилось, выходим
         if (_value == newValue) return newValue;
         
         _value = newValue;
-        dispatch();
+
+		if (!_isScheduled) {
+			_isScheduled = true;
+			// Используем нормальный приоритет (можно не указывать второй аргумент)
+			SignalQueue.getInstance().schedule(_propagate, NORMAL); 
+		}
+        
         return newValue;
     }
 
@@ -73,30 +86,36 @@ class Contact {
     }
 
     /**
-     * Propagates signal.
-     * Uses global Loop Protection.
+     * Планируемое распространение сигнала.
+     * Вызывается итеративно из SignalQueue.
      */
-    private function dispatch():Void {
-        // 1. Check Global Depth
-        if (!Utils.enterDepth()) return;
+    private function _propagate():Void {
+        _isScheduled = false;
 
-        // 2. Propagate to Linked Contacts
+        // 1. Передаем значения связанным контактам
+        // Это вызовет set_value у них -> планирование новой задачи -> стек не растет.
         for (target in linkedTargets) {
-            target.value = this._value; // Recursive set_value calls will increase depth
+            target.value = this._value;
         }
 
-        // 3. Notify Callbacks
+        // 2. Уведомляем владельца (Атом) напрямую, если он есть
+        // Это быстрее, чем через subscribe, и не создает замыканий
+        if (owner != null) {
+            owner.onContactChanged(this);
+        }
+
+        // 3. Уведомляем внешних подписчиков (например, UI, View)
+        // Внимание: callback может быть медленным. 
+        // В идеале UI тоже должен подписываться на очередь, но пока оставим так.
         for (callback in callbackTargets) {
             callback(this._value);
         }
-
-        // 4. Exit Depth
-        Utils.exitDepth();
     }
 
     public function dispose():Void {
         linkedTargets = [];
         callbackTargets = [];
         _value = null;
+        owner = null;
     }
 }

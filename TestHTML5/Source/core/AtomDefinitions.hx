@@ -7,7 +7,11 @@ class AtomDefinitions {
     private static function reg(id:String, name:String, pins:Array<Blueprint.PinDef>, ?logic) {
         _blueprints.set(id, new Blueprint(id, name, pins, logic));
     }
-
+	
+	public static function getAllIds():Array<String> {
+		return [for (key in _blueprints.keys()) key];
+	}
+	
     public static function initialize():Void {
         if (_initialized) return;
 
@@ -18,7 +22,7 @@ class AtomDefinitions {
             null 
         );
 		
-		reg("FPSMonitor", "FPS Monitor", 
+		reg("FPSMonitorAtom", "FPS Monitor Atom", 
             [{name: "fps", type: OUTPUT, dataType: "number", defaultValue: 0}],
             null 
         );

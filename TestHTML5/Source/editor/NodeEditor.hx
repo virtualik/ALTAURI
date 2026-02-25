@@ -121,68 +121,65 @@ class NodeEditor extends Sprite {
         }
     }
 
-    private function onMouseUp(e:MouseEvent):Void {
-		if (_isDraggingPort) {
-			var target = findPortAt(e.stageX, e.stageY);
-			if (target != null) {
-				var fromId = _dragNodeId;
-				var fromContact = _dragContactName;
-				var toId = target.nodeId;
-				var toContact = target.contactName;
+        private function onMouseUp(e:MouseEvent):Void {
+        if (_isDraggingPort) {
+            var target = findPortAt(e.stageX, e.stageY);
+            if (target != null) {
+                var fromId = _dragNodeId;
+                var fromContact = _dragContactName;
+                var toId = target.nodeId;
+                var toContact = target.contactName;
 
-				var fromIsInput = _dragStartIsInput;
+                var fromIsInput = _dragStartIsInput;
 
-				if (fromId != toId && fromIsInput != target.isInput) {
-					// Сохраняем в Blueprint
-					var link:core.Blueprint.ConnectionDef = {
-						from: { atomId: fromId, contactName: fromContact },
-						to: { atomId: toId, contactName: toContact }
-					};
-					
-					// Упорядочиваем: всегда Output -> Input
-					var realFrom = fromIsInput ? link.to : link.from;
-					var realTo = fromIsInput ? link.from : link.to;
+                if (fromId != toId && fromIsInput != target.isInput) {
+                    
+                    // 1. Сохраняем в Blueprint (для сохранения и отрисовки)
+                    var link:core.Blueprint.ConnectionDef = {
+                        from: { atomId: fromId, contactName: fromContact },
+                        to: { atomId: toId, contactName: toContact }
+                    };
+                    
+                    // Упорядочиваем: всегда Output -> Input
+                    var realFrom = fromIsInput ? link.to : link.from;
+                    var realTo = fromIsInput ? link.from : link.to;
 
-					_blueprint.internalConnections.push(link);
+                    _blueprint.internalConnections.push(link);
 
-					// --- ЛОГИКА СОЕДИНЕНИЯ (с поддержкой SELF) ---
-					
-					// Находим выходной контакт (Source)
-					var cOut:Contact = null;
-					if (realFrom.atomId == "SELF") {
-						cOut = _assembly.outputs.get(realFrom.contactName);
-					} else {
-						var atom = _assembly.internalAtoms.get(realFrom.atomId);
-						if (atom != null) cOut = cast(atom, Atom).getOutput(realFrom.contactName);
-					}
+                    // 2. Создаем ФИЗИЧЕСКУЮ связь (вместо subscribe)
+                    // Находим контакты
+                    var cOut:Contact = null;
+                    var cIn:Contact = null;
 
-					// Находим входной контакт (Target)
-					var cIn:Contact = null;
-					if (realTo.atomId == "SELF") {
-						cIn = _assembly.inputs.get(realTo.contactName);
-					} else {
-						var atom = _assembly.internalAtoms.get(realTo.atomId);
-						if (atom != null) cIn = cast(atom, Atom).getInput(realTo.contactName);
-					}
+                    // Поиск выхода
+                    if (realFrom.atomId == "SELF") cOut = _assembly.outputs.get(realFrom.contactName);
+                    else {
+                        var atom = _assembly.internalAtoms.get(realFrom.atomId);
+                        if (atom != null) cOut = cast(atom, Atom).getOutput(realFrom.contactName);
+                    }
 
-					// Соединяем
-					if (cOut != null && cIn != null) {
-						cOut.subscribe(function(v) {
-							cIn.value = v;
-						});
-						// Инициализация первым значением
-						cIn.value = cOut.value;
-					}
+                    // Поиск входа
+                    if (realTo.atomId == "SELF") cIn = _assembly.inputs.get(realTo.contactName);
+                    else {
+                        var atom = _assembly.internalAtoms.get(realTo.atomId);
+                        if (atom != null) cIn = cast(atom, Atom).getInput(realTo.contactName);
+                    }
 
-					drawWires();
-				}
-			}
+                    // 3. Используем метод link!
+                    if (cOut != null && cIn != null) {
+                        cOut.link(cIn); // Это создает постоянную связь. 
+                                        // Теперь данные текут сами. 
+                                        // И это можно разорвать через cOut.unlink(cIn)!
+                    }
 
-			// Сброс состояния
-			_isDraggingPort = false;
-			_ghostWire.graphics.clear();
-		}
-	}
+                    drawWires();
+                }
+            }
+
+            _isDraggingPort = false;
+            _ghostWire.graphics.clear();
+        }
+    }
 
     private function findPortAt(x:Float, y:Float):{nodeId:String, contactName:String, isInput:Bool} {
         for (nodeId in _nodes.keys()) {

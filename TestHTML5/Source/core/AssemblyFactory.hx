@@ -12,13 +12,16 @@ class AssemblyFactory {
      * Creates an Atom instance from a registered Blueprint ID.
      */
     public static function createAtom(typeId:String):Atom {
-        var bp = AtomDefinitions.get(typeId);
-        if (bp == null) {
-            trace("Error: Atom Blueprint not found: " + typeId);
-            return null;
-        }
+    var bp = AtomDefinitions.get(typeId);
+    if (bp == null) return null;
 
-        // FIX: If logic is null, it's a composite, don't try to create simple Atom
+    // 1. Проверяем, это специальный класс?
+    if (typeId == "FPSMonitorAtom") {
+        var id = "atom_" + (_uidCounter++);
+        return new core.atoms.FPSMonitorAtom(id);
+    }
+
+        // If logic is null, it's a composite, don't try to create simple Atom
         if (bp.logic == null && bp.internalAtoms.length > 0) {
              trace("Error: Blueprint " + typeId + " is composite, use createAssembly.");
              return null;
@@ -27,7 +30,7 @@ class AssemblyFactory {
         var inputs = [];
         var outputs = [];
 
-        // FIX: Changed bp.pinDefs to bp.pins
+        // Changed bp.pinDefs to bp.pins
         for (pin in bp.pins) {
             var c = new Contact(pin.defaultValue, pin.type, pin.name);
             if (pin.type == ContactType.INPUT) inputs.push(c);

@@ -12,6 +12,9 @@ import core.Contact;
 import core.ContactType;
 import core.Impulsys;
 import core.Impulse;
+// --- Импорты ядра ---
+import core.SignalQueue;
+import core.SignalQueue.Priority; 
 
 class NodeView extends Sprite {
 
@@ -24,13 +27,15 @@ class NodeView extends Sprite {
     public var outputPorts(default, null):Map<String, Sprite>;
 
     private var _width:Float = 100;
-    private var _height:Float = 60; // Базовая высота
+    private var _height:Float = 60;
     private var _isDragging:Bool = false;
     private var _offsetX:Float = 0;
     private var _offsetY:Float = 0;
     
-    // Новое поле для отображения значения
     private var _valueDisplay:TextField;
+    
+    // Поле для запоминания подписки, чтобы потом отписаться
+    private var _subscribedContact:Contact = null;
 
     public function new(atom:Atom, nodeId:String, ?assembly:Assembly) {
         super();
@@ -47,19 +52,16 @@ class NodeView extends Sprite {
         this.useHandCursor = true;
         addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
         
-        // Подписываемся на изменения значений
         bindToValues();
     }
 
     private function draw():Void {
-        // 1. Background
         graphics.clear();
         graphics.beginFill(0x333344);
         graphics.lineStyle(2, 0x00AAFF);
         graphics.drawRoundRect(0, 0, _width, _height, 10, 10);
         graphics.endFill();
 
-        // 2. Title
         var title = new TextField();
         var displayName = "Unknown";
         var displayType = "Node";
@@ -85,22 +87,20 @@ class NodeView extends Sprite {
         title.defaultTextFormat = fmt;
         addChild(title);
 
-        // 3. Value Display (Зеленые цифры)
         _valueDisplay = new TextField();
         _valueDisplay.width = _width - 10;
         _valueDisplay.height = 20;
         _valueDisplay.x = 5;
-        _valueDisplay.y = _height - 20; // Внизу блока
+        _valueDisplay.y = _height - 20;
         
-        var valFmt = new TextFormat("_typewriter", 10, 0x00FF00); // Зеленый!
+        var valFmt = new TextFormat("_typewriter", 10, 0x00FF00);
         valFmt.align = TextFormatAlign.RIGHT;
         _valueDisplay.defaultTextFormat = valFmt;
         _valueDisplay.selectable = false;
         _valueDisplay.mouseEnabled = false;
-        _valueDisplay.text = ""; // Пусто изначально
+        _valueDisplay.text = "";
         addChild(_valueDisplay);
 
-        // 4. Ports
         if (atom != null) {
             drawPorts(atom.getInputs(), ContactType.INPUT);
             drawPorts(atom.getOutputs(), ContactType.OUTPUT);
@@ -112,21 +112,17 @@ class NodeView extends Sprite {
         }
     }
 
-    // Новая логика подписки
     private function bindToValues():Void {
-        // Если есть атом, подписываемся на первый выход или вход, чтобы показывать значение
         if (atom != null) {
             var outputs = atom.getOutputs();
             var inputs = atom.getInputs();
-            
-            // Приоритет выходу (для датчиков), иначе входу (для дисплеев)
             var contact:Contact = null;
             if (outputs.length > 0) contact = outputs[0];
             else if (inputs.length > 0) contact = inputs[0];
             
             if (contact != null) {
-                contact.subscribe(onValueUpdate);
-                // Сразу обновим текущее значение
+                _subscribedContact = contact; // Запоминаем, на что подписались
+                _subscribedContact.subscribe(onValueUpdate);
                 onValueUpdate(contact.value);
             }
         }
@@ -135,16 +131,18 @@ class NodeView extends Sprite {
     private function onValueUpdate(val:Dynamic):Void {
         if (_valueDisplay == null) return;
         
-        // Форматируем вывод
-        if (val == null) {
-            _valueDisplay.text = "null";
-        } else if (Std.isOfType(val, Float)) {
-            var f:Float = cast val;
-            // Показываем 2 знака после запятой
-            _valueDisplay.text = Std.string(Math.round(f * 100) / 100);
-        } else {
-            _valueDisplay.text = Std.string(val);
-        }
+        SignalQueue.getInstance().schedule(function() {
+            if (_valueDisplay == null) return;
+            
+            if (val == null) {
+                _valueDisplay.text = "null";
+            } else if (Std.isOfType(val, Float)) {
+                var f:Float = cast val;
+                _valueDisplay.text = Std.string(Math.round(f * 100) / 100);
+            } else {
+                _valueDisplay.text = Std.string(val);
+            }
+        }, BACKGROUND);
     }
 
     private function drawPorts(contacts:Array<Contact>, type:ContactType):Void {
@@ -180,8 +178,6 @@ class NodeView extends Sprite {
             else outputPorts.set(c.name, port);
         }
     }
-
-    // ... Остальные методы (onPortMouseDown, getPortPosition, onMouseDown, onMouseMove, onMouseUp) оставляем без изменений ...
     
     private function onPortMouseDown(e:MouseEvent):Void {
         e.stopPropagation(); 
@@ -246,5 +242,27 @@ class NodeView extends Sprite {
         _isDragging = false;
         stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
         stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+    }
+
+    //  Метод очистки ---
+    public function dispose():Void {
+        // 1. Отписываемся от данных
+        if (_subscribedContact != null) {
+            _subscribedContact.unsubscribe(onValueUpdate);
+            _subscribedContact = null;
+        }
+        
+        // 2. Убираем слушатели портов
+        for (port in inputPorts) {
+            port.removeEventListener(MouseEvent.MOUSE_DOWN, onPortMouseDown);
+        }
+        for (port in outputPorts) {
+            port.removeEventListener(MouseEvent.MOUSE_DOWN, onPortMouseDown);
+        }
+        
+        inputPorts = null;
+        outputPorts = null;
+        atom = null;
+        _assembly = null;
     }
 }

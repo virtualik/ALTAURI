@@ -3,21 +3,21 @@ package core;
 import core.Blueprint.ConnectionPoint;
 
 /**
- * ASSEMBLY v2.3
+ * ASSEMBLY v2.4
  * Implements IDisposable.
  */
 class Assembly implements IDisposable {
     public var id(default, null):String;
     public var blueprint(default, null):Blueprint;
-    
+
     public var inputs(default, null):Map<String, Contact>;
     public var outputs(default, null):Map<String, Contact>;
-    public var internalAtoms(default, null):Map<String, Dynamic>; 
+    public var internalAtoms(default, null):Map<String, Dynamic>;
 
     public function new(id:String, blueprint:Blueprint) {
         this.id = id;
         this.blueprint = blueprint;
-        
+
         this.inputs = new Map();
         this.outputs = new Map();
         this.internalAtoms = new Map();
@@ -79,15 +79,20 @@ class Assembly implements IDisposable {
     public function dispose():Void {
         // Dispose internal atoms
         for (key in internalAtoms.keys()) {
-            var atom:IDisposable = cast internalAtoms.get(key);
-            if (atom != null) atom.dispose();
+            var obj = internalAtoms.get(key);
+            
+            // --- ИСПРАВЛЕНИЕ №3: Безопасный каст ---
+            // Сначала проверяем, реализует ли объект интерфейс IDisposable
+            if (Std.isOfType(obj, IDisposable)) {
+                cast(obj, IDisposable).dispose();
+            }
         }
         internalAtoms.clear();
 
         // Dispose external pins
         for (pin in inputs) pin.dispose();
         for (pin in outputs) pin.dispose();
-        
+
         inputs.clear();
         outputs.clear();
     }
