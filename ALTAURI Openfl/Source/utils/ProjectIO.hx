@@ -12,7 +12,6 @@ import Lambda;
 class ProjectIO {
 
     private static var _currentFileRef:FileReference;
-    
     public static var logger:String -> Void;
 
     public static function save(blueprint:Blueprint, nodes:Array<{id:String, x:Float, y:Float}>):Void {
@@ -25,30 +24,36 @@ class ProjectIO {
             }
         }
 
-        // 2. ВАЖНО: Создаем "Чистый" объект для сериализации.
-        // Не сериализуем сам класс blueprint, иначе захватим функцию 'logic' -> Stack Overflow!
+        // 2. Сериализуем пины: тип принудительно в строку
+        var pinsToSave = [];
+        for (p in blueprint.pins) {
+            pinsToSave.push({
+                name: p.name,
+                type: Std.string(p.type), // "INPUT", "OUTPUT"
+                defaultValue: p.defaultValue,
+                dataType: p.dataType
+            });
+        }
+
         var dataToSave:Dynamic = {
             version: "1.0",
             blueprint: {
                 id: blueprint.id,
                 name: blueprint.name,
                 category: blueprint.category,
-                pins: blueprint.pins, // Массив простых структур
-                internalAtoms: blueprint.internalAtoms, // Массив простых структур
-                internalConnections: blueprint.internalConnections // Массив простых структур
-                // logic НЕ сохраняем! При загрузке она подтянется из AtomDefinitions.
+                pins: pinsToSave,
+                internalAtoms: blueprint.internalAtoms,
+                internalConnections: blueprint.internalConnections
             }
         };
 
         var json:String = Json.stringify(dataToSave, null, "  ");
-
         var fileRef = new FileReference();
         fileRef.save(json, blueprint.name + ".altauri");
     }
 
     public static function load(onComplete:Blueprint -> Void):Void {
         if (logger == null) logger = function(s) trace(s);
-        
         logger("IO: Creating FileRef...");
         _currentFileRef = new FileReference();
 
@@ -63,63 +68,80 @@ class ProjectIO {
                 var data:String = _currentFileRef.data.toString();
                 var json:Dynamic = Json.parse(data);
                 var rawBp:Dynamic = json.blueprint;
-                
-                // --- Ручное конструирование Blueprint (безопасное) ---
-                
-                // 1. Pins
+
+                // --- 1. PINS ---
                 var pins:Array<core.PinDef> = [];
                 if (rawBp.pins != null) {
                     for (p in cast(rawBp.pins, Array<Dynamic>)) {
                         pins.push({
-                            name: p.name,
+                            name: Std.string(p.name), // Защита от i32
                             type: _parseContactType(p.type),
                             defaultValue: p.defaultValue,
-                            dataType: p.dataType
+                            dataType: Std.string(p.dataType)
                         });
                     }
                 }
 
-                // 2. Atoms
+                // --- 2. ATOMS ---
                 var atoms:Array<core.AtomDef> = [];
                 if (rawBp.internalAtoms != null) {
                     for (a in cast(rawBp.internalAtoms, Array<Dynamic>)) {
+                        // Безопасное чтение координат
+                        var posX:Float = 0.0;
+                        var posY:Float = 0.0;
+                        
+                        if (a.x != null) {
+                            var vx = Std.parseFloat(Std.string(a.x));
+                            if (!Math.isNaN(vx)) posX = vx;
+                        }
+                        if (a.y != null) {
+                            var vy = Std.parseFloat(Std.string(a.y));
+                            if (!Math.isNaN(vy)) posY = vy;
+                        }
+
                         atoms.push({
-                            instanceId: a.instanceId,
-                            typeId: a.typeId,
-                            x: a.x,
-                            y: a.y
+                            instanceId: Std.string(a.instanceId), // Защита от i32
+                            typeId: Std.string(a.typeId),         // Защита от i32
+                            x: posX,
+                            y: posY
                         });
                     }
                 }
 
-                // 3. Connections
+                // --- 3. CONNECTIONS ---
                 var conns:Array<core.ConnectionDef> = [];
                 if (rawBp.internalConnections != null) {
                     for (c in cast(rawBp.internalConnections, Array<Dynamic>)) {
                         conns.push({
-                            from: { atomId: c.from.atomId, contactName: c.from.contactName },
-                            to: { atomId: c.to.atomId, contactName: c.to.contactName }
+                            from: { 
+                                atomId: Std.string(c.from.atomId),     // Защита от i32
+                                contactName: Std.string(c.from.contactName) 
+                            },
+                            to: { 
+                                atomId: Std.string(c.to.atomId),       // Защита от i32
+                                contactName: Std.string(c.to.contactName) 
+                            }
                         });
                     }
                 }
 
-                // 4. Создаем экземпляр класса
+                // 4. Создаем Blueprint
                 var bp = new Blueprint(
-                    rawBp.id,
-                    rawBp.name,
+                    Std.string(rawBp.id),
+                    Std.string(rawBp.name),
                     pins,
-                    null, // logic всегда null при загрузке
+                    null, // logic
                     atoms,
                     conns,
-                    rawBp.category
+                    Std.string(rawBp.category)
                 );
-                
+
                 logger("IO: Blueprint built OK: " + bp.name);
                 onComplete(bp);
 
             } catch (err:Dynamic) {
                 logger("IO: PARSE ERROR! " + err);
-                // Убираем опасный вывод стека, чтобы не спровоцировать краш
+                // Вывод стека может помочь, но иногда крашит, оставим так
             }
             _currentFileRef = null;
         });
@@ -128,7 +150,7 @@ class ProjectIO {
             logger("IO: IO_ERROR! " + e.text);
             _currentFileRef = null;
         });
-        
+
         _currentFileRef.addEventListener(Event.CANCEL, function(e) {
             logger("IO: Dialog CANCELLED");
             _currentFileRef = null;
@@ -138,16 +160,33 @@ class ProjectIO {
         _currentFileRef.browse();
     }
 
+    // --- Улучшенный парсер типов ---
     private static function _parseContactType(val:Dynamic):ContactType {
+        // Если это уже Enum (маловероятно при загрузке из JSON, но возможно)
         if (Std.isOfType(val, ContactType)) return val;
+
+        // Если это строка
         if (Std.isOfType(val, String)) {
-            switch(val) {
+            switch(Std.string(val)) {
                 case "INPUT": return INPUT;
                 case "OUTPUT": return OUTPUT;
                 case "BIDIRECTIONAL": return BIDIRECTIONAL;
                 default: return UNDEFINED;
             }
         }
+        
+        // Если это число (Int или Float)
+        // JSON парсеры могут выдавать Int
+        if (Std.isOfType(val, Int) || Std.isOfType(val, Float)) {
+            var index = Std.int(val);
+            switch(index) {
+                case 0: return INPUT;
+                case 1: return OUTPUT;
+                case 2: return BIDIRECTIONAL;
+                default: return UNDEFINED;
+            }
+        }
+        
         return UNDEFINED;
     }
 }

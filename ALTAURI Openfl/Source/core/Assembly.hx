@@ -5,6 +5,7 @@ import core.Blueprint.ConnectionPoint;
 /**
  * ASSEMBLY v2.5
  * Fixed JSON deserialization for ContactType.
+ * Fixed ID propagation on creation.
  */
 class Assembly implements IDisposable {
     public var id(default, null):String;
@@ -30,9 +31,8 @@ class Assembly implements IDisposable {
     private function _createInterface():Void {
         if (blueprint == null) return;
         for (pinDef in blueprint.pins) {
-            // --- ИСПРАВЛЕНИЕ: Безопасное чтение типа (String -> Enum) ---
             var type:ContactType = ContactType.UNDEFINED;
-            
+
             if (Std.isOfType(pinDef.type, String)) {
                 switch(cast(pinDef.type, String)) {
                     case "INPUT": type = INPUT;
@@ -45,7 +45,7 @@ class Assembly implements IDisposable {
             }
 
             var contact = new Contact(pinDef.defaultValue, type, pinDef.name);
-            
+
             if (type == INPUT) inputs.set(pinDef.name, contact);
             else if (type == OUTPUT) outputs.set(pinDef.name, contact);
         }
@@ -54,7 +54,8 @@ class Assembly implements IDisposable {
     private function _createInternalInstances():Void {
         if (blueprint.internalAtoms == null) return;
         for (atomDef in blueprint.internalAtoms) {
-            var instance = AssemblyFactory.createAtom(atomDef.typeId);
+            // --- ИСПРАВЛЕНИЕ: Передаем instanceId как второй аргумент ---
+            var instance = AssemblyFactory.createAtom(atomDef.typeId, atomDef.instanceId);
             if (instance != null) {
                 internalAtoms.set(atomDef.instanceId, instance);
             }

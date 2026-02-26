@@ -26,7 +26,13 @@ class AtomDefinitions {
             [{name: "fps", type: OUTPUT, dataType: "number", defaultValue: 0}],
             null 
         );
-        // --- OUTPUTS (Displays) ---
+
+		reg("FrameTimeAtom", "Frame Time (ms)",
+			[{name: "ms", type: OUTPUT, dataType: "number", defaultValue: 0.0}],
+			null
+		);        
+		
+		// --- OUTPUTS (Displays) ---
         
         reg("AlphaNumericLine", "Display", 
             [{name: "in", type: INPUT, dataType: "any"}],

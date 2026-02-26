@@ -1,11 +1,15 @@
 package core;
 
+import haxe.Timer;
+
 /**
- * HEAVY ATOM v1.0
+ * HEAVY ATOM v1.1
  * Атом с поддержкой Load Shedding (Сброса нагрузки).
- * Если система перегружена, он откладывает вычисления.
+ * ИСПРАВЛЕНО: Отмена таймера при dispose.
  */
 class HeavyAtom extends Atom {
+
+    private var _delayedTimer:Timer;
 
     public function new(
         inputs:Array<Contact>,
@@ -17,30 +21,30 @@ class HeavyAtom extends Atom {
         super(inputs, outputs, processFunc, id, type);
     }
 
-    // Переопределяем логику реакции на изменение
     override function onContactChanged(c:Contact):Void {
-        // Проверяем, не устал ли "мозг" (SignalQueue)
         if (SignalQueue.getInstance().isOverloaded()) {
-            
-            // Если устал - отменяем немедленное выполнение.
-            // Планируем задачу на следующий кадр через Таймер (или RAF в JS).
-            // Это "Ленивое" поведение.
-            
-            // ВАЖНО: Мы должны предотвратить повторное планирование в этом кадре,
-            // если данные прийдут еще раз.
             if (_isScheduled) return;
             _isScheduled = true;
 
-            // Используем haxe.Timer для переноса на следующий тик
-            haxe.Timer.delay(() -> {
+            // --- ИСПРАВЛЕНИЕ: Сохраняем таймер в переменную ---
+            _delayedTimer = Timer.delay(() -> {
                 _isScheduled = false;
-                _calculate(); // Выполняем тяжелую работу, когда очередь разгрузится
-            }, 1); // Задержка 1мс (фактически следующий кадр/тик)
-            
+                _delayedTimer = null; // Очистка ссылки
+                if (!_isDisposed) _calculate(); // Проверка перед выполнением
+            }, 1);
+
             return;
         }
 
-        // Если все норм - работаем как обычно
         super.onContactChanged(c);
+    }
+
+    // --- ИСПРАВЛЕНИЕ: Переопределяем dispose ---
+    override public function dispose():Void {
+        if (_delayedTimer != null) {
+            _delayedTimer.stop(); // Останавливаем запланированную задачу
+            _delayedTimer = null;
+        }
+        super.dispose();
     }
 }

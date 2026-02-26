@@ -1,7 +1,7 @@
 package core;
 
 /**
- * ASSEMBLY FACTORY v2.0
+ * ASSEMBLY FACTORY v2.1
  * Centralized factory for creating Atoms and Assemblies from Blueprints.
  */
 class AssemblyFactory {
@@ -10,16 +10,26 @@ class AssemblyFactory {
 
     /**
      * Creates an Atom instance from a registered Blueprint ID.
+     * 
+     * @param typeId The ID of the Blueprint definition.
+     * @param forcedId Optional. If provided, this ID will be used instead of generating a new one. 
+     *                 Crucial for loading saved schemes to maintain link references.
      */
-    public static function createAtom(typeId:String):Atom {
-    var bp = AtomDefinitions.get(typeId);
-    if (bp == null) return null;
+    public static function createAtom(typeId:String, ?forcedId:String):Atom {
+        var bp = AtomDefinitions.get(typeId);
+        if (bp == null) return null;
 
-    // 1. Проверяем, это специальный класс?
-    if (typeId == "FPSMonitorAtom") {
-        var id = "atom_" + (_uidCounter++);
-        return new core.atoms.FPSMonitorAtom(id);
-    }
+        // --- Логика ID: Используем принудительный или генерируем новый ---
+        var id:String = (forcedId != null) ? forcedId : "atom_" + (_uidCounter++);
+
+        // 1. Специальные классы (Active Atoms)
+        if (typeId == "FPSMonitorAtom") {
+            return new core.atoms.FPSMonitorAtom(id);
+        }
+
+        if (typeId == "FrameTimeAtom") {
+            return new core.atoms.FrameTimeAtom(id);
+        }
 
         // If logic is null, it's a composite, don't try to create simple Atom
         if (bp.logic == null && bp.internalAtoms.length > 0) {
@@ -30,14 +40,14 @@ class AssemblyFactory {
         var inputs = [];
         var outputs = [];
 
-        // Changed bp.pinDefs to bp.pins
         for (pin in bp.pins) {
             var c = new Contact(pin.defaultValue, pin.type, pin.name);
             if (pin.type == ContactType.INPUT) inputs.push(c);
             else outputs.push(c);
         }
 
-        var atom = new Atom(inputs, outputs, bp.logic, null, typeId);
+        // Передаем сгенерированный или принудительный ID
+        var atom = new Atom(inputs, outputs, bp.logic, id, typeId);
         return atom;
     }
 

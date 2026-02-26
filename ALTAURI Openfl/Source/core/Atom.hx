@@ -18,8 +18,6 @@ class Atom implements IDisposable implements Driver {
     private var _inputCache:Array<Dynamic>;
     private var _isScheduled:Bool = false;
     private var _isActive:Bool = false;
-    
-    // --- НОВОЕ: Флаг смерти ---
     private var _isDisposed:Bool = false;
 
     public function new(
@@ -40,7 +38,9 @@ class Atom implements IDisposable implements Driver {
         this._process = processFunc;
 
         _inputCache = [];
-        for(i in 0...inputs.length) _inputCache.push(null);
+        if (_inputs != null) {
+            for(i in 0..._inputs.length) _inputCache.push(null);
+        }
 
         _bind();
 
@@ -50,6 +50,7 @@ class Atom implements IDisposable implements Driver {
     }
 
     private function _bind():Void {
+        if (_inputs == null) return;
         for (input in _inputs) {
             input.owner = this;
         }
@@ -64,18 +65,19 @@ class Atom implements IDisposable implements Driver {
     private function _onUpdate(dt:Float):Void { }
 
     public function onContactChanged(c:Contact):Void {
-        if (_isScheduled || _isDisposed) return; // Защита
+        if (_isScheduled || _isDisposed) return;
         _isScheduled = true;
         SignalQueue.getInstance().schedule(_calculate, NORMAL);
     }
 
     private function _calculate():Void {
         _isScheduled = false;
-        
-        // --- ЗАЩИТА ОТ ЗОМБИ ---
+
+        // --- ЗАЩИТА: Если атом уничтожен или нет логики ---
         if (_isDisposed || _process == null || _inputs == null) return;
 
         for (i in 0..._inputs.length) _inputCache[i] = _inputs[i].value;
+        
         var results = _process(_inputCache);
 
         if (results != null && results.length == _outputs.length) {
@@ -89,18 +91,20 @@ class Atom implements IDisposable implements Driver {
     public function getOutputs():Array<Contact> return _outputs;
 
     public function getInput(name:String):Contact {
+        if (_inputs == null) return null;
         for (c in _inputs) if (c.name == name) return c;
         return null;
     }
 
     public function getOutput(name:String):Contact {
+        if (_outputs == null) return null;
         for (c in _outputs) if (c.name == name) return c;
         return null;
     }
 
     public function dispose():Void {
-        _isDisposed = true; // Сначала ставим флаг!
-        
+        _isDisposed = true;
+
         if (_isActive) {
             DriverManager.getInstance().unregister(this.id);
         }

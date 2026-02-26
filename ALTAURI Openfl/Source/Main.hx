@@ -13,8 +13,8 @@ import core.Blueprint;
 import core.SignalQueue;
 import core.Impulsys;
 import core.Impulse;
-import core.UndoManager; // НОВОЕ
-import drivers.DriverManager; 
+import core.UndoManager;
+import drivers.DriverManager;
 import editor.NodeEditor;
 import ui.ContextMenu;
 import ui.DevicePanel;
@@ -44,6 +44,9 @@ class Main extends Sprite {
     
     private var _debugField:TextField;
     private var _hideTimer:haxe.Timer;
+    
+    // Для контекстного меню
+    private var _contextTargetId:String = null;
 
     public function new() {
         super();
@@ -134,7 +137,6 @@ class Main extends Sprite {
         fileBtn.y = 10;
         _uiLayer.addChild(fileBtn);
         
-        // --- НОВОЕ: Кнопка Reset ---
         var resetBtn = new ButtonComponent("Reset [R]", onResetClick);
         resetBtn.x = 330;
         resetBtn.y = 10;
@@ -154,12 +156,11 @@ class Main extends Sprite {
 
         Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION", onMenuAction);
         Impulsys.subscribeToImpulse("ATOM_PROPERTIES_REQUEST", onPropertiesRequest);
+        Impulsys.subscribeToImpulse("NODE_RIGHT_CLICKED", onNodeRightClick);
     }
     
-    // --- НОВОЕ: Обработчик кнопки Reset ---
     private function onResetClick():Void {
         hardReset();
-        // Создаем новую пустую сборку
         var emptyBlueprint = new Blueprint("main_scheme", "Main Scheme", [
             {name: "IN", type: INPUT},
             {name: "OUT", type: OUTPUT}
@@ -170,27 +171,18 @@ class Main extends Sprite {
         log("System Reset Complete.");
     }
 
-    // --- МЕХАНИЗМ HARD RESET ---
     private function hardReset():Void {
         log("SYSTEM: Hard Reset initiated...");
-
-        // 1. Остановка драйверов
         DriverManager.getInstance().dispose();
-
-        // 2. Очистка очереди сигналов
         SignalQueue.getInstance().clear();
+        UndoManager.getInstance().clear(); // Очистка истории
 
-        // --- НОВОЕ: Очистка истории Undo ---
-        UndoManager.getInstance().clear();
-
-        // 3. Уничтожение редактора
         if (_editor != null) {
             _editor.dispose();
             _editorLayer.removeChild(_editor);
             _editor = null;
         }
 
-        // 4. Уничтожение сборки
         if (_assembly != null) {
             _assembly.dispose();
             _assembly = null;
@@ -219,12 +211,8 @@ class Main extends Sprite {
             _uiLayer.addChild(_fileMenu);
         }
 
-        // Безопасное получение позиции кнопки File
-        // Индексы: 0=Toggle, 1=File, 2=Reset
-        if(_uiLayer.numChildren > 1) {
-             var fileBtn = cast _uiLayer.getChildAt(1);
-             _fileMenu.show(fileBtn.x, fileBtn.y + 40);
-        }
+        var fileBtn = cast _uiLayer.getChildAt(1);
+        _fileMenu.show(fileBtn.x, fileBtn.y + 40);
     }
 
     private function buildAtomMenu():Void {
@@ -236,8 +224,26 @@ class Main extends Sprite {
         }
     }
 
+    // --- НОВОЕ: Контекстное меню для Атома ---
+    private function onNodeRightClick(impulse:Impulse):Void {
+        _contextTargetId = impulse.data.id;
+        
+        // Очищаем меню и заполняем актуальными пунктами
+        // Нужно добавить метод clear в ContextMenu, пока пересоздадим
+        _menu = new ContextMenu();
+        _uiLayer.addChild(_menu); // Добавляем заново, так как старый удалили
+        buildAtomMenu(); // Восстанавливаем список добавления
+        
+        // Добавляем специфичные пункты
+        _menu.addItem("——————", "SEP");
+        _menu.addItem("Delete " + impulse.data.name, "DELETE_ATOM", {id: _contextTargetId});
+        
+        _menu.show(stage.mouseX, stage.mouseY);
+    }
+
     private function onRightClick(e:MouseEvent):Void {
-        if (_isEditorMode) _menu.show(e.stageX, e.stageY);
+        // Если кликнули не по ноде - показываем дефолтное меню
+        _menu.show(e.stageX, e.stageY);
     }
 
     private function onKeyDown(e:KeyboardEvent):Void {
@@ -247,16 +253,18 @@ class Main extends Sprite {
         }
         if (e.keyCode == Keyboard.F5) onToggleView();
         
-        // --- НОВОЕ: Горячие клавиши Undo/Redo ---
-        if (e.ctrlKey && e.keyCode == Keyboard.Z) {
-            UndoManager.getInstance().undo();
-        }
-        if (e.ctrlKey && e.keyCode == Keyboard.Y) {
-            UndoManager.getInstance().redo();
-        }
-        // R для Reset
-        if (e.keyCode == Keyboard.R) {
-            onResetClick();
+        // Hotkeys
+        if (e.ctrlKey && e.keyCode == Keyboard.Z) UndoManager.getInstance().undo();
+        if (e.ctrlKey && e.keyCode == Keyboard.Y) UndoManager.getInstance().redo();
+        
+        if (e.keyCode == Keyboard.R) onResetClick();
+        
+        // Delete Key
+        if (e.keyCode == Keyboard.DELETE) {
+            if (_contextTargetId != null) {
+                _editor.deleteAtom(_contextTargetId);
+                _contextTargetId = null;
+            }
         }
     }
 
@@ -282,15 +290,18 @@ class Main extends Sprite {
                 
                 ProjectIO.load(function(bp) {
                     log("File loaded: " + bp.name);
-                    
-                    hardReset(); // Сброс с очисткой истории
-
+                    hardReset();
                     _assembly = new Assembly("loaded_asm", bp);
                     _editor = new NodeEditor(_assembly);
                     _editorLayer.addChild(_editor);
-                    
                     log("SUCCESS: Loaded " + bp.name);
                 });
+                return;
+                
+            case "DELETE_ATOM":
+                if (data != null && data.id != null) {
+                    _editor.deleteAtom(data.id);
+                }
                 return;
         }
 

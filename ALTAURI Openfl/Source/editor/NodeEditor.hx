@@ -10,8 +10,12 @@ import core.Contact;
 import core.ContactType;
 import core.Impulsys;
 import core.Impulse;
-import core.UndoManager; // НОВОЕ
-import editor.commands.MoveNodeCommand; // НОВОЕ
+import core.UndoManager;
+import editor.commands.MoveNodeCommand;
+import editor.commands.ConnectCommand;
+import editor.commands.DeleteAtomCommand;
+// Добавляем импорт команды создания, если используется полный путь
+import editor.commands.CreateAtomCommand; 
 
 class NodeEditor extends Sprite {
 
@@ -30,6 +34,9 @@ class NodeEditor extends Sprite {
     private var _wireLayer:Sprite;
     private var _ghostWire:Sprite;
 
+    // --- 1. Храним ссылку на колбэк для корректного отписывания ---
+    private var _cbRedraw:Impulse -> Void;
+
     public function new(assembly:Assembly) {
         super();
         this._assembly = assembly;
@@ -40,7 +47,7 @@ class NodeEditor extends Sprite {
         _wireLayer.mouseEnabled = false;
         addChild(_wireLayer);
 
-        // 2. Узлы
+        // 2. Узел SELF (Корневой)
         var selfView = new NodeView(null, "SELF", assembly);
         selfView.x = 150;
         selfView.y = 50;
@@ -55,12 +62,23 @@ class NodeEditor extends Sprite {
         _ghostWire.mouseChildren = false;
         addChild(_ghostWire);
 
+        // --- 2. Инициализация колбэка ---
+        _cbRedraw = function(_) drawWires();
+
+        // --- Подписка на события ---
         Impulsys.subscribeToImpulse("PORT_DRAG_START", onPortDragStart);
         Impulsys.subscribeToImpulse("EDITOR_NODE_MOVED", onNodeMoved);
         
-        // --- НОВОЕ: Подписка на события Undo/Redo системы ---
+        // Система команд
         Impulsys.subscribeToImpulse("NODE_DRAG_FINISHED", onNodeDragFinished);
         Impulsys.subscribeToImpulse("FORCE_UPDATE_NODE_POSITION", onForceUpdatePosition);
+        
+        // Используем сохраненную ссылку
+        Impulsys.subscribeToImpulse("REDRAW_WIRES", _cbRedraw);
+        
+        // События от UndoManager для синхронизации вида
+        Impulsys.subscribeToImpulse("ATOM_DELETED", onAtomDeleted);
+        Impulsys.subscribeToImpulse("ATOM_RESTORED", onAtomRestored);
 
         if (stage != null) initListeners();
         else addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
@@ -70,37 +88,48 @@ class NodeEditor extends Sprite {
 
     // --- МЕТОД ОЧИСТКИ ПАМЯТИ ---
     public function dispose():Void {
-        // 1. Отписываемся от глобальной шины (Impulsys)
+        // --- 3. Отписываемся используя ТЕ ЖЕ ссылки ---
         Impulsys.removeImpulse("PORT_DRAG_START", onPortDragStart);
         Impulsys.removeImpulse("EDITOR_NODE_MOVED", onNodeMoved);
-        // --- НОВОЕ ---
         Impulsys.removeImpulse("NODE_DRAG_FINISHED", onNodeDragFinished);
         Impulsys.removeImpulse("FORCE_UPDATE_NODE_POSITION", onForceUpdatePosition);
+        
+        // Теперь это сработает корректно
+        Impulsys.removeImpulse("REDRAW_WIRES", _cbRedraw);
+        
+        Impulsys.removeImpulse("ATOM_DELETED", onAtomDeleted);
+        Impulsys.removeImpulse("ATOM_RESTORED", onAtomRestored);
 
-        // 2. Снимаем слушителей со сцены
         if (stage != null) {
             stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
             stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
         }
         removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
 
-        // 3. Уничтожаем все NodeView
         for (nodeId in _nodes.keys()) {
             var view = _nodes.get(nodeId);
             if (view != null) {
-                view.dispose(); // Вызываем очистку внутри вида
+                view.dispose();
                 removeChild(view);
             }
         }
         _nodes.clear();
 
-        // 4. Очищаем графику
-        _wireLayer.graphics.clear();
-        _ghostWire.graphics.clear();
-
-        // 5. Обнуляем ссылки
+        if (_wireLayer != null) _wireLayer.graphics.clear();
+        if (_ghostWire != null) _ghostWire.graphics.clear();
+        
+        // Очистка ссылок
         _assembly = null;
         _blueprint = null;
+        _cbRedraw = null;
+    }
+    
+    // --- API для Main.hx ---
+    
+    public function deleteAtom(id:String):Void {
+        // Создаем и выполняем команду через UndoManager
+        var cmd = new DeleteAtomCommand(_blueprint, _assembly, id);
+        UndoManager.getInstance().executeAndStore(cmd);
     }
 
     private function restoreExistingAtoms():Void {
@@ -108,26 +137,25 @@ class NodeEditor extends Sprite {
 
         for (atomDef in _blueprint.internalAtoms) {
             var atomInstance = _assembly.internalAtoms.get(atomDef.instanceId);
-
             if (atomInstance != null) {
-                var view = new NodeView(cast atomInstance, atomDef.instanceId);
-
-                if (atomDef.x != null && atomDef.y != null) {
-                    view.x = atomDef.x;
-                    view.y = atomDef.y;
-                } else {
-                    view.x = 0;
-                    view.y = 0;
-                }
-
-                addChild(view);
-                _nodes.set(atomDef.instanceId, view);
-
+                createViewForAtom(cast atomInstance, atomDef.instanceId, atomDef.x, atomDef.y);
+                
                 var parts = atomDef.instanceId.split("_");
                 var num = Std.parseInt(parts[parts.length-1]);
                 if (num != null && num >= _spawnCounter) _spawnCounter = num + 1;
             }
         }
+    }
+    
+    // Быстрое создание Вида (без логики модели)
+    private function createViewForAtom(atom:Atom, id:String, x:Float, y:Float):Void {
+        if (_nodes.exists(id)) return; // Уже есть
+        
+        var view = new NodeView(atom, id);
+        view.x = x;
+        view.y = y;
+        addChild(view);
+        _nodes.set(id, view);
     }
 
     private function onAddedToStage(e:Event):Void {
@@ -156,33 +184,19 @@ class NodeEditor extends Sprite {
         if (bp == null) return null;
 
         var instanceId = typeId + "_" + (_spawnCounter++);
+
+        // Используем CreateAtomCommand для поддержки Undo
+        var cmd = new CreateAtomCommand(_blueprint, _assembly, typeId, instanceId, posX, posY);
         
-        var atomDef = { instanceId: instanceId, typeId: typeId, x: posX, y: posY };
-        _blueprint.internalAtoms.push(atomDef);
+        // executeAndStore выполнит команду и положет в историю
+        UndoManager.getInstance().executeAndStore(cmd);
 
-        var inputs = [];
-        var outputs = [];
-        for (pin in bp.pins) {
-            var c = new core.Contact(pin.defaultValue, pin.type, pin.name);
-            if (pin.type == ContactType.INPUT) inputs.push(c);
-            else outputs.push(c);
-        }
-
-        var atom = new Atom(inputs, outputs, bp.logic, instanceId, typeId);
-        _assembly.internalAtoms.set(instanceId, atom);
-
-        var view = new NodeView(atom, instanceId);
-        view.x = posX;
-        view.y = posY;
-        
-        addChild(view);
-        _nodes.set(instanceId, view);
-
-        drawWires();
-
-        return atom;
+        // Возвращаем созданный атом из сборки
+        return _assembly.internalAtoms.get(instanceId);
     }
     
+    // --- Обработчики Событий (Events Handlers) ---
+
     private function onPortDragStart(impulse:Impulse):Void {
         _isDraggingPort = true;
         _dragNodeId = impulse.data.nodeId;
@@ -201,49 +215,108 @@ class NodeEditor extends Sprite {
     private function onMouseUp(e:MouseEvent):Void {
         if (_isDraggingPort) {
             var target = findPortAt(e.stageX, e.stageY);
-            if (target != null) {
+            
+            // Логика соединения
+            if (target != null && _dragNodeId != target.nodeId && _dragStartIsInput != target.isInput) {
                 var fromId = _dragNodeId;
                 var fromContact = _dragContactName;
                 var toId = target.nodeId;
                 var toContact = target.contactName;
-                var fromIsInput = _dragStartIsInput;
 
-                if (fromId != toId && fromIsInput != target.isInput) {
-                    var link:core.Blueprint.ConnectionDef = {
-                        from: { atomId: fromId, contactName: fromContact },
-                        to: { atomId: toId, contactName: toContact }
-                    };
+                // Определяем реальное направление
+                var realFromId = _dragStartIsInput ? toId : fromId;
+                var realFromContact = _dragStartIsInput ? toContact : fromContact;
+                var realToId = _dragStartIsInput ? fromId : toId;
+                var realToContact = _dragStartIsInput ? fromContact : toContact;
 
-                    var realFrom = fromIsInput ? link.to : link.from;
-                    var realTo = fromIsInput ? link.from : link.to;
-
-                    _blueprint.internalConnections.push(link);
-
-                    var cOut:Contact = null;
-                    var cIn:Contact = null;
-                    
-                    if (realFrom.atomId == "SELF") cOut = _assembly.outputs.get(realFrom.contactName);
-                    else {
-                        var atom = _assembly.internalAtoms.get(realFrom.atomId);
-                        if (atom != null) cOut = cast(atom, Atom).getOutput(realFrom.contactName);
-                    }
-
-                    if (realTo.atomId == "SELF") cIn = _assembly.inputs.get(realTo.contactName);
-                    else {
-                        var atom = _assembly.internalAtoms.get(realTo.atomId);
-                        if (atom != null) cIn = cast(atom, Atom).getInput(realTo.contactName);
-                    }
-
-                    if (cOut != null && cIn != null) {
-                        cOut.link(cIn);
-                    }
-                    drawWires();
-                }
+                // --- Используем ConnectCommand ---
+                var cmd = new ConnectCommand(
+                    _blueprint, _assembly, 
+                    realFromId, realFromContact, 
+                    realToId, realToContact
+                );
+                UndoManager.getInstance().executeAndStore(cmd);
             }
+            
+            // Очищаем призрачный провод
             _isDraggingPort = false;
             _ghostWire.graphics.clear();
+            
+            // Перерисовываем провода
+            drawWires(); 
         }
     }
+    
+    // Реакция на команду "Атом удален" (удаляем вид)
+    private function onAtomDeleted(impulse:Impulse):Void {
+        var id:String = impulse.data.id;
+        var view = _nodes.get(id);
+        if (view != null) {
+            view.dispose();
+            removeChild(view);
+            _nodes.remove(id);
+            drawWires(); // Обновить провода
+        }
+    }
+    
+    // Реакция на команду "Атом восстановлен" (создаем вид)
+    private function onAtomRestored(impulse:Impulse):Void {
+        var id:String = impulse.data.id;
+        var x:Float = impulse.data.x;
+        var y:Float = impulse.data.y;
+        var atom:Atom = impulse.data.atom;
+        
+        if (atom != null) {
+            createViewForAtom(atom, id, x, y);
+            drawWires();
+        }
+    }
+
+    // --- Логика Движения (Move) ---
+
+    private function onNodeDragFinished(impulse:Impulse):Void {
+        var data = impulse.data;
+        
+        // 1. Создаем команду
+        var cmd = new MoveNodeCommand(
+            _blueprint, 
+            data.id, 
+            data.startX, 
+            data.startY, 
+            data.endX, 
+            data.endY
+        );
+        
+        // 2. Регистрируем как ВЫПОЛНЕННУЮ (так как вид уже сдвинулся мышкой)
+        UndoManager.getInstance().storeExecuted(cmd);
+        
+        // 3. Обновляем модель (на случай Save)
+        for (atom in _blueprint.internalAtoms) {
+            if (atom.instanceId == data.id) {
+                atom.x = data.endX;
+                atom.y = data.endY;
+                break;
+            }
+        }
+    }
+    
+    private function onForceUpdatePosition(impulse:Impulse):Void {
+        var data = impulse.data;
+        var view = _nodes.get(data.id);
+        if (view != null) {
+            if (view.x != data.x || view.y != data.y) {
+                view.x = data.x;
+                view.y = data.y;
+                drawWires();
+            }
+        }
+    }
+    
+    private function onNodeMoved(impulse:Impulse):Void {
+        drawWires();
+    }
+
+    // --- Утилиты (Utils) ---
 
     private function findPortAt(x:Float, y:Float):{nodeId:String, contactName:String, isInput:Bool} {
         for (nodeId in _nodes.keys()) {
@@ -272,52 +345,6 @@ class NodeEditor extends Sprite {
         return null;
     }
 
-    private function onNodeMoved(impulse:Impulse):Void {
-        drawWires();
-    }
-    
-    // --- НОВОЕ: Обработчик завершения перетаскивания (Регистрация в Undo) ---
-    private function onNodeDragFinished(impulse:Impulse):Void {
-        var data = impulse.data;
-        
-        // 1. Создаем команду
-        var cmd = new MoveNodeCommand(
-            _blueprint, 
-            data.id, 
-            data.startX, 
-            data.startY, 
-            data.endX, 
-            data.endY
-        );
-        
-        // 2. Регистрируем в системе (она ляжет в стек)
-        UndoManager.getInstance().registerAction(cmd);
-        
-        // 3. Обновляем модель (Blueprint) вручную, так как вид уже сдвинут.
-        // Это важно, чтобы при сохранении координаты были верными.
-        for (atom in _blueprint.internalAtoms) {
-            if (atom.instanceId == data.id) {
-                atom.x = data.endX;
-                atom.y = data.endY;
-                break;
-            }
-        }
-    }
-
-    // --- НОВОЕ: Принудительное обновление позиции (Undo/Redo) ---
-    private function onForceUpdatePosition(impulse:Impulse):Void {
-        var data = impulse.data;
-        var view = _nodes.get(data.id);
-        if (view != null) {
-            // Если позиция вида отличается от пришедшей (из модели) -> обновляем
-            if (view.x != data.x || view.y != data.y) {
-                view.x = data.x;
-                view.y = data.y;
-                drawWires(); // Перерисовка проводов
-            }
-        }
-    }
-
     private function drawGhostWire(startX:Float, startY:Float, endX:Float, endY:Float, isInput:Bool):Void {
         var g = _ghostWire.graphics;
         g.clear();
@@ -331,6 +358,10 @@ class NodeEditor extends Sprite {
     }
 
     private function drawWires():Void {
+        // --- ЗАЩИТА ОТ ЗОМБИ ---
+        // Если редактор уничтожен, выходим сразу.
+        if (_blueprint == null || _wireLayer == null) return;
+        
         var g = _wireLayer.graphics;
         g.clear();
         g.lineStyle(2, 0x666666);
@@ -342,6 +373,11 @@ class NodeEditor extends Sprite {
             if (fromView != null && toView != null) {
                 var p1 = fromView.getPortPosition(link.from.contactName);
                 var p2 = toView.getPortPosition(link.to.contactName);
+
+                // --- ЗАЩИТА ОТ КРАША ---
+                if (p1 == null || p2 == null) {
+                    continue;
+                }
 
                 g.moveTo(p1.x, p1.y);
 
