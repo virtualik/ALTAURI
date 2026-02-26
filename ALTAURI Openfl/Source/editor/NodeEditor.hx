@@ -10,6 +10,8 @@ import core.Contact;
 import core.ContactType;
 import core.Impulsys;
 import core.Impulse;
+import core.UndoManager; // НОВОЕ
+import editor.commands.MoveNodeCommand; // НОВОЕ
 
 class NodeEditor extends Sprite {
 
@@ -55,6 +57,10 @@ class NodeEditor extends Sprite {
 
         Impulsys.subscribeToImpulse("PORT_DRAG_START", onPortDragStart);
         Impulsys.subscribeToImpulse("EDITOR_NODE_MOVED", onNodeMoved);
+        
+        // --- НОВОЕ: Подписка на события Undo/Redo системы ---
+        Impulsys.subscribeToImpulse("NODE_DRAG_FINISHED", onNodeDragFinished);
+        Impulsys.subscribeToImpulse("FORCE_UPDATE_NODE_POSITION", onForceUpdatePosition);
 
         if (stage != null) initListeners();
         else addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
@@ -67,6 +73,9 @@ class NodeEditor extends Sprite {
         // 1. Отписываемся от глобальной шины (Impulsys)
         Impulsys.removeImpulse("PORT_DRAG_START", onPortDragStart);
         Impulsys.removeImpulse("EDITOR_NODE_MOVED", onNodeMoved);
+        // --- НОВОЕ ---
+        Impulsys.removeImpulse("NODE_DRAG_FINISHED", onNodeDragFinished);
+        Impulsys.removeImpulse("FORCE_UPDATE_NODE_POSITION", onForceUpdatePosition);
 
         // 2. Снимаем слушителей со сцены
         if (stage != null) {
@@ -265,6 +274,48 @@ class NodeEditor extends Sprite {
 
     private function onNodeMoved(impulse:Impulse):Void {
         drawWires();
+    }
+    
+    // --- НОВОЕ: Обработчик завершения перетаскивания (Регистрация в Undo) ---
+    private function onNodeDragFinished(impulse:Impulse):Void {
+        var data = impulse.data;
+        
+        // 1. Создаем команду
+        var cmd = new MoveNodeCommand(
+            _blueprint, 
+            data.id, 
+            data.startX, 
+            data.startY, 
+            data.endX, 
+            data.endY
+        );
+        
+        // 2. Регистрируем в системе (она ляжет в стек)
+        UndoManager.getInstance().registerAction(cmd);
+        
+        // 3. Обновляем модель (Blueprint) вручную, так как вид уже сдвинут.
+        // Это важно, чтобы при сохранении координаты были верными.
+        for (atom in _blueprint.internalAtoms) {
+            if (atom.instanceId == data.id) {
+                atom.x = data.endX;
+                atom.y = data.endY;
+                break;
+            }
+        }
+    }
+
+    // --- НОВОЕ: Принудительное обновление позиции (Undo/Redo) ---
+    private function onForceUpdatePosition(impulse:Impulse):Void {
+        var data = impulse.data;
+        var view = _nodes.get(data.id);
+        if (view != null) {
+            // Если позиция вида отличается от пришедшей (из модели) -> обновляем
+            if (view.x != data.x || view.y != data.y) {
+                view.x = data.x;
+                view.y = data.y;
+                drawWires(); // Перерисовка проводов
+            }
+        }
     }
 
     private function drawGhostWire(startX:Float, startY:Float, endX:Float, endY:Float, isInput:Bool):Void {

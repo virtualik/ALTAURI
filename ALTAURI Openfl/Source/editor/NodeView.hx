@@ -32,6 +32,10 @@ class NodeView extends Sprite {
     private var _offsetX:Float = 0;
     private var _offsetY:Float = 0;
     
+    // --- НОВОЕ: Запоминание позиции старта для Undo ---
+    private var _dragStartX:Float = 0;
+    private var _dragStartY:Float = 0;
+    
     private var _valueDisplay:TextField;
     
     // Поле для запоминания подписки
@@ -257,6 +261,10 @@ class NodeView extends Sprite {
         _offsetX = e.localX;
         _offsetY = e.localY;
 
+        // --- НОВОЕ: Запоминаем позицию перед началом движения ---
+        _dragStartX = this.x;
+        _dragStartY = this.y;
+
         if (parent != null) parent.addChild(this);
 
         stage.addEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
@@ -271,13 +279,28 @@ class NodeView extends Sprite {
         this.x = parentPos.x - _offsetX;
         this.y = parentPos.y - _offsetY;
 
+        // Оптимизация: шлем импульс движения только для перерисовки проводов
         Impulsys.emit(new Impulse("EDITOR_NODE_MOVED", { id: this.nodeId, view: this } ));
     }
 
     private function onMouseUp(e:MouseEvent):Void {
+        if (!_isDragging) return; // Защита от двойных вызовов
+        
         _isDragging = false;
         stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
         stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+
+        // --- НОВОЕ: Проверяем, сдвинулся ли узел ---
+        if (_dragStartX != this.x || _dragStartY != this.y) {
+            // Если да - регистрируем команду в истории
+            Impulsys.emit(new Impulse("NODE_DRAG_FINISHED", {
+                id: this.nodeId,
+                startX: _dragStartX,
+                startY: _dragStartY,
+                endX: this.x,
+                endY: this.y
+            }));
+        }
     }
 
     // --- Метод очистки ---

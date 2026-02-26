@@ -5,7 +5,7 @@
 	<app main="Main" path="Export" file="TestHTML5" />
 	
 	<source path="Source" />
-	<window fps="480"/>
+	<window fps="999"/>
 	<haxelib name="openfl" />
 	
 	<assets path="Assets" rename="assets" />

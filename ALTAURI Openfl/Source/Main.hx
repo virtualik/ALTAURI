@@ -13,7 +13,8 @@ import core.Blueprint;
 import core.SignalQueue;
 import core.Impulsys;
 import core.Impulse;
-import drivers.DriverManager; // Важно!
+import core.UndoManager; // НОВОЕ
+import drivers.DriverManager; 
 import editor.NodeEditor;
 import ui.ContextMenu;
 import ui.DevicePanel;
@@ -132,6 +133,12 @@ class Main extends Sprite {
         fileBtn.x = 170;
         fileBtn.y = 10;
         _uiLayer.addChild(fileBtn);
+        
+        // --- НОВОЕ: Кнопка Reset ---
+        var resetBtn = new ButtonComponent("Reset [R]", onResetClick);
+        resetBtn.x = 330;
+        resetBtn.y = 10;
+        _uiLayer.addChild(resetBtn);
 
         _menu = new ContextMenu();
         _menu.visible = false;
@@ -149,25 +156,41 @@ class Main extends Sprite {
         Impulsys.subscribeToImpulse("ATOM_PROPERTIES_REQUEST", onPropertiesRequest);
     }
     
+    // --- НОВОЕ: Обработчик кнопки Reset ---
+    private function onResetClick():Void {
+        hardReset();
+        // Создаем новую пустую сборку
+        var emptyBlueprint = new Blueprint("main_scheme", "Main Scheme", [
+            {name: "IN", type: INPUT},
+            {name: "OUT", type: OUTPUT}
+        ]);
+        _assembly = new Assembly("main_asm", emptyBlueprint);
+        _editor = new NodeEditor(_assembly);
+        _editorLayer.addChild(_editor);
+        log("System Reset Complete.");
+    }
+
     // --- МЕХАНИЗМ HARD RESET ---
     private function hardReset():Void {
         log("SYSTEM: Hard Reset initiated...");
 
-        // 1. Остановка драйверов (FPSMonitor и прочие Active Atoms)
-        // Это критически важно, чтобы они перестали дергать очередь
+        // 1. Остановка драйверов
         DriverManager.getInstance().dispose();
 
-        // 2. Очистка очереди сигналов (убираем запланированные задачи)
+        // 2. Очистка очереди сигналов
         SignalQueue.getInstance().clear();
 
-        // 3. Уничтожение редактора (графика, слушатели UI)
+        // --- НОВОЕ: Очистка истории Undo ---
+        UndoManager.getInstance().clear();
+
+        // 3. Уничтожение редактора
         if (_editor != null) {
             _editor.dispose();
             _editorLayer.removeChild(_editor);
             _editor = null;
         }
 
-        // 4. Уничтожение сборки (атомы, контакты, связи)
+        // 4. Уничтожение сборки
         if (_assembly != null) {
             _assembly.dispose();
             _assembly = null;
@@ -196,8 +219,12 @@ class Main extends Sprite {
             _uiLayer.addChild(_fileMenu);
         }
 
-        var fileBtn = cast _uiLayer.getChildAt(1);
-        _fileMenu.show(fileBtn.x, fileBtn.y + 40);
+        // Безопасное получение позиции кнопки File
+        // Индексы: 0=Toggle, 1=File, 2=Reset
+        if(_uiLayer.numChildren > 1) {
+             var fileBtn = cast _uiLayer.getChildAt(1);
+             _fileMenu.show(fileBtn.x, fileBtn.y + 40);
+        }
     }
 
     private function buildAtomMenu():Void {
@@ -219,6 +246,18 @@ class Main extends Sprite {
             if(_fileMenu != null) _fileMenu.hide();
         }
         if (e.keyCode == Keyboard.F5) onToggleView();
+        
+        // --- НОВОЕ: Горячие клавиши Undo/Redo ---
+        if (e.ctrlKey && e.keyCode == Keyboard.Z) {
+            UndoManager.getInstance().undo();
+        }
+        if (e.ctrlKey && e.keyCode == Keyboard.Y) {
+            UndoManager.getInstance().redo();
+        }
+        // R для Reset
+        if (e.keyCode == Keyboard.R) {
+            onResetClick();
+        }
     }
 
     private function onMenuAction(impulse:Impulse):Void {
@@ -244,10 +283,8 @@ class Main extends Sprite {
                 ProjectIO.load(function(bp) {
                     log("File loaded: " + bp.name);
                     
-                    // --- ЗАПУСК HARD RESET ---
-                    hardReset();
+                    hardReset(); // Сброс с очисткой истории
 
-                    // Создаем новую среду
                     _assembly = new Assembly("loaded_asm", bp);
                     _editor = new NodeEditor(_assembly);
                     _editorLayer.addChild(_editor);
