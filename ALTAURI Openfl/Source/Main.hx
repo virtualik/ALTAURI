@@ -7,20 +7,20 @@ import openfl.events.Event;
 import openfl.ui.Keyboard;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
-import core.AtomDefinitions;
-import core.Assembly;
-import core.Blueprint;
-import core.SignalQueue;
-import core.Impulsys;
-import core.Impulse;
-import core.UndoManager;
-import drivers.DriverManager;
+import library.AtomRegistry;
+import core.base.Assembly;
+import core.data.Blueprint;
+import core.logic.SignalQueue;
+import core.logic.Impulsys;
+import core.logic.Impulse;
+import system.managers.UndoManager;
+import system.managers.DriverManager;
 import editor.NodeEditor;
 import ui.ContextMenu;
 import ui.DevicePanel;
 import ui.PropertiesWindow;
 import ui.ButtonComponent;
-import utils.ProjectIO;
+import system.io.ProjectIO;
 
 #if html5
 import js.html.CanvasElement;
@@ -41,11 +41,10 @@ class Main extends Sprite {
 
     private var _assembly:Assembly;
     private var _isEditorMode:Bool = true;
-    
+
     private var _debugField:TextField;
     private var _hideTimer:haxe.Timer;
-    
-    // Для контекстного меню
+
     private var _contextTargetId:String = null;
 
     public function new() {
@@ -58,10 +57,10 @@ class Main extends Sprite {
         #end
 
         setupDebugLog();
-        
-        ProjectIO.logger = log; 
 
-        AtomDefinitions.initialize();
+        ProjectIO.logger = log;
+
+        AtomRegistry.initialize(); // Updated reference
         log("System initialized");
 
         var emptyBlueprint = new Blueprint("main_scheme", "Main Scheme", [
@@ -73,12 +72,12 @@ class Main extends Sprite {
         setupLayers();
         buildUI();
     }
-    
+
     private function log(msg:String) {
-        trace(msg); 
-        
+        trace(msg);
+
         if (_hideTimer != null) _hideTimer.stop();
-        
+
         if (_debugField != null) {
             _debugField.text = msg;
             _debugField.alpha = 1.0;
@@ -101,7 +100,7 @@ class Main extends Sprite {
         _debugField.width = 600;
         _debugField.height = 30;
         _debugField.x = 10;
-        _debugField.y = 55; 
+        _debugField.y = 55;
         _debugField.background = true;
         _debugField.backgroundColor = 0x333333;
         _debugField.textColor = 0x00FF00;
@@ -136,7 +135,7 @@ class Main extends Sprite {
         fileBtn.x = 170;
         fileBtn.y = 10;
         _uiLayer.addChild(fileBtn);
-        
+
         var resetBtn = new ButtonComponent("Reset [R]", onResetClick);
         resetBtn.x = 330;
         resetBtn.y = 10;
@@ -158,7 +157,7 @@ class Main extends Sprite {
         Impulsys.subscribeToImpulse("ATOM_PROPERTIES_REQUEST", onPropertiesRequest);
         Impulsys.subscribeToImpulse("NODE_RIGHT_CLICKED", onNodeRightClick);
     }
-    
+
     private function onResetClick():Void {
         hardReset();
         var emptyBlueprint = new Blueprint("main_scheme", "Main Scheme", [
@@ -175,7 +174,7 @@ class Main extends Sprite {
         log("SYSTEM: Hard Reset initiated...");
         DriverManager.getInstance().dispose();
         SignalQueue.getInstance().clear();
-        UndoManager.getInstance().clear(); // Очистка истории
+        UndoManager.getInstance().clear();
 
         if (_editor != null) {
             _editor.dispose();
@@ -187,7 +186,7 @@ class Main extends Sprite {
             _assembly.dispose();
             _assembly = null;
         }
-        
+
         log("SYSTEM: Memory cleared.");
     }
 
@@ -216,33 +215,28 @@ class Main extends Sprite {
     }
 
     private function buildAtomMenu():Void {
-        var ids = core.AtomDefinitions.getAllIds();
+        var ids = AtomRegistry.getAllIds(); // Updated reference
         ids.sort(function(a, b) return Reflect.compare(a, b));
         for (id in ids) {
-            var bp = core.AtomDefinitions.get(id);
+            var bp = AtomRegistry.get(id); // Updated reference
             if (bp != null) _menu.addItem("Add " + bp.name, "ADD_ATOM", {typeId: id});
         }
     }
 
-    // --- НОВОЕ: Контекстное меню для Атома ---
     private function onNodeRightClick(impulse:Impulse):Void {
         _contextTargetId = impulse.data.id;
-        
-        // Очищаем меню и заполняем актуальными пунктами
-        // Нужно добавить метод clear в ContextMenu, пока пересоздадим
+
         _menu = new ContextMenu();
-        _uiLayer.addChild(_menu); // Добавляем заново, так как старый удалили
-        buildAtomMenu(); // Восстанавливаем список добавления
-        
-        // Добавляем специфичные пункты
+        _uiLayer.addChild(_menu);
+        buildAtomMenu();
+
         _menu.addItem("——————", "SEP");
         _menu.addItem("Delete " + impulse.data.name, "DELETE_ATOM", {id: _contextTargetId});
-        
+
         _menu.show(stage.mouseX, stage.mouseY);
     }
 
     private function onRightClick(e:MouseEvent):Void {
-        // Если кликнули не по ноде - показываем дефолтное меню
         _menu.show(e.stageX, e.stageY);
     }
 
@@ -252,14 +246,12 @@ class Main extends Sprite {
             if(_fileMenu != null) _fileMenu.hide();
         }
         if (e.keyCode == Keyboard.F5) onToggleView();
-        
-        // Hotkeys
+
         if (e.ctrlKey && e.keyCode == Keyboard.Z) UndoManager.getInstance().undo();
         if (e.ctrlKey && e.keyCode == Keyboard.Y) UndoManager.getInstance().redo();
-        
+
         if (e.keyCode == Keyboard.R) onResetClick();
-        
-        // Delete Key
+
         if (e.keyCode == Keyboard.DELETE) {
             if (_contextTargetId != null) {
                 _editor.deleteAtom(_contextTargetId);
@@ -287,7 +279,7 @@ class Main extends Sprite {
 
             case "FILE_LOAD":
                 log("Opening file dialog...");
-                
+
                 ProjectIO.load(function(bp) {
                     log("File loaded: " + bp.name);
                     hardReset();
@@ -297,7 +289,7 @@ class Main extends Sprite {
                     log("SUCCESS: Loaded " + bp.name);
                 });
                 return;
-                
+
             case "DELETE_ATOM":
                 if (data != null && data.id != null) {
                     _editor.deleteAtom(data.id);

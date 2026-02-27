@@ -5,22 +5,21 @@ import openfl.geom.Point;
 /**
  * ATOM SKIN v1.0
  * Data object defining how an Atom looks.
- * Can be loaded from JSON or created in code.
  */
 class AtomSkin {
     // Dimensions
     public var width:Float = 60;
     public var height:Float = 40;
-    
+
     // Colors
     public var backgroundColor:Int = 0x3366CC;
     public var borderColor:Int = 0xFFFFFF;
     public var textColor:Int = 0xFFFFFF;
-    
+
     // Layout
     public var cornerRadius:Float = 8;
     public var showLabel:Bool = true;
-    
+
     // Context variants
     public var editorSkin:AtomSkin;
     public var deviceSkin:AtomSkin;
@@ -32,27 +31,24 @@ class AtomSkin {
      */
     public static function createDefault(category:String):AtomSkin {
         var skin = new AtomSkin();
-        
+
         switch(category) {
-            case "Logic": 
+            case "Logic":
                 skin.backgroundColor = 0x6666CC;
-            case "Input": 
+            case "Input":
                 skin.backgroundColor = 0x336699;
-            case "Output": 
+            case "Output":
                 skin.backgroundColor = 0x996633;
-            default: 
+            default:
                 skin.backgroundColor = 0x444444;
         }
-        
-        // Create variants for different contexts
-        // Editor: Detailed
+
         skin.editorSkin = skin.clone();
-        
-        // Device: Simplified
+
         var device = skin.clone();
-        device.borderColor = 0x000000; // Darker border for device
+        device.borderColor = 0x000000;
         skin.deviceSkin = device;
-        
+
         return skin;
     }
 

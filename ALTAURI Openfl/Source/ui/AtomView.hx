@@ -4,39 +4,34 @@ import openfl.display.Sprite;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
 import openfl.text.TextFormatAlign;
-import core.Atom;
-import core.Contact;
+import core.base.Atom;
+import core.base.Contact;
+import ui.IAtomView;
 
 /**
  * ATOM VIEW v1.0
  * Visual representation of an Atom using OpenFL.
- * Supports "Editor" and "Device" contexts.
  */
 class AtomView extends Sprite implements IAtomView {
-    
+
     public var atom(get, null):Atom;
-    
+
     private var _atom:Atom;
     private var _skin:AtomSkin;
-    private var _context:String; // "Editor" or "Device"
-    
-    private var _label:TextField;
-    private var _contactViews:Array<Sprite>; // Simple visual ports
+    private var _context:String;
 
-    /**
-     * @param atom The logic model
-     * @param context "Editor" or "Device"
-     */
+    private var _label:TextField;
+    private var _contactViews:Array<Sprite>;
+
     public function new(atom:Atom, context:String = "Editor") {
         super();
         _atom = atom;
         _context = context;
-        
-        // Get appropriate skin
+
         var baseSkin = SkinManager.getInstance().getSkinForType(atom.type);
         _skin = (_context == "Device") ? baseSkin.deviceSkin : baseSkin.editorSkin;
-        if (_skin == null) _skin = baseSkin; // Fallback
-        
+        if (_skin == null) _skin = baseSkin;
+
         setupView();
         bindToAtom();
     }
@@ -44,7 +39,7 @@ class AtomView extends Sprite implements IAtomView {
     private function setupView():Void {
         this.buttonMode = true;
         this.useHandCursor = true;
-        
+
         drawBackground();
         drawLabel();
         drawPorts();
@@ -52,11 +47,9 @@ class AtomView extends Sprite implements IAtomView {
 
     private function drawBackground():Void {
         graphics.clear();
-        
-        // Background
         graphics.beginFill(_skin.backgroundColor);
         graphics.lineStyle(2, _skin.borderColor);
-        
+
         if (_skin.cornerRadius > 0) {
             graphics.drawRoundRect(0, 0, _skin.width, _skin.height, _skin.cornerRadius, _skin.cornerRadius);
         } else {
@@ -72,26 +65,21 @@ class AtomView extends Sprite implements IAtomView {
         _label.width = _skin.width;
         _label.height = 20;
         _label.y = (_skin.height - 20) / 2;
-        
+
         var format:TextFormat = new TextFormat("_typewriter", 10, _skin.textColor);
         format.align = TextFormatAlign.CENTER;
         _label.defaultTextFormat = format;
         _label.text = _atom.name;
-        
+
         addChild(_label);
     }
 
-    /**
-     * Draws simple circles for Inputs and Outputs.
-     */
     private function drawPorts():Void {
-        // Clear old ports
         if (_contactViews != null) {
             for (v in _contactViews) removeChild(v);
         }
         _contactViews = [];
 
-        // Inputs (Left side)
         var inputs = _atom.getInputs();
         for (i in 0...inputs.length) {
             var port = createPortView(inputs[i]);
@@ -101,7 +89,6 @@ class AtomView extends Sprite implements IAtomView {
             _contactViews.push(port);
         }
 
-        // Outputs (Right side)
         var outputs = _atom.getOutputs();
         for (i in 0...outputs.length) {
             var port = createPortView(outputs[i]);
@@ -114,20 +101,16 @@ class AtomView extends Sprite implements IAtomView {
 
     private function createPortView(c:Contact):Sprite {
         var s = new Sprite();
-        s.graphics.beginFill(0x00AAFF); // Cyan for data ports
+        s.graphics.beginFill(0x00AAFF);
         s.graphics.lineStyle(1, 0xFFFFFF);
         s.graphics.drawCircle(0, 0, 4);
         s.graphics.endFill();
-        
-        // Make it interactive?
+
         s.buttonMode = true;
         s.name = c.name;
         return s;
     }
 
-    /**
-     * Subscribe to atom outputs to change visual state if needed.
-     */
     private function bindToAtom():Void {
         for (out in _atom.getOutputs()) {
             out.subscribe(onDataChange);
@@ -140,12 +123,7 @@ class AtomView extends Sprite implements IAtomView {
     }
 
     public function update():Void {
-        // Example: Change background if output is true?
-        // This is where logic meets visuals.
-        // For now, we just keep static look.
-        
-        // Redraw ports to show activity?
-        // drawPorts(); 
+        // Logic for visual updates based on atom state
     }
 
     public function dispose():Void {

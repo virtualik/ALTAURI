@@ -11,7 +11,7 @@ typedef ButtonAction = Void -> Void;
 class ButtonComponent extends Sprite {
     private var _textField: TextField;
     private var _action: ButtonAction;
-    
+
     public function new(label: String, action: ButtonAction) {
         super();
         _action = action;
@@ -20,7 +20,7 @@ class ButtonComponent extends Sprite {
         graphics.drawRoundRect(0, 0, 150, 40, 8, 8);
         buttonMode = true;
         useHandCursor = true;
-        
+
         _textField = new TextField();
         var format = new TextFormat("_typewriter", 14, 0xffffff);
         format.align = TextFormatAlign.CENTER;
@@ -31,12 +31,12 @@ class ButtonComponent extends Sprite {
         _textField.selectable = false;
         _textField.mouseEnabled = false;
         addChild(_textField);
-        
+
         addEventListener(MouseEvent.CLICK, onClick);
         addEventListener(MouseEvent.MOUSE_OVER, onOver);
         addEventListener(MouseEvent.MOUSE_OUT, onOut);
     }
-    
+
     private function onClick(e: MouseEvent) { if (_action != null) _action(); }
     private function onOver(e: MouseEvent) {
         graphics.clear(); graphics.beginFill(0x4a4a5a); graphics.lineStyle(1, 0x888888);

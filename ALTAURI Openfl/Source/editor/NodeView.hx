@@ -6,22 +6,24 @@ import openfl.text.TextFormat;
 import openfl.text.TextFormatAlign;
 import openfl.events.MouseEvent;
 import openfl.geom.Point;
-import core.Atom;
-import core.Assembly;
-import core.Contact;
-import core.ContactType;
-import core.Impulsys;
-import core.Impulse;
-// --- Импорты ядра ---
-import core.SignalQueue;
-import core.SignalQueue.Priority; 
+import core.base.Atom;
+import core.base.Assembly;
+import core.base.Contact;
+import core.types.ContactType;
+import core.logic.Impulsys;
+import core.logic.Impulse;
+import core.logic.SignalQueue;
+import core.types.Priority;
 
+/**
+ * Visual representation of a Node.
+ */
 class NodeView extends Sprite {
 
     public var atom(default, null):Atom;
     public var nodeId(default, null):String;
-    
-    private var _assembly:Assembly; 
+
+    private var _assembly:Assembly;
 
     public var inputPorts(default, null):Map<String, Sprite>;
     public var outputPorts(default, null):Map<String, Sprite>;
@@ -31,17 +33,12 @@ class NodeView extends Sprite {
     private var _isDragging:Bool = false;
     private var _offsetX:Float = 0;
     private var _offsetY:Float = 0;
-    
-    // --- НОВОЕ: Запоминание позиции старта для Undo ---
+
     private var _dragStartX:Float = 0;
     private var _dragStartY:Float = 0;
-    
+
     private var _valueDisplay:TextField;
-    
-    // Поле для запоминания подписки
     private var _subscribedContact:Contact = null;
-    
-    // Кнопка настроек
     private var _settingsBtn:Sprite;
 
     public function new(atom:Atom, nodeId:String, ?assembly:Assembly) {
@@ -58,7 +55,7 @@ class NodeView extends Sprite {
         this.buttonMode = true;
         this.useHandCursor = true;
         addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
-        
+
         bindToValues();
     }
 
@@ -99,7 +96,7 @@ class NodeView extends Sprite {
         _valueDisplay.height = 20;
         _valueDisplay.x = 5;
         _valueDisplay.y = _height - 20;
-        
+
         var valFmt = new TextFormat("_typewriter", 10, 0x00FF00);
         valFmt.align = TextFormatAlign.RIGHT;
         _valueDisplay.defaultTextFormat = valFmt;
@@ -108,22 +105,19 @@ class NodeView extends Sprite {
         _valueDisplay.text = "";
         addChild(_valueDisplay);
 
-        // --- Кнопка Настроек (Settings Wrench) ---
         _settingsBtn = new Sprite();
         _settingsBtn.graphics.beginFill(0x888888, 0.8);
-        _settingsBtn.graphics.drawCircle(_width - 10, 10, 6); // Правый верхний угол
+        _settingsBtn.graphics.drawCircle(_width - 10, 10, 6);
         _settingsBtn.graphics.endFill();
-        
-        // Рисуем "гаечный ключ" (упрощенно - линия)
         _settingsBtn.graphics.lineStyle(1, 0xFFFFFF);
         _settingsBtn.graphics.moveTo(-3, -3);
         _settingsBtn.graphics.lineTo(3, 3);
-        
+
         _settingsBtn.buttonMode = true;
         _settingsBtn.useHandCursor = true;
-        _settingsBtn.mouseEnabled = true; // Важно!
+        _settingsBtn.mouseEnabled = true;
         _settingsBtn.addEventListener(MouseEvent.CLICK, onSettingsClick);
-        
+
         addChild(_settingsBtn);
 
         if (atom != null) {
@@ -144,9 +138,9 @@ class NodeView extends Sprite {
             var contact:Contact = null;
             if (outputs.length > 0) contact = outputs[0];
             else if (inputs.length > 0) contact = inputs[0];
-            
+
             if (contact != null) {
-                _subscribedContact = contact; 
+                _subscribedContact = contact;
                 _subscribedContact.subscribe(onValueUpdate);
                 onValueUpdate(contact.value);
             }
@@ -155,10 +149,10 @@ class NodeView extends Sprite {
 
     private function onValueUpdate(val:Dynamic):Void {
         if (_valueDisplay == null) return;
-        
+
         SignalQueue.getInstance().schedule(function() {
             if (_valueDisplay == null) return;
-            
+
             if (val == null) {
                 _valueDisplay.text = "null";
             } else if (Std.isOfType(val, Float)) {
@@ -203,9 +197,9 @@ class NodeView extends Sprite {
             else outputPorts.set(c.name, port);
         }
     }
-    
+
     private function onPortMouseDown(e:MouseEvent):Void {
-        e.stopPropagation(); 
+        e.stopPropagation();
 
         var port:Sprite = cast e.target;
         var isInput = inputPorts.exists(port.name);
@@ -221,17 +215,13 @@ class NodeView extends Sprite {
             startY: globalPos.y
         }));
     }
-    
-    // --- ОБРАБОТЧИК КЛИКА НА НАСТРОЙКИ ---
+
     private function onSettingsClick(e:MouseEvent):Void {
-        e.stopPropagation(); // Чтобы не тащить нод
-        
-        // Отправляем импульс, что пользователь хочет свойства
+        e.stopPropagation();
         Impulsys.emit(new Impulse("ATOM_PROPERTIES_REQUEST", {
             atom: this.atom,
-            view: this // Передаем ссылку на вид, чтобы показать попап рядом
+            view: this
         }));
-        
         trace("Settings clicked for: " + (atom != null ? atom.name : "Assembly"));
     }
 
@@ -247,11 +237,9 @@ class NodeView extends Sprite {
     }
 
     private function onMouseDown(e:MouseEvent):Void {
-        // Проверяем, не кликнули ли мы по кнопке настроек или портам
         var targetSprite:Dynamic = e.target;
         if (Std.isOfType(targetSprite, Sprite)) {
              var s:Sprite = targetSprite;
-             // Если это порт или кнопка настроек - не перетаскиваем нод
              if (inputPorts.exists(s.name) || outputPorts.exists(s.name) || s == _settingsBtn) {
                  return;
              }
@@ -261,7 +249,6 @@ class NodeView extends Sprite {
         _offsetX = e.localX;
         _offsetY = e.localY;
 
-        // --- НОВОЕ: Запоминаем позицию перед началом движения ---
         _dragStartX = this.x;
         _dragStartY = this.y;
 
@@ -279,20 +266,17 @@ class NodeView extends Sprite {
         this.x = parentPos.x - _offsetX;
         this.y = parentPos.y - _offsetY;
 
-        // Оптимизация: шлем импульс движения только для перерисовки проводов
         Impulsys.emit(new Impulse("EDITOR_NODE_MOVED", { id: this.nodeId, view: this } ));
     }
 
     private function onMouseUp(e:MouseEvent):Void {
-        if (!_isDragging) return; // Защита от двойных вызовов
-        
+        if (!_isDragging) return;
+
         _isDragging = false;
         stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
         stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
 
-        // --- НОВОЕ: Проверяем, сдвинулся ли узел ---
         if (_dragStartX != this.x || _dragStartY != this.y) {
-            // Если да - регистрируем команду в истории
             Impulsys.emit(new Impulse("NODE_DRAG_FINISHED", {
                 id: this.nodeId,
                 startX: _dragStartX,
@@ -303,27 +287,23 @@ class NodeView extends Sprite {
         }
     }
 
-    // --- Метод очистки ---
     public function dispose():Void {
-        // 1. Отписываемся от данных
         if (_subscribedContact != null) {
             _subscribedContact.unsubscribe(onValueUpdate);
             _subscribedContact = null;
         }
-        
-        // 2. Убираем слушители кнопки настроек
+
         if (_settingsBtn != null) {
             _settingsBtn.removeEventListener(MouseEvent.CLICK, onSettingsClick);
         }
-        
-        // 3. Убираем слушители портов
+
         for (port in inputPorts) {
             port.removeEventListener(MouseEvent.MOUSE_DOWN, onPortMouseDown);
         }
         for (port in outputPorts) {
             port.removeEventListener(MouseEvent.MOUSE_DOWN, onPortMouseDown);
         }
-        
+
         inputPorts = null;
         outputPorts = null;
         atom = null;

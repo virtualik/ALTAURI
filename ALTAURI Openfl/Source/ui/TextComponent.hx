@@ -4,12 +4,12 @@ import openfl.display.Sprite;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
 import openfl.text.TextFormatAlign;
-import core.Contact;
+import core.base.Contact;
 
 class TextComponent extends Sprite {
     private var _textField: TextField;
     private var _contact: Contact;
-    
+
     public function new(contact: Contact, ?width: Float = 200, ?height: Float = 50) {
         super();
         _contact = contact;
@@ -29,7 +29,7 @@ class TextComponent extends Sprite {
         _contact.subscribe(onContactChange);
         addChild(_textField);
     }
-    
+
     private function onContactChange(newValue: Dynamic) { updateText(newValue); }
     private function updateText(value: Dynamic) { _textField.text = Std.string(value); }
     public function destroy() { _contact.unsubscribe(onContactChange); }
