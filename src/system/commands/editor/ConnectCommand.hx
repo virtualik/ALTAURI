@@ -5,6 +5,7 @@ import core.data.Blueprint;
 import core.base.Assembly;
 import core.base.Atom;
 import core.base.Contact;
+import core.base.ConductorPort;
 import core.types.ContactType;
 import core.logic.Impulsys;
 
@@ -85,14 +86,18 @@ class ConnectCommand extends Command {
 
     private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact {
         if (atomId == "SELF") {
-            var map = (type == INPUT) ? _assembly.inputs : _assembly.outputs;
-            return map.get(contactName);
+            // ИСПРАВЛЕНИЕ: Берем внутренний контакт порта
+            var port:ConductorPort = _assembly.ports.get(contactName);
+            if (port != null) return port.internal;
+            
+            // Fallback (на всякий случай)
+            return null;
         } else {
             var obj = _assembly.internalAtoms.get(atomId);
             if (obj == null) return null;
 
             var atom:Atom = cast obj;
-            if (atom.getInputs() == null) return null; 
+            if (atom.getInputs() == null) return null;
 
             return (type == INPUT) ? atom.getInput(contactName) : atom.getOutput(contactName);
         }

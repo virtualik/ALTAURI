@@ -12,12 +12,7 @@ import core.base.Contact;
 import core.types.ContactType;
 import core.logic.Impulsys;
 import core.logic.Impulse;
-import core.logic.SignalQueue;
-import core.types.Priority;
 
-/**
- * Visual representation of a Node.
- */
 class NodeView extends Sprite {
 
     public var atom(default, null):Atom;
@@ -29,7 +24,8 @@ class NodeView extends Sprite {
     public var outputPorts(default, null):Map<String, Sprite>;
 
     private var _width:Float = 100;
-    private var _height:Float = 60;
+    private var _height:Float = 40;
+
     private var _isDragging:Bool = false;
     private var _offsetX:Float = 0;
     private var _offsetY:Float = 0;
@@ -37,9 +33,13 @@ class NodeView extends Sprite {
     private var _dragStartX:Float = 0;
     private var _dragStartY:Float = 0;
 
-    private var _valueDisplay:TextField;
-    private var _subscribedContact:Contact = null;
     private var _settingsBtn:Sprite;
+    
+    public var selected(default, set):Bool = false;
+    
+    private var _bgColor:Int = 0x333344;
+    private var _borderColor:Int = 0x00AAFF;
+    private var _selectedColor:Int = 0xFFCC00;
 
     public function new(atom:Atom, nodeId:String, ?assembly:Assembly) {
         super();
@@ -54,36 +54,41 @@ class NodeView extends Sprite {
 
         this.buttonMode = true;
         this.useHandCursor = true;
+        
         addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
-
-        bindToValues();
+        addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
+    }
+    
+    function set_selected(v:Bool):Bool {
+        if (selected != v) {
+            selected = v;
+            draw();
+        }
+        return v;
     }
 
     private function draw():Void {
         graphics.clear();
-        graphics.beginFill(0x333344);
-        graphics.lineStyle(2, 0x00AAFF);
+        graphics.beginFill(_bgColor);
+        
+        if (selected) {
+            graphics.lineStyle(3, _selectedColor);
+        } else {
+            graphics.lineStyle(2, _borderColor);
+        }
+        
         graphics.drawRoundRect(0, 0, _width, _height, 10, 10);
         graphics.endFill();
 
         var title = new TextField();
         var displayName = "Unknown";
-        var displayType = "Node";
+        if (atom != null) displayName = atom.name;
+        else if (_assembly != null) displayName = _assembly.blueprint.name;
+        else displayName = nodeId;
 
-        if (atom != null) {
-            displayName = atom.name;
-            displayType = atom.type;
-        } else if (_assembly != null) {
-            displayName = _assembly.blueprint.name;
-            displayType = "SELF";
-        } else {
-            displayName = nodeId;
-        }
-
-        title.text = displayName + "\n(" + displayType + ")";
-        title.width = _width;
-        title.height = 30;
-        title.y = 5;
+        title.text = displayName;
+        title.width = _width - 20;
+        title.height = _height;
         title.selectable = false;
         title.mouseEnabled = false;
         var fmt = new TextFormat("_typewriter", 10, 0xFFFFFF);
@@ -91,33 +96,18 @@ class NodeView extends Sprite {
         title.defaultTextFormat = fmt;
         addChild(title);
 
-        _valueDisplay = new TextField();
-        _valueDisplay.width = _width - 10;
-        _valueDisplay.height = 20;
-        _valueDisplay.x = 5;
-        _valueDisplay.y = _height - 20;
-
-        var valFmt = new TextFormat("_typewriter", 10, 0x00FF00);
-        valFmt.align = TextFormatAlign.RIGHT;
-        _valueDisplay.defaultTextFormat = valFmt;
-        _valueDisplay.selectable = false;
-        _valueDisplay.mouseEnabled = false;
-        _valueDisplay.text = "";
-        addChild(_valueDisplay);
-
         _settingsBtn = new Sprite();
         _settingsBtn.graphics.beginFill(0x888888, 0.8);
-        _settingsBtn.graphics.drawCircle(_width - 10, 10, 6);
+        _settingsBtn.graphics.drawCircle(_width - 10, _height / 2, 6);
         _settingsBtn.graphics.endFill();
         _settingsBtn.graphics.lineStyle(1, 0xFFFFFF);
         _settingsBtn.graphics.moveTo(-3, -3);
         _settingsBtn.graphics.lineTo(3, 3);
-
+        _settingsBtn.x = 0;
         _settingsBtn.buttonMode = true;
         _settingsBtn.useHandCursor = true;
         _settingsBtn.mouseEnabled = true;
         _settingsBtn.addEventListener(MouseEvent.CLICK, onSettingsClick);
-
         addChild(_settingsBtn);
 
         if (atom != null) {
@@ -129,39 +119,6 @@ class NodeView extends Sprite {
             drawPorts(ins, ContactType.INPUT);
             drawPorts(outs, ContactType.OUTPUT);
         }
-    }
-
-    private function bindToValues():Void {
-        if (atom != null) {
-            var outputs = atom.getOutputs();
-            var inputs = atom.getInputs();
-            var contact:Contact = null;
-            if (outputs.length > 0) contact = outputs[0];
-            else if (inputs.length > 0) contact = inputs[0];
-
-            if (contact != null) {
-                _subscribedContact = contact;
-                _subscribedContact.subscribe(onValueUpdate);
-                onValueUpdate(contact.value);
-            }
-        }
-    }
-
-    private function onValueUpdate(val:Dynamic):Void {
-        if (_valueDisplay == null) return;
-
-        SignalQueue.getInstance().schedule(function() {
-            if (_valueDisplay == null) return;
-
-            if (val == null) {
-                _valueDisplay.text = "null";
-            } else if (Std.isOfType(val, Float)) {
-                var f:Float = cast val;
-                _valueDisplay.text = Std.string(Math.round(f * 100) / 100);
-            } else {
-                _valueDisplay.text = Std.string(val);
-            }
-        }, BACKGROUND);
     }
 
     private function drawPorts(contacts:Array<Contact>, type:ContactType):Void {
@@ -222,7 +179,6 @@ class NodeView extends Sprite {
             atom: this.atom,
             view: this
         }));
-        trace("Settings clicked for: " + (atom != null ? atom.name : "Assembly"));
     }
 
     public function getPortPosition(name:String):{x:Float, y:Float} {
@@ -244,6 +200,14 @@ class NodeView extends Sprite {
                  return;
              }
         }
+        
+        e.stopPropagation();
+
+        Impulsys.emit(new Impulse("NODE_CLICKED", { 
+            id: this.nodeId, 
+            view: this, 
+            ctrlKey: e.ctrlKey 
+        } ));
 
         _isDragging = true;
         _offsetX = e.localX;
@@ -258,15 +222,39 @@ class NodeView extends Sprite {
         stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUp);
     }
 
+    private function onRightMouseDown(e:MouseEvent):Void {
+        e.stopPropagation();
+        Impulsys.emit(new Impulse("NODE_CLICKED", { 
+            id: this.nodeId, 
+            view: this, 
+            ctrlKey: e.ctrlKey 
+        } ));
+    }
+
     private function onMouseMove(e:MouseEvent):Void {
         if (!_isDragging) return;
 
         var parentPos = parent.globalToLocal(new Point(e.stageX, e.stageY));
+        
+        // Calculate NEW position
+        var newX = parentPos.x - _offsetX;
+        var newY = parentPos.y - _offsetY;
+        
+        // Calculate Delta
+        var dx = newX - this.x;
+        var dy = newY - this.y;
+        
+        // Apply to self
+        this.x = newX;
+        this.y = newY;
 
-        this.x = parentPos.x - _offsetX;
-        this.y = parentPos.y - _offsetY;
-
-        Impulsys.emit(new Impulse("EDITOR_NODE_MOVED", { id: this.nodeId, view: this } ));
+        // Send update with DELTA
+        Impulsys.emit(new Impulse("EDITOR_NODE_MOVED", { 
+            id: this.nodeId, 
+            view: this,
+            dx: dx,
+            dy: dy
+        } ));
     }
 
     private function onMouseUp(e:MouseEvent):Void {
@@ -288,11 +276,6 @@ class NodeView extends Sprite {
     }
 
     public function dispose():Void {
-        if (_subscribedContact != null) {
-            _subscribedContact.unsubscribe(onValueUpdate);
-            _subscribedContact = null;
-        }
-
         if (_settingsBtn != null) {
             _settingsBtn.removeEventListener(MouseEvent.CLICK, onSettingsClick);
         }

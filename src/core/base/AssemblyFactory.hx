@@ -1,8 +1,12 @@
 package core.base;
 
-import library.AtomRegistry; // Updated import
-import library.drivers.FPSMonitorAtom; // Updated import
-import library.drivers.FrameTimeAtom; // Updated import
+import library.AtomRegistry;
+import library.drivers.FPSMonitorAtom;
+import library.drivers.FrameTimeAtom;
+import library.logic.NandAtom;
+import library.electro.ButtonAtom;
+import library.electro.LedAtom;
+import library.electro.RelayAtom;
 import core.data.Blueprint;
 import core.base.Atom;
 import core.base.Assembly;

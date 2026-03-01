@@ -12,16 +12,13 @@ import core.data.Blueprint.ConnectionDef;
 import core.types.ContactType;
 import Lambda;
 
-/**
- * PROJECT IO
- * Handles saving and loading project files.
- */
 class ProjectIO {
 
     private static var _currentFileRef:FileReference;
     public static var logger:String -> Void;
 
-    public static function save(blueprint:Blueprint, nodes:Array<{id:String, x:Float, y:Float}>):Void {
+    // Обновляем сигнатуру, принимаем viewState
+    public static function save(blueprint:Blueprint, nodes:Array<{id:String, x:Float, y:Float}>, viewState:{x:Float, y:Float, zoom:Float}):Void {
         // 1. Update coordinates
         for (atomDef in blueprint.internalAtoms) {
             var nodeData = Lambda.find(nodes, function(n) return n.id == atomDef.instanceId);
@@ -31,19 +28,19 @@ class ProjectIO {
             }
         }
 
-        // 2. Serialize pins: type forced to string
+        // 2. Serialize pins
         var pinsToSave = [];
         for (p in blueprint.pins) {
             pinsToSave.push({
                 name: p.name,
-                type: Std.string(p.type), // "INPUT", "OUTPUT"
+                type: Std.string(p.type),
                 defaultValue: p.defaultValue,
                 dataType: p.dataType
             });
         }
 
         var dataToSave:Dynamic = {
-            version: "1.0",
+            version: "1.1", // Version bump
             blueprint: {
                 id: blueprint.id,
                 name: blueprint.name,
@@ -51,15 +48,22 @@ class ProjectIO {
                 pins: pinsToSave,
                 internalAtoms: blueprint.internalAtoms,
                 internalConnections: blueprint.internalConnections
+            },
+            // NEW: Save Editor State
+            editor: {
+                x: viewState.x,
+                y: viewState.y,
+                zoom: viewState.zoom
             }
         };
 
         var json:String = Json.stringify(dataToSave, null, "  ");
         var fileRef = new FileReference();
-        fileRef.save(json, blueprint.name + ".altauri");
+        fileRef.save(json, blueprint.name + ".atom");
     }
 
-    public static function load(onComplete:Blueprint -> Void):Void {
+    // Обновляем сигнатуру, возвращаем структуру с blueprint и viewState
+    public static function load(onComplete:{blueprint:Blueprint, viewState:{x:Float, y:Float, zoom:Float}} -> Void):Void {
         if (logger == null) logger = function(s) trace(s);
         logger("IO: Creating FileRef...");
         _currentFileRef = new FileReference();
@@ -136,14 +140,22 @@ class ProjectIO {
                     Std.string(rawBp.id),
                     Std.string(rawBp.name),
                     pins,
-                    null, // logic
+                    null,
                     atoms,
                     conns,
                     Std.string(rawBp.category)
                 );
 
+                // 5. NEW: Parse Editor State
+                var viewState:{x:Float, y:Float, zoom:Float} = {x: 0, y: 0, zoom: 1};
+                if (json.editor != null) {
+                    viewState.x = json.editor.x;
+                    viewState.y = json.editor.y;
+                    viewState.zoom = json.editor.zoom;
+                }
+
                 logger("IO: Blueprint built OK: " + bp.name);
-                onComplete(bp);
+                onComplete({blueprint: bp, viewState: viewState});
 
             } catch (err:Dynamic) {
                 logger("IO: PARSE ERROR! " + err);

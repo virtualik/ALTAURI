@@ -22,6 +22,11 @@ import ui.PropertiesWindow;
 import ui.ButtonComponent;
 import system.io.ProjectIO;
 
+// Import for Virtual Device
+#if desktop
+import ui.virtual.VirtualDeviceWindow;
+#end
+
 #if html5
 import js.html.CanvasElement;
 import js.Browser;
@@ -44,7 +49,6 @@ class Main extends Sprite {
 
     private var _debugField:TextField;
     private var _hideTimer:haxe.Timer;
-
     private var _contextTargetId:String = null;
 
     public function new() {
@@ -57,10 +61,9 @@ class Main extends Sprite {
         #end
 
         setupDebugLog();
-
         ProjectIO.logger = log;
 
-        AtomRegistry.initialize(); // Updated reference
+        AtomRegistry.initialize();
         log("System initialized");
 
         var emptyBlueprint = new Blueprint("main_scheme", "Main Scheme", [
@@ -75,24 +78,17 @@ class Main extends Sprite {
 
     private function log(msg:String) {
         trace(msg);
-
         if (_hideTimer != null) _hideTimer.stop();
-
         if (_debugField != null) {
             _debugField.text = msg;
             _debugField.alpha = 1.0;
             _debugField.visible = true;
         }
-
-        _hideTimer = haxe.Timer.delay(() -> {
-            fadeOutLog();
-        }, 20000);
+        _hideTimer = haxe.Timer.delay(() -> { fadeOutLog(); }, 20000);
     }
 
     private function fadeOutLog() {
-        if (_debugField != null) {
-            _debugField.visible = false;
-        }
+        if (_debugField != null) _debugField.visible = false;
     }
 
     private function setupDebugLog() {
@@ -141,6 +137,13 @@ class Main extends Sprite {
         resetBtn.y = 10;
         _uiLayer.addChild(resetBtn);
 
+        // --- NEW BUTTON ---
+        var playerBtn = new ButtonComponent("Launch Player", onLaunchPlayer);
+        playerBtn.x = 490;
+        playerBtn.y = 10;
+        _uiLayer.addChild(playerBtn);
+        //-------------------
+
         _menu = new ContextMenu();
         _menu.visible = false;
         _uiLayer.addChild(_menu);
@@ -154,8 +157,22 @@ class Main extends Sprite {
         stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
 
         Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION", onMenuAction);
+		Impulsys.subscribeToImpulse("CLOSE_CONTEXT_MENU", onCloseContextMenu);
         Impulsys.subscribeToImpulse("ATOM_PROPERTIES_REQUEST", onPropertiesRequest);
         Impulsys.subscribeToImpulse("NODE_RIGHT_CLICKED", onNodeRightClick);
+    }
+
+    // --- NEW HANDLER ---
+    private function onLaunchPlayer():Void {
+        log("Launching Virtual Device Window...");
+        
+        #if desktop
+        var player = new VirtualDeviceWindow(_assembly);
+        player.show();
+        #else
+        log("Virtual Window is Desktop only. Switching to Device View.");
+        onToggleView();
+        #end
     }
 
     private function onResetClick():Void {
@@ -186,7 +203,6 @@ class Main extends Sprite {
             _assembly.dispose();
             _assembly = null;
         }
-
         log("SYSTEM: Memory cleared.");
     }
 
@@ -209,30 +225,26 @@ class Main extends Sprite {
             _fileMenu.addItem("Load Project", "FILE_LOAD");
             _uiLayer.addChild(_fileMenu);
         }
-
         var fileBtn = cast _uiLayer.getChildAt(1);
         _fileMenu.show(fileBtn.x, fileBtn.y + 40);
     }
 
     private function buildAtomMenu():Void {
-        var ids = AtomRegistry.getAllIds(); // Updated reference
+        var ids = AtomRegistry.getAllIds();
         ids.sort(function(a, b) return Reflect.compare(a, b));
         for (id in ids) {
-            var bp = AtomRegistry.get(id); // Updated reference
+            var bp = AtomRegistry.get(id);
             if (bp != null) _menu.addItem("Add " + bp.name, "ADD_ATOM", {typeId: id});
         }
     }
 
     private function onNodeRightClick(impulse:Impulse):Void {
         _contextTargetId = impulse.data.id;
-
         _menu = new ContextMenu();
         _uiLayer.addChild(_menu);
         buildAtomMenu();
-
         _menu.addItem("——————", "SEP");
         _menu.addItem("Delete " + impulse.data.name, "DELETE_ATOM", {id: _contextTargetId});
-
         _menu.show(stage.mouseX, stage.mouseY);
     }
 
@@ -270,23 +282,24 @@ class Main extends Sprite {
         var y = impulse.data.y;
 
         switch (action) {
-            case "FILE_SAVE":
+                        case "FILE_SAVE":
                 log("Saving...");
                 var positions = _editor.getNodePositions();
-                ProjectIO.save(_assembly.blueprint, positions);
+                var viewState = _editor.getViewState(); // NEW
+                ProjectIO.save(_assembly.blueprint, positions, viewState); // UPDATED
                 log("Saved!");
                 return;
 
             case "FILE_LOAD":
                 log("Opening file dialog...");
-
-                ProjectIO.load(function(bp) {
-                    log("File loaded: " + bp.name);
+                ProjectIO.load(function(data) { // UPDATED argument
+                    log("File loaded: " + data.blueprint.name);
                     hardReset();
-                    _assembly = new Assembly("loaded_asm", bp);
+                    _assembly = new Assembly("loaded_asm", data.blueprint); // UPDATED
                     _editor = new NodeEditor(_assembly);
+                    _editor.setViewState(data.viewState); // NEW: Restore View
                     _editorLayer.addChild(_editor);
-                    log("SUCCESS: Loaded " + bp.name);
+                    log("SUCCESS: Loaded " + data.blueprint.name);
                 });
                 return;
 
@@ -304,16 +317,18 @@ class Main extends Sprite {
         }
     }
 
+	private function onCloseContextMenu(i:Impulse):Void {
+		if (_menu != null) _menu.hide();
+		if (_fileMenu != null) _fileMenu.hide();
+	}
+
     private function onPropertiesRequest(impulse:Impulse):Void {
         var target = impulse.data.atom;
         var view = impulse.data.view;
-
         var posX = view.x + 100;
         var posY = view.y;
-
         if (posX > stage.stageWidth - 320) posX = stage.stageWidth - 320;
         if (posY > stage.stageHeight - 200) posY = stage.stageHeight - 200;
-
         _propertiesWindow.show(target, posX, posY);
     }
 }

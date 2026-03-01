@@ -7,24 +7,25 @@ import core.base.Atom;
 import core.base.IDisposable;
 import core.types.ContactType;
 
-/**
- * ASSEMBLY v2.5
- * Composite structure containing Atoms and internal connections.
- */
 class Assembly implements IDisposable {
     public var id(default, null):String;
     public var blueprint(default, null):Blueprint;
 
-    public var inputs(default, null):Map<String, Contact>;
-    public var outputs(default, null):Map<String, Contact>;
+    // Хранилище портов проводников
+    public var ports(default, null):Map<String, ConductorPort>;
+
+    // Для совместимости с внешним кодом (DevicePanel, внешние подключения)
+    // Возвращаем ВНЕШНИЕ контакты
+    public var inputs(get, null):Map<String, Contact>;
+    public var outputs(get, null):Map<String, Contact>;
+    
     public var internalAtoms(default, null):Map<String, Dynamic>;
 
     public function new(id:String, blueprint:Blueprint) {
         this.id = id;
         this.blueprint = blueprint;
 
-        this.inputs = new Map();
-        this.outputs = new Map();
+        this.ports = new Map();
         this.internalAtoms = new Map();
 
         _createInterface();
@@ -32,33 +33,30 @@ class Assembly implements IDisposable {
         _createInternalConnections();
     }
 
+    private function get_inputs():Map<String, Contact> {
+        var map = new Map<String, Contact>();
+        for (p in ports) if (p.type == INPUT) map.set(p.name, p.external);
+        return map;
+    }
+
+    private function get_outputs():Map<String, Contact> {
+        var map = new Map<String, Contact>();
+        for (p in ports) if (p.type == OUTPUT) map.set(p.name, p.external);
+        return map;
+    }
+
     private function _createInterface():Void {
         if (blueprint == null) return;
         for (pinDef in blueprint.pins) {
-            var type:ContactType = ContactType.UNDEFINED;
-
-            if (Std.isOfType(pinDef.type, String)) {
-                switch(cast(pinDef.type, String)) {
-                    case "INPUT": type = INPUT;
-                    case "OUTPUT": type = OUTPUT;
-                    case "BIDIRECTIONAL": type = BIDIRECTIONAL;
-                    default: type = UNDEFINED;
-                }
-            } else if (Std.isOfType(pinDef.type, ContactType)) {
-                type = cast(pinDef.type, ContactType);
-            }
-
-            var contact = new Contact(pinDef.defaultValue, type, pinDef.name);
-
-            if (type == INPUT) inputs.set(pinDef.name, contact);
-            else if (type == OUTPUT) outputs.set(pinDef.name, contact);
+            // Создаем Проводник
+            var port = new ConductorPort(pinDef.name, pinDef.type, pinDef.defaultValue);
+            ports.set(pinDef.name, port);
         }
     }
 
     private function _createInternalInstances():Void {
         if (blueprint.internalAtoms == null) return;
         for (atomDef in blueprint.internalAtoms) {
-            // FIX: Passing instanceId as the second argument
             var instance = AssemblyFactory.createAtom(atomDef.typeId, atomDef.instanceId);
             if (instance != null) {
                 internalAtoms.set(atomDef.instanceId, instance);
@@ -80,11 +78,15 @@ class Assembly implements IDisposable {
         }
     }
 
+    // ИЗМЕНЕНИЕ: Теперь resolveContact для SELF возвращает ВНУТРЕННИЙ контакт порта
     private function resolveContact(point:ConnectionPoint):Contact {
         if (point.atomId == "SELF") {
-            var pin = inputs.get(point.contactName);
-            if (pin == null) pin = outputs.get(point.contactName);
-            return pin;
+            var port = ports.get(point.contactName);
+            if (port == null) return null;
+            
+            // Возвращаем внутренний контакт!
+            return port.internal;
+            
         } else {
             var obj = internalAtoms.get(point.atomId);
             if (obj == null) return null;
@@ -104,10 +106,8 @@ class Assembly implements IDisposable {
         }
         internalAtoms.clear();
 
-        for (pin in inputs) pin.dispose();
-        for (pin in outputs) pin.dispose();
-
-        inputs.clear();
-        outputs.clear();
+        // Уничтожаем порты
+        for (port in ports) port.dispose();
+        ports.clear();
     }
 }

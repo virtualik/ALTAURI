@@ -3,11 +3,11 @@ package library;
 import core.data.Blueprint;
 import core.data.Blueprint.PinDef;
 import core.types.ContactType;
+import library.logic.NandAtom;
+import library.electro.ButtonAtom;
+import library.electro.LedAtom;
+import library.electro.RelayAtom;
 
-/**
- * ATOM REGISTRY v1.0
- * Centralized registry for Atom Blueprints.
- */
 class AtomRegistry {
     private static var _initialized:Bool = false;
     private static var _blueprints:Map<String, Blueprint> = new Map();
@@ -23,8 +23,38 @@ class AtomRegistry {
     public static function initialize():Void {
         if (_initialized) return;
 
-        // --- INPUTS (Sources) ---
+        // --- 1. LOGIC PRIMITIVES (Foundation) ---
+        // NAND - Универсальный базовый элемент
+        reg("NAND", "NAND Gate",
+            [{name: "A", type: INPUT}, {name: "B", type: INPUT}, {name: "Q", type: OUTPUT}],
+            null // Logic is inside NandAtom class
+        );
 
+        // --- 2. ELECTRO COMPONENTS (I/O) ---
+        
+        // Button (Source)
+        reg("Button", "Push Button",
+            [{name: "out", type: OUTPUT, dataType: "bool"}],
+            null
+        );
+
+        // LED (Display)
+        reg("LED", "LED Indicator",
+            [{name: "in", type: INPUT, dataType: "bool"}],
+            null
+        );
+
+        // Relay (Commutator)
+        reg("Relay", "Relay Switch",
+            [
+                {name: "signal", type: INPUT, dataType: "any"}, // Данные
+                {name: "control", type: INPUT, dataType: "bool"}, // Управление
+                {name: "out", type: OUTPUT, dataType: "any"}
+            ],
+            null
+        );
+
+        // --- INPUTS (Sources) ---
         reg("SensorMock", "Random Sensor",
             [{name: "value", type: OUTPUT, dataType: "number", defaultValue: 0}],
             null
@@ -41,14 +71,12 @@ class AtomRegistry {
         );
 
         // --- OUTPUTS (Displays) ---
-
         reg("AlphaNumericLine", "Display",
             [{name: "in", type: INPUT, dataType: "any"}],
-            null // Logic is handled by View, usually
+            null
         );
 
         // --- LOGIC (Basics) ---
-
         reg("Pass", "Pass Through",
             [{name: "in", type: INPUT}, {name: "out", type: OUTPUT}],
             function(v) return v

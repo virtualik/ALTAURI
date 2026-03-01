@@ -5,6 +5,7 @@ import core.data.Blueprint;
 import core.base.Assembly;
 import core.base.Atom;
 import core.base.Contact;
+import core.base.ConductorPort;
 import core.types.ContactType;
 import core.logic.Impulsys;
 import library.AtomRegistry;
@@ -119,7 +120,11 @@ class DeleteAtomCommand extends Command {
 
     private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact {
         if (atomId == "SELF") {
-            return (type == INPUT) ? _assembly.inputs.get(contactName) : _assembly.outputs.get(contactName);
+            // ИСПРАВЛЕНИЕ: Берем внутренний контакт порта
+            var port:ConductorPort = _assembly.ports.get(contactName);
+            if (port != null) return port.internal;
+            
+            return null;
         } else {
             var atom = _assembly.internalAtoms.get(atomId);
             if (atom == null) return null;
