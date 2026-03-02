@@ -1,0 +1,101 @@
+{
+  "blueprint": {
+    "category": "General",
+    "id": "CustomAssembly_140",
+    "internalAtoms": [
+      {
+        "instanceId": "Pass_0",
+        "typeId": "Pass",
+        "x": 435,
+        "y": 304
+      },
+      {
+        "instanceId": "FPSMonitorAtom_2",
+        "typeId": "FPSMonitorAtom",
+        "x": 436,
+        "y": 365
+      },
+      {
+        "instanceId": "FrameTimeAtom_4",
+        "typeId": "FrameTimeAtom",
+        "x": 438,
+        "y": 428
+      }
+    ],
+    "internalConnections": [
+      {
+        "from": {
+          "atomId": "SELF",
+          "contactName": "pin_0"
+        },
+        "to": {
+          "atomId": "Pass_0",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "Pass_0",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "SELF",
+          "contactName": "pin_1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "FPSMonitorAtom_2",
+          "contactName": "fps"
+        },
+        "to": {
+          "atomId": "SELF",
+          "contactName": "pin_2"
+        }
+      },
+      {
+        "from": {
+          "atomId": "FrameTimeAtom_4",
+          "contactName": "ms"
+        },
+        "to": {
+          "atomId": "SELF",
+          "contactName": "pin_3"
+        }
+      }
+    ],
+    "name": "Custom Assembly",
+    "pins": [
+      {
+        "dataType": null,
+        "defaultValue": null,
+        "name": "pin_0",
+        "type": "INPUT"
+      },
+      {
+        "dataType": null,
+        "defaultValue": null,
+        "name": "pin_1",
+        "type": "OUTPUT"
+      },
+      {
+        "dataType": null,
+        "defaultValue": null,
+        "name": "pin_2",
+        "type": "OUTPUT"
+      },
+      {
+        "dataType": null,
+        "defaultValue": null,
+        "name": "pin_3",
+        "type": "OUTPUT"
+      }
+    ]
+  },
+  "editor": {
+    "x": 0,
+    "y": 0,
+    "zoom": 1
+  },
+  "version": "1.1"
+}

@@ -21,8 +21,8 @@ import ui.DevicePanel;
 import ui.PropertiesWindow;
 import ui.ButtonComponent;
 import system.io.ProjectIO;
+import system.commands.editor.GroupAtomsCommand;
 
-// Import for Virtual Device
 #if desktop
 import ui.virtual.VirtualDeviceWindow;
 #end
@@ -51,6 +51,14 @@ class Main extends Sprite {
     private var _hideTimer:haxe.Timer;
     private var _contextTargetId:String = null;
 
+    private var _fileBtn:ButtonComponent;
+    
+    // ========== НОВОЕ: Навигация по сборкам ==========
+    private var _assemblyStack:Array<{assembly:Assembly, viewState:{x:Float, y:Float, zoom:Float}}>;
+    private var _backBtn:ButtonComponent;
+    private var _pathField:TextField;
+    // ==================================================
+
     public function new() {
         super();
 
@@ -64,7 +72,16 @@ class Main extends Sprite {
         ProjectIO.logger = log;
 
         AtomRegistry.initialize();
+
+        #if sys
+        AtomRegistry.scanFolder("library");
+        #end
+
         log("System initialized");
+
+        // ========== НОВОЕ: Инициализация стека ==========
+        _assemblyStack = [];
+        // =================================================
 
         var emptyBlueprint = new Blueprint("main_scheme", "Main Scheme", [
             {name: "IN", type: INPUT},
@@ -84,7 +101,7 @@ class Main extends Sprite {
             _debugField.alpha = 1.0;
             _debugField.visible = true;
         }
-        _hideTimer = haxe.Timer.delay(() -> { fadeOutLog(); }, 20000);
+        _hideTimer = haxe.Timer.delay(() -> { fadeOutLog(); }, 5000);
     }
 
     private function fadeOutLog() {
@@ -122,32 +139,52 @@ class Main extends Sprite {
     }
 
     private function buildUI():Void {
+        // ========== НОВОЕ: Кнопка BACK (первая) ==========
+        _backBtn = new ButtonComponent("<- BACK", onBackClick);
+        _backBtn.x = 10;
+        _backBtn.y = 10;
+        _backBtn.visible = false;  // Скрыта по умолчанию
+        _uiLayer.addChild(_backBtn);
+        // =================================================
+
         var toggleBtn = new ButtonComponent("Toggle View [F5]", onToggleView);
-        toggleBtn.x = 10;
+        toggleBtn.x = 120;
         toggleBtn.y = 10;
         _uiLayer.addChild(toggleBtn);
 
-        var fileBtn = new ButtonComponent("File", onFileClick);
-        fileBtn.x = 170;
-        fileBtn.y = 10;
-        _uiLayer.addChild(fileBtn);
+        _fileBtn = new ButtonComponent("File", onFileClick);
+        _fileBtn.x = 280;
+        _fileBtn.y = 10;
+        _uiLayer.addChild(_fileBtn);
 
         var resetBtn = new ButtonComponent("Reset [R]", onResetClick);
-        resetBtn.x = 330;
+        resetBtn.x = 440;
         resetBtn.y = 10;
         _uiLayer.addChild(resetBtn);
 
-        // --- NEW BUTTON ---
         var playerBtn = new ButtonComponent("Launch Player", onLaunchPlayer);
-        playerBtn.x = 490;
+        playerBtn.x = 600;
         playerBtn.y = 10;
         _uiLayer.addChild(playerBtn);
-        //-------------------
 
-        _menu = new ContextMenu();
-        _menu.visible = false;
-        _uiLayer.addChild(_menu);
-        buildAtomMenu();
+        var newBtn = new ButtonComponent("New Assembly", onNewAssembly);
+        newBtn.x = 760;
+        newBtn.y = 10;
+        _uiLayer.addChild(newBtn);
+
+        // ========== НОВОЕ: Поле пути ==========
+        _pathField = new TextField();
+        _pathField.width = 400;
+        _pathField.height = 20;
+        _pathField.x = 10;
+        _pathField.y = 40;
+        _pathField.selectable = false;
+        _pathField.mouseEnabled = false;
+        var pathFmt = new TextFormat("_typewriter", 11, 0x888888);
+        _pathField.defaultTextFormat = pathFmt;
+        _pathField.text = "/ Main Scheme";
+        _uiLayer.addChild(_pathField);
+        // ======================================
 
         _propertiesWindow = new PropertiesWindow();
         _propertiesWindow.visible = false;
@@ -157,15 +194,264 @@ class Main extends Sprite {
         stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
 
         Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION", onMenuAction);
-		Impulsys.subscribeToImpulse("CLOSE_CONTEXT_MENU", onCloseContextMenu);
+        Impulsys.subscribeToImpulse("CLOSE_CONTEXT_MENU", onCloseContextMenu);
         Impulsys.subscribeToImpulse("ATOM_PROPERTIES_REQUEST", onPropertiesRequest);
         Impulsys.subscribeToImpulse("NODE_RIGHT_CLICKED", onNodeRightClick);
+        Impulsys.subscribeToImpulse("OPEN_ASSEMBLY_REQUEST", onOpenAssemblyRequest);
     }
 
-    // --- NEW HANDLER ---
+    // ========== НОВОЕ: Обработчик кнопки BACK ==========
+    private function onBackClick():Void {
+        if (_assemblyStack.length == 0) {
+            log("Already at root level");
+            return;
+        }
+
+        // Сохраняем текущее состояние
+        var currentView = _editor.getViewState();
+
+        // Удаляем текущий редактор
+        _editor.dispose();
+        _editorLayer.removeChild(_editor);
+
+        // Восстанавливаем предыдущую сборку
+        var prev = _assemblyStack.pop();
+        _assembly = prev.assembly;
+
+        _editor = new NodeEditor(_assembly);
+        _editor.setViewState(prev.viewState);
+        _editorLayer.addChild(_editor);
+
+        // Обновляем UI
+        updateNavigationUI();
+        log("Navigated back");
+    }
+
+    private function updateNavigationUI():Void {
+        // Показываем/скрываем кнопку BACK
+        _backBtn.visible = (_assemblyStack.length > 0);
+
+        // Обновляем путь
+        var path = "/ " + _assembly.blueprint.name;
+        for (item in _assemblyStack) {
+            path += " / " + item.assembly.blueprint.name;
+        }
+        _pathField.text = path;
+    }
+    // ===================================================
+
+    // --- Menu Logic ---
+
+    private function resetContextMenu():Void {
+        if (_menu == null) {
+            _menu = new ContextMenu();
+            _uiLayer.addChild(_menu);
+        }
+        _uiLayer.removeChild(_menu);
+        _menu = new ContextMenu();
+        _uiLayer.addChild(_menu);
+    }
+
+    private function onRightClick(e:MouseEvent):Void {
+        resetContextMenu();
+        buildAtomMenu();
+        _menu.show(e.stageX, e.stageY);
+    }
+
+    private function onNodeRightClick(impulse:Impulse):Void {
+        if (impulse == null || impulse.data == null) {
+            log("ERROR: Invalid impulse in onNodeRightClick");
+            return;
+        }
+
+        _contextTargetId = impulse.data.id;
+
+        resetContextMenu();
+        buildAtomMenu();
+
+        _menu.addItem("——————", "SEP");
+        _menu.addItem("Delete " + impulse.data.name, "DELETE_ATOM", {id: _contextTargetId});
+
+        var selected = _editor.getSelectedNodeIds();
+        if (selected.length > 1) {
+            _menu.addItem("Group to Assembly", "GROUP_ATOMS", {id: _contextTargetId});
+        }
+
+        _menu.show(stage.mouseX, stage.mouseY);
+    }
+
+    private function buildAtomMenu():Void {
+        var ids = AtomRegistry.getAllIds();
+        ids.sort(function(a, b) return Reflect.compare(a, b));
+        for (id in ids) {
+            var bp = AtomRegistry.get(id);
+            if (bp != null) _menu.addItem("Add " + bp.name, "ADD_ATOM", {typeId: id});
+        }
+    }
+
+    // --- Actions ---
+
+    private function onMenuAction(impulse:Impulse):Void {
+        if (_menu != null) _menu.hide();
+        if (_fileMenu != null) _fileMenu.hide();
+
+        if (impulse == null) {
+            log("ERROR: Received NULL impulse in onMenuAction");
+            return;
+        }
+
+        if (impulse.data == null) {
+            log("ERROR: Impulse data is NULL in onMenuAction");
+            return;
+        }
+
+        if (impulse.data.action == null) {
+            log("ERROR: Impulse action is NULL in onMenuAction");
+            return;
+        }
+
+        var action = impulse.data.action;
+        var data = impulse.data.data;
+        var x = impulse.data.x;
+        var y = impulse.data.y;
+
+        switch (action) {
+            case "FILE_SAVE":
+                log("Saving...");
+                var positions = _editor.getNodePositions();
+                var viewState = _editor.getViewState();
+                ProjectIO.save(_assembly.blueprint, positions, viewState);
+                log("Saved!");
+                return;
+
+            case "FILE_LOAD":
+                log("Opening file dialog...");
+                ProjectIO.load(function(loadData) {
+                    try {
+                        log("File loaded: " + loadData.blueprint.name);
+                        
+                        // Очищаем стек навигации
+                        _assemblyStack = [];
+                        
+                        hardReset();
+                        _assembly = new Assembly("loaded_asm", loadData.blueprint);
+                        _editor = new NodeEditor(_assembly);
+                        _editor.setViewState(loadData.viewState);
+                        _editorLayer.addChild(_editor);
+                        
+                        updateNavigationUI();
+                        log("SUCCESS: Loaded " + loadData.blueprint.name);
+                    } catch (e:Dynamic) {
+                        log("ERROR in load callback: " + Std.string(e));
+                    }
+                });
+                return;
+
+            case "DELETE_ATOM":
+                if (data != null && data.id != null) {
+                    _editor.deleteAtom(data.id);
+                    _contextTargetId = null;
+                }
+                return;
+
+            case "GROUP_ATOMS":
+                groupSelectedToAssembly();
+                return;
+        }
+
+        if (action == "ADD_ATOM") {
+            if (data != null && data.typeId != null) {
+                _editor.createAtom(data.typeId, x, y);
+            }
+        }
+    }
+
+    private function onCloseContextMenu(i:Impulse):Void {
+        if (_menu != null) _menu.hide();
+        if (_fileMenu != null) _fileMenu.hide();
+    }
+
+    private function groupSelectedToAssembly():Void {
+        var selectedIds = _editor.getSelectedNodeIds();
+        if (selectedIds.length < 1) {
+            log("Select atoms to group.");
+            return;
+        }
+
+        log("Grouping " + selectedIds.length + " atoms...");
+
+        var cmd = new GroupAtomsCommand(_assembly.blueprint, _assembly, selectedIds);
+        cmd.execute();
+
+        var vs = _editor.getViewState();
+        _editor.dispose();
+        _editorLayer.removeChild(_editor);
+
+        _editor = new NodeEditor(_assembly);
+        _editor.setViewState(vs);
+        _editorLayer.addChild(_editor);
+
+        log("Grouping complete.");
+    }
+
+    private function onNewAssembly():Void {
+        hardReset();
+        _assemblyStack = [];
+        
+        var bp = new Blueprint("new_assembly", "New Assembly", []);
+        _assembly = new Assembly("main_asm", bp);
+        _editor = new NodeEditor(_assembly);
+        _editorLayer.addChild(_editor);
+        
+        updateNavigationUI();
+        log("Created New Empty Assembly");
+    }
+
+    // ========== НОВОЕ: Открытие вложенной сборки с сохранением состояния ==========
+    private function onOpenAssemblyRequest(impulse:Impulse):Void {
+        if (impulse == null || impulse.data == null) {
+            log("ERROR: Invalid impulse in onOpenAssemblyRequest");
+            return;
+        }
+
+        var id = impulse.data.atomId;
+        var obj = _assembly.internalAtoms.get(id);
+
+        if (obj == null) return;
+
+        var atomInst = cast(obj, core.base.Atom);
+        var bp = AtomRegistry.get(atomInst.type);
+
+        if (bp != null && bp.internalAtoms != null && bp.internalAtoms.length > 0) {
+            // Сохраняем текущее состояние в стек
+            var currentViewState = _editor.getViewState();
+            _assemblyStack.push({
+                assembly: _assembly,
+                viewState: currentViewState
+            });
+
+            // Создаём новый редактор для вложенной сборки
+            // ВАЖНО: не вызываем hardReset - это очистило бы стек!
+            if (_editor != null) {
+                _editor.dispose();
+                _editorLayer.removeChild(_editor);
+            }
+
+            _assembly = new Assembly("nested_view", bp);
+            _editor = new NodeEditor(_assembly);
+            _editorLayer.addChild(_editor);
+
+            updateNavigationUI();
+            log("Opened nested assembly: " + bp.name);
+        } else {
+            log("Atom is primitive, cannot open.");
+        }
+    }
+    // =============================================================================
+
     private function onLaunchPlayer():Void {
         log("Launching Virtual Device Window...");
-        
+
         #if desktop
         var player = new VirtualDeviceWindow(_assembly);
         player.show();
@@ -177,6 +463,8 @@ class Main extends Sprite {
 
     private function onResetClick():Void {
         hardReset();
+        _assemblyStack = [];
+        
         var emptyBlueprint = new Blueprint("main_scheme", "Main Scheme", [
             {name: "IN", type: INPUT},
             {name: "OUT", type: OUTPUT}
@@ -184,6 +472,8 @@ class Main extends Sprite {
         _assembly = new Assembly("main_asm", emptyBlueprint);
         _editor = new NodeEditor(_assembly);
         _editorLayer.addChild(_editor);
+        
+        updateNavigationUI();
         log("System Reset Complete.");
     }
 
@@ -225,37 +515,23 @@ class Main extends Sprite {
             _fileMenu.addItem("Load Project", "FILE_LOAD");
             _uiLayer.addChild(_fileMenu);
         }
-        var fileBtn = cast _uiLayer.getChildAt(1);
-        _fileMenu.show(fileBtn.x, fileBtn.y + 40);
-    }
-
-    private function buildAtomMenu():Void {
-        var ids = AtomRegistry.getAllIds();
-        ids.sort(function(a, b) return Reflect.compare(a, b));
-        for (id in ids) {
-            var bp = AtomRegistry.get(id);
-            if (bp != null) _menu.addItem("Add " + bp.name, "ADD_ATOM", {typeId: id});
+        if (_fileBtn != null) {
+            _fileMenu.show(_fileBtn.x, _fileBtn.y + 40);
+        } else {
+            _fileMenu.show(280, 50);
         }
-    }
-
-    private function onNodeRightClick(impulse:Impulse):Void {
-        _contextTargetId = impulse.data.id;
-        _menu = new ContextMenu();
-        _uiLayer.addChild(_menu);
-        buildAtomMenu();
-        _menu.addItem("——————", "SEP");
-        _menu.addItem("Delete " + impulse.data.name, "DELETE_ATOM", {id: _contextTargetId});
-        _menu.show(stage.mouseX, stage.mouseY);
-    }
-
-    private function onRightClick(e:MouseEvent):Void {
-        _menu.show(e.stageX, e.stageY);
     }
 
     private function onKeyDown(e:KeyboardEvent):Void {
         if (e.keyCode == Keyboard.ESCAPE) {
-            _menu.hide();
-            if(_fileMenu != null) _fileMenu.hide();
+            if (_menu != null) _menu.hide();
+            if (_fileMenu != null) _fileMenu.hide();
+            
+            // ========== НОВОЕ: ESC тоже возвращает назад ==========
+            if (_assemblyStack.length > 0) {
+                onBackClick();
+            }
+            // =====================================================
         }
         if (e.keyCode == Keyboard.F5) onToggleView();
 
@@ -263,6 +539,12 @@ class Main extends Sprite {
         if (e.ctrlKey && e.keyCode == Keyboard.Y) UndoManager.getInstance().redo();
 
         if (e.keyCode == Keyboard.R) onResetClick();
+
+        // ========== НОВОЕ: Backspace для возврата ==========
+        if (e.keyCode == Keyboard.BACKSPACE) {
+            onBackClick();
+        }
+        // ===================================================
 
         if (e.keyCode == Keyboard.DELETE) {
             if (_contextTargetId != null) {
@@ -272,57 +554,12 @@ class Main extends Sprite {
         }
     }
 
-    private function onMenuAction(impulse:Impulse):Void {
-        _menu.hide();
-        if(_fileMenu != null) _fileMenu.hide();
-
-        var action = impulse.data.action;
-        var data = impulse.data.data;
-        var x = impulse.data.x;
-        var y = impulse.data.y;
-
-        switch (action) {
-                        case "FILE_SAVE":
-                log("Saving...");
-                var positions = _editor.getNodePositions();
-                var viewState = _editor.getViewState(); // NEW
-                ProjectIO.save(_assembly.blueprint, positions, viewState); // UPDATED
-                log("Saved!");
-                return;
-
-            case "FILE_LOAD":
-                log("Opening file dialog...");
-                ProjectIO.load(function(data) { // UPDATED argument
-                    log("File loaded: " + data.blueprint.name);
-                    hardReset();
-                    _assembly = new Assembly("loaded_asm", data.blueprint); // UPDATED
-                    _editor = new NodeEditor(_assembly);
-                    _editor.setViewState(data.viewState); // NEW: Restore View
-                    _editorLayer.addChild(_editor);
-                    log("SUCCESS: Loaded " + data.blueprint.name);
-                });
-                return;
-
-            case "DELETE_ATOM":
-                if (data != null && data.id != null) {
-                    _editor.deleteAtom(data.id);
-                }
-                return;
-        }
-
-        if (action == "ADD_ATOM") {
-            if (data != null && data.typeId != null) {
-                _editor.createAtom(data.typeId, x, y);
-            }
-        }
-    }
-
-	private function onCloseContextMenu(i:Impulse):Void {
-		if (_menu != null) _menu.hide();
-		if (_fileMenu != null) _fileMenu.hide();
-	}
-
     private function onPropertiesRequest(impulse:Impulse):Void {
+        if (impulse == null || impulse.data == null) {
+            log("ERROR: Invalid impulse in onPropertiesRequest");
+            return;
+        }
+
         var target = impulse.data.atom;
         var view = impulse.data.view;
         var posX = view.x + 100;

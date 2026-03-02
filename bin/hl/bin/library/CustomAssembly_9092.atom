@@ -1,0 +1,127 @@
+{
+  "blueprint": {
+    "category": "General",
+    "id": "CustomAssembly_140",
+    "internalAtoms": [
+      {
+        "x": 435,
+        "y": 304,
+        "instanceId": "Pass_0",
+        "typeId": "Pass"
+      },
+      {
+        "x": 436,
+        "y": 365,
+        "instanceId": "FPSMonitorAtom_2",
+        "typeId": "FPSMonitorAtom"
+      },
+      {
+        "x": 438,
+        "y": 428,
+        "instanceId": "FrameTimeAtom_4",
+        "typeId": "FrameTimeAtom"
+      },
+      {
+        "instanceId": "Pass_7",
+        "typeId": "Pass",
+        "x": 217,
+        "y": 303
+      }
+    ],
+    "internalConnections": [
+      {
+        "from": {
+          "atomId": "FrameTimeAtom_5",
+          "contactName": "ms"
+        },
+        "to": {
+          "atomId": "Pass_6",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "Pass_0",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "SELF",
+          "contactName": "pin_1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "FPSMonitorAtom_2",
+          "contactName": "fps"
+        },
+        "to": {
+          "atomId": "SELF",
+          "contactName": "pin_2"
+        }
+      },
+      {
+        "from": {
+          "atomId": "FrameTimeAtom_4",
+          "contactName": "ms"
+        },
+        "to": {
+          "atomId": "SELF",
+          "contactName": "pin_3"
+        }
+      },
+      {
+        "from": {
+          "atomId": "SELF",
+          "contactName": "pin_0"
+        },
+        "to": {
+          "atomId": "Pass_7",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "Pass_7",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "Pass_0",
+          "contactName": "in"
+        }
+      }
+    ],
+    "name": "Custom Assembly",
+    "pins": [
+      {
+        "dataType": "null",
+        "defaultValue": null,
+        "name": "pin_0",
+        "type": "INPUT"
+      },
+      {
+        "dataType": "null",
+        "defaultValue": null,
+        "name": "pin_1",
+        "type": "OUTPUT"
+      },
+      {
+        "dataType": "null",
+        "defaultValue": null,
+        "name": "pin_2",
+        "type": "OUTPUT"
+      },
+      {
+        "dataType": "null",
+        "defaultValue": null,
+        "name": "pin_3",
+        "type": "OUTPUT"
+      }
+    ]
+  },
+  "editor": {
+    "x": 38,
+    "y": -29,
+    "zoom": 1
+  },
+  "version": "1.1"
+}

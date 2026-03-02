@@ -37,7 +37,10 @@ class Atom implements IDisposable implements Driver {
     ) {
         this.id = (id != null) ? id : "atom_" + Std.random(100000);
         this.type = type;
+        // ИСПРАВЛЕНИЕ: Используем type как name по умолчанию
+        // Assembly может переопределить через blueprint.name
         this.name = type;
+
         this._isActive = isActive;
 
         this._inputs = inputs;
@@ -80,7 +83,6 @@ class Atom implements IDisposable implements Driver {
     private function _calculate():Void {
         _isScheduled = false;
 
-        // Protection: If atom is disposed or has no logic
         if (_isDisposed || _process == null || _inputs == null) return;
 
         for (i in 0..._inputs.length) _inputCache[i] = _inputs[i].value;

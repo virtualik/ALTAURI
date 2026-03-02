@@ -17,8 +17,9 @@ class NodeView extends Sprite {
 
     public var atom(default, null):Atom;
     public var nodeId(default, null):String;
-
-    private var _assembly:Assembly;
+    
+    // Ссылка на сборку, если это сборка (для отображения)
+    private var _assemblyInstance:Assembly;
 
     public var inputPorts(default, null):Map<String, Sprite>;
     public var outputPorts(default, null):Map<String, Sprite>;
@@ -41,11 +42,15 @@ class NodeView extends Sprite {
     private var _borderColor:Int = 0x00AAFF;
     private var _selectedColor:Int = 0xFFCC00;
 
-    public function new(atom:Atom, nodeId:String, ?assembly:Assembly) {
+    public function new(atom:Atom, nodeId:String) {
         super();
         this.atom = atom;
         this.nodeId = nodeId;
-        this._assembly = assembly;
+        
+        // Проверяем, является ли атом на самом деле сборкой (для вложенных схем)
+        if (Std.isOfType(atom, Assembly)) {
+            this._assemblyInstance = cast(atom, Assembly);
+        }
 
         inputPorts = new Map();
         outputPorts = new Map();
@@ -57,6 +62,9 @@ class NodeView extends Sprite {
         
         addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
         addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
+        
+        this.doubleClickEnabled = true;
+        addEventListener(MouseEvent.DOUBLE_CLICK, onDoubleClick);
     }
     
     function set_selected(v:Bool):Bool {
@@ -82,8 +90,9 @@ class NodeView extends Sprite {
 
         var title = new TextField();
         var displayName = "Unknown";
-        if (atom != null) displayName = atom.name;
-        else if (_assembly != null) displayName = _assembly.blueprint.name;
+        
+        if (_assemblyInstance != null) displayName = _assemblyInstance.blueprint.name;
+        else if (atom != null) displayName = atom.name;
         else displayName = nodeId;
 
         title.text = displayName;
@@ -110,15 +119,20 @@ class NodeView extends Sprite {
         _settingsBtn.addEventListener(MouseEvent.CLICK, onSettingsClick);
         addChild(_settingsBtn);
 
-        if (atom != null) {
-            drawPorts(atom.getInputs(), ContactType.INPUT);
-            drawPorts(atom.getOutputs(), ContactType.OUTPUT);
-        } else if (_assembly != null) {
-            var ins = [for (c in _assembly.inputs) c];
-            var outs = [for (c in _assembly.outputs) c];
-            drawPorts(ins, ContactType.INPUT);
-            drawPorts(outs, ContactType.OUTPUT);
+        // Рисуем порты. Если это сборка, бём порты из неё, иначе из атома
+        var ins:Array<Contact> = [];
+        var outs:Array<Contact> = [];
+        
+        if (_assemblyInstance != null) {
+            ins = _assemblyInstance.getInputs();
+            outs = _assemblyInstance.getOutputs();
+        } else if (atom != null) {
+            ins = atom.getInputs();
+            outs = atom.getOutputs();
         }
+        
+        drawPorts(ins, ContactType.INPUT);
+        drawPorts(outs, ContactType.OUTPUT);
     }
 
     private function drawPorts(contacts:Array<Contact>, type:ContactType):Void {
@@ -176,8 +190,14 @@ class NodeView extends Sprite {
     private function onSettingsClick(e:MouseEvent):Void {
         e.stopPropagation();
         Impulsys.emit(new Impulse("ATOM_PROPERTIES_REQUEST", {
-            atom: this.atom,
+            atom: this.atom, // Или _assemblyInstance
             view: this
+        }));
+    }
+    
+    private function onDoubleClick(e:MouseEvent):Void {
+        Impulsys.emit(new Impulse("OPEN_ASSEMBLY_REQUEST", {
+            atomId: this.nodeId
         }));
     }
 
@@ -224,10 +244,10 @@ class NodeView extends Sprite {
 
     private function onRightMouseDown(e:MouseEvent):Void {
         e.stopPropagation();
-        Impulsys.emit(new Impulse("NODE_CLICKED", { 
+        Impulsys.emit(new Impulse("NODE_RIGHT_CLICKED", { 
             id: this.nodeId, 
-            view: this, 
-            ctrlKey: e.ctrlKey 
+            view: this,
+            name: (_assemblyInstance != null) ? _assemblyInstance.blueprint.name : (atom != null ? atom.name : nodeId)
         } ));
     }
 
@@ -236,19 +256,15 @@ class NodeView extends Sprite {
 
         var parentPos = parent.globalToLocal(new Point(e.stageX, e.stageY));
         
-        // Calculate NEW position
         var newX = parentPos.x - _offsetX;
         var newY = parentPos.y - _offsetY;
         
-        // Calculate Delta
         var dx = newX - this.x;
         var dy = newY - this.y;
         
-        // Apply to self
         this.x = newX;
         this.y = newY;
 
-        // Send update with DELTA
         Impulsys.emit(new Impulse("EDITOR_NODE_MOVED", { 
             id: this.nodeId, 
             view: this,
@@ -290,6 +306,6 @@ class NodeView extends Sprite {
         inputPorts = null;
         outputPorts = null;
         atom = null;
-        _assembly = null;
+        _assemblyInstance = null;
     }
 }

@@ -1,0 +1,5778 @@
+Это все классы проекта:
+package core.base;
+
+import core.data.Blueprint;
+import core.data.Blueprint.ConnectionPoint;
+import core.base.Contact;
+import core.base.Atom;
+import core.base.IDisposable;
+import core.types.ContactType;
+
+/**
+ * ASSEMBLY v3.1
+ * Composite structure containing Atoms and internal connections.
+ * Extends Atom for full compatibility.
+ *
+ * CHANGES v3.1:
+ * - Fixed: removed override from name getter (Atom.name is not virtual)
+ * - Fixed: added inputs/outputs getters for DevicePanel compatibility
+ */
+class Assembly extends Atom {
+
+    public var blueprint(default, null):Blueprint;
+    public var ports(default, null):Map<String, ConductorPort>;
+    public var internalAtoms(default, null):Map<String, Dynamic>;
+
+    // Public getters for external access (DevicePanel, NodeEditor, etc.)
+    public var inputs(get, null):Map<String, Contact>;
+    public var outputs(get, null):Map<String, Contact>;
+
+    private function get_inputs():Map<String, Contact> {
+        var map = new Map<String, Contact>();
+        for (p in ports) if (p.type == INPUT) map.set(p.name, p.external);
+        return map;
+    }
+
+    private function get_outputs():Map<String, Contact> {
+        var map = new Map<String, Contact>();
+        for (p in ports) if (p.type == OUTPUT) map.set(p.name, p.external);
+        return map;
+    }
+
+    public function new(id:String, blueprint:Blueprint) {
+        this.blueprint = blueprint;
+        this.ports = new Map();
+        this.internalAtoms = new Map();
+
+        // Create interface ports first
+        _createInterface();
+
+        // Build inputs/outputs arrays from ports for Atom constructor
+        var inputsArr:Array<Contact> = [];
+        var outputsArr:Array<Contact> = [];
+
+        for (p in ports) {
+            if (p.type == INPUT) {
+                inputsArr.push(p.external);
+            } else {
+                outputsArr.push(p.external);
+            }
+        }
+
+        // Call Atom constructor
+        // type = blueprint.id, isActive = false
+        var typeName = blueprint != null ? blueprint.id : "Assembly";
+        super(inputsArr, outputsArr, null, id, typeName, false);
+
+        // Set name manually (Atom.name is a simple field, not virtual)
+        // We need to use reflection or just accept the type as name
+        // Actually, Atom sets name = type in constructor, so blueprint.id becomes the name
+
+        // Now create internal structure
+        _createInternalInstances();
+        _createInternalConnections();
+    }
+
+    private function _createInterface():Void {
+        if (blueprint == null || blueprint.pins == null) return;
+
+        for (pinDef in blueprint.pins) {
+            var port = new ConductorPort(pinDef.name, pinDef.type, pinDef.defaultValue);
+            ports.set(pinDef.name, port);
+        }
+    }
+
+    private function _createInternalInstances():Void {
+        if (blueprint == null || blueprint.internalAtoms == null) return;
+
+        for (atomDef in blueprint.internalAtoms) {
+            var instance = AssemblyFactory.createAtom(atomDef.typeId, atomDef.instanceId);
+            if (instance != null) {
+                internalAtoms.set(atomDef.instanceId, instance);
+            }
+        }
+    }
+
+    private function _createInternalConnections():Void {
+        if (blueprint == null || blueprint.internalConnections == null) return;
+
+        for (conn in blueprint.internalConnections) {
+            var fromContact = resolveContact(conn.from);
+            var toContact = resolveContact(conn.to);
+
+            if (fromContact != null && toContact != null) {
+                fromContact.link(toContact);
+            }
+        }
+    }
+
+    private function resolveContact(point:ConnectionPoint):Contact {
+        if (point.atomId == "SELF") {
+            var port = ports.get(point.contactName);
+            if (port == null) return null;
+            return port.internal;
+        } else {
+            var obj = internalAtoms.get(point.atomId);
+            if (obj == null) return null;
+            var atom:Atom = cast obj;
+            for (c in atom.getInputs()) if (c.name == point.contactName) return c;
+            for (c in atom.getOutputs()) if (c.name == point.contactName) return c;
+        }
+        return null;
+    }
+
+    // Override dispose to clean up internal atoms
+    override public function dispose():Void {
+        for (key in internalAtoms.keys()) {
+            var obj = internalAtoms.get(key);
+            if (Std.isOfType(obj, IDisposable)) {
+                cast(obj, IDisposable).dispose();
+            }
+        }
+        internalAtoms.clear();
+
+        for (pin in ports) pin.dispose();
+        ports.clear();
+
+        super.dispose();
+    }
+}
+ 
+package core.base;
+
+import library.AtomRegistry;
+import library.drivers.FPSMonitorAtom;
+import library.drivers.FrameTimeAtom;
+import core.data.Blueprint;
+import core.base.Atom;
+import core.base.Assembly;
+import core.base.Contact;
+import core.types.ContactType;
+
+/**
+ * ASSEMBLY FACTORY v2.3
+ * Centralized factory for creating Atoms and Assemblies from Blueprints.
+ *
+ * CHANGES v2.3:
+ * - Fixed: Assembly now extends Atom, so cast works correctly
+ * - Simplified createAtom logic
+ */
+class AssemblyFactory {
+
+    private static var _uidCounter:Int = 0;
+
+    /**
+     * Creates an Atom or Assembly instance from a registered Blueprint ID.
+     *
+     * Automatically creates Assembly for composite Blueprints.
+     * Since Assembly extends Atom, the return type is always Atom.
+     *
+     * @param typeId The ID of the Blueprint definition.
+     * @param forcedId Optional ID to use instead of generating a new one.
+     */
+    public static function createAtom(typeId:String, ?forcedId:String):Atom {
+        var bp = AtomRegistry.get(typeId);
+        if (bp == null) {
+            trace('ERROR: Blueprint not found: $typeId');
+            return null;
+        }
+
+        // --- ID Logic ---
+        var id:String = (forcedId != null) ? forcedId : "atom_" + (_uidCounter++);
+
+        // --- Special classes (Active Atoms with custom implementation) ---
+        if (typeId == "FPSMonitorAtom") {
+            return new FPSMonitorAtom(id);
+        }
+
+        if (typeId == "FrameTimeAtom") {
+            return new FrameTimeAtom(id);
+        }
+
+        // --- Check if composite (Assembly) ---
+        // Composite = no logic AND has internal atoms
+        var isComposite = (bp.logic == null && bp.internalAtoms != null && bp.internalAtoms.length > 0);
+
+        if (isComposite) {
+            // Create Assembly - it extends Atom now!
+            return new Assembly(id, bp);
+        }
+
+        // --- Create standard Atom ---
+        var inputs:Array<Contact> = [];
+        var outputs:Array<Contact> = [];
+
+        for (pin in bp.pins) {
+            var c = new Contact(pin.defaultValue, pin.type, pin.name);
+            if (pin.type == ContactType.INPUT) inputs.push(c);
+            else outputs.push(c);
+        }
+
+        return new Atom(inputs, outputs, bp.logic, id, typeId);
+    }
+
+    /**
+     * Creates an Assembly (Composite) from a Blueprint.
+     */
+    public static function createAssembly(typeId:String):Assembly {
+        var bp = AtomRegistry.get(typeId);
+        if (bp == null) {
+            trace("Error: Assembly Blueprint not found: " + typeId);
+            return null;
+        }
+
+        var id = "asm_" + (_uidCounter++) + "_" + typeId;
+        return new Assembly(id, bp);
+    }
+
+    /**
+     * Checks if a Blueprint is composite.
+     */
+    public static function isComposite(typeId:String):Bool {
+        var bp = AtomRegistry.get(typeId);
+        if (bp == null) return false;
+        return (bp.logic == null && bp.internalAtoms != null && bp.internalAtoms.length > 0);
+    }
+}
+ 
+package core.base;
+
+import utils.Utils;
+import system.managers.Driver;
+import system.managers.DriverManager;
+import core.logic.SignalQueue;
+import core.types.Priority;
+import core.base.Contact;
+import core.base.IDisposable;
+
+/**
+ * Atom Base Class.
+ * Fundamental unit of logic.
+ */
+class Atom implements IDisposable implements Driver {
+
+    public var id(default, null):String;
+    public var type(default, null):String;
+    public var name(default, null):String;
+
+    private var _inputs:Array<Contact>;
+    private var _outputs:Array<Contact>;
+    private var _process:Array<Dynamic> -> Array<Dynamic>;
+
+    private var _inputCache:Array<Dynamic>;
+    private var _isScheduled:Bool = false;
+    private var _isActive:Bool = false;
+    private var _isDisposed:Bool = false;
+
+    public function new(
+        inputs:Array<Contact>,
+        outputs:Array<Contact>,
+        processFunc:Array<Dynamic> -> Array<Dynamic>,
+        ?id:String,
+        ?type:String = "Generic",
+        ?isActive:Bool = false
+    ) {
+        this.id = (id != null) ? id : "atom_" + Std.random(100000);
+        this.type = type;
+        // ИСПРАВЛЕНИЕ: Используем type как name по умолчанию
+        // Assembly может переопределить через blueprint.name
+        this.name = type;
+
+        this._isActive = isActive;
+
+        this._inputs = inputs;
+        this._outputs = outputs;
+        this._process = processFunc;
+
+        _inputCache = [];
+        if (_inputs != null) {
+            for(i in 0..._inputs.length) _inputCache.push(null);
+        }
+
+        _bind();
+
+        if (_isActive) {
+            DriverManager.getInstance().register(this);
+        }
+    }
+
+    private function _bind():Void {
+        if (_inputs == null) return;
+        for (input in _inputs) {
+            input.owner = this;
+        }
+    }
+
+    public function init():Void { }
+
+    public function update(dt:Float):Void {
+        _onUpdate(dt);
+    }
+
+    private function _onUpdate(dt:Float):Void { }
+
+    public function onContactChanged(c:Contact):Void {
+        if (_isScheduled || _isDisposed) return;
+        _isScheduled = true;
+        SignalQueue.getInstance().schedule(_calculate, NORMAL);
+    }
+
+    private function _calculate():Void {
+        _isScheduled = false;
+
+        if (_isDisposed || _process == null || _inputs == null) return;
+
+        for (i in 0..._inputs.length) _inputCache[i] = _inputs[i].value;
+
+        var results = _process(_inputCache);
+
+        if (results != null && results.length == _outputs.length) {
+            for (i in 0..._outputs.length) {
+                if (_outputs[i] != null) _outputs[i].value = results[i];
+            }
+        }
+    }
+
+    public function getInputs():Array<Contact> return _inputs;
+    public function getOutputs():Array<Contact> return _outputs;
+
+    public function getInput(name:String):Contact {
+        if (_inputs == null) return null;
+        for (c in _inputs) if (c.name == name) return c;
+        return null;
+    }
+
+    public function getOutput(name:String):Contact {
+        if (_outputs == null) return null;
+        for (c in _outputs) if (c.name == name) return c;
+        return null;
+    }
+
+    public function dispose():Void {
+        _isDisposed = true;
+
+        if (_isActive) {
+            DriverManager.getInstance().unregister(this.id);
+        }
+
+        if (_inputs != null) for (c in _inputs) c.dispose();
+        if (_outputs != null) for (c in _outputs) c.dispose();
+
+        _inputs = null;
+        _outputs = null;
+        _process = null;
+        _inputCache = null;
+    }
+}
+ 
+package core.base;
+
+import core.types.ContactType;
+
+/**
+ * CONDUCTOR PORT v1.1
+ * Пробрасывающий элемент. Пара контактов, соединяющих внешнюю и внутреннюю стороны сборки.
+ *
+ * CHANGES v1.1:
+ * - Contacts now use the port name directly (not with suffix)
+ * - This fixes wire positioning in NodeView
+ */
+class ConductorPort {
+
+    public var name(default, null):String;
+    public var type(default, null):ContactType;
+
+    // Контакт, смотрящий ВНЕ
+    public var external(default, null):Contact;
+
+    // Контакт, смотрящий ВНУТРЬ
+    public var internal(default, null):Contact;
+
+    public function new(name:String, type:ContactType, defaultValue:Dynamic = null) {
+        this.name = name;
+        this.type = type;
+
+        if (type == INPUT) {
+            // ВХОД СБОРКИ:
+            // Снаружи это Вход (Orange). Принимает данные.
+            // ИСПРАВЛЕНИЕ: используем имя порта напрямую
+            external = new Contact(defaultValue, INPUT, name);
+
+            // Внутри это Выход (Green). Раздает данные внутрь схемы.
+            internal = new Contact(defaultValue, OUTPUT, name + "_int");
+
+            external.link(internal);
+        } else {
+            // ВЫХОД СБОРКИ:
+            // Внутри это Вход (Orange). Принимает данные из схемы.
+            internal = new Contact(defaultValue, INPUT, name + "_int");
+
+            // Снаружи это Выход (Green). Выдает данные наружу.
+            // ИСПРАВЛЕНИЕ: используем имя порта напрямую
+            external = new Contact(defaultValue, OUTPUT, name);
+
+            internal.link(external);
+        }
+    }
+
+    public function dispose():Void {
+        external.dispose();
+        internal.dispose();
+    }
+}
+ 
+package core.base;
+
+import core.logic.SignalQueue;
+import core.types.Priority;
+import core.types.ContactType;
+
+/**
+ * CONTACT v4.0 (Optimized + Queue Based)
+ * Eliminates recursive data transfer.
+ * Uses SignalQueue to schedule updates.
+ */
+class Contact {
+
+    public var id(default, null):Dynamic;
+    public var type(default, null):ContactType;
+    public var name(default, null):String;
+
+    // Reference to owner (for fast Atom notification without closures)
+    public var owner:Atom;
+
+    public var value(get, set):Dynamic;
+    private var _value:Dynamic;
+
+    private var linkedTargets:Array<Contact>;
+    private var callbackTargets:Array<Dynamic -> Void>;
+
+    // Flag to protect against re-scheduling the same task
+    private var _isScheduled:Bool = false;
+
+    public function new(initialValue:Dynamic = null, ?type:ContactType, ?name:String = "unnamed") {
+        this.id = "c_" + Std.random(100000);
+        this.type = (type == null) ? ContactType.UNDEFINED : type;
+        this.name = name;
+        this._value = initialValue;
+
+        this.linkedTargets = [];
+        this.callbackTargets = [];
+    }
+
+    public function link(target:Contact):Void {
+        if (target == null) return;
+        if (hasLink(target)) return;
+        linkedTargets.push(target);
+
+        // Initialization of value
+        if (_value != null) {
+            target.value = _value;
+        }
+    }
+
+    public function unlink(target:Contact):Void {
+        linkedTargets.remove(target);
+    }
+
+    public function hasLink(target:Contact):Bool {
+        return linkedTargets.indexOf(target) != -1;
+    }
+
+    public function subscribe(callback:Dynamic -> Void):Void {
+        if (callback == null) return;
+        if (hasCallback(callback)) return;
+        callbackTargets.push(callback);
+    }
+
+    public function unsubscribe(callback:Dynamic -> Void):Void {
+        callbackTargets.remove(callback);
+    }
+
+    private function hasCallback(callback:Dynamic -> Void):Bool {
+        return callbackTargets.indexOf(callback) != -1;
+    }
+
+    private function set_value(newValue:Dynamic):Dynamic {
+        // Optimization: If value hasn't changed, exit
+        if (_value == newValue) return newValue;
+
+        _value = newValue;
+
+        if (!_isScheduled) {
+            _isScheduled = true;
+            // Use normal priority
+            SignalQueue.getInstance().schedule(_propagate, NORMAL);
+        }
+
+        return newValue;
+    }
+
+    private function get_value():Dynamic {
+        return _value;
+    }
+
+    /**
+     * Scheduled signal propagation.
+     * Called iteratively from SignalQueue.
+     */
+    private function _propagate():Void {
+        _isScheduled = false;
+
+        // 1. Pass values to linked contacts
+        // This triggers set_value -> scheduling a new task -> stack doesn't grow.
+        for (target in linkedTargets) {
+            target.value = this._value;
+        }
+
+        // 2. Notify owner (Atom) directly if it exists
+        if (owner != null) {
+            owner.onContactChanged(this);
+        }
+
+        // 3. Notify external subscribers (e.g., UI, View)
+        for (callback in callbackTargets) {
+            callback(this._value);
+        }
+    }
+
+    public function dispose():Void {
+        linkedTargets = [];
+        callbackTargets = [];
+        _value = null;
+        owner = null;
+    }
+}
+ 
+package core.base;
+
+import haxe.Timer;
+import core.base.Atom;
+import core.base.Contact;
+import core.logic.SignalQueue;
+
+/**
+ * HEAVY ATOM v1.1
+ * Atom with Load Shedding support.
+ * FIXED: Timer cancellation on dispose.
+ */
+class HeavyAtom extends Atom {
+
+    private var _delayedTimer:Timer;
+
+    public function new(
+        inputs:Array<Contact>,
+        outputs:Array<Contact>,
+        processFunc:Array<Dynamic> -> Array<Dynamic>,
+        ?id:String,
+        ?type:String = "Heavy"
+    ) {
+        super(inputs, outputs, processFunc, id, type);
+    }
+
+    override function onContactChanged(c:Contact):Void {
+        if (SignalQueue.getInstance().isOverloaded()) {
+            if (_isScheduled) return;
+            _isScheduled = true;
+
+            // FIX: Save timer to variable
+            _delayedTimer = Timer.delay(() -> {
+                _isScheduled = false;
+                _delayedTimer = null;
+                if (!_isDisposed) _calculate(); // Check before execution
+            }, 1);
+
+            return;
+        }
+
+        super.onContactChanged(c);
+    }
+
+    // FIX: Override dispose
+    override public function dispose():Void {
+        if (_delayedTimer != null) {
+            _delayedTimer.stop();
+            _delayedTimer = null;
+        }
+        super.dispose();
+    }
+}
+ 
+package core.base;
+
+/**
+ * Interface for objects that require explicit cleanup.
+ */
+interface IDisposable {
+    function dispose():Void;
+}
+ 
+package core.data;
+
+import core.types.ContactType;
+
+// --- Type Definitions (Module Level) ---
+
+typedef PinDef = {
+    name: String,
+    type: ContactType,
+    ?defaultValue: Dynamic,
+    ?dataType: String
+}
+
+typedef AtomDef = {
+    instanceId: String,
+    typeId: String,
+    ?x: Float,
+    ?y: Float
+}
+
+typedef ConnectionPoint = {
+    atomId: String,
+    contactName: String
+}
+
+typedef ConnectionDef = {
+    from: ConnectionPoint,
+    to: ConnectionPoint
+}
+
+// --- Main Class ---
+
+/**
+ * Blueprint Data Structure.
+ * Defines the schematic of an Atom or Assembly.
+ */
+class Blueprint {
+    public var id(default, null):String;
+    public var name(default, null):String;
+    public var category(default, null):String;
+
+    public var pins(default, null):Array<PinDef>;
+    public var internalAtoms(default, null):Array<AtomDef>;
+    public var internalConnections(default, null):Array<ConnectionDef>;
+
+    public var logic(default, null):Array<Dynamic> -> Array<Dynamic>;
+
+    public function new(
+        id:String,
+        name:String,
+        pins:Array<PinDef>,
+        ?logic:Array<Dynamic> -> Array<Dynamic>,
+        ?internalAtoms:Array<AtomDef>,
+        ?internalConnections:Array<ConnectionDef>,
+        ?category:String = "General"
+    ) {
+        this.id = id;
+        this.name = name;
+        this.pins = pins;
+        this.logic = logic;
+        this.internalAtoms = (internalAtoms != null) ? internalAtoms : [];
+        this.internalConnections = (internalConnections != null) ? internalConnections : [];
+        this.category = category;
+    }
+}
+ 
+package core.logic;
+
+/**
+ * IMPULSE v1.0
+ * A data container for events traveling through the Impulsys bus.
+ */
+class Impulse {
+    public var type(default, null):String;
+    public var data(default, null):Dynamic;
+
+    public function new(type:String, data:Dynamic = null) {
+        this.type = type;
+        this.data = data;
+    }
+}
+ 
+package core.logic;
+
+import core.logic.Impulse;
+
+/**
+ * IMPULSYS v1.0
+ * Static Event Bus for system-wide communication.
+ * Decouples UI from Logic.
+ */
+class Impulsys {
+
+    // Map: Event Type -> Array of Callbacks
+    private static var _bus:Map<String, Array<Impulse -> Void>> = new Map();
+
+    /**
+     * Subscribe to an event.
+     */
+    public static function subscribeToImpulse(type:String, callback:Impulse -> Void):Void {
+        if (!_bus.exists(type)) {
+            _bus.set(type, []);
+        }
+        _bus.get(type).push(callback);
+    }
+
+    /**
+     * Unsubscribe from an event.
+     */
+    public static function removeImpulse(type:String, callback:Impulse -> Void):Void {
+        if (!_bus.exists(type)) return;
+
+        var list = _bus.get(type);
+        list.remove(callback);
+    }
+
+    /**
+     * Emit an event.
+     */
+    public static function emit(impulse:Impulse):Void {
+        if (!_bus.exists(impulse.type)) return;
+
+        var list = _bus.get(impulse.type);
+        for (cb in list) {
+            cb(impulse);
+        }
+    }
+
+    /**
+     * Helper to emit quickly without creating Impulse object manually.
+     */
+    public static function quickEmit(type:String, data:Dynamic = null):Void {
+        emit(new Impulse(type, data));
+    }
+}
+ 
+package core.logic;
+
+import core.types.Priority;
+
+/**
+ * SIGNAL QUEUE v2.0
+ * Priority-based Task Scheduler.
+ */
+class SignalQueue {
+
+    private static var _instance:SignalQueue;
+
+    // Storage for queues
+    private var _queues:Map<Priority, Array<Void -> Void>>;
+
+    private var _isProcessing:Bool = false;
+
+    // Protection against "Zombie Loops"
+    private var _currentIteration:Int = 0;
+    public var maxIterationsPerFrame:Int = 10000;
+
+    public static function getInstance():SignalQueue {
+        if (_instance == null) _instance = new SignalQueue();
+        return _instance;
+    }
+
+    private function new() {
+        _queues = new Map();
+        // Initialize queues
+        _queues.set(CRITICAL, []);
+        _queues.set(NORMAL, []);
+        _queues.set(BACKGROUND, []);
+    }
+
+    /**
+     * Adds a task to the queue.
+     */
+    public function schedule(task:Void -> Void, priority:Priority = NORMAL):Void {
+        _queues.get(priority).push(task);
+
+        if (!_isProcessing) {
+            process();
+        }
+    }
+
+    /**
+     * Iterative processing.
+     */
+    private function process():Void {
+        _isProcessing = true;
+        _currentIteration = 0;
+
+        // Processing order: Critical -> Normal -> Background
+        var order:Array<Priority> = [CRITICAL, NORMAL, BACKGROUND];
+
+        for (p in order) {
+            var queue = _queues.get(p);
+
+            while (queue.length > 0) {
+                // Overflow protection
+                _currentIteration++;
+                if (_currentIteration > maxIterationsPerFrame) {
+                    trace('WARN: SignalQueue overflow at priority $p. Pausing.');
+                    _isProcessing = false;
+                    return;
+                }
+
+                var task = queue.shift();
+                task();
+            }
+        }
+
+        _isProcessing = false;
+    }
+
+    /**
+     * Returns true if the queue is overloaded (>80% of limit used).
+     * Use this in "heavy" atoms for deferred execution.
+     */
+    public function isOverloaded():Bool {
+        return _currentIteration > Std.int(maxIterationsPerFrame * 0.8);
+    }
+
+    public function clear():Void {
+        _queues = new Map();
+        _queues.set(CRITICAL, []);
+        _queues.set(NORMAL, []);
+        _queues.set(BACKGROUND, []);
+        _isProcessing = false;
+    }
+}
+ 
+package core.types;
+
+/**
+ * Enum defining the direction of data flow in a Contact.
+ */
+enum ContactType {
+    INPUT;      // Receives data
+    OUTPUT;     // Sends data
+    BIDIRECTIONAL; // Can do both (rare, usually for state)
+    UNDEFINED;  // Fallback
+}
+ 
+package core.types;
+
+/**
+ * Priority levels for the Signal Queue.
+ */
+enum Priority {
+    CRITICAL;   // User input, drivers
+    NORMAL;     // Default logic
+    BACKGROUND; // Visualization, logs
+}
+ 
+package editor;
+
+import openfl.display.Sprite;
+import openfl.events.Event;
+import openfl.events.MouseEvent;
+import openfl.geom.Point;
+import openfl.geom.Rectangle;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import core.base.Assembly;
+import core.base.Atom;
+import core.base.Contact;
+import core.logic.Impulsys;
+import core.logic.Impulse;
+import system.managers.UndoManager;
+import system.commands.editor.MoveNodeCommand;
+import system.commands.editor.ConnectCommand;
+import system.commands.editor.DeleteAtomCommand;
+import system.commands.editor.CreateAtomCommand;
+import system.commands.base.MacroCommand;
+import core.data.Blueprint.ConnectionDef;
+import core.data.Blueprint.ConnectionPoint;
+
+class NodeEditor extends Sprite {
+
+    private var _assembly:Assembly;
+    private var _blueprint:core.data.Blueprint;
+    private var _nodes:Map<String, NodeView> = new Map();
+
+    private var _canvas:Sprite;
+
+    private var _wireContainer:Sprite;
+    private var _wireSprites:Map<String, Sprite>;
+    private var _activeWires:Array<Sprite>;
+
+    private var _selectedNodes:Map<String, NodeView> = new Map();
+    private var _selectedWireId:String = null;
+
+    private var _frame:Sprite;
+    private var _edgePortsContainer:Sprite;
+    private var _edgePorts:Map<String, Sprite> = new Map();
+    private var _fileNameField:TextField;
+
+    private var _lasso:Sprite;
+    private var _isLassoing:Bool = false;
+    private var _lassoStartX:Float = 0;
+    private var _lassoStartY:Float = 0;
+
+    private var _dragStartPositions:Map<String, {x:Float, y:Float}>;
+
+    private var _spawnCounter:Int = 0;
+
+    private var _isDraggingPort:Bool = false;
+    private var _dragNodeId:String;
+    private var _dragContactName:String;
+    private var _dragStartX:Float = 0;
+    private var _dragStartY:Float = 0;
+    private var _dragStartIsInput:Bool = false;
+
+    private var _ghostWire:Sprite;
+
+    private var _draggingNode:NodeView = null;
+
+    private var _isPanning:Bool = false;
+    private var _panStartX:Float = 0;
+    private var _panStartY:Float = 0;
+    private var _canvasStartX:Float = 0;
+    private var _canvasStartY:Float = 0;
+
+    private var _cbRedraw:Impulse -> Void;
+
+    public function new(assembly:Assembly) {
+        super();
+        this._assembly = assembly;
+        this._blueprint = assembly.blueprint;
+
+        _canvas = new Sprite();
+        _canvas.graphics.beginFill(0x333333, 1);
+        _canvas.graphics.drawRect(-5000, -5000, 10000, 10000);
+        _canvas.graphics.endFill();
+        addChild(_canvas);
+
+        _canvas.addEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
+
+        _wireContainer = new Sprite();
+        _wireContainer.mouseEnabled = false;
+        _canvas.addChild(_wireContainer);
+
+        _wireSprites = new Map();
+        _activeWires = [];
+
+        restoreExistingAtoms();
+
+        _ghostWire = new Sprite();
+        _ghostWire.mouseEnabled = false;
+        _canvas.addChild(_ghostWire);
+
+        _lasso = new Sprite();
+        _lasso.mouseEnabled = false;
+        _canvas.addChild(_lasso);
+
+        _frame = new Sprite();
+        _frame.mouseEnabled = false;
+        addChild(_frame);
+
+        _edgePortsContainer = new Sprite();
+        _edgePortsContainer.mouseEnabled = true;
+        addChild(_edgePortsContainer);
+
+        _fileNameField = new TextField();
+        _fileNameField.defaultTextFormat = new TextFormat("_typewriter", 12, 0xFFFFFF);
+        _fileNameField.text = _blueprint.name;
+        _fileNameField.autoSize = RIGHT;
+        _fileNameField.mouseEnabled = false;
+        addChild(_fileNameField);
+
+        drawFrame();
+
+        addEventListener(Event.ADDED_TO_STAGE, onAddedToStage_Frame);
+
+        _cbRedraw = function(_) rebuildAllWires();
+
+        Impulsys.subscribeToImpulse("PORT_DRAG_START", onPortDragStart);
+        Impulsys.subscribeToImpulse("EDITOR_NODE_MOVED", onNodeMoved);
+        Impulsys.subscribeToImpulse("NODE_DRAG_FINISHED", onNodeDragFinished);
+        Impulsys.subscribeToImpulse("FORCE_UPDATE_NODE_POSITION", onForceUpdatePosition);
+        Impulsys.subscribeToImpulse("REDRAW_WIRES", _cbRedraw);
+        Impulsys.subscribeToImpulse("ATOM_DELETED", onAtomDeleted);
+        Impulsys.subscribeToImpulse("ATOM_RESTORED", onAtomRestored);
+        Impulsys.subscribeToImpulse("NODE_CLICKED", onNodeClicked);
+
+        if (stage != null) {
+            initListeners();
+            drawFrame();
+        }
+        else addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
+
+        rebuildAllWires();
+    }
+
+    private function drawFrame(e:Event = null):Void {
+        if (stage == null) return;
+
+        var w:Float = stage.stageWidth;
+        var h:Float = stage.stageHeight;
+        var borderColor:Int = 0x00AAFF;
+
+        _frame.graphics.clear();
+        _frame.graphics.lineStyle(2, borderColor);
+        _frame.graphics.drawRect(0, 0, w, h);
+
+        _fileNameField.x = w - 10 - _fileNameField.width;
+        _fileNameField.y = h - 20;
+
+        _edgePortsContainer.removeChildren();
+        _edgePorts = new Map();
+
+        var leftIdx:Int = 0;
+        var rightIdx:Int = 0;
+
+        var leftCount:Int = 0;
+        var rightCount:Int = 0;
+
+        for (p in _assembly.ports) {
+            if (p.type == INPUT) leftCount++;
+            else rightCount++;
+        }
+
+        var leftStep:Float = h / (leftCount + 1);
+        var rightStep:Float = h / (rightCount + 1);
+
+        for (p in _assembly.ports) {
+            var c:Contact = p.internal;
+            var portView:Sprite;
+
+            if (p.type == INPUT) {
+                portView = createEdgePort(c, false, p.name);
+                portView.x = 0;
+                portView.y = leftStep * (leftIdx + 1);
+                leftIdx++;
+            } else {
+                portView = createEdgePort(c, true, p.name);
+                portView.x = w;
+                portView.y = rightStep * (rightIdx + 1);
+                rightIdx++;
+            }
+
+            _edgePortsContainer.addChild(portView);
+            _edgePorts.set(p.name, portView);
+        }
+
+        updateEdgeWires();
+    }
+
+    private function createEdgePort(contact:Contact, isInput:Bool, portName:String):Sprite {
+        var s = new Sprite();
+        s.graphics.beginFill(isInput ? 0xFF8800 : 0x00FF88);
+        s.graphics.lineStyle(1, 0xFFFFFF);
+        s.graphics.drawCircle(0, 0, 6);
+        s.graphics.endFill();
+
+        s.buttonMode = true;
+        s.useHandCursor = true;
+        s.name = portName;
+
+        s.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent) {
+            e.stopPropagation();
+            var globalPos = s.localToGlobal(new Point(0, 0));
+            Impulsys.emit(new Impulse("PORT_DRAG_START", {
+                nodeId: "SELF",
+                contactName: portName,
+                isInput: isInput,
+                startX: globalPos.x,
+                startY: globalPos.y
+            }));
+        });
+
+        return s;
+    }
+
+    private function updateEdgeWires():Void {
+        if (_blueprint.internalConnections == null) return;
+
+        for (link in _blueprint.internalConnections) {
+            if (link.from.atomId == "SELF" || link.to.atomId == "SELF") {
+                var wireID = getWireID(link);
+                var spr = _wireSprites.get(wireID);
+                if (spr != null) drawWireGraphics(spr.graphics, link);
+            }
+        }
+    }
+
+    public function getViewState():{x:Float, y:Float, zoom:Float} {
+        return { x: _canvas.x, y: _canvas.y, zoom: _canvas.scaleX };
+    }
+
+    public function setViewState(state:{x:Float, y:Float, zoom:Float}):Void {
+        if (state == null) return;
+        _canvas.x = state.x;
+        _canvas.y = state.y;
+        var z = state.zoom;
+        if (z < 0.1) z = 0.1;
+        if (z > 5.0) z = 5.0;
+        _canvas.scaleX = z;
+        _canvas.scaleY = z;
+        updateVisibility();
+    }
+
+    private function onCanvasMouseDown(e:MouseEvent):Void {
+        deselectAll();
+
+        _isLassoing = true;
+        var local = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
+        _lassoStartX = local.x;
+        _lassoStartY = local.y;
+
+        stage.addEventListener(MouseEvent.MOUSE_MOVE, onLassoMove);
+        stage.addEventListener(MouseEvent.MOUSE_UP, onLassoUp);
+    }
+
+    private function onLassoMove(e:MouseEvent):Void {
+        if (!_isLassoing) return;
+        var local = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
+
+        var x = Math.min(_lassoStartX, local.x);
+        var y = Math.min(_lassoStartY, local.y);
+        var w = Math.abs(local.x - _lassoStartX);
+        var h = Math.abs(local.y - _lassoStartY);
+
+        _lasso.graphics.clear();
+        _lasso.graphics.lineStyle(1, 0xFFFFFF, 0.8);
+        _lasso.graphics.beginFill(0x00AAFF, 0.2);
+        _lasso.graphics.drawRect(x, y, w, h);
+        _lasso.graphics.endFill();
+    }
+
+    private function onLassoUp(e:MouseEvent):Void {
+        stage.removeEventListener(MouseEvent.MOUSE_MOVE, onLassoMove);
+        stage.removeEventListener(MouseEvent.MOUSE_UP, onLassoUp);
+        if (!_isLassoing) return;
+        _isLassoing = false;
+
+        if (_lasso.width > 5 && _lasso.height > 5) {
+            var lassoBounds:Rectangle = _lasso.getBounds(_canvas);
+            for (id in _nodes.keys()) {
+                var view = _nodes.get(id);
+                if (view != null) {
+                    var nodeBounds:Rectangle = view.getBounds(_canvas);
+                    if (lassoBounds.intersects(nodeBounds)) {
+                        if (!_selectedNodes.exists(id)) {
+                            view.selected = true;
+                            _selectedNodes.set(id, view);
+                        }
+                    }
+                }
+            }
+        }
+        _lasso.graphics.clear();
+    }
+
+    private function onNodeClicked(impulse:Impulse):Void {
+        var view:NodeView = impulse.data.view;
+        var ctrl:Bool = impulse.data.ctrlKey;
+
+        _isLassoing = false;
+        _lasso.graphics.clear();
+        Impulsys.quickEmit("CLOSE_CONTEXT_MENU");
+
+        if (ctrl) {
+            if (_selectedNodes.exists(view.nodeId)) {
+                view.selected = false;
+                _selectedNodes.remove(view.nodeId);
+            } else {
+                view.selected = true;
+                _selectedNodes.set(view.nodeId, view);
+            }
+        } else {
+            if (!_selectedNodes.exists(view.nodeId)) {
+                deselectAll();
+                view.selected = true;
+                _selectedNodes.set(view.nodeId, view);
+            }
+        }
+    }
+
+    public function deselectAll():Void {
+        for (node in _selectedNodes) node.selected = false;
+        _selectedNodes = new Map();
+        if (_selectedWireId != null) {
+            _selectedWireId = null;
+            rebuildAllWires();
+        }
+    }
+
+    private function clearAllWires():Void {
+        for (key in _wireSprites.keys()) {
+            var spr = _wireSprites.get(key);
+            spr.graphics.clear();
+            if(spr.parent != null) spr.parent.removeChild(spr);
+        }
+        _wireSprites = new Map();
+    }
+
+    private function getWireID(link:ConnectionDef):String {
+        return '${link.from.atomId}_${link.from.contactName}->${link.to.atomId}_${link.to.contactName}';
+    }
+
+    private function rebuildAllWires():Void {
+        clearAllWires();
+        if (_blueprint.internalConnections == null) return;
+        for (link in _blueprint.internalConnections) createWireSprite(link);
+    }
+
+    private function createWireSprite(link:ConnectionDef):Sprite {
+        var spr = new Sprite();
+        spr.mouseEnabled = true;
+        spr.buttonMode = true;
+
+        var color = 0x666666;
+        var thickness = 2.0;
+        var id = getWireID(link);
+
+        if (id == _selectedWireId) {
+            color = 0xFFCC00;
+            thickness = 4;
+        }
+
+        drawWireGraphics(spr.graphics, link, color, thickness);
+
+        spr.addEventListener(MouseEvent.CLICK, function(e:MouseEvent) {
+            e.stopPropagation();
+
+            if (_selectedWireId == id) {
+                deleteWire(link);
+            } else {
+                _selectedWireId = id;
+                rebuildAllWires();
+            }
+        });
+
+        if (link.from.atomId != "SELF" && link.to.atomId != "SELF") {
+             spr.cacheAsBitmap = true;
+        }
+        _wireContainer.addChild(spr);
+        _wireSprites.set(id, spr);
+        return spr;
+    }
+
+    public function deleteWire(link:ConnectionDef):Void {
+        _blueprint.internalConnections.remove(link);
+        var cOut = resolveContact(link.from);
+        var cIn = resolveContact(link.to);
+        if (cOut != null && cIn != null) cOut.unlink(cIn);
+        _selectedWireId = null;
+        rebuildAllWires();
+    }
+
+    private function resolveContact(point:ConnectionPoint):Contact {
+        if (point.atomId == "SELF") {
+            var port = _assembly.ports.get(point.contactName);
+            return (port != null) ? port.internal : null;
+        } else {
+            var atom = _assembly.internalAtoms.get(point.atomId);
+            if (atom == null) return null;
+            var a:Atom = cast atom;
+            var c = a.getInput(point.contactName);
+            if (c == null) c = a.getOutput(point.contactName);
+            return c;
+        }
+    }
+
+    private function drawWireGraphics(g:openfl.display.Graphics, link:ConnectionDef, ?color:Int = 0x666666, ?thickness:Float = 2):Void {
+        var p1:{x:Float, y:Float} = null;
+        var isFromInput = false;
+
+        if (link.from.atomId == "SELF") {
+            var portSpr = _edgePorts.get(link.from.contactName);
+            if (portSpr == null) return;
+            var pt = _canvas.globalToLocal(portSpr.localToGlobal(new Point(0, 0)));
+            p1 = {x: pt.x, y: pt.y};
+            isFromInput = (portSpr.x != 0);
+        } else {
+            var fromView = _nodes.get(link.from.atomId);
+            if (fromView == null) return;
+            p1 = fromView.getPortPosition(link.from.contactName);
+            isFromInput = fromView.inputPorts.exists(link.from.contactName);
+        }
+
+        var p2:{x:Float, y:Float} = null;
+        var isToInput = false;
+
+        if (link.to.atomId == "SELF") {
+            var portSpr = _edgePorts.get(link.to.contactName);
+            if (portSpr == null) return;
+            var pt = _canvas.globalToLocal(portSpr.localToGlobal(new Point(0, 0)));
+            p2 = {x: pt.x, y: pt.y};
+            isToInput = (portSpr.x != 0);
+        } else {
+            var toView = _nodes.get(link.to.atomId);
+            if (toView == null) return;
+            p2 = toView.getPortPosition(link.to.contactName);
+            isToInput = toView.inputPorts.exists(link.to.contactName);
+        }
+
+        g.clear();
+        g.lineStyle(thickness, color);
+        g.moveTo(p1.x, p1.y);
+
+        var dist = Math.abs(p2.x - p1.x);
+        var tension = dist * 0.5;
+        if (tension < 50) tension = 50;
+
+        var c1x = p1.x + (isFromInput ? -tension : tension);
+        var c2x = p2.x + (isToInput ? -tension : tension);
+
+        g.cubicCurveTo(c1x, p1.y, c2x, p2.y, p2.x, p2.y);
+    }
+
+    private function onNodeMoved(impulse:Impulse):Void {
+        var sourceView:NodeView = impulse.data.view;
+        var dx:Float = impulse.data.dx;
+        var dy:Float = impulse.data.dy;
+
+        if (_draggingNode == null) {
+            _draggingNode = sourceView;
+            _dragStartPositions = new Map();
+            var isMovingGroup = _selectedNodes.exists(sourceView.nodeId);
+            var nodesToMove = isMovingGroup ? _selectedNodes : [sourceView.nodeId => sourceView];
+
+            for (id in nodesToMove.keys()) {
+                var v = nodesToMove.get(id);
+                _dragStartPositions.set(id, {x: v.x, y: v.y});
+                for (link in _blueprint.internalConnections) {
+                    if (link.from.atomId == id || link.to.atomId == id) {
+                        var wireID = getWireID(link);
+                        var spr = _wireSprites.get(wireID);
+                        if (spr != null) {
+                            spr.cacheAsBitmap = false;
+                            if (_activeWires.indexOf(spr) == -1) _activeWires.push(spr);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (_selectedNodes.exists(sourceView.nodeId)) {
+            for (id in _selectedNodes.keys()) {
+                if (id != sourceView.nodeId) {
+                    var otherView = _selectedNodes.get(id);
+                    otherView.x += dx;
+                    otherView.y += dy;
+                }
+            }
+        }
+        updateActiveWires();
+        updateEdgeWires();
+    }
+
+    private function onNodeDragFinished(impulse:Impulse):Void {
+        var groupCommand = new MacroCommand();
+        var hasChanges:Bool = false;
+
+        if (_dragStartPositions != null) {
+            for (id in _dragStartPositions.keys()) {
+                var startPos = _dragStartPositions.get(id);
+                var view = _nodes.get(id);
+                if (view != null) {
+                    groupCommand.addCommand(new MoveNodeCommand(_blueprint, id, startPos.x, startPos.y, view.x, view.y));
+                    hasChanges = true;
+                    for (atom in _blueprint.internalAtoms) {
+                        if (atom.instanceId == id) { atom.x = view.x; atom.y = view.y; break; }
+                    }
+                }
+            }
+        }
+        if (hasChanges) UndoManager.getInstance().storeExecuted(groupCommand);
+
+        for (spr in _activeWires) {
+             var wireId:String = null;
+             for (k in _wireSprites.keys()) {
+                 if (_wireSprites.get(k) == spr) {
+                     wireId = k;
+                     break;
+                 }
+             }
+
+             if (wireId != null && wireId.indexOf("SELF") == -1) {
+                 spr.cacheAsBitmap = true;
+             }
+        }
+        _activeWires = [];
+        _draggingNode = null;
+        _dragStartPositions = null;
+
+        updateEdgeWires();
+    }
+
+    private function updateActiveWires():Void {
+        if (_activeWires.length == 0) return;
+        for (link in _blueprint.internalConnections) {
+             var id = getWireID(link);
+             var spr = _wireSprites.get(id);
+             if (spr != null && _activeWires.indexOf(spr) != -1) drawWireGraphics(spr.graphics, link);
+        }
+    }
+
+    private function updateVisibility():Void {
+        if (stage == null) return;
+
+        var margin:Float = 150;
+        var viewLeft:Float = (-_canvas.x / _canvas.scaleX) - margin;
+        var viewTop:Float = (-_canvas.y / _canvas.scaleY) - margin;
+        var viewRight:Float = viewLeft + (stage.stageWidth / _canvas.scaleX) + (margin * 2);
+        var viewBottom:Float = viewTop + (stage.stageHeight / _canvas.scaleY) + (margin * 2);
+
+        for (id in _nodes.keys()) {
+            var view = _nodes.get(id);
+            if (view == null) continue;
+            var isVisible = (view.x > viewLeft && view.x < viewRight && view.y > viewTop && view.y < viewBottom);
+            if (view.visible != isVisible) view.visible = isVisible;
+        }
+
+        for (link in _blueprint.internalConnections) {
+            var wireID = getWireID(link);
+            var spr = _wireSprites.get(wireID);
+            if (spr == null) continue;
+
+            if (link.from.atomId == "SELF" || link.to.atomId == "SELF") {
+                spr.visible = true;
+                continue;
+            }
+
+            var fromView = _nodes.get(link.from.atomId);
+            var toView = _nodes.get(link.to.atomId);
+            var fromVisible = (fromView != null && fromView.visible);
+            var toVisible = (toView != null && toView.visible);
+            var wireVisible = (fromVisible || toVisible);
+            if (spr.visible != wireVisible) spr.visible = wireVisible;
+        }
+    }
+
+    private function onForceUpdatePosition(impulse:Impulse):Void {
+        var data = impulse.data;
+        var view = _nodes.get(data.id);
+        if (view != null) {
+            if (view.x != data.x || view.y != data.y) {
+                view.x = data.x;
+                view.y = data.y;
+                rebuildAllWires();
+            }
+        }
+    }
+
+    private function restoreExistingAtoms():Void {
+        if (_blueprint.internalAtoms == null) return;
+        for (atomDef in _blueprint.internalAtoms) {
+            var atomInstance = _assembly.internalAtoms.get(atomDef.instanceId);
+            if (atomInstance != null) {
+                createViewForAtom(cast atomInstance, atomDef.instanceId, atomDef.x, atomDef.y);
+                var parts = atomDef.instanceId.split("_");
+                var num = Std.parseInt(parts[parts.length-1]);
+                if (num != null && num >= _spawnCounter) _spawnCounter = num + 1;
+            }
+        }
+    }
+
+    private function createViewForAtom(atom:Atom, id:String, x:Float, y:Float):Void {
+        if (_nodes.exists(id)) return;
+        var view = new NodeView(atom, id);
+        view.x = x;
+        view.y = y;
+        _canvas.addChild(view);
+        _nodes.set(id, view);
+    }
+
+    private function onAddedToStage_Frame(e:Event):Void {
+        removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage_Frame);
+        stage.addEventListener(Event.RESIZE, drawFrame);
+        drawFrame();
+    }
+
+    private function onAddedToStage(e:Event):Void {
+        removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
+        initListeners();
+    }
+
+    private function initListeners():Void {
+        stage.addEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
+        stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+        stage.addEventListener(MouseEvent.MIDDLE_MOUSE_DOWN, onMiddleMouseDown);
+        stage.addEventListener(MouseEvent.MIDDLE_MOUSE_UP, onMiddleMouseUp);
+        stage.addEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
+    }
+
+    private function onMiddleMouseDown(e:MouseEvent):Void {
+        _isPanning = true;
+        _panStartX = e.stageX;
+        _panStartY = e.stageY;
+        _canvasStartX = _canvas.x;
+        _canvasStartY = _canvas.y;
+    }
+
+    private function onMiddleMouseUp(e:MouseEvent):Void {
+        if (_isPanning) {
+            _isPanning = false;
+            updateEdgeWires();
+            updateVisibility();
+        }
+    }
+
+    // --- ВОССТАНОВЛЕННЫЙ МЕТОД ---
+    private function onMouseWheel(e:MouseEvent):Void {
+        var zoomFactor:Float = 1.1;
+        if (e.delta < 0) zoomFactor = 1 / 1.1;
+        var mouseLocal:Point = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
+        var oldScale:Float = _canvas.scaleX;
+        var newScale:Float = oldScale * zoomFactor;
+        if (newScale < 0.1) newScale = 0.1;
+        if (newScale > 5.0) newScale = 5.0;
+        if (newScale == oldScale) return;
+
+        _canvas.scaleX = newScale;
+        _canvas.scaleY = newScale;
+        _canvas.x = e.stageX - (mouseLocal.x * newScale);
+        _canvas.y = e.stageY - (mouseLocal.y * newScale);
+
+        updateEdgeWires();
+        updateVisibility();
+    }
+    // ------------------------------
+
+    public function getNodePositions():Array<{id:String, x:Float, y:Float}> {
+        var positions = [];
+        for (nodeId in _nodes.keys()) {
+            var view = _nodes.get(nodeId);
+            if (view != null) positions.push({id: nodeId, x: view.x, y: view.y});
+        }
+        return positions;
+    }
+
+    public function createAtom(typeId:String, posX:Float, posY:Float):Atom {
+        var bp = library.AtomRegistry.get(typeId);
+        if (bp == null) return null;
+        var localPoint = _canvas.globalToLocal(new Point(posX, posY));
+        var instanceId = typeId + "_" + (_spawnCounter++);
+        var cmd = new CreateAtomCommand(_blueprint, _assembly, typeId, instanceId, localPoint.x, localPoint.y);
+        UndoManager.getInstance().executeAndStore(cmd);
+        return _assembly.internalAtoms.get(instanceId);
+    }
+
+    private function onPortDragStart(impulse:Impulse):Void {
+        _isDraggingPort = true;
+        _dragNodeId = impulse.data.nodeId;
+        _dragContactName = impulse.data.contactName;
+        _dragStartX = impulse.data.startX;
+        _dragStartY = impulse.data.startY;
+        _dragStartIsInput = impulse.data.isInput;
+    }
+
+    private function onMouseMove(e:MouseEvent):Void {
+        if (_isPanning) {
+            var dx = e.stageX - _panStartX;
+            var dy = e.stageY - _panStartY;
+            _canvas.x = _canvasStartX + dx;
+            _canvas.y = _canvasStartY + dy;
+            updateEdgeWires();
+            return;
+        }
+
+        if (_isDraggingPort) {
+            drawGhostWire(_dragStartX, _dragStartY, e.stageX, e.stageY, _dragStartIsInput);
+        }
+    }
+
+    private function onMouseUp(e:MouseEvent):Void {
+        if (_isPanning) {
+            _isPanning = false;
+            return;
+        }
+
+        if (_isDraggingPort) {
+            var target = findPortAt(e.stageX, e.stageY);
+
+            if (target != null) {
+                var isSameContact = (_dragNodeId == target.nodeId && _dragContactName == target.contactName);
+                var startIsSource = !_dragStartIsInput;
+                var targetIsSource = !target.isInput;
+
+                if (!isSameContact && (startIsSource != targetIsSource)) {
+
+                    var realFromId:String;
+                    var realFromContact:String;
+                    var realToId:String;
+                    var realToContact:String;
+
+                    if (startIsSource) {
+                        realFromId = _dragNodeId;
+                        realFromContact = _dragContactName;
+                        realToId = target.nodeId;
+                        realToContact = target.contactName;
+                    } else {
+                        realFromId = target.nodeId;
+                        realFromContact = target.contactName;
+                        realToId = _dragNodeId;
+                        realToContact = _dragContactName;
+                    }
+
+                    var cmd = new ConnectCommand(_blueprint, _assembly, realFromId, realFromContact, realToId, realToContact);
+                    UndoManager.getInstance().executeAndStore(cmd);
+                    rebuildAllWires();
+                }
+            }
+            _isDraggingPort = false;
+            _ghostWire.graphics.clear();
+        }
+    }
+
+    private function onAtomDeleted(impulse:Impulse):Void {
+        var id:String = impulse.data.id;
+        var view = _nodes.get(id);
+        if (view != null) {
+            view.dispose();
+            if (view.parent == _canvas) _canvas.removeChild(view);
+            _nodes.remove(id);
+            _selectedNodes.remove(id);
+            rebuildAllWires();
+        }
+    }
+
+    private function onAtomRestored(impulse:Impulse):Void {
+        var id:String = impulse.data.id;
+        var x:Float = impulse.data.x;
+        var y:Float = impulse.data.y;
+        var atom:Atom = impulse.data.atom;
+        if (atom != null) {
+            createViewForAtom(atom, id, x, y);
+            rebuildAllWires();
+        }
+    }
+
+    private function findPortAt(x:Float, y:Float):{nodeId:String, contactName:String, isInput:Bool} {
+        for (name in _edgePorts.keys()) {
+            var port = _edgePorts.get(name);
+            var local = port.globalToLocal(new Point(x, y));
+            if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) {
+                var asmPort = _assembly.ports.get(name);
+                var isInput:Bool;
+                if (asmPort.type == INPUT) isInput = false;
+                else isInput = true;
+                return { nodeId: "SELF", contactName: name, isInput: isInput };
+            }
+        }
+
+        for (nodeId in _nodes.keys()) {
+            var view = _nodes.get(nodeId);
+            if (view != null) {
+                for (name in view.inputPorts.keys()) {
+                    var port = view.inputPorts.get(name);
+                    if (port != null) {
+                        var local = port.globalToLocal(new Point(x, y));
+                        if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) return {nodeId: nodeId, contactName: name, isInput: true};
+                    }
+                }
+                for (name in view.outputPorts.keys()) {
+                    var port = view.outputPorts.get(name);
+                    if (port != null) {
+                        var local = port.globalToLocal(new Point(x, y));
+                        if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) return {nodeId: nodeId, contactName: name, isInput: false};
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private function drawGhostWire(startX:Float, startY:Float, endX:Float, endY:Float, isInput:Bool):Void {
+        var g = _ghostWire.graphics;
+        g.clear();
+
+        var p1 = _canvas.globalToLocal(new Point(startX, startY));
+        var p2 = _canvas.globalToLocal(new Point(endX, endY));
+
+        g.lineStyle(3, 0x00FF00, 0.8);
+        g.moveTo(p1.x, p1.y);
+
+        var dx = Math.abs(p2.x - p1.x) * 0.5;
+        if (dx < 50) dx = 50;
+
+        if (isInput) g.cubicCurveTo(p1.x - dx, p1.y, p2.x + dx, p2.y, p2.x, p2.y);
+        else g.cubicCurveTo(p1.x + dx, p1.y, p2.x - dx, p2.y, p2.x, p2.y);
+    }
+
+    public function deleteAtom(id:String):Void {
+        var cmd = new DeleteAtomCommand(_blueprint, _assembly, id);
+        UndoManager.getInstance().executeAndStore(cmd);
+    }
+
+    public function getSelectedNodeIds():Array<String> {
+        return [for (id in _selectedNodes.keys()) id];
+    }
+
+    public function dispose():Void {
+        Impulsys.removeImpulse("PORT_DRAG_START", onPortDragStart);
+        Impulsys.removeImpulse("EDITOR_NODE_MOVED", onNodeMoved);
+        Impulsys.removeImpulse("NODE_DRAG_FINISHED", onNodeDragFinished);
+        Impulsys.removeImpulse("FORCE_UPDATE_NODE_POSITION", onForceUpdatePosition);
+        Impulsys.removeImpulse("REDRAW_WIRES", _cbRedraw);
+        Impulsys.removeImpulse("ATOM_DELETED", onAtomDeleted);
+        Impulsys.removeImpulse("ATOM_RESTORED", onAtomRestored);
+        Impulsys.removeImpulse("NODE_CLICKED", onNodeClicked);
+
+        if (stage != null) {
+            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
+            stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+            stage.removeEventListener(MouseEvent.MIDDLE_MOUSE_DOWN, onMiddleMouseDown);
+            stage.removeEventListener(MouseEvent.MIDDLE_MOUSE_UP, onMiddleMouseUp);
+            stage.removeEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
+            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onLassoMove);
+            stage.removeEventListener(MouseEvent.MOUSE_UP, onLassoUp);
+            stage.removeEventListener(Event.RESIZE, drawFrame);
+        }
+
+        _canvas.removeEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
+        clearAllWires();
+        for (nodeId in _nodes.keys()) {
+            var view = _nodes.get(nodeId);
+            if (view != null) {
+                view.dispose();
+                if (view.parent != null) view.parent.removeChild(view);
+            }
+        }
+        _nodes.clear();
+    }
+}
+ 
+package editor;
+
+import openfl.display.Sprite;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import openfl.text.TextFormatAlign;
+import openfl.events.MouseEvent;
+import openfl.geom.Point;
+import core.base.Atom;
+import core.base.Assembly;
+import core.base.Contact;
+import core.types.ContactType;
+import core.logic.Impulsys;
+import core.logic.Impulse;
+
+class NodeView extends Sprite {
+
+    public var atom(default, null):Atom;
+    public var nodeId(default, null):String;
+
+    // Ссылка на сборку, если это сборка (для отображения)
+    private var _assemblyInstance:Assembly;
+
+    public var inputPorts(default, null):Map<String, Sprite>;
+    public var outputPorts(default, null):Map<String, Sprite>;
+
+    private var _width:Float = 100;
+    private var _height:Float = 40;
+
+    private var _isDragging:Bool = false;
+    private var _offsetX:Float = 0;
+    private var _offsetY:Float = 0;
+
+    private var _dragStartX:Float = 0;
+    private var _dragStartY:Float = 0;
+
+    private var _settingsBtn:Sprite;
+
+    public var selected(default, set):Bool = false;
+
+    private var _bgColor:Int = 0x333344;
+    private var _borderColor:Int = 0x00AAFF;
+    private var _selectedColor:Int = 0xFFCC00;
+
+    public function new(atom:Atom, nodeId:String) {
+        super();
+        this.atom = atom;
+        this.nodeId = nodeId;
+
+        // Проверяем, является ли атом на самом деле сборкой (для вложенных схем)
+        if (Std.isOfType(atom, Assembly)) {
+            this._assemblyInstance = cast(atom, Assembly);
+        }
+
+        inputPorts = new Map();
+        outputPorts = new Map();
+
+        draw();
+
+        this.buttonMode = true;
+        this.useHandCursor = true;
+
+        addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
+        addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
+
+        this.doubleClickEnabled = true;
+        addEventListener(MouseEvent.DOUBLE_CLICK, onDoubleClick);
+    }
+
+    function set_selected(v:Bool):Bool {
+        if (selected != v) {
+            selected = v;
+            draw();
+        }
+        return v;
+    }
+
+    private function draw():Void {
+        graphics.clear();
+        graphics.beginFill(_bgColor);
+
+        if (selected) {
+            graphics.lineStyle(3, _selectedColor);
+        } else {
+            graphics.lineStyle(2, _borderColor);
+        }
+
+        graphics.drawRoundRect(0, 0, _width, _height, 10, 10);
+        graphics.endFill();
+
+        var title = new TextField();
+        var displayName = "Unknown";
+
+        if (_assemblyInstance != null) displayName = _assemblyInstance.blueprint.name;
+        else if (atom != null) displayName = atom.name;
+        else displayName = nodeId;
+
+        title.text = displayName;
+        title.width = _width - 20;
+        title.height = _height;
+        title.selectable = false;
+        title.mouseEnabled = false;
+        var fmt = new TextFormat("_typewriter", 10, 0xFFFFFF);
+        fmt.align = TextFormatAlign.CENTER;
+        title.defaultTextFormat = fmt;
+        addChild(title);
+
+        _settingsBtn = new Sprite();
+        _settingsBtn.graphics.beginFill(0x888888, 0.8);
+        _settingsBtn.graphics.drawCircle(_width - 10, _height / 2, 6);
+        _settingsBtn.graphics.endFill();
+        _settingsBtn.graphics.lineStyle(1, 0xFFFFFF);
+        _settingsBtn.graphics.moveTo(-3, -3);
+        _settingsBtn.graphics.lineTo(3, 3);
+        _settingsBtn.x = 0;
+        _settingsBtn.buttonMode = true;
+        _settingsBtn.useHandCursor = true;
+        _settingsBtn.mouseEnabled = true;
+        _settingsBtn.addEventListener(MouseEvent.CLICK, onSettingsClick);
+        addChild(_settingsBtn);
+
+        // Рисуем порты. Если это сборка, бём порты из неё, иначе из атома
+        var ins:Array<Contact> = [];
+        var outs:Array<Contact> = [];
+
+        if (_assemblyInstance != null) {
+            ins = _assemblyInstance.getInputs();
+            outs = _assemblyInstance.getOutputs();
+        } else if (atom != null) {
+            ins = atom.getInputs();
+            outs = atom.getOutputs();
+        }
+
+        drawPorts(ins, ContactType.INPUT);
+        drawPorts(outs, ContactType.OUTPUT);
+    }
+
+    private function drawPorts(contacts:Array<Contact>, type:ContactType):Void {
+        var count = contacts.length;
+        if (count == 0) return;
+
+        var isInput = (type == ContactType.INPUT);
+        var step = _height / (count + 1);
+
+        for (i in 0...count) {
+            var c = contacts[i];
+            var port = new Sprite();
+
+            port.graphics.beginFill(isInput ? 0xFF8800 : 0x00FF88);
+            port.graphics.lineStyle(1, 0xFFFFFF);
+            port.graphics.drawCircle(0, 0, 5);
+            port.graphics.endFill();
+
+            port.x = isInput ? 0 : _width;
+            port.y = step * (i + 1);
+
+            port.buttonMode = true;
+            port.useHandCursor = true;
+            port.mouseEnabled = true;
+
+            port.name = c.name;
+
+            port.addEventListener(MouseEvent.MOUSE_DOWN, onPortMouseDown);
+
+            addChild(port);
+
+            if (isInput) inputPorts.set(c.name, port);
+            else outputPorts.set(c.name, port);
+        }
+    }
+
+    private function onPortMouseDown(e:MouseEvent):Void {
+        e.stopPropagation();
+
+        var port:Sprite = cast e.target;
+        var isInput = inputPorts.exists(port.name);
+        var contactName = port.name;
+
+        var globalPos = port.localToGlobal(new Point(0, 0));
+
+        Impulsys.emit(new Impulse("PORT_DRAG_START", {
+            nodeId: this.nodeId,
+            contactName: contactName,
+            isInput: isInput,
+            startX: globalPos.x,
+            startY: globalPos.y
+        }));
+    }
+
+    private function onSettingsClick(e:MouseEvent):Void {
+        e.stopPropagation();
+        Impulsys.emit(new Impulse("ATOM_PROPERTIES_REQUEST", {
+            atom: this.atom, // Или _assemblyInstance
+            view: this
+        }));
+    }
+
+    private function onDoubleClick(e:MouseEvent):Void {
+        Impulsys.emit(new Impulse("OPEN_ASSEMBLY_REQUEST", {
+            atomId: this.nodeId
+        }));
+    }
+
+    public function getPortPosition(name:String):{x:Float, y:Float} {
+        var port:Sprite = null;
+        port = inputPorts.get(name);
+        if (port != null) return { x: this.x + port.x, y: this.y + port.y };
+
+        port = outputPorts.get(name);
+        if (port != null) return { x: this.x + port.x, y: this.y + port.y };
+
+        return { x: this.x, y: this.y };
+    }
+
+    private function onMouseDown(e:MouseEvent):Void {
+        var targetSprite:Dynamic = e.target;
+        if (Std.isOfType(targetSprite, Sprite)) {
+             var s:Sprite = targetSprite;
+             if (inputPorts.exists(s.name) || outputPorts.exists(s.name) || s == _settingsBtn) {
+                 return;
+             }
+        }
+
+        e.stopPropagation();
+
+        Impulsys.emit(new Impulse("NODE_CLICKED", {
+            id: this.nodeId,
+            view: this,
+            ctrlKey: e.ctrlKey
+        } ));
+
+        _isDragging = true;
+        _offsetX = e.localX;
+        _offsetY = e.localY;
+
+        _dragStartX = this.x;
+        _dragStartY = this.y;
+
+        if (parent != null) parent.addChild(this);
+
+        stage.addEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
+        stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+    }
+
+    private function onRightMouseDown(e:MouseEvent):Void {
+        e.stopPropagation();
+        Impulsys.emit(new Impulse("NODE_RIGHT_CLICKED", {
+            id: this.nodeId,
+            view: this,
+            name: (_assemblyInstance != null) ? _assemblyInstance.blueprint.name : (atom != null ? atom.name : nodeId)
+        } ));
+    }
+
+    private function onMouseMove(e:MouseEvent):Void {
+        if (!_isDragging) return;
+
+        var parentPos = parent.globalToLocal(new Point(e.stageX, e.stageY));
+
+        var newX = parentPos.x - _offsetX;
+        var newY = parentPos.y - _offsetY;
+
+        var dx = newX - this.x;
+        var dy = newY - this.y;
+
+        this.x = newX;
+        this.y = newY;
+
+        Impulsys.emit(new Impulse("EDITOR_NODE_MOVED", {
+            id: this.nodeId,
+            view: this,
+            dx: dx,
+            dy: dy
+        } ));
+    }
+
+    private function onMouseUp(e:MouseEvent):Void {
+        if (!_isDragging) return;
+
+        _isDragging = false;
+        stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
+        stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+
+        if (_dragStartX != this.x || _dragStartY != this.y) {
+            Impulsys.emit(new Impulse("NODE_DRAG_FINISHED", {
+                id: this.nodeId,
+                startX: _dragStartX,
+                startY: _dragStartY,
+                endX: this.x,
+                endY: this.y
+            }));
+        }
+    }
+
+    public function dispose():Void {
+        if (_settingsBtn != null) {
+            _settingsBtn.removeEventListener(MouseEvent.CLICK, onSettingsClick);
+        }
+
+        for (port in inputPorts) {
+            port.removeEventListener(MouseEvent.MOUSE_DOWN, onPortMouseDown);
+        }
+        for (port in outputPorts) {
+            port.removeEventListener(MouseEvent.MOUSE_DOWN, onPortMouseDown);
+        }
+
+        inputPorts = null;
+        outputPorts = null;
+        atom = null;
+        _assemblyInstance = null;
+    }
+}
+ 
+package editor;
+
+import openfl.display.Sprite;
+import openfl.geom.Point;
+
+/**
+ * WireLayer v1.0
+ * Dedicated layer for drawing connection lines.
+ */
+class WireLayer extends Sprite {
+
+    public function new() {
+        super();
+        this.mouseEnabled = false; // Let clicks pass through to nodes
+    }
+
+    public function drawWire(from:Point, to:Point, color:Int = 0x888888):Void {
+        graphics.clear();
+        // Logic for drawing wires is currently inside NodeEditor.
+        // This class serves as a container.
+    }
+
+    public function clearWires():Void {
+        graphics.clear();
+    }
+}
+ 
+package library;
+
+import core.data.Blueprint;
+import core.data.Blueprint.PinDef;
+import core.types.ContactType;
+// Импорты для классов, если используются в логике по умолчанию
+import library.logic.NandAtom;
+import library.electro.ButtonAtom;
+import library.electro.LedAtom;
+import library.electro.RelayAtom;
+
+class AtomRegistry {
+    private static var _initialized:Bool = false;
+    private static var _blueprints:Map<String, Blueprint> = new Map();
+
+    private static function reg(id:String, name:String, pins:Array<PinDef>, ?logic) {
+        _blueprints.set(id, new Blueprint(id, name, pins, logic));
+    }
+
+    public static function getAllIds():Array<String> {
+        return [for (key in _blueprints.keys()) key];
+    }
+
+    public static function initialize():Void {
+        if (_initialized) return;
+
+        // --- 1. LOGIC PRIMITIVES (Foundation) ---
+        reg("NAND", "NAND Gate",
+            [{name: "A", type: INPUT}, {name: "B", type: INPUT}, {name: "Q", type: OUTPUT}],
+            null // Logic is inside NandAtom class
+        );
+
+        // --- 2. ELECTRO COMPONENTS (I/O) ---
+
+        // Button (Source)
+        reg("Button", "Push Button",
+            [{name: "out", type: OUTPUT, dataType: "bool"}],
+            null
+        );
+
+        // LED (Display)
+        reg("LED", "LED Indicator",
+            [{name: "in", type: INPUT, dataType: "bool"}],
+            null
+        );
+
+        // Relay (Commutator)
+        reg("Relay", "Relay Switch",
+            [
+                {name: "signal", type: INPUT, dataType: "any"},
+                {name: "control", type: INPUT, dataType: "bool"},
+                {name: "out", type: OUTPUT, dataType: "any"}
+            ],
+            null
+        );
+
+        // --- INPUTS (Sources) ---
+        reg("SensorMock", "Random Sensor",
+            [{name: "value", type: OUTPUT, dataType: "number", defaultValue: 0}],
+            null
+        );
+
+        reg("FPSMonitorAtom", "FPS Monitor Atom",
+            [{name: "fps", type: OUTPUT, dataType: "number", defaultValue: 0}],
+            null
+        );
+
+        reg("FrameTimeAtom", "Frame Time (ms)",
+            [{name: "ms", type: OUTPUT, dataType: "number", defaultValue: 0.0}],
+            null
+        );
+
+        // --- OUTPUTS (Displays) ---
+        reg("AlphaNumericLine", "Display",
+            [{name: "in", type: INPUT, dataType: "any"}],
+            null
+        );
+
+        // --- LOGIC (Basics) ---
+        reg("Pass", "Pass Through",
+            [{name: "in", type: INPUT}, {name: "out", type: OUTPUT}],
+            function(v) return v
+        );
+
+        _initialized = true;
+    }
+
+    public static function get(id:String):Blueprint {
+        return _blueprints.get(id);
+    }
+
+    // --- НОВОЕ: Регистрация сборок ---
+
+    public static function registerBlueprint(id:String, bp:Blueprint):Void {
+        _blueprints.set(id, bp);
+    }
+
+    // --- НОВОЕ: Сканирование папки ---
+    #if sys
+    public static function scanFolder(path:String):Void {
+        if (!sys.FileSystem.exists(path)) {
+            sys.FileSystem.createDirectory(path);
+            return;
+        }
+
+        trace("Scanning library folder: " + path);
+
+        for (file in sys.FileSystem.readDirectory(path)) {
+            if (StringTools.endsWith(file, ".atom")) {
+                var fullPath = path + "/" + file;
+                try {
+                    var content = sys.io.File.getContent(fullPath);
+                    var json = haxe.Json.parse(content);
+                    var rawBp:Dynamic = json.blueprint;
+
+                    // Восстанавливаем типы
+                    var pins:Array<PinDef> = [];
+                    if (rawBp.pins != null) {
+                        for (p in (cast(rawBp.pins, Array<Dynamic>))) {
+                            pins.push({
+                                name: Std.string(p.name),
+                                type: _parseContactType(p.type),
+                                defaultValue: p.defaultValue,
+                                dataType: Std.string(p.dataType)
+                            });
+                        }
+                    }
+
+                    // Восстанавливаем связи (нужно привести типы)
+                    var conns = [];
+                    if (rawBp.internalConnections != null) {
+                        for(c in (cast(rawBp.internalConnections, Array<Dynamic>))) {
+                            conns.push({
+                                from: { atomId: Std.string(c.from.atomId), contactName: Std.string(c.from.contactName) },
+                                to: { atomId: Std.string(c.to.atomId), contactName: Std.string(c.to.contactName) }
+                            });
+                        }
+                    }
+
+                    var atoms = [];
+                     if (rawBp.internalAtoms != null) {
+                        for(a in (cast(rawBp.internalAtoms, Array<Dynamic>))) {
+                            atoms.push({
+                                instanceId: Std.string(a.instanceId),
+                                typeId: Std.string(a.typeId),
+                                x: a.x,
+                                y: a.y
+                            });
+                        }
+                    }
+
+                    var bp = new Blueprint(
+                        Std.string(rawBp.id),
+                        Std.string(rawBp.name),
+                        pins,
+                        null,
+                        atoms,
+                        conns,
+                        Std.string(rawBp.category)
+                    );
+
+                    registerBlueprint(bp.id, bp);
+                    trace("Library loaded: " + bp.id);
+                } catch(e:Dynamic) {
+                    trace("Failed to load atom: " + file + " | Error: " + e);
+                }
+            }
+        }
+    }
+
+    private static function _parseContactType(val:Dynamic):ContactType {
+        if (Std.isOfType(val, ContactType)) return val;
+        if (Std.isOfType(val, String)) {
+            switch(Std.string(val)) {
+                case "INPUT": return INPUT;
+                case "OUTPUT": return OUTPUT;
+                case "BIDIRECTIONAL": return BIDIRECTIONAL;
+                default: return UNDEFINED;
+            }
+        }
+        if (Std.isOfType(val, Int) || Std.isOfType(val, Float)) {
+            var index = Std.int(val);
+            switch(index) {
+                case 0: return INPUT;
+                case 1: return OUTPUT;
+                case 2: return BIDIRECTIONAL;
+                default: return UNDEFINED;
+            }
+        }
+        return UNDEFINED;
+    }
+    #end
+}
+ 
+package library.drivers;
+
+import system.managers.Driver;
+import core.base.Contact;
+import core.logic.Impulsys;
+import core.logic.Impulse;
+
+/**
+ * FPS DRIVER v1.0
+ * Calculates Frames Per Second based on Delta Time.
+ */
+class FPSDriver implements Driver {
+
+    public var id(default, null):String;
+
+    private var _targetContact:Contact;
+    private var _frames:Int = 0;
+    private var _elapsed:Float = 0;
+    private var _currentFPS:Float = 0;
+
+    public function new(id:String, targetContact:Contact) {
+        this.id = id;
+        this._targetContact = targetContact;
+    }
+
+    public function init():Void {
+        trace('FPS Driver [$id] started.');
+    }
+
+    public function update(dt:Float):Void {
+        _frames++;
+        _elapsed += dt;
+
+        if (_elapsed >= 0.5) {
+            _currentFPS = _frames / _elapsed;
+
+            if (_targetContact != null) {
+                _targetContact.value = Math.round(_currentFPS);
+            }
+
+            _frames = 0;
+            _elapsed = 0;
+        }
+    }
+
+    public function dispose():Void {
+        _targetContact = null;
+    }
+}
+ 
+package library.drivers;
+
+import core.base.Atom;
+import core.base.Contact;
+import core.types.ContactType;
+
+/**
+ * FPS MONITOR ATOM
+ * Active atom measuring Frames Per Second.
+ */
+class FPSMonitorAtom extends Atom {
+
+    private var _frames:Int = 0;
+    private var _elapsed:Float = 0;
+
+    public function new(id:String) {
+        // Call parent constructor with isActive = true
+        super(
+            [],
+            [new Contact(0, OUTPUT, "fps")],
+            null,
+            id,
+            "FPSMonitor",
+            true // ACTIVE!
+        );
+    }
+
+    // Override Driver update method
+    override private function _onUpdate(dt:Float):Void {
+        _frames++;
+        _elapsed += dt;
+
+        if (_elapsed >= 0.5) {
+            var fps = Math.round(_frames / _elapsed);
+
+            // Write result to output contact
+            _outputs[0].value = fps;
+
+            _frames = 0;
+            _elapsed = 0;
+        }
+    }
+}
+ 
+package library.drivers;
+
+import core.base.Atom;
+import core.base.Contact;
+
+/**
+ * FRAME TIME ATOM
+ * Active atom measuring frame duration (Delta Time) in milliseconds.
+ * Works via DriverManager.
+ */
+class FrameTimeAtom extends Atom {
+
+    public function new(id:String) {
+        // Call parent constructor:
+        // 1. No inputs.
+        // 2. One output "ms" (Float).
+        // 3. No processing logic (_process = null).
+        // 4. isActive = true (IMPORTANT! Registers in DriverManager).
+        super(
+            [],
+            [new Contact(0.0, OUTPUT, "ms")],
+            null,
+            id,
+            "FrameTime",
+            true
+        );
+    }
+
+    // Override update method called every frame
+    override private function _onUpdate(dt:Float):Void {
+        // dt comes in seconds (e.g., 0.016). We need milliseconds.
+        var ms = dt * 1000;
+
+        // Write result to output contact.
+        // This triggers the signal, connected atoms receive data.
+        if (_outputs != null && _outputs.length > 0) {
+            _outputs[0].value = ms;
+        }
+    }
+}
+ 
+package library.drivers;
+
+import system.managers.Driver;
+import core.base.Contact;
+import core.logic.Impulsys;
+import core.logic.Impulse;
+
+/**
+ * MOCK SENSOR DRIVER v1.0
+ * Simulates a hardware sensor generating data over time.
+ * Demonstrates how to push data into the Core.
+ */
+class MockSensorDriver implements Driver {
+
+    public var id(default, null):String;
+
+    private var _targetContact:Contact;
+    private var _frequency:Float;
+    private var _timer:Float = 0;
+
+    public function new(id:String, targetContact:Contact, frequency:Float = 1.0) {
+        this.id = id;
+        this._targetContact = targetContact;
+        this._frequency = frequency;
+    }
+
+    public function init():Void {
+        trace('Driver [$id] initialized. Sending data to Contact: ${_targetContact.name}');
+    }
+
+    public function update(dt:Float):Void {
+        _timer += dt;
+
+        if (_timer >= _frequency) {
+            _timer = 0;
+
+            // Simulation Logic
+            var value = Math.random() * 100;
+
+            // PUSH DATA INTO CORE
+            if (_targetContact != null) {
+                _targetContact.value = value;
+            }
+        }
+    }
+
+    public function dispose():Void {
+        _targetContact = null;
+    }
+}
+ 
+package library.electro;
+
+import core.base.Atom;
+import core.base.Contact;
+import core.types.ContactType;
+import openfl.events.MouseEvent;
+
+class ButtonAtom extends Atom {
+
+    private var _state:Bool = false;
+
+    public function new(id:String) {
+        super(
+            [],
+            [new Contact(false, OUTPUT, "out")],
+            null,
+            id,
+            "Button"
+        );
+    }
+
+    // Логика нажатия будет управляться извне (например, через Click на View)
+    // Но для простоты пока сделаем toggle по "активации" (если такое будет)
+    // Или оставим это UI слою.
+
+    // Однако, давай сделаем Toggle для теста, чтобы можно было щелкать по ноде
+    // (Это нужно будет добавить в NodeView клик по самому телу атома)
+
+    public function toggle():Void {
+        _state = !_state;
+        _outputs[0].value = _state;
+    }
+}
+ 
+package library.electro;
+
+import core.base.Atom;
+import core.base.Contact;
+import core.types.ContactType;
+import core.logic.SignalQueue;
+import core.types.Priority;
+
+class LedAtom extends Atom {
+
+    public function new(id:String) {
+        super(
+            [new Contact(false, INPUT, "in")],
+            [],
+            null,
+            id,
+            "LED"
+        );
+    }
+
+    // Логика: при изменении входа, мы ничего не считаем (нет выходов),
+    // но можем поменять внутреннее состояние, которое увидит View.
+
+    // В текущей архитектуре Atom не знает о своей View.
+    // Но View подписывается на Contact.
+
+    // Поэтому просто оставим Атом "пассивным".
+    // NodeView сам подпишется на вход и покрасит ноду в зеленый, если там true.
+}
+ 
+package library.electro;
+
+import core.base.Atom;
+import core.base.Contact;
+import core.types.ContactType;
+
+class RelayAtom extends Atom {
+
+    public function new(id:String) {
+        super(
+            [
+                new Contact(null, INPUT, "signal"),   // Что передаем
+                new Contact(false, INPUT, "control")  // Открываем (True) или Закрываем (False)
+            ],
+            [new Contact(null, OUTPUT, "out")],
+            null,
+            id,
+            "Relay"
+        );
+    }
+
+    // Логика реле
+    override function onContactChanged(c:Contact):Void {
+        // Если изменился сигнал или управление - пересчитываем
+        super.onContactChanged(c);
+    }
+
+    override function _calculate():Void {
+        var signal = _inputs[0].value;
+        var control = _inputs[1].value;
+
+        if (control == true) {
+            // Если управление активно, пропускаем сигнал
+            _outputs[0].value = signal;
+        } else {
+            // Если закрыто, можно слать null или false (зависит от логики схемы)
+            _outputs[0].value = null;
+        }
+    }
+}
+ 
+package library.logic;
+
+import core.base.Atom;
+import core.base.Contact;
+import core.types.ContactType;
+
+/**
+ * NAND Atom
+ * Universal logic gate.
+ * Returns TRUE only if NOT both inputs are TRUE.
+ * From this single gate, all other logic (NOT, AND, OR, XOR) can be built.
+ */
+class NandAtom extends Atom {
+
+    public function new(id:String) {
+        super(
+            // 2 Входа (A и B)
+            [
+                new Contact(false, INPUT, "A"),
+                new Contact(false, INPUT, "B")
+            ],
+            // 1 Выход (Q)
+            [
+                new Contact(false, OUTPUT, "Q")
+            ],
+            // --- ЛОГИКА (Мгновенная, без парсинга строк) ---
+            function(inputs:Array<Dynamic>):Array<Dynamic> {
+                var a = inputs[0];
+                var b = inputs[1];
+
+                // NAND = NOT (A AND B)
+                return [!(a && b)];
+            },
+            // -----------------------------------------------
+            id,
+            "NAND"
+        );
+    }
+}
+ 
+package;
+
+import openfl.display.Sprite;
+import openfl.events.MouseEvent;
+import openfl.events.KeyboardEvent;
+import openfl.events.Event;
+import openfl.ui.Keyboard;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import library.AtomRegistry;
+import core.base.Assembly;
+import core.data.Blueprint;
+import core.logic.SignalQueue;
+import core.logic.Impulsys;
+import core.logic.Impulse;
+import system.managers.UndoManager;
+import system.managers.DriverManager;
+import editor.NodeEditor;
+import ui.ContextMenu;
+import ui.DevicePanel;
+import ui.PropertiesWindow;
+import ui.ButtonComponent;
+import system.io.ProjectIO;
+import system.commands.editor.GroupAtomsCommand;
+
+#if desktop
+import ui.virtual.VirtualDeviceWindow;
+#end
+
+#if html5
+import js.html.CanvasElement;
+import js.Browser;
+#end
+
+class Main extends Sprite {
+
+    private var _editorLayer:Sprite;
+    private var _deviceLayer:Sprite;
+    private var _uiLayer:Sprite;
+
+    private var _editor:NodeEditor;
+    private var _devicePanel:DevicePanel;
+    private var _menu:ContextMenu;
+    private var _fileMenu:ContextMenu;
+    private var _propertiesWindow:PropertiesWindow;
+
+    private var _assembly:Assembly;
+    private var _isEditorMode:Bool = true;
+
+    private var _debugField:TextField;
+    private var _hideTimer:haxe.Timer;
+    private var _contextTargetId:String = null;
+
+    private var _fileBtn:ButtonComponent;
+
+    // ========== НОВОЕ: Навигация по сборкам ==========
+    private var _assemblyStack:Array<{assembly:Assembly, viewState:{x:Float, y:Float, zoom:Float}}>;
+    private var _backBtn:ButtonComponent;
+    private var _pathField:TextField;
+    // ==================================================
+
+    public function new() {
+        super();
+
+        #if html5
+        var canvas:CanvasElement = cast Browser.document.getElementById("openfl-content");
+        if (canvas == null) canvas = cast Browser.document.querySelector("canvas");
+        if (canvas != null) canvas.oncontextmenu = function(e) { e.preventDefault(); return false; };
+        #end
+
+        setupDebugLog();
+        ProjectIO.logger = log;
+
+        AtomRegistry.initialize();
+
+        #if sys
+        AtomRegistry.scanFolder("library");
+        #end
+
+        log("System initialized");
+
+        // ========== НОВОЕ: Инициализация стека ==========
+        _assemblyStack = [];
+        // =================================================
+
+        var emptyBlueprint = new Blueprint("main_scheme", "Main Scheme", [
+            {name: "IN", type: INPUT},
+            {name: "OUT", type: OUTPUT}
+        ]);
+        _assembly = new Assembly("main_asm", emptyBlueprint);
+
+        setupLayers();
+        buildUI();
+    }
+
+    private function log(msg:String) {
+        trace(msg);
+        if (_hideTimer != null) _hideTimer.stop();
+        if (_debugField != null) {
+            _debugField.text = msg;
+            _debugField.alpha = 1.0;
+            _debugField.visible = true;
+        }
+        _hideTimer = haxe.Timer.delay(() -> { fadeOutLog(); }, 5000);
+    }
+
+    private function fadeOutLog() {
+        if (_debugField != null) _debugField.visible = false;
+    }
+
+    private function setupDebugLog() {
+        _debugField = new TextField();
+        _debugField.width = 600;
+        _debugField.height = 30;
+        _debugField.x = 10;
+        _debugField.y = 55;
+        _debugField.background = true;
+        _debugField.backgroundColor = 0x333333;
+        _debugField.textColor = 0x00FF00;
+        _debugField.selectable = false;
+        var fmt = new TextFormat("_typewriter", 12);
+        _debugField.defaultTextFormat = fmt;
+        addChild(_debugField);
+    }
+
+    private function setupLayers():Void {
+        _editorLayer = new Sprite();
+        addChild(_editorLayer);
+
+        _editor = new NodeEditor(_assembly);
+        _editorLayer.addChild(_editor);
+
+        _deviceLayer = new Sprite();
+        _deviceLayer.visible = false;
+        addChild(_deviceLayer);
+
+        _uiLayer = new Sprite();
+        addChild(_uiLayer);
+    }
+
+    private function buildUI():Void {
+        // ========== НОВОЕ: Кнопка BACK (первая) ==========
+        _backBtn = new ButtonComponent("<- BACK", onBackClick);
+        _backBtn.x = 10;
+        _backBtn.y = 10;
+        _backBtn.visible = false;  // Скрыта по умолчанию
+        _uiLayer.addChild(_backBtn);
+        // =================================================
+
+        var toggleBtn = new ButtonComponent("Toggle View [F5]", onToggleView);
+        toggleBtn.x = 120;
+        toggleBtn.y = 10;
+        _uiLayer.addChild(toggleBtn);
+
+        _fileBtn = new ButtonComponent("File", onFileClick);
+        _fileBtn.x = 280;
+        _fileBtn.y = 10;
+        _uiLayer.addChild(_fileBtn);
+
+        var resetBtn = new ButtonComponent("Reset [R]", onResetClick);
+        resetBtn.x = 440;
+        resetBtn.y = 10;
+        _uiLayer.addChild(resetBtn);
+
+        var playerBtn = new ButtonComponent("Launch Player", onLaunchPlayer);
+        playerBtn.x = 600;
+        playerBtn.y = 10;
+        _uiLayer.addChild(playerBtn);
+
+        var newBtn = new ButtonComponent("New Assembly", onNewAssembly);
+        newBtn.x = 760;
+        newBtn.y = 10;
+        _uiLayer.addChild(newBtn);
+
+        // ========== НОВОЕ: Поле пути ==========
+        _pathField = new TextField();
+        _pathField.width = 400;
+        _pathField.height = 20;
+        _pathField.x = 10;
+        _pathField.y = 40;
+        _pathField.selectable = false;
+        _pathField.mouseEnabled = false;
+        var pathFmt = new TextFormat("_typewriter", 11, 0x888888);
+        _pathField.defaultTextFormat = pathFmt;
+        _pathField.text = "/ Main Scheme";
+        _uiLayer.addChild(_pathField);
+        // ======================================
+
+        _propertiesWindow = new PropertiesWindow();
+        _propertiesWindow.visible = false;
+        _uiLayer.addChild(_propertiesWindow);
+
+        stage.addEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
+        stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
+
+        Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION", onMenuAction);
+        Impulsys.subscribeToImpulse("CLOSE_CONTEXT_MENU", onCloseContextMenu);
+        Impulsys.subscribeToImpulse("ATOM_PROPERTIES_REQUEST", onPropertiesRequest);
+        Impulsys.subscribeToImpulse("NODE_RIGHT_CLICKED", onNodeRightClick);
+        Impulsys.subscribeToImpulse("OPEN_ASSEMBLY_REQUEST", onOpenAssemblyRequest);
+    }
+
+    // ========== НОВОЕ: Обработчик кнопки BACK ==========
+    private function onBackClick():Void {
+        if (_assemblyStack.length == 0) {
+            log("Already at root level");
+            return;
+        }
+
+        // Сохраняем текущее состояние
+        var currentView = _editor.getViewState();
+
+        // Удаляем текущий редактор
+        _editor.dispose();
+        _editorLayer.removeChild(_editor);
+
+        // Восстанавливаем предыдущую сборку
+        var prev = _assemblyStack.pop();
+        _assembly = prev.assembly;
+
+        _editor = new NodeEditor(_assembly);
+        _editor.setViewState(prev.viewState);
+        _editorLayer.addChild(_editor);
+
+        // Обновляем UI
+        updateNavigationUI();
+        log("Navigated back");
+    }
+
+    private function updateNavigationUI():Void {
+        // Показываем/скрываем кнопку BACK
+        _backBtn.visible = (_assemblyStack.length > 0);
+
+        // Обновляем путь
+        var path = "/ " + _assembly.blueprint.name;
+        for (item in _assemblyStack) {
+            path += " / " + item.assembly.blueprint.name;
+        }
+        _pathField.text = path;
+    }
+    // ===================================================
+
+    // --- Menu Logic ---
+
+    private function resetContextMenu():Void {
+        if (_menu == null) {
+            _menu = new ContextMenu();
+            _uiLayer.addChild(_menu);
+        }
+        _uiLayer.removeChild(_menu);
+        _menu = new ContextMenu();
+        _uiLayer.addChild(_menu);
+    }
+
+    private function onRightClick(e:MouseEvent):Void {
+        resetContextMenu();
+        buildAtomMenu();
+        _menu.show(e.stageX, e.stageY);
+    }
+
+    private function onNodeRightClick(impulse:Impulse):Void {
+        if (impulse == null || impulse.data == null) {
+            log("ERROR: Invalid impulse in onNodeRightClick");
+            return;
+        }
+
+        _contextTargetId = impulse.data.id;
+
+        resetContextMenu();
+        buildAtomMenu();
+
+        _menu.addItem("——————", "SEP");
+        _menu.addItem("Delete " + impulse.data.name, "DELETE_ATOM", {id: _contextTargetId});
+
+        var selected = _editor.getSelectedNodeIds();
+        if (selected.length > 1) {
+            _menu.addItem("Group to Assembly", "GROUP_ATOMS", {id: _contextTargetId});
+        }
+
+        _menu.show(stage.mouseX, stage.mouseY);
+    }
+
+    private function buildAtomMenu():Void {
+        var ids = AtomRegistry.getAllIds();
+        ids.sort(function(a, b) return Reflect.compare(a, b));
+        for (id in ids) {
+            var bp = AtomRegistry.get(id);
+            if (bp != null) _menu.addItem("Add " + bp.name, "ADD_ATOM", {typeId: id});
+        }
+    }
+
+    // --- Actions ---
+
+    private function onMenuAction(impulse:Impulse):Void {
+        if (_menu != null) _menu.hide();
+        if (_fileMenu != null) _fileMenu.hide();
+
+        if (impulse == null) {
+            log("ERROR: Received NULL impulse in onMenuAction");
+            return;
+        }
+
+        if (impulse.data == null) {
+            log("ERROR: Impulse data is NULL in onMenuAction");
+            return;
+        }
+
+        if (impulse.data.action == null) {
+            log("ERROR: Impulse action is NULL in onMenuAction");
+            return;
+        }
+
+        var action = impulse.data.action;
+        var data = impulse.data.data;
+        var x = impulse.data.x;
+        var y = impulse.data.y;
+
+        switch (action) {
+            case "FILE_SAVE":
+                log("Saving...");
+                var positions = _editor.getNodePositions();
+                var viewState = _editor.getViewState();
+                ProjectIO.save(_assembly.blueprint, positions, viewState);
+                log("Saved!");
+                return;
+
+            case "FILE_LOAD":
+                log("Opening file dialog...");
+                ProjectIO.load(function(loadData) {
+                    try {
+                        log("File loaded: " + loadData.blueprint.name);
+
+                        // Очищаем стек навигации
+                        _assemblyStack = [];
+
+                        hardReset();
+                        _assembly = new Assembly("loaded_asm", loadData.blueprint);
+                        _editor = new NodeEditor(_assembly);
+                        _editor.setViewState(loadData.viewState);
+                        _editorLayer.addChild(_editor);
+
+                        updateNavigationUI();
+                        log("SUCCESS: Loaded " + loadData.blueprint.name);
+                    } catch (e:Dynamic) {
+                        log("ERROR in load callback: " + Std.string(e));
+                    }
+                });
+                return;
+
+            case "DELETE_ATOM":
+                if (data != null && data.id != null) {
+                    _editor.deleteAtom(data.id);
+                    _contextTargetId = null;
+                }
+                return;
+
+            case "GROUP_ATOMS":
+                groupSelectedToAssembly();
+                return;
+        }
+
+        if (action == "ADD_ATOM") {
+            if (data != null && data.typeId != null) {
+                _editor.createAtom(data.typeId, x, y);
+            }
+        }
+    }
+
+    private function onCloseContextMenu(i:Impulse):Void {
+        if (_menu != null) _menu.hide();
+        if (_fileMenu != null) _fileMenu.hide();
+    }
+
+    private function groupSelectedToAssembly():Void {
+        var selectedIds = _editor.getSelectedNodeIds();
+        if (selectedIds.length < 1) {
+            log("Select atoms to group.");
+            return;
+        }
+
+        log("Grouping " + selectedIds.length + " atoms...");
+
+        var cmd = new GroupAtomsCommand(_assembly.blueprint, _assembly, selectedIds);
+        cmd.execute();
+
+        var vs = _editor.getViewState();
+        _editor.dispose();
+        _editorLayer.removeChild(_editor);
+
+        _editor = new NodeEditor(_assembly);
+        _editor.setViewState(vs);
+        _editorLayer.addChild(_editor);
+
+        log("Grouping complete.");
+    }
+
+    private function onNewAssembly():Void {
+        hardReset();
+        _assemblyStack = [];
+
+        var bp = new Blueprint("new_assembly", "New Assembly", []);
+        _assembly = new Assembly("main_asm", bp);
+        _editor = new NodeEditor(_assembly);
+        _editorLayer.addChild(_editor);
+
+        updateNavigationUI();
+        log("Created New Empty Assembly");
+    }
+
+    // ========== НОВОЕ: Открытие вложенной сборки с сохранением состояния ==========
+    private function onOpenAssemblyRequest(impulse:Impulse):Void {
+        if (impulse == null || impulse.data == null) {
+            log("ERROR: Invalid impulse in onOpenAssemblyRequest");
+            return;
+        }
+
+        var id = impulse.data.atomId;
+        var obj = _assembly.internalAtoms.get(id);
+
+        if (obj == null) return;
+
+        var atomInst = cast(obj, core.base.Atom);
+        var bp = AtomRegistry.get(atomInst.type);
+
+        if (bp != null && bp.internalAtoms != null && bp.internalAtoms.length > 0) {
+            // Сохраняем текущее состояние в стек
+            var currentViewState = _editor.getViewState();
+            _assemblyStack.push({
+                assembly: _assembly,
+                viewState: currentViewState
+            });
+
+            // Создаём новый редактор для вложенной сборки
+            // ВАЖНО: не вызываем hardReset - это очистило бы стек!
+            if (_editor != null) {
+                _editor.dispose();
+                _editorLayer.removeChild(_editor);
+            }
+
+            _assembly = new Assembly("nested_view", bp);
+            _editor = new NodeEditor(_assembly);
+            _editorLayer.addChild(_editor);
+
+            updateNavigationUI();
+            log("Opened nested assembly: " + bp.name);
+        } else {
+            log("Atom is primitive, cannot open.");
+        }
+    }
+    // =============================================================================
+
+    private function onLaunchPlayer():Void {
+        log("Launching Virtual Device Window...");
+
+        #if desktop
+        var player = new VirtualDeviceWindow(_assembly);
+        player.show();
+        #else
+        log("Virtual Window is Desktop only. Switching to Device View.");
+        onToggleView();
+        #end
+    }
+
+    private function onResetClick():Void {
+        hardReset();
+        _assemblyStack = [];
+
+        var emptyBlueprint = new Blueprint("main_scheme", "Main Scheme", [
+            {name: "IN", type: INPUT},
+            {name: "OUT", type: OUTPUT}
+        ]);
+        _assembly = new Assembly("main_asm", emptyBlueprint);
+        _editor = new NodeEditor(_assembly);
+        _editorLayer.addChild(_editor);
+
+        updateNavigationUI();
+        log("System Reset Complete.");
+    }
+
+    private function hardReset():Void {
+        log("SYSTEM: Hard Reset initiated...");
+        DriverManager.getInstance().dispose();
+        SignalQueue.getInstance().clear();
+        UndoManager.getInstance().clear();
+
+        if (_editor != null) {
+            _editor.dispose();
+            _editorLayer.removeChild(_editor);
+            _editor = null;
+        }
+
+        if (_assembly != null) {
+            _assembly.dispose();
+            _assembly = null;
+        }
+        log("SYSTEM: Memory cleared.");
+    }
+
+    private function onToggleView():Void {
+        _isEditorMode = !_isEditorMode;
+        _editorLayer.visible = _isEditorMode;
+        _deviceLayer.visible = !_isEditorMode;
+
+        if (!_isEditorMode) {
+            while (_deviceLayer.numChildren > 0) _deviceLayer.removeChildAt(0);
+            _devicePanel = new DevicePanel(_assembly);
+            _deviceLayer.addChild(_devicePanel);
+        }
+    }
+
+    private function onFileClick():Void {
+        if (_fileMenu == null) {
+            _fileMenu = new ContextMenu();
+            _fileMenu.addItem("Save Project", "FILE_SAVE");
+            _fileMenu.addItem("Load Project", "FILE_LOAD");
+            _uiLayer.addChild(_fileMenu);
+        }
+        if (_fileBtn != null) {
+            _fileMenu.show(_fileBtn.x, _fileBtn.y + 40);
+        } else {
+            _fileMenu.show(280, 50);
+        }
+    }
+
+    private function onKeyDown(e:KeyboardEvent):Void {
+        if (e.keyCode == Keyboard.ESCAPE) {
+            if (_menu != null) _menu.hide();
+            if (_fileMenu != null) _fileMenu.hide();
+
+            // ========== НОВОЕ: ESC тоже возвращает назад ==========
+            if (_assemblyStack.length > 0) {
+                onBackClick();
+            }
+            // =====================================================
+        }
+        if (e.keyCode == Keyboard.F5) onToggleView();
+
+        if (e.ctrlKey && e.keyCode == Keyboard.Z) UndoManager.getInstance().undo();
+        if (e.ctrlKey && e.keyCode == Keyboard.Y) UndoManager.getInstance().redo();
+
+        if (e.keyCode == Keyboard.R) onResetClick();
+
+        // ========== НОВОЕ: Backspace для возврата ==========
+        if (e.keyCode == Keyboard.BACKSPACE) {
+            onBackClick();
+        }
+        // ===================================================
+
+        if (e.keyCode == Keyboard.DELETE) {
+            if (_contextTargetId != null) {
+                _editor.deleteAtom(_contextTargetId);
+                _contextTargetId = null;
+            }
+        }
+    }
+
+    private function onPropertiesRequest(impulse:Impulse):Void {
+        if (impulse == null || impulse.data == null) {
+            log("ERROR: Invalid impulse in onPropertiesRequest");
+            return;
+        }
+
+        var target = impulse.data.atom;
+        var view = impulse.data.view;
+        var posX = view.x + 100;
+        var posY = view.y;
+        if (posX > stage.stageWidth - 320) posX = stage.stageWidth - 320;
+        if (posY > stage.stageHeight - 200) posY = stage.stageHeight - 200;
+        _propertiesWindow.show(target, posX, posY);
+    }
+}
+ 
+package system.commands.base;
+
+import openfl.events.EventDispatcher;
+import openfl.events.Event;
+import system.commands.base.ICommand;
+
+/**
+ * Base abstract command class.
+ * Implements infrastructure: completion events, error handling.
+ */
+class Command extends EventDispatcher implements ICommand {
+
+    public function new() {
+        super();
+    }
+
+    /**
+     * Entry point. Called by UndoManager or manually.
+     * Wraps execution in try-catch for safety.
+     */
+    public function execute():Void {
+        try {
+            executeInternal();
+        } catch (e:Dynamic) {
+            trace('[Command Error] ${getDescription()}: $e');
+        }
+    }
+
+    /**
+     * Internal logic. Must be overridden in subclasses.
+     */
+    private function executeInternal():Void {
+        // Override me
+    }
+
+    /**
+     * Undo logic. Must be overridden.
+     */
+    public function undo():Void {
+        // Override me
+    }
+
+    /**
+     * Description of command (for logs and UI).
+     */
+    public function getDescription():String {
+        return "Abstract Command";
+    }
+
+    /**
+     * Completion method. Called inside executeInternal.
+     */
+    private function complete():Void {
+        dispatchEvent(new Event(Event.COMPLETE));
+    }
+}
+ 
+package system.commands.base;
+
+/**
+ * Base interface for all commands.
+ * Adds a contract for undoing actions, critical for the editor.
+ */
+interface ICommand {
+    function execute():Void;
+    function undo():Void;
+    function getDescription():String;
+}
+ 
+package system.commands.base;
+
+/**
+ * Interface specifically for undoable actions history.
+ */
+interface IUndoableAction {
+    /**
+     * Undo the action.
+     */
+    function undo():Void;
+
+    /**
+     * Redo the action.
+     */
+    function redo():Void;
+
+    /**
+     * Description of the action (for UI or logs).
+     */
+    function getDescription():String;
+}
+ 
+package system.commands.base;
+
+import openfl.events.Event;
+import system.commands.base.Command;
+import system.commands.base.ICommand;
+
+/**
+ * MACRO COMMAND
+ * Container command.
+ * Allows executing and undoing a group of commands as a single action.
+ */
+class MacroCommand extends Command {
+
+    private var _subCommands:Array<ICommand>;
+
+    public function new() {
+        super();
+        _subCommands = [];
+    }
+
+    /**
+     * Add a subcommand to the queue.
+     */
+    public function addCommand(cmd:ICommand):Void {
+        _subCommands.push(cmd);
+    }
+
+    /**
+     * Execute all subcommands sequentially.
+     */
+    override private function executeInternal():Void {
+        for (cmd in _subCommands) {
+            cmd.execute();
+        }
+        complete();
+    }
+
+    /**
+     * Undo all subcommands in REVERSE order.
+     */
+    override public function undo():Void {
+        var i = _subCommands.length - 1;
+        while (i >= 0) {
+            _subCommands[i].undo();
+            i--;
+        }
+    }
+
+    override public function getDescription():String {
+        return 'Macro Command (${_subCommands.length} steps)';
+    }
+}
+ 
+package system.commands.editor;
+
+import system.commands.base.Command;
+import core.data.Blueprint;
+import core.base.Assembly;
+import core.base.Atom;
+import core.base.Contact;
+import core.base.ConductorPort;
+import core.types.ContactType;
+import core.logic.Impulsys;
+
+/**
+ * Command to connect two contacts.
+ */
+class ConnectCommand extends Command {
+
+    private var _blueprint:Blueprint;
+    private var _assembly:Assembly;
+
+    private var _fromId:String;
+    private var _fromContact:String;
+    private var _toId:String;
+    private var _toContact:String;
+
+    private var _createdLink:core.data.Blueprint.ConnectionDef;
+
+    public function new(blueprint:Blueprint, assembly:Assembly, fromId:String, fromContact:String, toId:String, toContact:String) {
+        super();
+        _blueprint = blueprint;
+        _assembly = assembly;
+        _fromId = fromId;
+        _fromContact = fromContact;
+        _toId = toId;
+        _toContact = toContact;
+    }
+
+    override private function executeInternal():Void {
+        var cOut = resolveContact(_fromId, _fromContact, OUTPUT);
+        var cIn = resolveContact(_toId, _toContact, INPUT);
+
+        if (cOut == null || cIn == null) {
+            trace('ConnectCommand: Aborted. Contacts not found. ${_fromId}:${_fromContact} -> ${_toId}:${_toContact}');
+            complete();
+            return;
+        }
+
+        _createdLink = {
+            from: { atomId: _fromId, contactName: _fromContact },
+            to: { atomId: _toId, contactName: _toContact }
+        };
+
+        var exists = false;
+        for (c in _blueprint.internalConnections) {
+            if (c.from.atomId == _fromId && c.from.contactName == _fromContact &&
+                c.to.atomId == _toId && c.to.contactName == _toContact) {
+                exists = true;
+                break;
+            }
+        }
+
+        if (!exists) {
+            _blueprint.internalConnections.push(_createdLink);
+            cOut.link(cIn);
+        }
+
+        Impulsys.quickEmit("REDRAW_WIRES");
+        complete();
+    }
+
+    override public function undo():Void {
+        if (_createdLink != null) {
+            _blueprint.internalConnections.remove(_createdLink);
+
+            var cOut = resolveContact(_fromId, _fromContact, OUTPUT);
+            var cIn = resolveContact(_toId, _toContact, INPUT);
+
+            if (cOut != null && cIn != null) {
+                cOut.unlink(cIn);
+            } else {
+                trace('ConnectCommand Undo: Contacts missing, skipping unlink.');
+            }
+
+            Impulsys.quickEmit("REDRAW_WIRES");
+        }
+    }
+
+    private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact {
+        if (atomId == "SELF") {
+            // ИСПРАВЛЕНИЕ: Берем внутренний контакт порта
+            var port:ConductorPort = _assembly.ports.get(contactName);
+            if (port != null) return port.internal;
+
+            // Fallback (на всякий случай)
+            return null;
+        } else {
+            var obj = _assembly.internalAtoms.get(atomId);
+            if (obj == null) return null;
+
+            var atom:Atom = cast obj;
+            if (atom.getInputs() == null) return null;
+
+            return (type == INPUT) ? atom.getInput(contactName) : atom.getOutput(contactName);
+        }
+    }
+
+    override public function getDescription():String return 'Connect $_fromId -> $_toId';
+}
+ 
+package system.commands.editor;
+
+import system.commands.base.Command;
+import core.data.Blueprint;
+import core.base.Assembly;
+import core.base.Atom;
+import core.base.Contact;
+import core.types.ContactType;
+import core.logic.Impulsys;
+import library.AtomRegistry;
+
+/**
+ * Command to create a new atom instance.
+ */
+class CreateAtomCommand extends Command {
+
+    private var _blueprint:Blueprint;
+    private var _assembly:Assembly;
+
+    private var _typeId:String;
+    private var _instanceId:String;
+    private var _posX:Float;
+    private var _posY:Float;
+
+    // Snapshot data for undo
+    private var _atomDef:core.data.Blueprint.AtomDef;
+    private var _atomInstance:Atom;
+
+    public function new(blueprint:Blueprint, assembly:Assembly, typeId:String, instanceId:String, x:Float, y:Float) {
+        super();
+        _blueprint = blueprint;
+        _assembly = assembly;
+        _typeId = typeId;
+        _instanceId = instanceId;
+        _posX = x;
+        _posY = y;
+    }
+
+    override private function executeInternal():Void {
+        // 1. Create definition for Blueprint (if first run)
+        if (_atomDef == null) {
+            _atomDef = { instanceId: _instanceId, typeId: _typeId, x: _posX, y: _posY };
+        }
+
+        // Add to model
+        if (!_blueprint.internalAtoms.contains(_atomDef)) {
+            _blueprint.internalAtoms.push(_atomDef);
+        }
+
+        // 2. Create Atom instance (logic, contacts)
+        if (_atomInstance == null) {
+            var bp = AtomRegistry.get(_typeId);
+            if (bp == null) return;
+
+            var inputs = [];
+            var outputs = [];
+            for (pin in bp.pins) {
+                var c = new Contact(pin.defaultValue, pin.type, pin.name);
+                if (pin.type == ContactType.INPUT) inputs.push(c);
+                else outputs.push(c);
+            }
+            _atomInstance = new Atom(inputs, outputs, bp.logic, _instanceId, _typeId);
+        }
+
+        // Register in Assembly
+        _assembly.internalAtoms.set(_instanceId, _atomInstance);
+
+        // 3. Send impulse for NodeEditor to create View
+        Impulsys.quickEmit("ATOM_RESTORED", {id: _instanceId, x: _posX, y: _posY, atom: _atomInstance});
+
+        complete();
+    }
+
+    override public function undo():Void {
+        // 1. Remove definition from Blueprint
+        _blueprint.internalAtoms.remove(_atomDef);
+
+        // 2. Remove from Assembly
+        _assembly.internalAtoms.remove(_instanceId);
+
+        // 3. Send impulse to delete View
+        Impulsys.quickEmit("ATOM_DELETED", {id: _instanceId});
+    }
+
+    override public function getDescription():String return 'Create Atom $_typeId';
+}
+ 
+package system.commands.editor;
+
+import system.commands.base.Command;
+import core.data.Blueprint;
+import core.base.Assembly;
+import core.base.Atom;
+import core.base.Contact;
+import core.base.ConductorPort;
+import core.types.ContactType;
+import core.logic.Impulsys;
+import library.AtomRegistry;
+
+/**
+ * Command to delete an atom and its connections.
+ */
+class DeleteAtomCommand extends Command {
+
+    private var _blueprint:Blueprint;
+    private var _assembly:Assembly;
+    private var _atomId:String;
+
+    // Snapshot for restoration
+    private var _atomDef:core.data.Blueprint.AtomDef;
+    private var _atomType:String;
+    private var _connections:Array<core.data.Blueprint.ConnectionDef>;
+    private var _posX:Float;
+    private var _posY:Float;
+
+    public function new(blueprint:Blueprint, assembly:Assembly, atomId:String) {
+        super();
+        _blueprint = blueprint;
+        _assembly = assembly;
+        _atomId = atomId;
+    }
+
+    override private function executeInternal():Void {
+        // 1. Save data BEFORE deletion
+        saveSnapshot();
+
+        // 2. Remove connections from model and physically
+        if (_connections != null) {
+            for (conn in _connections) {
+                _blueprint.internalConnections.remove(conn);
+
+                var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
+                var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
+                if (cOut != null && cIn != null) cOut.unlink(cIn);
+            }
+        }
+
+        // 3. Remove Atom from model
+        if (_atomDef != null) {
+            _blueprint.internalAtoms.remove(_atomDef);
+        }
+        _assembly.internalAtoms.remove(_atomId);
+
+        Impulsys.quickEmit("ATOM_DELETED", {id: _atomId});
+        complete();
+    }
+
+    override public function undo():Void {
+        // 1. Restore Atom in Blueprint
+        if (_atomDef != null) {
+            _blueprint.internalAtoms.push(_atomDef);
+        }
+
+        // 2. Recreate Atom instance
+        var bp = AtomRegistry.get(_atomType);
+        if (bp == null) return;
+
+        var inputs = [];
+        var outputs = [];
+        for (pin in bp.pins) {
+            var c = new Contact(pin.defaultValue, pin.type, pin.name);
+            if (pin.type == ContactType.INPUT) inputs.push(c);
+            else outputs.push(c);
+        }
+        var atom = new Atom(inputs, outputs, bp.logic, _atomId, _atomType);
+        _assembly.internalAtoms.set(_atomId, atom);
+
+        // 3. Restore connections
+        if (_connections != null) {
+            for (conn in _connections) {
+                _blueprint.internalConnections.push(conn);
+
+                var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
+                var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
+                if (cOut != null && cIn != null) cOut.link(cIn);
+            }
+        }
+
+        Impulsys.quickEmit("ATOM_RESTORED", {id: _atomId, x: _posX, y: _posY, atom: atom});
+    }
+
+    private function saveSnapshot():Void {
+        if (_atomDef != null) return;
+
+        for (a in _blueprint.internalAtoms) {
+            if (a.instanceId == _atomId) {
+                _atomDef = a;
+                break;
+            }
+        }
+
+        var atomInst = _assembly.internalAtoms.get(_atomId);
+
+        if (atomInst != null) {
+            _atomType = atomInst.type;
+            _posX = (_atomDef != null && _atomDef.x != null) ? _atomDef.x : 0;
+            _posY = (_atomDef != null && _atomDef.y != null) ? _atomDef.y : 0;
+        }
+
+        _connections = [];
+        for (conn in _blueprint.internalConnections) {
+            if (conn.from.atomId == _atomId || conn.to.atomId == _atomId) {
+                _connections.push(conn);
+            }
+        }
+    }
+
+    private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact {
+        if (atomId == "SELF") {
+            // ИСПРАВЛЕНИЕ: Берем внутренний контакт порта
+            var port:ConductorPort = _assembly.ports.get(contactName);
+            if (port != null) return port.internal;
+
+            return null;
+        } else {
+            var atom = _assembly.internalAtoms.get(atomId);
+            if (atom == null) return null;
+            var a:Atom = cast atom;
+            return (type == INPUT) ? a.getInput(contactName) : a.getOutput(contactName);
+        }
+    }
+
+    override public function getDescription():String return 'Delete Atom $_atomId';
+}
+ 
+package system.commands.editor;
+
+import system.commands.base.Command;
+import core.data.Blueprint;
+import core.data.Blueprint.AtomDef;
+import core.data.Blueprint.ConnectionPoint;
+import core.base.Assembly;
+import core.base.Atom;
+import core.base.Contact;
+import core.base.AssemblyFactory;
+import core.base.IDisposable;
+import core.types.ContactType;
+import core.logic.Impulsys;
+import library.AtomRegistry;
+import haxe.Json;
+import openfl.net.FileReference;
+
+class GroupAtomsCommand extends Command {
+
+    private var _blueprint:Blueprint;
+    private var _assembly:Assembly;
+    private var _selectedNodeIds:Array<String>;
+
+    public function new(blueprint:Blueprint, assembly:Assembly, selectedIds:Array<String>) {
+        super();
+        _blueprint = blueprint;
+        _assembly = assembly;
+        _selectedNodeIds = selectedIds;
+    }
+
+    override private function executeInternal():Void {
+        if (_selectedNodeIds.length == 0) {
+            trace("Nothing to group.");
+            complete();
+            return;
+        }
+
+        // 1. Сбор данных о внутренних атомах
+        var newInternalAtoms:Array<AtomDef> = [];
+        var newInternalConnections:Array<ConnectionDef> = [];
+
+        var newPins:Array<PinDef> = [];
+        var externalConnections:Array<{conn:ConnectionDef, isSourceSelected:Bool}> = [];
+
+        // Карта для переноса ID: старый ID -> новый ID (если нужно, но мы сохраним старые)
+        // Но для простоты оставим ID как есть, они уникальны.
+
+        // Разделяем связи
+        for (conn in _blueprint.internalConnections) {
+            var fromSel = _selectedNodeIds.indexOf(conn.from.atomId) != -1;
+            var toSel = _selectedNodeIds.indexOf(conn.to.atomId) != -1;
+
+            if (fromSel && toSel) {
+                // Внутренняя связь
+                newInternalConnections.push(conn);
+            } else {
+                // Внешняя связь (граница)
+                externalConnections.push({conn: conn, isSourceSelected: fromSel});
+            }
+        }
+
+        // Список атомов для включения
+        for (atomDef in _blueprint.internalAtoms) {
+            if (_selectedNodeIds.indexOf(atomDef.instanceId) != -1) {
+                newInternalAtoms.push(atomDef);
+            }
+        }
+
+        // 2. Создание интерфейса (Pins) на основе внешних связей
+        var pinCounter = 0;
+        var mapping:Array<{oldConn:ConnectionDef, newPinName:String, isInput:Bool}> = [];
+
+        for (item in externalConnections) {
+            var conn = item.conn;
+            var pinName = "pin_" + pinCounter++;
+            var pinType:ContactType = item.isSourceSelected ? OUTPUT : INPUT;
+
+            // Создаем Pin Definition
+            newPins.push({name: pinName, type: pinType, defaultValue: null});
+
+            // Создаем связь внутри новой сборки
+            // Если источник выделен (Source -> Outside), значит внутри это Output -> Self.Pin(Input? No, внутри это Output для внешнего мира, но на схеме это выход)
+            // Давай разберем:
+            // Case A: Selected(Atom) -> Unselected(Atom).
+            //         Это Выход сборки. Pin Type = OUTPUT.
+            //         Внутри новой сборки: Atom.Out -> Self.Pin (Pin ведет наружу).
+            //         Connection: {from: Atom, to: SELF, contact: PinName}.
+
+            // Case B: Unselected(Atom) -> Selected(Atom).
+            //         Это Вход сборки. Pin Type = INPUT.
+            //         Внутри новой сборки: Self.Pin -> Atom.In.
+            //         Connection: {from: SELF, to: Atom, contact: PinName}.
+
+            if (item.isSourceSelected) {
+                // Case A: Outgoing
+                newInternalConnections.push({
+                    from: conn.from,
+                    to: {atomId: "SELF", contactName: pinName}
+                });
+            } else {
+                // Case B: Incoming
+                newInternalConnections.push({
+                    from: {atomId: "SELF", contactName: pinName},
+                    to: conn.to
+                });
+            }
+
+            mapping.push({oldConn: conn, newPinName: pinName, isInput: !item.isSourceSelected});
+        }
+
+        // 3. Создание и сохранение Blueprint
+        var newTypeId = "CustomAssembly_" + Std.random(10000);
+        var newBp = new Blueprint(newTypeId, "Custom Assembly", newPins, null, newInternalAtoms, newInternalConnections);
+
+        // Сохраняем на диск (автоматически в файл)
+        saveNewAssembly(newBp);
+
+        // Регистрируем в рантайме
+        AtomRegistry.registerBlueprint(newTypeId, newBp);
+
+        // 4. Модификация текущей схемы (Замена группы на один атом)
+
+        // Удаляем старые атомы из Blueprint и Assembly
+        for (id in _selectedNodeIds) {
+            var def = findAtomDef(id);
+            if (def != null) _blueprint.internalAtoms.remove(def);
+
+            var inst = _assembly.internalAtoms.get(id);
+            if (inst != null) {
+                 cast(inst, IDisposable).dispose();
+                 _assembly.internalAtoms.remove(id);
+            }
+        }
+
+        // Удаляем старые связи
+        for (item in externalConnections) {
+            _blueprint.internalConnections.remove(item.conn);
+        }
+
+        // Создаем новый атом
+        var newAtomInstance = AssemblyFactory.createAtom(newTypeId, newTypeId + "_inst");
+        _assembly.internalAtoms.set(newAtomInstance.id, newAtomInstance);
+        _blueprint.internalAtoms.push({instanceId: newAtomInstance.id, typeId: newTypeId, x: 300, y: 300}); // Center pos
+
+        // Восстанавливаем связи снаружи
+        for (m in mapping) {
+            // m.oldConn содержит внешние точки.
+            // Если это был Incoming (Unselected -> Selected), то m.oldConn.from это внешний источник.
+            // Нам нужно соединить: m.oldConn.from -> NewAtom.NewPinName
+
+            var newConn:ConnectionDef;
+            if (m.isInput) {
+                // Incoming
+                newConn = {
+                    from: m.oldConn.from,
+                    to: {atomId: newAtomInstance.id, contactName: m.newPinName}
+                };
+            } else {
+                // Outgoing
+                newConn = {
+                    from: {atomId: newAtomInstance.id, contactName: m.newPinName},
+                    to: m.oldConn.to
+                };
+            }
+
+            _blueprint.internalConnections.push(newConn);
+
+            // Физическое соединение
+            var c1 = resolveContact(newConn.from);
+            var c2 = resolveContact(newConn.to);
+            if(c1!=null && c2!=null) c1.link(c2);
+        }
+
+        Impulsys.quickEmit("REDRAW_WIRES");
+        // UI обновится через импульсы или пересоздание, лучше дать команду редактору обновиться
+        Impulsys.quickEmit("ATOM_RESTORED", {id: newAtomInstance.id, x: 300, y: 300, atom: newAtomInstance});
+
+        // Удаляем старые виды
+        for (id in _selectedNodeIds) Impulsys.quickEmit("ATOM_DELETED", {id: id});
+
+        complete();
+    }
+
+    private function saveNewAssembly(bp:Blueprint):Void {
+        // Простое сохранение через ProjectIO (дописать туда метод для сохранения "как в библиотеку")
+        // Для примера сохраняем в файл рядом с exe
+        var data:Dynamic = {
+            version: "1.0",
+            blueprint: bp // Serializer должен уметь сворачивать bp в JSON
+        };
+
+        // Используем FileReference для сохранения без диалога (Lime/OpenFL специфично, но save открывает диалог)
+        // Чтобы сохранить тихо, нужен sys.io.File на Desktop.
+        #if sys
+        var path = "library/" + bp.id + ".atom";
+        sys.io.File.saveContent(path, haxe.Json.stringify(data, null, "  "));
+        trace("Assembly saved to: " + path);
+        #else
+        trace("Auto-save only supported on Desktop target.");
+        #end
+    }
+
+    private function findAtomDef(id:String):AtomDef {
+        for (a in _blueprint.internalAtoms) if (a.instanceId == id) return a;
+        return null;
+    }
+
+    private function resolveContact(point:ConnectionPoint):Contact {
+        // Копия логики из NodeEditor/ConnectCommand
+        if (point.atomId == "SELF") return null; // Не должно быть SELF на уровне текущей сборки
+        var atom = _assembly.internalAtoms.get(point.atomId);
+        if (atom == null) return null;
+        var a:Atom = cast atom;
+        return (a.getInput(point.contactName) != null) ? a.getInput(point.contactName) : a.getOutput(point.contactName);
+    }
+}
+ 
+package system.commands.editor;
+
+import system.commands.base.Command;
+import core.data.Blueprint;
+import core.logic.Impulsys;
+
+/**
+ * Command to move a node position.
+ */
+class MoveNodeCommand extends Command {
+
+    private var _blueprint:Blueprint;
+    private var _nodeId:String;
+
+    private var _oldX:Float;
+    private var _oldY:Float;
+    private var _newX:Float;
+    private var _newY:Float;
+
+    public function new(blueprint:Blueprint, nodeId:String, oldX:Float, oldY:Float, newX:Float, newY:Float) {
+        super();
+        _blueprint = blueprint;
+        _nodeId = nodeId;
+        _oldX = oldX;
+        _oldY = oldY;
+        _newX = newX;
+        _newY = newY;
+    }
+
+    // Execute updates model to NEW position.
+    // Used for Redo.
+    override private function executeInternal():Void {
+        apply(_newX, _newY);
+        complete();
+    }
+
+    override public function undo():Void {
+        apply(_oldX, _oldY);
+    }
+
+    private function apply(x:Float, y:Float):Void {
+        // 1. Update Model
+        for (atom in _blueprint.internalAtoms) {
+            if (atom.instanceId == _nodeId) {
+                atom.x = x;
+                atom.y = y;
+                break;
+            }
+        }
+        // 2. Update View
+        Impulsys.quickEmit("FORCE_UPDATE_NODE_POSITION", {id: _nodeId, x: x, y: y});
+    }
+
+    override public function getDescription():String return 'Move Node $_nodeId';
+}
+ 
+package system;
+
+/**
+ * ENVIRONMENT v1.0
+ * Defines the execution context (Editor vs Device vs Server).
+ * This is where hardware abstraction or system calls live.
+ */
+class Environment {
+
+    private static var _instance:Environment;
+
+    public static function getInstance():Environment {
+        if (_instance == null) _instance = new Environment();
+        return _instance;
+    }
+
+    private function new() {}
+
+    // Future: GPIO, Network, File system wrappers
+    public function getSystemTime():Float {
+        return Sys.time(); // Or Date.now().getTime() depending on target
+    }
+
+    public function log(msg:String):Void {
+        trace("[ENV] " + msg);
+    }
+}
+ 
+package system.io;
+
+import haxe.Json;
+import openfl.net.FileReference;
+import openfl.events.Event;
+import openfl.events.IOErrorEvent;
+import openfl.events.SecurityErrorEvent;
+import core.data.Blueprint;
+import core.data.Blueprint.PinDef;
+import core.data.Blueprint.AtomDef;
+import core.data.Blueprint.ConnectionDef;
+import core.types.ContactType;
+import Lambda;
+
+/**
+ * PROJECT I/O v2.0 (Fixed)
+ * Safe file operations with proper listener cleanup.
+ */
+class ProjectIO {
+
+    private static var _currentFileRef:FileReference;
+    private static var _onLoadComplete:{blueprint:Blueprint, viewState:{x:Float, y:Float, zoom:Float}} -> Void;
+    public static var logger:String -> Void;
+
+    // ========== ИСПРАВЛЕНИЕ: Флаг для защиты от race condition ==========
+    private static var _isLoading:Bool = false;
+    // ====================================================================
+
+    public static function save(blueprint:Blueprint, nodes:Array<{id:String, x:Float, y:Float}>, viewState:{x:Float, y:Float, zoom:Float}):Void {
+        // 1. Update coordinates
+        for (atomDef in blueprint.internalAtoms) {
+            var nodeData = Lambda.find(nodes, function(n) return n.id == atomDef.instanceId);
+            if (nodeData != null) {
+                atomDef.x = nodeData.x;
+                atomDef.y = nodeData.y;
+            }
+        }
+
+        // 2. Serialize pins
+        var pinsToSave = [];
+        for (p in blueprint.pins) {
+            pinsToSave.push({
+                name: p.name,
+                type: Std.string(p.type),
+                defaultValue: p.defaultValue,
+                dataType: p.dataType
+            });
+        }
+
+        var dataToSave:Dynamic = {
+            version: "1.1",
+            blueprint: {
+                id: blueprint.id,
+                name: blueprint.name,
+                category: blueprint.category,
+                pins: pinsToSave,
+                internalAtoms: blueprint.internalAtoms,
+                internalConnections: blueprint.internalConnections
+            },
+            editor: {
+                x: viewState.x,
+                y: viewState.y,
+                zoom: viewState.zoom
+            }
+        };
+
+        var json:String = Json.stringify(dataToSave, null, "  ");
+        var fileRef = new FileReference();
+        fileRef.save(json, blueprint.name + ".atom");
+    }
+
+    public static function load(onComplete:{blueprint:Blueprint, viewState:{x:Float, y:Float, zoom:Float}} -> Void):Void {
+        if (logger == null) logger = function(s) trace(s);
+
+        // ========== ИСПРАВЛЕНИЕ: Проверка на повторный вызов ==========
+        if (_isLoading) {
+            logger("IO: WARNING - Load already in progress, ignoring duplicate call");
+            return;
+        }
+        _isLoading = true;
+        // ==============================================================
+
+        // ========== ИСПРАВЛЕНИЕ: Очистка предыдущего FileReference ==========
+        cleanupFileRef();
+        // ===================================================================
+
+        logger("IO: Creating FileRef...");
+        _onLoadComplete = onComplete;
+        _currentFileRef = new FileReference();
+
+        // ========== ИСПРАВЛЕНИЕ: Именованные обработчики для возможности удаления ==========
+        _currentFileRef.addEventListener(Event.SELECT, onSelect);
+        _currentFileRef.addEventListener(Event.COMPLETE, onCompleteLoad);
+        _currentFileRef.addEventListener(IOErrorEvent.IO_ERROR, onIOError);
+        _currentFileRef.addEventListener(SecurityErrorEvent.SECURITY_ERROR, onSecurityError);
+        _currentFileRef.addEventListener(Event.CANCEL, onCancel);
+        // ===================================================================================
+
+        logger("IO: Opening browse()...");
+        try {
+            _currentFileRef.browse();
+            logger("IO: browse() called successfully");
+        } catch (e:Dynamic) {
+            logger("IO: CRASH in browse() - " + Std.string(e));
+            _isLoading = false;
+            cleanupFileRef();
+        }
+    }
+
+    // ========== ИСПРАВЛЕНИЕ: Именованные обработчики ==========
+
+    private static function onSelect(e:Event):Void {
+        if (logger != null) logger("IO: File SELECTED - " + _currentFileRef.name);
+        _currentFileRef.load();
+    }
+
+    private static function onCompleteLoad(e:Event):Void {
+        if (logger != null) logger("IO: File COMPLETE! Parsing...");
+
+        try {
+            var data:String = _currentFileRef.data.toString();
+            var json:Dynamic = Json.parse(data);
+            var rawBp:Dynamic = json.blueprint;
+
+            // --- 1. PINS ---
+            var pins:Array<PinDef> = [];
+            if (rawBp.pins != null) {
+                for (p in cast(rawBp.pins, Array<Dynamic>)) {
+                    pins.push({
+                        name: Std.string(p.name),
+                        type: _parseContactType(p.type),
+                        defaultValue: p.defaultValue,
+                        dataType: Std.string(p.dataType)
+                    });
+                }
+            }
+
+            // --- 2. ATOMS ---
+            var atoms:Array<AtomDef> = [];
+            if (rawBp.internalAtoms != null) {
+                for (a in cast(rawBp.internalAtoms, Array<Dynamic>)) {
+                    var posX:Float = 0.0;
+                    var posY:Float = 0.0;
+
+                    if (a.x != null) {
+                        var vx = Std.parseFloat(Std.string(a.x));
+                        if (!Math.isNaN(vx)) posX = vx;
+                    }
+                    if (a.y != null) {
+                        var vy = Std.parseFloat(Std.string(a.y));
+                        if (!Math.isNaN(vy)) posY = vy;
+                    }
+
+                    atoms.push({
+                        instanceId: Std.string(a.instanceId),
+                        typeId: Std.string(a.typeId),
+                        x: posX,
+                        y: posY
+                    });
+                }
+            }
+
+            // --- 3. CONNECTIONS ---
+            var conns:Array<ConnectionDef> = [];
+            if (rawBp.internalConnections != null) {
+                for (c in cast(rawBp.internalConnections, Array<Dynamic>)) {
+                    conns.push({
+                        from: {
+                            atomId: Std.string(c.from.atomId),
+                            contactName: Std.string(c.from.contactName)
+                        },
+                        to: {
+                            atomId: Std.string(c.to.atomId),
+                            contactName: Std.string(c.to.contactName)
+                        }
+                    });
+                }
+            }
+
+            // 4. Create Blueprint
+            var bp = new Blueprint(
+                Std.string(rawBp.id),
+                Std.string(rawBp.name),
+                pins,
+                null,
+                atoms,
+                conns,
+                Std.string(rawBp.category)
+            );
+
+            // ========== ИСПРАВЛЕНИЕ: Безопасный парсинг editor state ==========
+            var viewState:{x:Float, y:Float, zoom:Float} = {x: 0.0, y: 0.0, zoom: 1.0};
+            if (json.editor != null) {
+                viewState.x = _safeParseFloat(json.editor.x, 0.0);
+                viewState.y = _safeParseFloat(json.editor.y, 0.0);
+                viewState.zoom = _safeParseFloat(json.editor.zoom, 1.0);
+            }
+            // ===================================================================
+
+            if (logger != null) logger("IO: Blueprint built OK: " + bp.name);
+
+            // Cleanup before callback
+            _isLoading = false;
+            cleanupFileRef();
+
+            // Call callback
+            if (_onLoadComplete != null) {
+                _onLoadComplete({blueprint: bp, viewState: viewState});
+            }
+            _onLoadComplete = null;
+
+        } catch (err:Dynamic) {
+            if (logger != null) logger("IO: PARSE ERROR! " + Std.string(err));
+            _isLoading = false;
+            cleanupFileRef();
+            _onLoadComplete = null;
+        }
+    }
+
+    private static function onIOError(e:IOErrorEvent):Void {
+        if (logger != null) logger("IO: IO_ERROR! " + e.text);
+        _isLoading = false;
+        cleanupFileRef();
+        _onLoadComplete = null;
+    }
+
+    private static function onSecurityError(e:SecurityErrorEvent):Void {
+        if (logger != null) logger("IO: SECURITY_ERROR! " + e.text);
+        _isLoading = false;
+        cleanupFileRef();
+        _onLoadComplete = null;
+    }
+
+    private static function onCancel(e:Event):Void {
+        if (logger != null) logger("IO: Dialog CANCELLED");
+        _isLoading = false;
+        cleanupFileRef();
+        _onLoadComplete = null;
+    }
+
+    // ========== ИСПРАВЛЕНИЕ: Метод очистки FileReference ==========
+    private static function cleanupFileRef():Void {
+        if (_currentFileRef != null) {
+            _currentFileRef.removeEventListener(Event.SELECT, onSelect);
+            _currentFileRef.removeEventListener(Event.COMPLETE, onCompleteLoad);
+            _currentFileRef.removeEventListener(IOErrorEvent.IO_ERROR, onIOError);
+            _currentFileRef.removeEventListener(SecurityErrorEvent.SECURITY_ERROR, onSecurityError);
+            _currentFileRef.removeEventListener(Event.CANCEL, onCancel);
+            _currentFileRef = null;
+        }
+    }
+    // ==============================================================
+
+    // ========== ИСПРАВЛЕНИЕ: Безопасный парсинг Float ==========
+    private static function _safeParseFloat(value:Dynamic, defaultValue:Float):Float {
+        if (value == null) return defaultValue;
+        var result = Std.parseFloat(Std.string(value));
+        if (Math.isNaN(result)) return defaultValue;
+        return result;
+    }
+    // ===========================================================
+
+    private static function _parseContactType(val:Dynamic):ContactType {
+        if (Std.isOfType(val, ContactType)) return val;
+
+        if (Std.isOfType(val, String)) {
+            switch(Std.string(val)) {
+                case "INPUT": return INPUT;
+                case "OUTPUT": return OUTPUT;
+                case "BIDIRECTIONAL": return BIDIRECTIONAL;
+                default: return UNDEFINED;
+            }
+        }
+
+        if (Std.isOfType(val, Int) || Std.isOfType(val, Float)) {
+            var index = Std.int(val);
+            switch(index) {
+                case 0: return INPUT;
+                case 1: return OUTPUT;
+                case 2: return BIDIRECTIONAL;
+                default: return UNDEFINED;
+            }
+        }
+
+        return UNDEFINED;
+    }
+}
+ 
+package system.io;
+
+import haxe.Json;
+import core.data.Blueprint;
+
+/**
+ * SERIALIZER v1.0
+ * Responsible for converting Blueprints and Assembly states into JSON strings
+ * and restoring them back.
+ */
+class Serializer {
+
+    /**
+     * Converts a Blueprint to a JSON string.
+     */
+    public static function blueprintToJson(bp:Blueprint):String {
+        var data:Dynamic = {
+            id: bp.id,
+            name: bp.name,
+            category: bp.category,
+            pins: bp.pins,
+            internalAtoms: bp.internalAtoms,
+            internalConnections: bp.internalConnections
+            // Note: 'logic' is NOT saved. It's looked up by ID in AtomRegistry.
+        };
+
+        return Json.stringify(data, null, "  "); // Pretty print
+    }
+
+    /**
+     * Restores a Blueprint from a JSON string.
+     * NOTE: This creates a "hollow" blueprint if logic is not linked.
+     * Factory must use AtomRegistry to fill logic.
+     */
+    public static function jsonToBlueprint(json:String):Blueprint {
+        var data:Dynamic = Json.parse(json);
+
+        var bp = new Blueprint(
+            data.id,
+            data.name,
+            cast data.pins, // Cast to Array<PinDef>
+            null, // Logic is null here, will be linked by Factory
+            cast data.internalAtoms,
+            cast data.internalConnections,
+            data.category
+        );
+
+        return bp;
+    }
+}
+ 
+package system.managers;
+
+/**
+ * Driver Interface v1.0
+ * Base interface for all hardware/protocol drivers.
+ */
+interface Driver {
+
+    /**
+     * Unique ID of the driver instance.
+     */
+    public var id(default, null):String;
+
+    /**
+     * Called once when the driver is registered.
+     */
+    public function init():Void;
+
+    /**
+     * Called periodically (e.g., every frame or tick) to poll data or maintain connection.
+     * @param dt Delta time in seconds.
+     */
+    public function update(dt:Float):Void;
+
+    /**
+     * Cleanup resources.
+     */
+    public function dispose():Void;
+}
+ 
+package system.managers;
+
+import haxe.ds.StringMap;
+import openfl.events.Event;
+import system.managers.Driver;
+
+/**
+ * DRIVER MANAGER
+ * Manages active drivers (update loops).
+ */
+class DriverManager {
+
+    private static var _instance:DriverManager;
+
+    private var _drivers:Map<String, Driver>;
+    private var _isRunning:Bool = false;
+    private var _lastTime:Float = 0;
+
+    public static function getInstance():DriverManager {
+        if (_instance == null) _instance = new DriverManager();
+        return _instance;
+    }
+
+    private function new() {
+        _drivers = new Map();
+    }
+
+    public function register(driver:Driver):Void {
+        if (_drivers.exists(driver.id)) return;
+
+        _drivers.set(driver.id, driver);
+        driver.init();
+
+        _lastTime = haxe.Timer.stamp();
+
+        if (!_isRunning) {
+            openfl.Lib.current.stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
+            _isRunning = true;
+        }
+    }
+
+    public function unregister(id:String):Void {
+        var driver = _drivers.get(id);
+        if (driver != null) {
+            // Do not call dispose here, Main.hardReset handles it
+            _drivers.remove(id);
+        }
+    }
+
+    private function onEnterFrame(e:Event):Void {
+        if (!_isRunning) return;
+
+        var now = haxe.Timer.stamp();
+        var dt = now - _lastTime;
+        _lastTime = now;
+
+        if (dt > 0.1) dt = 0.1;
+
+        for (driver in _drivers) {
+            if (driver != null) {
+                driver.update(dt);
+            }
+        }
+    }
+
+    public function dispose():Void {
+        if (_isRunning) {
+            openfl.Lib.current.stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
+            _isRunning = false;
+        }
+
+        for (driver in _drivers) {
+            if (driver != null) driver.dispose();
+        }
+
+        _drivers = new Map();
+    }
+}
+ 
+package system.managers;
+
+import core.base.Atom;
+import core.base.Assembly;
+
+/**
+ * REGISTRY v1.0
+ * Global access point for all active instances.
+ */
+class Registry {
+
+    private static var _instance:Registry;
+
+    public var atoms:Array<Atom>;
+    public var assemblies:Array<Assembly>;
+
+    public static function getInstance():Registry {
+        if (_instance == null) _instance = new Registry();
+        return _instance;
+    }
+
+    private function new() {
+        atoms = [];
+        assemblies = [];
+    }
+
+    public function registerAtom(a:Atom):Void {
+        atoms.push(a);
+    }
+
+    public function registerAssembly(a:Assembly):Void {
+        assemblies.push(a);
+    }
+}
+ 
+package system.managers;
+
+import openfl.events.EventDispatcher;
+import openfl.events.Event;
+import system.commands.base.ICommand;
+
+/**
+ * UNDO MANAGER
+ * Manages history of commands for undo/redo functionality.
+ */
+class UndoManager extends EventDispatcher {
+
+    private static var _instance:UndoManager;
+
+    private var _undoStack:Array<ICommand>;
+    private var _redoStack:Array<ICommand>;
+
+    private var _maxHistorySize:Int = 50;
+
+    public static inline var UNDO_STACK_CHANGED:String = "undoStackChanged";
+    public static inline var REDO_STACK_CHANGED:String = "redoStackChanged";
+
+    private function new() {
+        super();
+        _undoStack = [];
+        _redoStack = [];
+    }
+
+    public static function getInstance():UndoManager {
+        if (_instance == null) {
+            _instance = new UndoManager();
+        }
+        return _instance;
+    }
+
+    public function executeAndStore(cmd:ICommand):Void {
+        cmd.execute(); // Execute
+
+        _undoStack.push(cmd);
+        enforceHistoryLimit(_undoStack);
+
+        if (_redoStack.length > 0) {
+            _redoStack = [];
+            dispatchEvent(new Event(REDO_STACK_CHANGED));
+        }
+
+        dispatchEvent(new Event(UNDO_STACK_CHANGED));
+        trace('UndoManager: Executed and stored "${cmd.getDescription()}"');
+    }
+
+    public function storeExecuted(cmd:ICommand):Void {
+        _undoStack.push(cmd);
+        enforceHistoryLimit(_undoStack);
+
+        if (_redoStack.length > 0) {
+            _redoStack = [];
+            dispatchEvent(new Event(REDO_STACK_CHANGED));
+        }
+        dispatchEvent(new Event(UNDO_STACK_CHANGED));
+    }
+
+    public function undo():Void {
+        if (_undoStack.length == 0) return;
+
+        var action = _undoStack.pop();
+
+        // --- Error protection ---
+        try {
+            action.undo();
+        } catch (e:Dynamic) {
+            trace('CRITICAL ERROR in Undo: ${action.getDescription()} -> $e');
+        }
+
+        _redoStack.push(action);
+
+        dispatchEvent(new Event(UNDO_STACK_CHANGED));
+        dispatchEvent(new Event(REDO_STACK_CHANGED));
+    }
+
+    public function redo():Void {
+        if (_redoStack.length == 0) return;
+
+        var action = _redoStack.pop();
+
+        // --- Error protection ---
+        try {
+            action.execute();
+        } catch (e:Dynamic) {
+            trace('CRITICAL ERROR in Redo: ${action.getDescription()} -> $e');
+        }
+
+        _undoStack.push(action);
+
+        dispatchEvent(new Event(UNDO_STACK_CHANGED));
+        dispatchEvent(new Event(REDO_STACK_CHANGED));
+    }
+
+    public function clear():Void {
+        _undoStack = [];
+        _redoStack = [];
+        dispatchEvent(new Event(UNDO_STACK_CHANGED));
+        dispatchEvent(new Event(REDO_STACK_CHANGED));
+    }
+
+    private function enforceHistoryLimit(stack:Array<ICommand>):Void {
+        if (_maxHistorySize > 0 && stack.length > _maxHistorySize) {
+            stack.shift();
+        }
+    }
+
+    public var canUndo(get, never):Bool;
+    private function get_canUndo():Bool return _undoStack.length > 0;
+
+    public var canRedo(get, never):Bool;
+    private function get_canRedo():Bool return _redoStack.length > 0;
+}
+ 
+package ui;
+
+import openfl.geom.Point;
+
+/**
+ * ATOM SKIN v1.0
+ * Data object defining how an Atom looks.
+ */
+class AtomSkin {
+    // Dimensions
+    public var width:Float = 60;
+    public var height:Float = 40;
+
+    // Colors
+    public var backgroundColor:Int = 0x3366CC;
+    public var borderColor:Int = 0xFFFFFF;
+    public var textColor:Int = 0xFFFFFF;
+
+    // Layout
+    public var cornerRadius:Float = 8;
+    public var showLabel:Bool = true;
+
+    // Context variants
+    public var editorSkin:AtomSkin;
+    public var deviceSkin:AtomSkin;
+
+    public function new() {}
+
+    /**
+     * Creates a default skin for a given category.
+     */
+    public static function createDefault(category:String):AtomSkin {
+        var skin = new AtomSkin();
+
+        switch(category) {
+            case "Logic":
+                skin.backgroundColor = 0x6666CC;
+            case "Input":
+                skin.backgroundColor = 0x336699;
+            case "Output":
+                skin.backgroundColor = 0x996633;
+            default:
+                skin.backgroundColor = 0x444444;
+        }
+
+        skin.editorSkin = skin.clone();
+
+        var device = skin.clone();
+        device.borderColor = 0x000000;
+        skin.deviceSkin = device;
+
+        return skin;
+    }
+
+    public function clone():AtomSkin {
+        var s = new AtomSkin();
+        s.width = this.width;
+        s.height = this.height;
+        s.backgroundColor = this.backgroundColor;
+        s.borderColor = this.borderColor;
+        s.textColor = this.textColor;
+        s.cornerRadius = this.cornerRadius;
+        s.showLabel = this.showLabel;
+        return s;
+    }
+}
+ 
+package ui;
+
+import openfl.display.Sprite;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import openfl.text.TextFormatAlign;
+import core.base.Atom;
+import core.base.Contact;
+import ui.IAtomView;
+
+/**
+ * ATOM VIEW v1.0
+ * Visual representation of an Atom using OpenFL.
+ */
+class AtomView extends Sprite implements IAtomView {
+
+    public var atom(get, null):Atom;
+
+    private var _atom:Atom;
+    private var _skin:AtomSkin;
+    private var _context:String;
+
+    private var _label:TextField;
+    private var _contactViews:Array<Sprite>;
+
+    public function new(atom:Atom, context:String = "Editor") {
+        super();
+        _atom = atom;
+        _context = context;
+
+        var baseSkin = SkinManager.getInstance().getSkinForType(atom.type);
+        _skin = (_context == "Device") ? baseSkin.deviceSkin : baseSkin.editorSkin;
+        if (_skin == null) _skin = baseSkin;
+
+        setupView();
+        bindToAtom();
+    }
+
+    private function setupView():Void {
+        this.buttonMode = true;
+        this.useHandCursor = true;
+
+        drawBackground();
+        drawLabel();
+        drawPorts();
+    }
+
+    private function drawBackground():Void {
+        graphics.clear();
+        graphics.beginFill(_skin.backgroundColor);
+        graphics.lineStyle(2, _skin.borderColor);
+
+        if (_skin.cornerRadius > 0) {
+            graphics.drawRoundRect(0, 0, _skin.width, _skin.height, _skin.cornerRadius, _skin.cornerRadius);
+        } else {
+            graphics.drawRect(0, 0, _skin.width, _skin.height);
+        }
+        graphics.endFill();
+    }
+
+    private function drawLabel():Void {
+        _label = new TextField();
+        _label.selectable = false;
+        _label.mouseEnabled = false;
+        _label.width = _skin.width;
+        _label.height = 20;
+        _label.y = (_skin.height - 20) / 2;
+
+        var format:TextFormat = new TextFormat("_typewriter", 10, _skin.textColor);
+        format.align = TextFormatAlign.CENTER;
+        _label.defaultTextFormat = format;
+        _label.text = _atom.name;
+
+        addChild(_label);
+    }
+
+    private function drawPorts():Void {
+        if (_contactViews != null) {
+            for (v in _contactViews) removeChild(v);
+        }
+        _contactViews = [];
+
+        var inputs = _atom.getInputs();
+        for (i in 0...inputs.length) {
+            var port = createPortView(inputs[i]);
+            port.x = 0;
+            port.y = (_skin.height / (inputs.length + 1)) * (i + 1);
+            addChild(port);
+            _contactViews.push(port);
+        }
+
+        var outputs = _atom.getOutputs();
+        for (i in 0...outputs.length) {
+            var port = createPortView(outputs[i]);
+            port.x = _skin.width;
+            port.y = (_skin.height / (outputs.length + 1)) * (i + 1);
+            addChild(port);
+            _contactViews.push(port);
+        }
+    }
+
+    private function createPortView(c:Contact):Sprite {
+        var s = new Sprite();
+        s.graphics.beginFill(0x00AAFF);
+        s.graphics.lineStyle(1, 0xFFFFFF);
+        s.graphics.drawCircle(0, 0, 4);
+        s.graphics.endFill();
+
+        s.buttonMode = true;
+        s.name = c.name;
+        return s;
+    }
+
+    private function bindToAtom():Void {
+        for (out in _atom.getOutputs()) {
+            out.subscribe(onDataChange);
+        }
+        update();
+    }
+
+    private function onDataChange(val:Dynamic):Void {
+        update();
+    }
+
+    public function update():Void {
+        // Logic for visual updates based on atom state
+    }
+
+    public function dispose():Void {
+        for (out in _atom.getOutputs()) {
+            out.unsubscribe(onDataChange);
+        }
+        _atom = null;
+    }
+
+    private function get_atom():Atom {
+        return _atom;
+    }
+}
+ 
+package ui;
+
+import openfl.display.Sprite;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import openfl.text.TextFormatAlign;
+import openfl.events.MouseEvent;
+
+typedef ButtonAction = Void -> Void;
+
+class ButtonComponent extends Sprite {
+    private var _textField: TextField;
+    private var _action: ButtonAction;
+
+    public function new(label: String, action: ButtonAction) {
+        super();
+        _action = action;
+        graphics.beginFill(0x3a3a4a);
+        graphics.lineStyle(1, 0x666666);
+        graphics.drawRoundRect(0, 0, 150, 40, 8, 8);
+        buttonMode = true;
+        useHandCursor = true;
+
+        _textField = new TextField();
+        var format = new TextFormat("_typewriter", 14, 0xffffff);
+        format.align = TextFormatAlign.CENTER;
+        _textField.defaultTextFormat = format;
+        _textField.width = 150;
+        _textField.height = 40;
+        _textField.text = label;
+        _textField.selectable = false;
+        _textField.mouseEnabled = false;
+        addChild(_textField);
+
+        addEventListener(MouseEvent.CLICK, onClick);
+        addEventListener(MouseEvent.MOUSE_OVER, onOver);
+        addEventListener(MouseEvent.MOUSE_OUT, onOut);
+    }
+
+    private function onClick(e: MouseEvent) { if (_action != null) _action(); }
+    private function onOver(e: MouseEvent) {
+        graphics.clear(); graphics.beginFill(0x4a4a5a); graphics.lineStyle(1, 0x888888);
+        graphics.drawRoundRect(0, 0, 150, 40, 8, 8);
+    }
+    private function onOut(e: MouseEvent) {
+        graphics.clear(); graphics.beginFill(0x3a3a4a); graphics.lineStyle(1, 0x666666);
+        graphics.drawRoundRect(0, 0, 150, 40, 8, 8);
+    }
+}
+ 
+package ui;
+
+import openfl.display.Sprite;
+import openfl.events.MouseEvent;
+
+class ContextMenu extends Sprite {
+
+    private var _items:Array<ContextMenuItem>;
+    private var _spawnX:Float = 0;
+    private var _spawnY:Float = 0;
+
+    public function new() {
+        super();
+        _items = [];
+
+        graphics.lineStyle(1, 0x888888);
+        graphics.beginFill(0xEEEEEE);
+        graphics.drawRoundRect(0, 0, 150, 10, 5);
+        graphics.endFill();
+    }
+
+    public function addItem(label:String, action:String, ?data:Dynamic):Void {
+        var item = new ContextMenuItem(label, action, data);
+        item.y = _items.length * 25;
+        addChild(item);
+        _items.push(item);
+
+        graphics.clear();
+        graphics.lineStyle(1, 0x888888);
+        graphics.beginFill(0xEEEEEE);
+        graphics.drawRoundRect(0, 0, 150, (_items.length * 25) + 5, 5);
+        graphics.endFill();
+    }
+
+    public function show(x:Float, y:Float):Void {
+        _spawnX = x;
+        _spawnY = y;
+
+        this.x = x;
+        this.y = y;
+        visible = true;
+
+        if (stage != null) {
+            stage.addEventListener(MouseEvent.MOUSE_DOWN, onStageClick);
+        }
+    }
+
+    public function hide():Void {
+        visible = false;
+        if (stage != null) {
+            stage.removeEventListener(MouseEvent.MOUSE_DOWN, onStageClick);
+        }
+    }
+
+    private function onStageClick(e:MouseEvent):Void {
+        if (!this.hitTestPoint(e.stageX, e.stageY)) {
+            hide();
+        }
+    }
+
+    public function getSpawnPosition():{x:Float, y:Float} {
+        return { x: _spawnX, y: _spawnY };
+    }
+}
+ 
+package ui;
+
+import openfl.display.Sprite;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import openfl.events.MouseEvent;
+import openfl.display.DisplayObjectContainer;
+import core.logic.Impulsys;
+import core.logic.Impulse;
+
+class ContextMenuItem extends Sprite {
+
+    public var action:String;
+    public var data:Dynamic;
+
+    private var _label:TextField;
+    private var _isHighlighted:Bool = false;
+    private var _width:Float = 150;
+    private var _height:Float = 25;
+
+    public function new(label:String, action:String, ?data:Dynamic) {
+        super();
+        this.action = action;
+        this.data = data;
+
+        mouseChildren = false;
+        buttonMode = true;
+
+        _label = new TextField();
+        _label.text = label;
+        _label.width = _width;
+        _label.height = _height;
+        _label.selectable = false;
+        _label.mouseEnabled = false;
+
+        var fmt = new TextFormat("_typewriter", 12, 0x000000);
+        _label.defaultTextFormat = fmt;
+        addChild(_label);
+
+        draw();
+
+        addEventListener(MouseEvent.MOUSE_OVER, onOver);
+        addEventListener(MouseEvent.MOUSE_OUT, onOut);
+        addEventListener(MouseEvent.CLICK, onClick);
+    }
+
+    private function draw():Void {
+        graphics.clear();
+        graphics.beginFill(_isHighlighted ? 0x00AAFF : 0xFFFFFF);
+        graphics.drawRect(0, 0, _width, _height);
+        graphics.endFill();
+    }
+
+    private function onOver(e:MouseEvent):Void { _isHighlighted = true; draw(); }
+    private function onOut(e:MouseEvent):Void { _isHighlighted = false; draw(); }
+
+    private function onClick(e:MouseEvent):Void {
+        var coords = {x: 0.0, y: 0.0};
+        var p:DisplayObjectContainer = this.parent;
+        if (Std.isOfType(p, ContextMenu)) {
+            coords = cast(p, ContextMenu).getSpawnPosition();
+        }
+
+        Impulsys.emit(new Impulse("CONTEXT_MENU_ACTION", {
+            action: this.action,
+            data: this.data,
+            x: coords.x,
+            y: coords.y
+        }));
+    }
+}
+ 
+package ui;
+
+import openfl.display.Sprite;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import openfl.events.MouseEvent;
+import core.base.Atom;
+import core.base.Assembly;
+import core.base.Contact;
+import ui.widgets.IHMIWidget;
+import ui.widgets.NumberInput;
+import ui.widgets.NumberDisplay;
+import ui.ContextMenu;
+import core.logic.Impulsys;
+import core.logic.Impulse;
+
+/**
+ * DEVICE PANEL v2.1
+ * Panel for interacting with Atoms in Runtime mode.
+ * Supports Compact Mode for VirtualDevice Player (transparent background, no controls).
+ */
+class DevicePanel extends Sprite {
+
+    private var _target:Dynamic; // Atom or Assembly
+    private var _assembly:Assembly;
+    private var _widgets:Array<IHMIWidget>;
+
+    // UI Elements
+    private var _header:Sprite;
+    private var _titleField:TextField;
+    private var _selectBtn:Sprite;
+    private var _contextMenu:ContextMenu;
+    private var _content:Sprite;
+
+    private var _isCompact:Bool = false;
+
+    public function new(assembly:Assembly) {
+        super();
+        _assembly = assembly;
+        _target = assembly; // Default target is the Assembly itself
+        _widgets = new Array();
+
+        // Always create content container first
+        _content = new Sprite();
+        _content.y = 50; // Offset for header
+        addChild(_content);
+
+        setupHeader();
+        drawBackground();
+        layoutWidgets();
+    }
+
+    /**
+     * Toggles compact mode.
+     * In Compact Mode: No background, no header, pure widgets.
+     */
+    public function setCompactMode(val:Bool):Void {
+        _isCompact = val;
+
+        if (_isCompact) {
+            // Clear graphics (background)
+            this.graphics.clear();
+            // Hide header
+            if (_header != null) _header.visible = false;
+            // Adjust content position
+            _content.y = 0;
+        } else {
+            drawBackground();
+            if (_header != null) _header.visible = true;
+            _content.y = 50;
+        }
+    }
+
+    private function drawBackground():Void {
+        // Draw main background
+        graphics.clear();
+        graphics.beginFill(0x1a1a24);
+        graphics.drawRect(0, 0, 400, 500);
+        graphics.endFill();
+    }
+
+    private function setupHeader():Void {
+        _header = new Sprite();
+        _header.graphics.beginFill(0x2a2a34);
+        _header.graphics.drawRect(0, 0, 400, 40);
+        _header.y = 0;
+        addChild(_header);
+
+        // Title
+        _titleField = new TextField();
+        _titleField.width = 200;
+        _titleField.height = 40;
+        _titleField.x = 10;
+        _titleField.y = 0;
+        _titleField.selectable = false;
+        var fmt = new TextFormat("_typewriter", 14, 0xFFFFFF);
+        fmt.align = "left";
+        _titleField.defaultTextFormat = fmt;
+        _titleField.text = "Device: SELF";
+        _header.addChild(_titleField);
+
+        // Select Button
+        _selectBtn = new Sprite();
+        _selectBtn.graphics.beginFill(0x444455);
+        _selectBtn.graphics.drawRoundRect(0, 5, 120, 30, 5, 5);
+        _selectBtn.x = 270;
+        _selectBtn.buttonMode = true;
+        _selectBtn.useHandCursor = true;
+
+        var btnTxt = new TextField();
+        btnTxt.text = "Select Atom";
+        btnTxt.width = 120;
+        btnTxt.height = 30;
+        btnTxt.selectable = false;
+        btnTxt.mouseEnabled = false;
+        var btnFmt = new TextFormat("_typewriter", 12, 0xFFFFFF, null, null, null, null, null, "center");
+        btnTxt.defaultTextFormat = btnFmt;
+        btnTxt.y = 5;
+        _selectBtn.addChild(btnTxt);
+
+        _selectBtn.addEventListener(MouseEvent.CLICK, onSelectClick);
+        _header.addChild(_selectBtn);
+    }
+
+    private function onSelectClick(e:MouseEvent):Void {
+        // Create menu on the fly
+        if (_contextMenu != null) removeChild(_contextMenu);
+
+        _contextMenu = new ContextMenu();
+
+        // Add SELF (Root)
+        _contextMenu.addItem("[ SELF ]", "SELECT_ATOM", {id: "SELF"});
+
+        // Add all internal atoms
+        if (_assembly != null && _assembly.internalAtoms != null) {
+            for (id in _assembly.internalAtoms.keys()) {
+                var atom = _assembly.internalAtoms.get(id);
+                var name = Std.isOfType(atom, Atom) ? cast(atom, Atom).name : "Unknown";
+                _contextMenu.addItem(name + " ("+id+")", "SELECT_ATOM", {id: id});
+            }
+        }
+
+        _contextMenu.x = 270;
+        _contextMenu.y = 45;
+        addChild(_contextMenu);
+
+        // Subscribe once
+        Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION", onMenuAction);
+    }
+
+    private function onMenuAction(impulse:Impulse):Void {
+        if (impulse.data.action != "SELECT_ATOM") return;
+
+        var id:String = impulse.data.data.id;
+
+        if (_contextMenu != null) {
+            removeChild(_contextMenu);
+            _contextMenu = null;
+        }
+        Impulsys.removeImpulse("CONTEXT_MENU_ACTION", onMenuAction);
+
+        if (id == "SELF") {
+            setTarget(_assembly, "SELF");
+        } else {
+            var atom = _assembly.internalAtoms.get(id);
+            if (atom != null) setTarget(atom, id);
+        }
+    }
+
+    public function setTarget(target:Dynamic, name:String):Void {
+        _target = target;
+        _titleField.text = "Device: " + name;
+
+        // Clear old widgets
+        for (w in _widgets) w.dispose();
+        _widgets = [];
+        while (_content.numChildren > 0) _content.removeChildAt(0);
+
+        layoutWidgets();
+    }
+
+    private function layoutWidgets():Void {
+        var inputs:Map<String, Contact> = null;
+        var outputs:Map<String, Contact> = null;
+
+        if (Std.isOfType(_target, Assembly)) {
+            var asm:Assembly = cast _target;
+            inputs = asm.inputs;
+            outputs = asm.outputs;
+        } else if (Std.isOfType(_target, Atom)) {
+            inputs = new Map();
+            outputs = new Map();
+            var atom:Atom = cast _target;
+            for (c in atom.getInputs()) inputs.set(c.name, c);
+            for (c in atom.getOutputs()) outputs.set(c.name, c);
+        }
+
+        // Draw Inputs (Left side)
+        if (inputs != null) {
+            var i = 0;
+            for (name in inputs.keys()) {
+                var contact = inputs.get(name);
+                var widget = new NumberInput(contact, name);
+                widget.x = 20;
+                widget.y = 10 + i * 60;
+                _content.addChild(widget);
+                _widgets.push(widget);
+                i++;
+            }
+        }
+
+        // Draw Outputs (Right side)
+        if (outputs != null) {
+            var i = 0;
+            for (name in outputs.keys()) {
+                var contact = outputs.get(name);
+                var widget = new NumberDisplay(contact, name);
+                widget.x = 220;
+                widget.y = 10 + i * 60;
+                _content.addChild(widget);
+                _widgets.push(widget);
+                i++;
+            }
+        }
+    }
+
+    public function dispose():Void {
+        for (w in _widgets) w.dispose();
+        _selectBtn.removeEventListener(MouseEvent.CLICK, onSelectClick);
+        Impulsys.removeImpulse("CONTEXT_MENU_ACTION", onMenuAction);
+    }
+}
+ 
+package ui;
+
+import core.base.Atom;
+
+/**
+ * Interface for visual representations of Atoms.
+ */
+interface IAtomView {
+    public var atom(get, null):Atom;
+
+    function update():Void;
+    function dispose():Void;
+}
+ 
+package ui;
+
+import openfl.display.Sprite;
+import openfl.events.MouseEvent;
+import openfl.events.Event;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import core.base.Atom;
+import core.base.Contact;
+import ui.widgets.NumberInput;
+import ui.widgets.NumberDisplay;
+
+/**
+ * Properties Window
+ * Floating window to edit Atom properties.
+ */
+class PropertiesWindow extends Sprite {
+
+    private var _bg:Sprite;
+    private var _title:TextField;
+    private var _content:Sprite;
+    private var _target:Dynamic;
+
+    public function new() {
+        super();
+
+        _bg = new Sprite();
+        addChild(_bg);
+        drawBg(300, 200);
+
+        _title = new TextField();
+        _title.defaultTextFormat = new TextFormat("_typewriter", 12, 0xFFFFFF, true);
+        _title.width = 280;
+        _title.height = 20;
+        _title.x = 10;
+        _title.y = 5;
+        _title.selectable = false;
+        addChild(_title);
+
+        _content = new Sprite();
+        _content.y = 30;
+        _content.x = 10;
+        addChild(_content);
+
+        var closeBtn = new Sprite();
+        closeBtn.graphics.beginFill(0xAA0000);
+        closeBtn.graphics.drawRect(0,0,15,15);
+        closeBtn.x = 280;
+        closeBtn.y = 5;
+        closeBtn.buttonMode = true;
+        closeBtn.addEventListener(MouseEvent.CLICK, function(_) close());
+        addChild(closeBtn);
+
+        _title.addEventListener(MouseEvent.MOUSE_DOWN, onMouseDownHeader);
+
+        if (stage != null) {
+            stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUpStage);
+        } else {
+            addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
+        }
+    }
+
+    private function onAddedToStage(e:Event):Void {
+        removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
+        stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUpStage);
+    }
+
+    private function onMouseDownHeader(e:MouseEvent):Void {
+        startDrag();
+    }
+
+    private function onMouseUpStage(e:MouseEvent):Void {
+        stopDrag();
+    }
+
+    public function show(target:Dynamic, x:Float, y:Float):Void {
+        _target = target;
+        this.x = x;
+        this.y = y;
+
+        while(_content.numChildren > 0) _content.removeChildAt(0);
+
+        if (Std.isOfType(target, Atom)) {
+            populateAtom(cast target);
+        } else {
+            _title.text = "Properties";
+            var tf = new TextField();
+            tf.text = "Unknown object";
+            tf.width = 250;
+            _content.addChild(tf);
+        }
+
+        visible = true;
+    }
+
+    public function close():Void {
+        visible = false;
+        stopDrag();
+    }
+
+    private function populateAtom(atom:Atom):Void {
+        _title.text = "Atom: " + atom.name;
+
+        var yPos = 0;
+
+        for (c in atom.getInputs()) {
+            var input = new NumberInput(c, "In: " + c.name);
+            input.y = yPos;
+            _content.addChild(input);
+            yPos += 40;
+        }
+
+        for (c in atom.getOutputs()) {
+            var output = new NumberDisplay(c, "Out: " + c.name);
+            output.y = yPos;
+            _content.addChild(output);
+            yPos += 40;
+        }
+
+        drawBg(300, yPos + 50);
+    }
+
+    private function drawBg(w:Float, h:Float):Void {
+        _bg.graphics.clear();
+        _bg.graphics.beginFill(0x222233, 0.95);
+        _bg.graphics.lineStyle(1, 0x00AAFF);
+        _bg.graphics.drawRoundRect(0, 0, w, h, 10, 10);
+        _bg.graphics.endFill();
+    }
+}
+ 
+package ui;
+
+import library.AtomRegistry;
+import core.data.Blueprint;
+
+/**
+ * SKIN MANAGER v1.0
+ * Registry for visual resources (Skins).
+ */
+class SkinManager {
+
+    private static var _instance:SkinManager;
+    private var _skins:Map<String, AtomSkin>;
+
+    public static function getInstance():SkinManager {
+        if (_instance == null) _instance = new SkinManager();
+        return _instance;
+    }
+
+    private function new() {
+        _skins = new Map();
+        initializeDefaults();
+    }
+
+    private function initializeDefaults():Void {
+        // Here we could load from config files later
+    }
+
+    /**
+     * Returns a skin for a specific Atom type.
+     * Falls back to default if not found.
+     */
+    public function getSkinForType(typeId:String):AtomSkin {
+        if (_skins.exists(typeId)) {
+            return _skins.get(typeId);
+        }
+
+        // Generate on the fly based on definition
+        var bp = AtomRegistry.get(typeId);
+        var category = (bp != null) ? bp.category : "General";
+        var skin = AtomSkin.createDefault(category);
+
+        _skins.set(typeId, skin);
+        return skin;
+    }
+
+    public function registerSkin(typeId:String, skin:AtomSkin):Void {
+        _skins.set(typeId, skin);
+    }
+}
+ 
+package ui;
+
+import openfl.display.Sprite;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import openfl.text.TextFormatAlign;
+import core.base.Contact;
+
+class TextComponent extends Sprite {
+    private var _textField: TextField;
+    private var _contact: Contact;
+
+    public function new(contact: Contact, ?width: Float = 200, ?height: Float = 50) {
+        super();
+        _contact = contact;
+        _textField = new TextField();
+        var format = new TextFormat("_typewriter", 16, 0xE0E0E0);
+        format.align = TextFormatAlign.CENTER;
+        _textField.defaultTextFormat = format;
+        _textField.width = width;
+        _textField.height = height;
+        _textField.selectable = false;
+        _textField.wordWrap = true;
+        _textField.border = true;
+        _textField.borderColor = 0x444444;
+        graphics.beginFill(0x1a1a24);
+        graphics.drawRect(0, 0, width, height);
+        updateText(_contact.value);
+        _contact.subscribe(onContactChange);
+        addChild(_textField);
+    }
+
+    private function onContactChange(newValue: Dynamic) { updateText(newValue); }
+    private function updateText(value: Dynamic) { _textField.text = Std.string(value); }
+    public function destroy() { _contact.unsubscribe(onContactChange); }
+}
+ 
+package ui.virtual;
+
+import openfl.display.NativeWindow;
+import openfl.display.NativeWindowInitOptions;
+// import openfl.display.NativeWindowType; // Убираем LIGHTWEIGHT
+import openfl.display.Sprite;
+import openfl.events.MouseEvent;
+import core.base.Assembly;
+import ui.DevicePanel;
+
+/**
+ * VIRTUAL DEVICE WINDOW v1.3
+ * Fixed transparency for Windows (HL).
+ * Using standard window type without chrome instead of lightweight.
+ */
+class VirtualDeviceWindow {
+
+    private var _window:NativeWindow;
+    private var _stage:openfl.display.Stage;
+    private var _container:Sprite;
+    private var _devicePanel:DevicePanel;
+    private var _assembly:Assembly;
+
+    private var _isDragging:Bool = false;
+    private var _dragOffsetX:Float = 0;
+    private var _dragOffsetY:Float = 0;
+
+    public function new(assembly:Assembly) {
+        _assembly = assembly;
+
+        // 1. Настройка опций окна
+        var options = new NativeWindowInitOptions();
+        options.transparent = true;      // Включаем поддержку альфа-канала
+        options.systemChrome = "none";   // Убираем рамки окна (Title Bar)
+        options.resizable = false;       // Фиксируем размер для простоты
+        // ВАЖНО: НЕ используем NativeWindowType.LIGHTWEIGHT.
+        // На Windows обычное окно без хрома (borderless) лучше поддерживает перxel-perfect прозрачность.
+
+        // 2. Создаем окно
+        _window = new NativeWindow(options);
+        _window.width = 450;
+        _window.height = 350;
+
+        // 3. Настройка Stage
+        _stage = _window.stage;
+
+        // Используем прозрачный черный (Alpha=0).
+        // Если он не работает, система игнорирует флаг transparent.
+        _stage.color = 0x00000000;
+
+        // 4. Контейнер (ловец кликов)
+        _container = new Sprite();
+        // Рисуем прозрачную зону для захвата мыши
+        _container.graphics.beginFill(0x000000, 0.0);
+        _container.graphics.drawRect(0, 0, _window.width, _window.height);
+        _container.graphics.endFill();
+
+        _stage.addChild(_container);
+
+        // 5. Добавляем Панель Устройства
+        _devicePanel = new DevicePanel(_assembly);
+        _devicePanel.setCompactMode(true);
+        _container.addChild(_devicePanel);
+
+        // 6. Логика перетаскивания
+        _container.addEventListener(MouseEvent.MOUSE_DOWN, onDragStart);
+        _stage.addEventListener(MouseEvent.MOUSE_UP, onDragStop);
+        _stage.addEventListener(MouseEvent.MOUSE_MOVE, onDragMove);
+
+        // 7. Закрытие (ПКМ)
+        _container.addEventListener(MouseEvent.RIGHT_CLICK, onClose);
+    }
+
+    private function onDragStart(e:MouseEvent):Void {
+        _isDragging = true;
+        _dragOffsetX = e.stageX;
+        _dragOffsetY = e.stageY;
+    }
+
+    private function onDragStop(e:MouseEvent):Void {
+        _isDragging = false;
+    }
+
+    private function onDragMove(e:MouseEvent):Void {
+        if (!_isDragging) return;
+
+        var newX = _window.x + (e.stageX - _dragOffsetX);
+        var newY = _window.y + (e.stageY - _dragOffsetY);
+
+        _window.x = Std.int(newX);
+        _window.y = Std.int(newY);
+    }
+
+    private function onClose(e:MouseEvent):Void {
+        // Убиваем виджеты перед закрытием
+        _devicePanel.dispose();
+        _window.close();
+    }
+
+    public function show():Void {
+        _window.visible = true;
+        _window.activate();
+    }
+}
+ 
+package ui.widgets;
+
+import core.base.Contact;
+
+/**
+ * HMI Widget Interface
+ * Any visual control (Button, Slider, Graph) must implement this.
+ */
+interface IHMIWidget {
+    public var contact(default, null):Contact;
+
+    /**
+     * Called when the associated Contact value changes.
+     */
+    function onValueChanged(newValue:Dynamic):Void;
+
+    /**
+     * Cleanup.
+     */
+    function dispose():Void;
+}
+ 
+package ui.widgets;
+
+import openfl.display.Sprite;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import core.base.Contact;
+import ui.widgets.IHMIWidget;
+
+/**
+ * NumberDisplay Widget
+ * A read-only text field that shows Contact value.
+ */
+class NumberDisplay extends Sprite implements IHMIWidget {
+
+    public var contact(default, null):Contact;
+
+    private var _display:TextField;
+    private var _label:TextField;
+
+    public function new(contact:Contact, label:String = "Output") {
+        super();
+        this.contact = contact;
+
+        _label = new TextField();
+        _label.text = label;
+        _label.width = 150;
+        _label.height = 20;
+        _label.textColor = 0xAAAAAA;
+        addChild(_label);
+
+        _display = new TextField();
+        _display.border = true;
+        _display.borderColor = 0xFF8800;
+        _display.background = true;
+        _display.backgroundColor = 0x112211;
+        _display.textColor = 0x00FF00;
+        _display.width = 150;
+        _display.height = 30;
+        _display.y = 20;
+        _display.defaultTextFormat = new TextFormat("_typewriter", 14);
+        _display.text = Std.string(contact.value);
+        addChild(_display);
+
+        contact.subscribe(onValueChanged);
+    }
+
+    public function onValueChanged(newValue:Dynamic):Void {
+        _display.text = Std.string(newValue);
+    }
+
+    public function dispose():Void {
+        contact.unsubscribe(onValueChanged);
+    }
+}
+ 
+package ui.widgets;
+
+import openfl.display.Sprite;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import openfl.text.TextFieldType;
+import openfl.events.Event;
+import core.base.Contact;
+import ui.widgets.IHMIWidget;
+
+/**
+ * NumberInput Widget
+ * A text input field that pushes values into a Contact.
+ */
+class NumberInput extends Sprite implements IHMIWidget {
+
+    public var contact(default, null):Contact;
+
+    private var _input:TextField;
+    private var _label:TextField;
+
+    public function new(contact:Contact, label:String = "Input") {
+        super();
+        this.contact = contact;
+
+        _label = new TextField();
+        _label.text = label;
+        _label.width = 150;
+        _label.height = 20;
+        _label.textColor = 0xAAAAAA;
+        addChild(_label);
+
+        _input = new TextField();
+        _input.type = TextFieldType.INPUT;
+        _input.border = true;
+        _input.borderColor = 0x00AAFF;
+        _input.background = true;
+        _input.backgroundColor = 0x222233;
+        _input.textColor = 0xFFFFFF;
+        _input.width = 150;
+        _input.height = 30;
+        _input.y = 20;
+        _input.defaultTextFormat = new TextFormat("_typewriter", 14);
+        _input.text = Std.string(contact.value);
+        addChild(_input);
+
+        _input.addEventListener(Event.CHANGE, onUserInput);
+        contact.subscribe(onContactUpdate);
+    }
+
+    private function onUserInput(e:Event):Void {
+        var val = Std.parseFloat(_input.text);
+        if (!Math.isNaN(val)) {
+            contact.value = val;
+        }
+    }
+
+    public function onValueChanged(newValue:Dynamic):Void {
+        if (Std.string(newValue) != _input.text) {
+            _input.text = Std.string(newValue);
+        }
+    }
+
+    private function onContactUpdate(val:Dynamic):Void {
+        onValueChanged(val);
+    }
+
+    public function dispose():Void {
+        _input.removeEventListener(Event.CHANGE, onUserInput);
+        contact.unsubscribe(onContactUpdate);
+    }
+}
+ 
+package utils;
+
+/**
+ * Utility functions.
+ */
+class Utils {
+
+    public static var MAX_SIGNAL_DEPTH:Int = 100000;
+
+    private static var _currentDepth:Int = 0;
+
+    public static function enterDepth():Bool {
+        _currentDepth++;
+        if (_currentDepth > MAX_SIGNAL_DEPTH) {
+            trace('ERROR: Signal Depth Overflow!');
+            return false;
+        }
+        return true;
+    }
+
+    public static function exitDepth():Void {
+        _currentDepth--;
+    }
+
+    public static function resetDepth():Void {
+        _currentDepth = 0;
+    }
+}
+ 
+Всего файлов/классов: 57
+
+
+Этот файл описывает функциональность проекта как для пользователя, так и для разработчика (под капотом).
+
+# ALTAURI FEATURES v6.0 OVERVIEW
+
+Документ описывает функциональные возможности системы ALTAURI на текущий момент.
+
+---
+
+## 1. Редактор Схем (Schematic Editor)
+
+### Управление Узлами (Nodes)
+
+* **Создание:** Добавление новых Атомов на сцену через контекстное меню (Right Click). Автоматическая генерация ID.
+* **Перемещение:** Drag & Drop узлов. Автоматическая перерисовка проводов в реальном времени.
+* **Удаление:** Удаление узла с автоматическим удалением всех подключенных к нему проводов.
+* **Свойства:** Кнопка "Настройки" (шестеренка) на узле открывает окно свойств (`Properties Window`). Окно можно перетаскивать.
+
+### Управление Связями (Wires)
+
+* **Соединение:** Перетаскивание (Drag) от выходного порта (Output) к входному (Input). Автоматическое определение направления потока данных.
+* **Визуализация:** Провода отрисовываются плавными кривыми Безье.
+* **Удаление:** Связи удаляются при удалении узлов или через Undo.
+
+### Навигация и Вид
+
+* **Переключение режимов:** Кнопка `Toggle View [F5]` переключает между режимом редактирования (Editor) и режимом устройства (Device).
+* **Сброс:** Кнопка `Reset [R]` полностью очищает текущую схему и память.
+
+---
+
+## 2. Система Истории (Undo / Redo System)
+
+Полноценная система отмены и повторения действий, построенная на паттерне **Command**.
+
+* **Поддерживаемые действия:**
+  * Создание/Удаление Атомов.
+  * Соединение/Разъединение контактов.
+  * Перемещение Атомов.
+* **Горячие клавиши:**`Ctrl+Z` (Undo), `Ctrl+Y` (Redo).
+* **Отказоустойчивость:** Ошибки внутри команд не ломают историю и не вызывают краш приложения.
+
+---
+
+## 3. Сохранение и Загрузка (Persistence)
+
+* **Формат файла:**`.altauri` (структура JSON).
+* **Сохранение:** Файл -> Save Project. Сохраняет структуру графа, типы атомов, координаты позиций и связи.
+* **Загрузка:** Файл -> Load Project. Полное восстановление состояния сцены из файла, включая позиции узлов.
+* **Безопасность:** Система устойчива к отсутствию данных или неверным типам в JSON файле.
+
+---
+
+## 4. Архитектура "Под Капотом" (Under the Hood)
+
+### Управление Данными (Core Logic)
+
+* **Signal Propagation:** Автоматическое распространение значений по графу. Если изменился выход Атома, все подключенные входы обновятся.
+* **Priority Queue (Scheduler):** Система очередей с приоритетами предотвращает переполнение стека (Stack Overflow) и зависание UI при сложных вычислениях.
+  * `CRITICAL`: Ввод пользователя.
+  * `NORMAL`: Логика.
+  * `BACKGROUND`: Обновление UI/Логи.
+* **Reactive Contacts:** Контакты (`Contact`) поддерживают механизм подписки (`Subscribe`). Любой элемент UI может следить за изменением данных.
+
+### Управление Памятью (Memory Safety)
+
+* **IDisposable:** Все сущности (Атомы, Виды, Драйверы) реализуют интерфейс `dispose()`.
+* **Clean Up:** При удалении элементов гарантированно удаляются слушатели событий и ссылки, предотвращая утечки памяти.
+
+### Событийная Модель (Event Bus)
+
+* **Impulsys:** Глобальная шина событий. Позволяет компонентам общаться без прямых ссылок друг на друга.
+  * Примеры событий: `REDRAW_WIRES`, `ATOM_DELETED`, `PROPERTIES_REQUEST`.
+
+---
+
+## 5. Расширяемость (Extensibility)
+
+* **Atom Definitions:** Новые типы атомов добавляются через реестр (`AtomDefinitions.reg`). Не требует изменения ядра системы.
+* **Drivers:** Активные атомы (таймеры, датчики) реализуют интерфейс `Driver` и автоматически подключаются к главному циклу обновления.
+
+
+Ознакомься. Я хочу о нём пообщаться.

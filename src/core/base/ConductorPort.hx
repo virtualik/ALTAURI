@@ -3,18 +3,22 @@ package core.base;
 import core.types.ContactType;
 
 /**
- * CONDUCTOR PORT v1.0
- * "Пробрасывающий" элемент. Пара контактов, соединяющих внешнюю и внутреннюю стороны сборки.
+ * CONDUCTOR PORT v1.1
+ * Пробрасывающий элемент. Пара контактов, соединяющих внешнюю и внутреннюю стороны сборки.
+ * 
+ * CHANGES v1.1:
+ * - Contacts now use the port name directly (not with suffix)
+ * - This fixes wire positioning in NodeView
  */
 class ConductorPort {
-    
-    public var name(default, null):String;
-    public var type(default, null):ContactType; // Тип порта СБОРОЧНЫЙ (INPUT или OUTPUT)
 
-    // Контакт, смотрящий ВНЕ (используется, когда сборка - это атом в другой схеме)
+    public var name(default, null):String;
+    public var type(default, null):ContactType;
+
+    // Контакт, смотрящий ВНЕ
     public var external(default, null):Contact;
 
-    // Контакт, смотрящий ВНУТРЬ (используется при редактировании схемы)
+    // Контакт, смотрящий ВНУТРЬ
     public var internal(default, null):Contact;
 
     public function new(name:String, type:ContactType, defaultValue:Dynamic = null) {
@@ -24,24 +28,22 @@ class ConductorPort {
         if (type == INPUT) {
             // ВХОД СБОРКИ:
             // Снаружи это Вход (Orange). Принимает данные.
-            external = new Contact(defaultValue, INPUT, name + "_ext_in");
-            
-            // Внутри это Выход (Green). Раздает данные внутрь схемы.
-            internal = new Contact(defaultValue, OUTPUT, name + "_int_out");
+            // ИСПРАВЛЕНИЕ: используем имя порта напрямую
+            external = new Contact(defaultValue, INPUT, name);
 
-            // Связь: Данные вливаются в external -> вытекают из internal
-            // Контакт типа INPUT при получении значения (set_value) оповещает подписчиков.
-            // Мы просто линкуем external -> internal.
+            // Внутри это Выход (Green). Раздает данные внутрь схемы.
+            internal = new Contact(defaultValue, OUTPUT, name + "_int");
+
             external.link(internal);
         } else {
             // ВЫХОД СБОРКИ:
             // Внутри это Вход (Orange). Принимает данные из схемы.
-            internal = new Contact(defaultValue, INPUT, name + "_int_in");
+            internal = new Contact(defaultValue, INPUT, name + "_int");
 
             // Снаружи это Выход (Green). Выдает данные наружу.
-            external = new Contact(defaultValue, OUTPUT, name + "_ext_out");
+            // ИСПРАВЛЕНИЕ: используем имя порта напрямую
+            external = new Contact(defaultValue, OUTPUT, name);
 
-            // Связь: Данные вливаются в internal -> вытекают из external
             internal.link(external);
         }
     }

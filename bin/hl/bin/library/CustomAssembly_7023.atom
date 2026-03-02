@@ -1,0 +1,177 @@
+{
+  "blueprint": {
+    "category": "General",
+    "id": "CustomAssembly_7023",
+    "internalAtoms": [
+      {
+        "instanceId": "NAND_8",
+        "typeId": "NAND",
+        "x": 291,
+        "y": 420
+      },
+      {
+        "instanceId": "NAND_9",
+        "typeId": "NAND",
+        "x": 294,
+        "y": 591
+      },
+      {
+        "instanceId": "NAND_10",
+        "typeId": "NAND",
+        "x": 675,
+        "y": 508
+      }
+    ],
+    "internalConnections": [
+      {
+        "from": {
+          "atomId": "SELF",
+          "contactName": "pin_0"
+        },
+        "to": {
+          "atomId": "Pass_0",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "SELF",
+          "contactName": "pin_1"
+        },
+        "to": {
+          "atomId": "SELF",
+          "contactName": "pin_1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "SELF",
+          "contactName": "pin_2"
+        },
+        "to": {
+          "atomId": "SELF",
+          "contactName": "pin_2"
+        }
+      },
+      {
+        "from": {
+          "atomId": "SELF",
+          "contactName": "pin_3"
+        },
+        "to": {
+          "atomId": "SELF",
+          "contactName": "pin_3"
+        }
+      },
+      {
+        "from": {
+          "atomId": "SELF",
+          "contactName": "pin_2"
+        },
+        "to": {
+          "atomId": "NAND_9",
+          "contactName": "A"
+        }
+      },
+      {
+        "from": {
+          "atomId": "SELF",
+          "contactName": "pin_3"
+        },
+        "to": {
+          "atomId": "NAND_9",
+          "contactName": "B"
+        }
+      },
+      {
+        "from": {
+          "atomId": "SELF",
+          "contactName": "pin_0"
+        },
+        "to": {
+          "atomId": "NAND_8",
+          "contactName": "A"
+        }
+      },
+      {
+        "from": {
+          "atomId": "SELF",
+          "contactName": "pin_1"
+        },
+        "to": {
+          "atomId": "NAND_8",
+          "contactName": "B"
+        }
+      },
+      {
+        "from": {
+          "atomId": "NAND_8",
+          "contactName": "Q"
+        },
+        "to": {
+          "atomId": "NAND_10",
+          "contactName": "A"
+        }
+      },
+      {
+        "from": {
+          "atomId": "NAND_9",
+          "contactName": "Q"
+        },
+        "to": {
+          "atomId": "NAND_10",
+          "contactName": "B"
+        }
+      },
+      {
+        "from": {
+          "atomId": "NAND_10",
+          "contactName": "Q"
+        },
+        "to": {
+          "atomId": "SELF",
+          "contactName": "pin_4"
+        }
+      }
+    ],
+    "name": "Custom Assembly",
+    "pins": [
+      {
+        "dataType": null,
+        "defaultValue": null,
+        "name": "pin_0",
+        "type": "INPUT"
+      },
+      {
+        "dataType": null,
+        "defaultValue": null,
+        "name": "pin_1",
+        "type": "INPUT"
+      },
+      {
+        "dataType": null,
+        "defaultValue": null,
+        "name": "pin_2",
+        "type": "INPUT"
+      },
+      {
+        "dataType": null,
+        "defaultValue": null,
+        "name": "pin_3",
+        "type": "INPUT"
+      },
+      {
+        "dataType": null,
+        "defaultValue": null,
+        "name": "pin_4",
+        "type": "OUTPUT"
+      }
+    ]
+  },
+  "editor": {
+    "x": 41,
+    "y": -127,
+    "zoom": 1
+  },
+  "version": "1.1"
+}

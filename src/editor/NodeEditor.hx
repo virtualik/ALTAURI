@@ -7,11 +7,9 @@ import openfl.geom.Point;
 import openfl.geom.Rectangle;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
-//import openfl.text.TextFormatAlign;
 import core.base.Assembly;
 import core.base.Atom;
 import core.base.Contact;
-//import core.types.ContactType;
 import core.logic.Impulsys;
 import core.logic.Impulse;
 import system.managers.UndoManager;
@@ -21,7 +19,7 @@ import system.commands.editor.DeleteAtomCommand;
 import system.commands.editor.CreateAtomCommand;
 import system.commands.base.MacroCommand;
 import core.data.Blueprint.ConnectionDef;
-//import haxe.ds.StringMap;
+import core.data.Blueprint.ConnectionPoint;
 
 class NodeEditor extends Sprite {
 
@@ -77,7 +75,7 @@ class NodeEditor extends Sprite {
         this._blueprint = assembly.blueprint;
 
         _canvas = new Sprite();
-        _canvas.graphics.beginFill(0x333333, 0);
+        _canvas.graphics.beginFill(0x333333, 1);
         _canvas.graphics.drawRect(-5000, -5000, 10000, 10000);
         _canvas.graphics.endFill();
         addChild(_canvas);
@@ -176,21 +174,16 @@ class NodeEditor extends Sprite {
             var portView:Sprite;
 
             if (p.type == INPUT) {
-                // Передаем p.name как третий аргумент
                 portView = createEdgePort(c, false, p.name); 
                 portView.x = 0; 
                 portView.y = leftStep * (leftIdx + 1);
                 leftIdx++;
             } else {
-                // Передаем p.name как третий аргумент
                 portView = createEdgePort(c, true, p.name);
                 portView.x = w; 
                 portView.y = rightStep * (rightIdx + 1);
                 rightIdx++;
             }
-
-            // portView.name уже установлен внутри createEdgePort, но можно и здесь для надежности
-            // portView.name = p.name; 
 
             _edgePortsContainer.addChild(portView);
             _edgePorts.set(p.name, portView);
@@ -208,8 +201,6 @@ class NodeEditor extends Sprite {
 
         s.buttonMode = true;
         s.useHandCursor = true;
-        
-        // Сохраняем логическое имя в имени спрайта (для findPortAt)
         s.name = portName;
 
         s.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent) {
@@ -217,7 +208,7 @@ class NodeEditor extends Sprite {
             var globalPos = s.localToGlobal(new Point(0, 0));
             Impulsys.emit(new Impulse("PORT_DRAG_START", {
                 nodeId: "SELF",
-                contactName: portName, // ИСПРАВЛЕНО: передаем логическое имя ("IN", "OUT")
+                contactName: portName,
                 isInput: isInput,
                 startX: globalPos.x,
                 startY: globalPos.y
@@ -256,7 +247,7 @@ class NodeEditor extends Sprite {
     }
     
     private function onCanvasMouseDown(e:MouseEvent):Void {
-        if (!e.ctrlKey) deselectAll();
+        deselectAll();
         
         _isLassoing = true;
         var local = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
@@ -335,92 +326,12 @@ class NodeEditor extends Sprite {
     public function deselectAll():Void {
         for (node in _selectedNodes) node.selected = false;
         _selectedNodes = new Map();
-        if (_selectedWireId != null) { rebuildAllWires(); _selectedWireId = null; }
+        if (_selectedWireId != null) { 
+            _selectedWireId = null;
+            rebuildAllWires(); 
+        }
     }
     
-    public function highlightWire(link:ConnectionDef, highlight:Bool):Void {
-        var id = getWireID(link);
-        var spr = _wireSprites.get(id);
-        if (spr == null) return;
-        if (highlight) {
-            spr.cacheAsBitmap = false;
-            drawWireGraphics(spr.graphics, link, 0xFFCC00, 4); 
-            _selectedWireId = id;
-        } else {
-            drawWireGraphics(spr.graphics, link);
-            spr.cacheAsBitmap = true;
-            if (id == _selectedWireId) _selectedWireId = null;
-        }
-    }
-
-    public function dispose():Void {
-        Impulsys.removeImpulse("PORT_DRAG_START", onPortDragStart);
-        Impulsys.removeImpulse("EDITOR_NODE_MOVED", onNodeMoved);
-        Impulsys.removeImpulse("NODE_DRAG_FINISHED", onNodeDragFinished);
-        Impulsys.removeImpulse("FORCE_UPDATE_NODE_POSITION", onForceUpdatePosition);
-        Impulsys.removeImpulse("REDRAW_WIRES", _cbRedraw);
-        Impulsys.removeImpulse("ATOM_DELETED", onAtomDeleted);
-        Impulsys.removeImpulse("ATOM_RESTORED", onAtomRestored);
-        Impulsys.removeImpulse("NODE_CLICKED", onNodeClicked);
-        
-        if (stage != null) {
-            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
-            stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
-            stage.removeEventListener(MouseEvent.MIDDLE_MOUSE_DOWN, onMiddleMouseDown);
-            stage.removeEventListener(MouseEvent.MIDDLE_MOUSE_UP, onMiddleMouseUp);
-            stage.removeEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
-            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onLassoMove);
-            stage.removeEventListener(MouseEvent.MOUSE_UP, onLassoUp);
-            stage.removeEventListener(Event.RESIZE, drawFrame);
-        }
-        
-        _canvas.removeEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
-        clearAllWires();
-        for (nodeId in _nodes.keys()) {
-            var view = _nodes.get(nodeId);
-            if (view != null) {
-                view.dispose();
-                if (view.parent != null) view.parent.removeChild(view);
-            }
-        }
-        _nodes.clear();
-    }
-
-    private function onMouseWheel(e:MouseEvent):Void {
-        var zoomFactor:Float = 1.1;
-        if (e.delta < 0) zoomFactor = 1 / 1.1;
-        var mouseLocal:Point = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
-        var oldScale:Float = _canvas.scaleX;
-        var newScale:Float = oldScale * zoomFactor;
-        if (newScale < 0.1) newScale = 0.1;
-        if (newScale > 5.0) newScale = 5.0;
-        if (newScale == oldScale) return;
-
-        _canvas.scaleX = newScale;
-        _canvas.scaleY = newScale;
-        _canvas.x = e.stageX - (mouseLocal.x * newScale);
-        _canvas.y = e.stageY - (mouseLocal.y * newScale);
-        
-        updateEdgeWires();
-        updateVisibility();
-    }
-
-    private function onMiddleMouseDown(e:MouseEvent):Void {
-        _isPanning = true;
-        _panStartX = e.stageX;
-        _panStartY = e.stageY;
-        _canvasStartX = _canvas.x;
-        _canvasStartY = _canvas.y;
-    }
-
-    private function onMiddleMouseUp(e:MouseEvent):Void {
-        if (_isPanning) {
-            _isPanning = false;
-            updateEdgeWires();
-            updateVisibility();
-        }
-    }
-
     private function clearAllWires():Void {
         for (key in _wireSprites.keys()) {
             var spr = _wireSprites.get(key);
@@ -442,15 +353,60 @@ class NodeEditor extends Sprite {
 
     private function createWireSprite(link:ConnectionDef):Sprite {
         var spr = new Sprite();
-        spr.mouseEnabled = false; 
-        drawWireGraphics(spr.graphics, link);
+        spr.mouseEnabled = true;
+        spr.buttonMode = true;
+        
+        var color = 0x666666;
+        var thickness = 2.0;
+        var id = getWireID(link);
+        
+        if (id == _selectedWireId) {
+            color = 0xFFCC00;
+            thickness = 4;
+        }
+        
+        drawWireGraphics(spr.graphics, link, color, thickness);
+        
+        spr.addEventListener(MouseEvent.CLICK, function(e:MouseEvent) {
+            e.stopPropagation();
+            
+            if (_selectedWireId == id) {
+                deleteWire(link);
+            } else {
+                _selectedWireId = id;
+                rebuildAllWires();
+            }
+        });
+
         if (link.from.atomId != "SELF" && link.to.atomId != "SELF") {
              spr.cacheAsBitmap = true;
         }
         _wireContainer.addChild(spr);
-        var id = getWireID(link);
         _wireSprites.set(id, spr);
         return spr;
+    }
+    
+    public function deleteWire(link:ConnectionDef):Void {
+        _blueprint.internalConnections.remove(link);
+        var cOut = resolveContact(link.from);
+        var cIn = resolveContact(link.to);
+        if (cOut != null && cIn != null) cOut.unlink(cIn);
+        _selectedWireId = null;
+        rebuildAllWires();
+    }
+    
+    private function resolveContact(point:ConnectionPoint):Contact {
+        if (point.atomId == "SELF") {
+            var port = _assembly.ports.get(point.contactName);
+            return (port != null) ? port.internal : null;
+        } else {
+            var atom = _assembly.internalAtoms.get(point.atomId);
+            if (atom == null) return null;
+            var a:Atom = cast atom;
+            var c = a.getInput(point.contactName);
+            if (c == null) c = a.getOutput(point.contactName);
+            return c;
+        }
     }
 
     private function drawWireGraphics(g:openfl.display.Graphics, link:ConnectionDef, ?color:Int = 0x666666, ?thickness:Float = 2):Void {
@@ -458,16 +414,10 @@ class NodeEditor extends Sprite {
         var isFromInput = false;
 
         if (link.from.atomId == "SELF") {
-            // Ищем по имени порта
             var portSpr = _edgePorts.get(link.from.contactName);
             if (portSpr == null) return;
-
             var pt = _canvas.globalToLocal(portSpr.localToGlobal(new Point(0, 0)));
             p1 = {x: pt.x, y: pt.y};
-            
-            // Определяем направление:
-            // Если порт слева (x=0), это Вход Сборки -> Внутри это Источник (isFromInput=false).
-            // Если порт справа (x=w), это Выход Сборки -> Внутри это Приемник (isFromInput=true).
             isFromInput = (portSpr.x != 0); 
         } else {
             var fromView = _nodes.get(link.from.atomId);
@@ -482,10 +432,8 @@ class NodeEditor extends Sprite {
         if (link.to.atomId == "SELF") {
             var portSpr = _edgePorts.get(link.to.contactName);
             if (portSpr == null) return;
-
             var pt = _canvas.globalToLocal(portSpr.localToGlobal(new Point(0, 0)));
             p2 = {x: pt.x, y: pt.y};
-            
             isToInput = (portSpr.x != 0);
         } else {
             var toView = _nodes.get(link.to.atomId);
@@ -568,7 +516,6 @@ class NodeEditor extends Sprite {
         if (hasChanges) UndoManager.getInstance().storeExecuted(groupCommand);
 
         for (spr in _activeWires) {
-             // FIX: Manual loop to find key because keys() is Iterator
              var wireId:String = null;
              for (k in _wireSprites.keys()) {
                  if (_wireSprites.get(k) == spr) {
@@ -598,10 +545,9 @@ class NodeEditor extends Sprite {
     }
 
     private function updateVisibility():Void {
-        // Защита от доступа к stage, когда редактор еще не добавлен на сцену
         if (stage == null) return;
-		
-		var margin:Float = 150; 
+        
+        var margin:Float = 150; 
         var viewLeft:Float = (-_canvas.x / _canvas.scaleX) - margin;
         var viewTop:Float = (-_canvas.y / _canvas.scaleY) - margin;
         var viewRight:Float = viewLeft + (stage.stageWidth / _canvas.scaleX) + (margin * 2);
@@ -671,9 +617,9 @@ class NodeEditor extends Sprite {
         removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage_Frame);
         stage.addEventListener(Event.RESIZE, drawFrame);
         drawFrame();
-	}
+    }
 
-	private function onAddedToStage(e:Event):Void {
+    private function onAddedToStage(e:Event):Void {
         removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
         initListeners();
     }
@@ -685,6 +631,43 @@ class NodeEditor extends Sprite {
         stage.addEventListener(MouseEvent.MIDDLE_MOUSE_UP, onMiddleMouseUp);
         stage.addEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
     }
+    
+    private function onMiddleMouseDown(e:MouseEvent):Void {
+        _isPanning = true;
+        _panStartX = e.stageX;
+        _panStartY = e.stageY;
+        _canvasStartX = _canvas.x;
+        _canvasStartY = _canvas.y;
+    }
+
+    private function onMiddleMouseUp(e:MouseEvent):Void {
+        if (_isPanning) {
+            _isPanning = false;
+            updateEdgeWires();
+            updateVisibility();
+        }
+    }
+    
+    // --- ВОССТАНОВЛЕННЫЙ МЕТОД ---
+    private function onMouseWheel(e:MouseEvent):Void {
+        var zoomFactor:Float = 1.1;
+        if (e.delta < 0) zoomFactor = 1 / 1.1;
+        var mouseLocal:Point = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
+        var oldScale:Float = _canvas.scaleX;
+        var newScale:Float = oldScale * zoomFactor;
+        if (newScale < 0.1) newScale = 0.1;
+        if (newScale > 5.0) newScale = 5.0;
+        if (newScale == oldScale) return;
+
+        _canvas.scaleX = newScale;
+        _canvas.scaleY = newScale;
+        _canvas.x = e.stageX - (mouseLocal.x * newScale);
+        _canvas.y = e.stageY - (mouseLocal.y * newScale);
+        
+        updateEdgeWires();
+        updateVisibility();
+    }
+    // ------------------------------
 
     public function getNodePositions():Array<{id:String, x:Float, y:Float}> {
         var positions = [];
@@ -720,7 +703,7 @@ class NodeEditor extends Sprite {
             var dy = e.stageY - _panStartY;
             _canvas.x = _canvasStartX + dx;
             _canvas.y = _canvasStartY + dy;
-			updateEdgeWires();
+            updateEdgeWires();
             return;
         }
 
@@ -739,18 +722,10 @@ class NodeEditor extends Sprite {
             var target = findPortAt(e.stageX, e.stageY);
             
             if (target != null) {
-                // --- ИСПРАВЛЕНИЕ ЛОГИКИ РАЗРЕШЕНИЯ ---
-                
-                // 1. Нельзя соединять контакт сам с собой (тот же узел И то же имя)
                 var isSameContact = (_dragNodeId == target.nodeId && _dragContactName == target.contactName);
-                
-                // 2. Определяем роли
                 var startIsSource = !_dragStartIsInput;
                 var targetIsSource = !target.isInput;
 
-                // 3. Разрешаем, если:
-                // - Это не один и тот же контакт
-                // - Один Источник, другой Приемник
                 if (!isSameContact && (startIsSource != targetIsSource)) {
                     
                     var realFromId:String;
@@ -759,13 +734,11 @@ class NodeEditor extends Sprite {
                     var realToContact:String;
 
                     if (startIsSource) {
-                        // Тащили от источника
                         realFromId = _dragNodeId;
                         realFromContact = _dragContactName;
                         realToId = target.nodeId;
                         realToContact = target.contactName;
                     } else {
-                        // Тащили от приёмника (значит цель - источник)
                         realFromId = target.nodeId;
                         realFromContact = target.contactName;
                         realToId = _dragNodeId;
@@ -806,33 +779,18 @@ class NodeEditor extends Sprite {
     }
     
     private function findPortAt(x:Float, y:Float):{nodeId:String, contactName:String, isInput:Bool} {
-        // Сначала проверяем порты на стенах
         for (name in _edgePorts.keys()) {
             var port = _edgePorts.get(name);
             var local = port.globalToLocal(new Point(x, y));
             if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) {
-                // ИСПРАВЛЕНИЕ ЛОГИКИ:
-                // Левая стена (x=0) -> Внутри это ИСТОЧНИК (isInput = false).
-                // Правая стена (x=w) -> Внутри это ПРИЕМНИК (isInput = true).
-                // port.x == 0 проверять нельзя, так как stageWidth может меняться.
-                // Проверяем через Assembly.ports тип порта.
-                
                 var asmPort = _assembly.ports.get(name);
                 var isInput:Bool;
-                
-                if (asmPort.type == INPUT) {
-                    // Если это Вход Сборки, внутри он работает как Выход (Source).
-                    isInput = false; 
-                } else {
-                    // Если это Выход Сборки, внутри он работает как Вход (Target).
-                    isInput = true;
-                }
-
+                if (asmPort.type == INPUT) isInput = false; 
+                else isInput = true;
                 return { nodeId: "SELF", contactName: name, isInput: isInput };
             }
         }
 
-        // Потом проверяем атомы
         for (nodeId in _nodes.keys()) {
             var view = _nodes.get(nodeId);
             if (view != null) {
@@ -875,5 +833,42 @@ class NodeEditor extends Sprite {
     public function deleteAtom(id:String):Void {
         var cmd = new DeleteAtomCommand(_blueprint, _assembly, id);
         UndoManager.getInstance().executeAndStore(cmd);
+    }
+    
+    public function getSelectedNodeIds():Array<String> {
+        return [for (id in _selectedNodes.keys()) id];
+    }
+    
+    public function dispose():Void {
+        Impulsys.removeImpulse("PORT_DRAG_START", onPortDragStart);
+        Impulsys.removeImpulse("EDITOR_NODE_MOVED", onNodeMoved);
+        Impulsys.removeImpulse("NODE_DRAG_FINISHED", onNodeDragFinished);
+        Impulsys.removeImpulse("FORCE_UPDATE_NODE_POSITION", onForceUpdatePosition);
+        Impulsys.removeImpulse("REDRAW_WIRES", _cbRedraw);
+        Impulsys.removeImpulse("ATOM_DELETED", onAtomDeleted);
+        Impulsys.removeImpulse("ATOM_RESTORED", onAtomRestored);
+        Impulsys.removeImpulse("NODE_CLICKED", onNodeClicked);
+        
+        if (stage != null) {
+            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
+            stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+            stage.removeEventListener(MouseEvent.MIDDLE_MOUSE_DOWN, onMiddleMouseDown);
+            stage.removeEventListener(MouseEvent.MIDDLE_MOUSE_UP, onMiddleMouseUp);
+            stage.removeEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
+            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onLassoMove);
+            stage.removeEventListener(MouseEvent.MOUSE_UP, onLassoUp);
+            stage.removeEventListener(Event.RESIZE, drawFrame);
+        }
+        
+        _canvas.removeEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
+        clearAllWires();
+        for (nodeId in _nodes.keys()) {
+            var view = _nodes.get(nodeId);
+            if (view != null) {
+                view.dispose();
+                if (view.parent != null) view.parent.removeChild(view);
+            }
+        }
+        _nodes.clear();
     }
 }

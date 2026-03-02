@@ -3,10 +3,6 @@ package core.base;
 import library.AtomRegistry;
 import library.drivers.FPSMonitorAtom;
 import library.drivers.FrameTimeAtom;
-import library.logic.NandAtom;
-import library.electro.ButtonAtom;
-import library.electro.LedAtom;
-import library.electro.RelayAtom;
 import core.data.Blueprint;
 import core.base.Atom;
 import core.base.Assembly;
@@ -14,28 +10,37 @@ import core.base.Contact;
 import core.types.ContactType;
 
 /**
- * ASSEMBLY FACTORY v2.1
+ * ASSEMBLY FACTORY v2.3
  * Centralized factory for creating Atoms and Assemblies from Blueprints.
+ * 
+ * CHANGES v2.3:
+ * - Fixed: Assembly now extends Atom, so cast works correctly
+ * - Simplified createAtom logic
  */
 class AssemblyFactory {
 
     private static var _uidCounter:Int = 0;
 
     /**
-     * Creates an Atom instance from a registered Blueprint ID.
+     * Creates an Atom or Assembly instance from a registered Blueprint ID.
+     * 
+     * Automatically creates Assembly for composite Blueprints.
+     * Since Assembly extends Atom, the return type is always Atom.
      *
      * @param typeId The ID of the Blueprint definition.
-     * @param forcedId Optional. If provided, this ID will be used instead of generating a new one.
-     *                 Crucial for loading saved schemes to maintain link references.
+     * @param forcedId Optional ID to use instead of generating a new one.
      */
     public static function createAtom(typeId:String, ?forcedId:String):Atom {
-        var bp = AtomRegistry.get(typeId); // Updated reference
-        if (bp == null) return null;
+        var bp = AtomRegistry.get(typeId);
+        if (bp == null) {
+            trace('ERROR: Blueprint not found: $typeId');
+            return null;
+        }
 
-        // --- ID Logic: Use forced or generate new ---
+        // --- ID Logic ---
         var id:String = (forcedId != null) ? forcedId : "atom_" + (_uidCounter++);
 
-        // 1. Special classes (Active Atoms)
+        // --- Special classes (Active Atoms with custom implementation) ---
         if (typeId == "FPSMonitorAtom") {
             return new FPSMonitorAtom(id);
         }
@@ -44,14 +49,18 @@ class AssemblyFactory {
             return new FrameTimeAtom(id);
         }
 
-        // If logic is null, it is a composite, don't try to create simple Atom
-        if (bp.logic == null && bp.internalAtoms.length > 0) {
-             trace("Error: Blueprint " + typeId + " is composite, use createAssembly.");
-             return null;
+        // --- Check if composite (Assembly) ---
+        // Composite = no logic AND has internal atoms
+        var isComposite = (bp.logic == null && bp.internalAtoms != null && bp.internalAtoms.length > 0);
+
+        if (isComposite) {
+            // Create Assembly - it extends Atom now!
+            return new Assembly(id, bp);
         }
 
-        var inputs = [];
-        var outputs = [];
+        // --- Create standard Atom ---
+        var inputs:Array<Contact> = [];
+        var outputs:Array<Contact> = [];
 
         for (pin in bp.pins) {
             var c = new Contact(pin.defaultValue, pin.type, pin.name);
@@ -59,24 +68,29 @@ class AssemblyFactory {
             else outputs.push(c);
         }
 
-        // Passing generated or forced ID
-        var atom = new Atom(inputs, outputs, bp.logic, id, typeId);
-        return atom;
+        return new Atom(inputs, outputs, bp.logic, id, typeId);
     }
 
     /**
      * Creates an Assembly (Composite) from a Blueprint.
      */
     public static function createAssembly(typeId:String):Assembly {
-        var bp = AtomRegistry.get(typeId); // Updated reference
+        var bp = AtomRegistry.get(typeId);
         if (bp == null) {
             trace("Error: Assembly Blueprint not found: " + typeId);
             return null;
         }
 
         var id = "asm_" + (_uidCounter++) + "_" + typeId;
-        var asm = new Assembly(id, bp);
+        return new Assembly(id, bp);
+    }
 
-        return asm;
+    /**
+     * Checks if a Blueprint is composite.
+     */
+    public static function isComposite(typeId:String):Bool {
+        var bp = AtomRegistry.get(typeId);
+        if (bp == null) return false;
+        return (bp.logic == null && bp.internalAtoms != null && bp.internalAtoms.length > 0);
     }
 }

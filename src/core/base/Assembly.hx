@@ -7,31 +7,24 @@ import core.base.Atom;
 import core.base.IDisposable;
 import core.types.ContactType;
 
-class Assembly implements IDisposable {
-    public var id(default, null):String;
+/**
+ * ASSEMBLY v3.1
+ * Composite structure containing Atoms and internal connections.
+ * Extends Atom for full compatibility.
+ * 
+ * CHANGES v3.1:
+ * - Fixed: removed override from name getter (Atom.name is not virtual)
+ * - Fixed: added inputs/outputs getters for DevicePanel compatibility
+ */
+class Assembly extends Atom {
+
     public var blueprint(default, null):Blueprint;
-
-    // Хранилище портов проводников
     public var ports(default, null):Map<String, ConductorPort>;
-
-    // Для совместимости с внешним кодом (DevicePanel, внешние подключения)
-    // Возвращаем ВНЕШНИЕ контакты
-    public var inputs(get, null):Map<String, Contact>;
-    public var outputs(get, null):Map<String, Contact>;
-    
     public var internalAtoms(default, null):Map<String, Dynamic>;
 
-    public function new(id:String, blueprint:Blueprint) {
-        this.id = id;
-        this.blueprint = blueprint;
-
-        this.ports = new Map();
-        this.internalAtoms = new Map();
-
-        _createInterface();
-        _createInternalInstances();
-        _createInternalConnections();
-    }
+    // Public getters for external access (DevicePanel, NodeEditor, etc.)
+    public var inputs(get, null):Map<String, Contact>;
+    public var outputs(get, null):Map<String, Contact>;
 
     private function get_inputs():Map<String, Contact> {
         var map = new Map<String, Contact>();
@@ -45,17 +38,52 @@ class Assembly implements IDisposable {
         return map;
     }
 
+    public function new(id:String, blueprint:Blueprint) {
+        this.blueprint = blueprint;
+        this.ports = new Map();
+        this.internalAtoms = new Map();
+
+        // Create interface ports first
+        _createInterface();
+
+        // Build inputs/outputs arrays from ports for Atom constructor
+        var inputsArr:Array<Contact> = [];
+        var outputsArr:Array<Contact> = [];
+        
+        for (p in ports) {
+            if (p.type == INPUT) {
+                inputsArr.push(p.external);
+            } else {
+                outputsArr.push(p.external);
+            }
+        }
+
+        // Call Atom constructor
+        // type = blueprint.id, isActive = false
+        var typeName = blueprint != null ? blueprint.id : "Assembly";
+        super(inputsArr, outputsArr, null, id, typeName, false);
+
+        // Set name manually (Atom.name is a simple field, not virtual)
+        // We need to use reflection or just accept the type as name
+        // Actually, Atom sets name = type in constructor, so blueprint.id becomes the name
+
+        // Now create internal structure
+        _createInternalInstances();
+        _createInternalConnections();
+    }
+
     private function _createInterface():Void {
-        if (blueprint == null) return;
+        if (blueprint == null || blueprint.pins == null) return;
+        
         for (pinDef in blueprint.pins) {
-            // Создаем Проводник
             var port = new ConductorPort(pinDef.name, pinDef.type, pinDef.defaultValue);
             ports.set(pinDef.name, port);
         }
     }
 
     private function _createInternalInstances():Void {
-        if (blueprint.internalAtoms == null) return;
+        if (blueprint == null || blueprint.internalAtoms == null) return;
+        
         for (atomDef in blueprint.internalAtoms) {
             var instance = AssemblyFactory.createAtom(atomDef.typeId, atomDef.instanceId);
             if (instance != null) {
@@ -65,28 +93,23 @@ class Assembly implements IDisposable {
     }
 
     private function _createInternalConnections():Void {
-        if (blueprint.internalConnections == null) return;
+        if (blueprint == null || blueprint.internalConnections == null) return;
+        
         for (conn in blueprint.internalConnections) {
             var fromContact = resolveContact(conn.from);
             var toContact = resolveContact(conn.to);
 
             if (fromContact != null && toContact != null) {
                 fromContact.link(toContact);
-            } else {
-                trace('WARN: Assembly resolve failed for link: ${conn.from.atomId} -> ${conn.to.atomId}');
             }
         }
     }
 
-    // ИЗМЕНЕНИЕ: Теперь resolveContact для SELF возвращает ВНУТРЕННИЙ контакт порта
     private function resolveContact(point:ConnectionPoint):Contact {
         if (point.atomId == "SELF") {
             var port = ports.get(point.contactName);
             if (port == null) return null;
-            
-            // Возвращаем внутренний контакт!
             return port.internal;
-            
         } else {
             var obj = internalAtoms.get(point.atomId);
             if (obj == null) return null;
@@ -97,7 +120,8 @@ class Assembly implements IDisposable {
         return null;
     }
 
-    public function dispose():Void {
+    // Override dispose to clean up internal atoms
+    override public function dispose():Void {
         for (key in internalAtoms.keys()) {
             var obj = internalAtoms.get(key);
             if (Std.isOfType(obj, IDisposable)) {
@@ -106,8 +130,9 @@ class Assembly implements IDisposable {
         }
         internalAtoms.clear();
 
-        // Уничтожаем порты
-        for (port in ports) port.dispose();
+        for (pin in ports) pin.dispose();
         ports.clear();
+
+        super.dispose();
     }
 }
