@@ -46,7 +46,7 @@ class SignalQueue {
     /**
      * Iterative processing.
      */
-    private function process():Void {
+    public function process():Void {
         _isProcessing = true;
         _currentIteration = 0;
 

@@ -8,9 +8,22 @@
 	<!-- output -->
 	<app main="Main" file="ALTAURI" path="bin" />
 	
-	<window background="#000000" fps="999" />
-	<window width="1024" height="800" unless="mobile" />
-	<window orientation="landscape" vsync="false" antialiasing="0" if="cpp" />
+	<window 
+		borderless="false"
+		transparent="false"
+		background="0x00000000"
+		alwaysOnTop="true"
+		width="1024"
+		height="800"
+		fps="60"
+		vsync="false"
+		antialiasing="0"
+		unless="mobile"
+		orientation="landscape"
+		if="cpp" 
+	/>
+	<haxedef name="lime-multiwindow" />
+	<window transparent="false" if="desktop" />
 	
 	<!-- classpath, haxe libs -->
 	<source path="src" />

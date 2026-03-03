@@ -3,6 +3,7 @@ package system.commands.editor;
 import system.commands.base.Command;
 import core.data.Blueprint;
 import core.data.Blueprint.AtomDef;
+import core.data.Blueprint.ConnectionDef;
 import core.data.Blueprint.ConnectionPoint;
 import core.base.Assembly;
 import core.base.Atom;
@@ -12,9 +13,17 @@ import core.base.IDisposable;
 import core.types.ContactType;
 import core.logic.Impulsys;
 import library.AtomRegistry;
-import haxe.Json;
-import openfl.net.FileReference;
 
+/**
+ * GROUP ATOMS COMMAND v2.0 (Memory Leak Fixed)
+ * Command to group selected atoms into a new Assembly.
+ * 
+ * FIXES v2.0:
+ * - Send ATOM_DELETED impulse BEFORE modifying blueprint (allows NodeEditor to cleanup wires)
+ * - Proper atom disposal using IDisposable interface
+ * - Send REDRAW_WIRES after all changes complete
+ * - Copy selectedIds array to avoid external mutation
+ */
 class GroupAtomsCommand extends Command {
 
     private var _blueprint:Blueprint;
@@ -25,7 +34,7 @@ class GroupAtomsCommand extends Command {
         super();
         _blueprint = blueprint;
         _assembly = assembly;
-        _selectedNodeIds = selectedIds;
+        _selectedNodeIds = selectedIds.copy(); // Copy to avoid external mutation
     }
 
     override private function executeInternal():Void {
@@ -35,38 +44,34 @@ class GroupAtomsCommand extends Command {
             return;
         }
 
-        // 1. Сбор данных о внутренних атомах
+        // 1. Collect data about internal atoms
         var newInternalAtoms:Array<AtomDef> = [];
         var newInternalConnections:Array<ConnectionDef> = [];
-        
-        var newPins:Array<PinDef> = [];
+        var newPins:Array<{name:String, type:ContactType, ?dataType:String, ?defaultValue:Dynamic}> = [];
         var externalConnections:Array<{conn:ConnectionDef, isSourceSelected:Bool}> = [];
 
-        // Карта для переноса ID: старый ID -> новый ID (если нужно, но мы сохраним старые)
-        // Но для простоты оставим ID как есть, они уникальны.
-
-        // Разделяем связи
+        // Separate connections
         for (conn in _blueprint.internalConnections) {
             var fromSel = _selectedNodeIds.indexOf(conn.from.atomId) != -1;
             var toSel = _selectedNodeIds.indexOf(conn.to.atomId) != -1;
 
             if (fromSel && toSel) {
-                // Внутренняя связь
+                // Internal connection
                 newInternalConnections.push(conn);
             } else {
-                // Внешняя связь (граница)
+                // External connection (boundary)
                 externalConnections.push({conn: conn, isSourceSelected: fromSel});
             }
         }
 
-        // Список атомов для включения
+        // List of atoms to include
         for (atomDef in _blueprint.internalAtoms) {
             if (_selectedNodeIds.indexOf(atomDef.instanceId) != -1) {
                 newInternalAtoms.push(atomDef);
             }
         }
 
-        // 2. Создание интерфейса (Pins) на основе внешних связей
+        // 2. Create interface (Pins) based on external connections
         var pinCounter = 0;
         var mapping:Array<{oldConn:ConnectionDef, newPinName:String, isInput:Bool}> = [];
 
@@ -75,22 +80,10 @@ class GroupAtomsCommand extends Command {
             var pinName = "pin_" + pinCounter++;
             var pinType:ContactType = item.isSourceSelected ? OUTPUT : INPUT;
 
-            // Создаем Pin Definition
-            newPins.push({name: pinName, type: pinType, defaultValue: null});
+            // Create Pin Definition
+            newPins.push({name: pinName, type: pinType, dataType: null, defaultValue: null});
 
-            // Создаем связь внутри новой сборки
-            // Если источник выделен (Source -> Outside), значит внутри это Output -> Self.Pin(Input? No, внутри это Output для внешнего мира, но на схеме это выход)
-            // Давай разберем:
-            // Case A: Selected(Atom) -> Unselected(Atom). 
-            //         Это Выход сборки. Pin Type = OUTPUT.
-            //         Внутри новой сборки: Atom.Out -> Self.Pin (Pin ведет наружу).
-            //         Connection: {from: Atom, to: SELF, contact: PinName}.
-            
-            // Case B: Unselected(Atom) -> Selected(Atom).
-            //         Это Вход сборки. Pin Type = INPUT.
-            //         Внутри новой сборки: Self.Pin -> Atom.In.
-            //         Connection: {from: SELF, to: Atom, contact: PinName}.
-
+            // Create connection inside new assembly
             if (item.isSourceSelected) {
                 // Case A: Outgoing
                 newInternalConnections.push({
@@ -104,50 +97,53 @@ class GroupAtomsCommand extends Command {
                     to: conn.to
                 });
             }
-            
+
             mapping.push({oldConn: conn, newPinName: pinName, isInput: !item.isSourceSelected});
         }
 
-        // 3. Создание и сохранение Blueprint
+        // 3. Create and save Blueprint
         var newTypeId = "CustomAssembly_" + Std.random(10000);
         var newBp = new Blueprint(newTypeId, "Custom Assembly", newPins, null, newInternalAtoms, newInternalConnections);
-        
-        // Сохраняем на диск (автоматически в файл)
+
+        // Save to disk
         saveNewAssembly(newBp);
 
-        // Регистрируем в рантайме
+        // Register in runtime
         AtomRegistry.registerBlueprint(newTypeId, newBp);
 
-        // 4. Модификация текущей схемы (Замена группы на один атом)
-        
-        // Удаляем старые атомы из Blueprint и Assembly
+        // 4. ✅ FIX: Send ATOM_DELETED impulses FIRST for proper wire cleanup!
+        // This allows NodeEditor to clear wire sprites and their cacheAsBitmap
+        for (id in _selectedNodeIds) {
+            Impulsys.quickEmit("ATOM_DELETED", {id: id});
+        }
+
+        // 5. ✅ FIX: Properly dispose atoms before removal
         for (id in _selectedNodeIds) {
             var def = findAtomDef(id);
             if (def != null) _blueprint.internalAtoms.remove(def);
-            
+
             var inst = _assembly.internalAtoms.get(id);
             if (inst != null) {
-                 cast(inst, IDisposable).dispose();
-                 _assembly.internalAtoms.remove(id);
+                // ✅ FIX: Proper disposal with IDisposable interface
+                // This ensures any cached resources are released
+                var disposable:IDisposable = cast inst;
+                if (disposable != null) disposable.dispose();
+                _assembly.internalAtoms.remove(id);
             }
         }
 
-        // Удаляем старые связи
+        // Remove old connections
         for (item in externalConnections) {
             _blueprint.internalConnections.remove(item.conn);
         }
 
-        // Создаем новый атом
+        // 6. Create new atom instance
         var newAtomInstance = AssemblyFactory.createAtom(newTypeId, newTypeId + "_inst");
         _assembly.internalAtoms.set(newAtomInstance.id, newAtomInstance);
-        _blueprint.internalAtoms.push({instanceId: newAtomInstance.id, typeId: newTypeId, x: 300, y: 300}); // Center pos
+        _blueprint.internalAtoms.push({instanceId: newAtomInstance.id, typeId: newTypeId, x: 300, y: 300});
 
-        // Восстанавливаем связи снаружи
+        // 7. Restore external connections
         for (m in mapping) {
-            // m.oldConn содержит внешние точки.
-            // Если это был Incoming (Unselected -> Selected), то m.oldConn.from это внешний источник.
-            // Нам нужно соединить: m.oldConn.from -> NewAtom.NewPinName
-            
             var newConn:ConnectionDef;
             if (m.isInput) {
                 // Incoming
@@ -162,55 +158,55 @@ class GroupAtomsCommand extends Command {
                     to: m.oldConn.to
                 };
             }
-            
+
             _blueprint.internalConnections.push(newConn);
-            
-            // Физическое соединение
+
+            // Physical connection
             var c1 = resolveContact(newConn.from);
             var c2 = resolveContact(newConn.to);
-            if(c1!=null && c2!=null) c1.link(c2);
+            if (c1 != null && c2 != null) c1.link(c2);
         }
 
+        // 8. Create view for new assembly
+        Impulsys.quickEmit("ATOM_RESTORED", {id: newAtomInstance.id, x: 300, y: 300, atom: newAtomInstance});
+
+        // 9. ✅ FIX: Force wire rebuild after all changes
         Impulsys.quickEmit("REDRAW_WIRES");
-        // UI обновится через импульсы или пересоздание, лучше дать команду редактору обновиться
-        Impulsys.quickEmit("ATOM_RESTORED", {id: newAtomInstance.id, x: 300, y: 300, atom: newAtomInstance}); 
-        
-        // Удаляем старые виды
-        for (id in _selectedNodeIds) Impulsys.quickEmit("ATOM_DELETED", {id: id});
 
         complete();
     }
 
+    override public function undo():Void {
+        trace("WARNING: GroupAtomsCommand undo not fully implemented");
+    }
+
     private function saveNewAssembly(bp:Blueprint):Void {
-        // Простое сохранение через ProjectIO (дописать туда метод для сохранения "как в библиотеку")
-        // Для примера сохраняем в файл рядом с exe
+        #if sys
         var data:Dynamic = {
             version: "1.0",
-            blueprint: bp // Serializer должен уметь сворачивать bp в JSON
+            blueprint: bp
         };
-        
-        // Используем FileReference для сохранения без диалога (Lime/OpenFL специфично, но save открывает диалог)
-        // Чтобы сохранить тихо, нужен sys.io.File на Desktop.
-        #if sys
         var path = "library/" + bp.id + ".atom";
         sys.io.File.saveContent(path, haxe.Json.stringify(data, null, "  "));
         trace("Assembly saved to: " + path);
-        #else
-        trace("Auto-save only supported on Desktop target.");
         #end
     }
 
     private function findAtomDef(id:String):AtomDef {
-        for (a in _blueprint.internalAtoms) if (a.instanceId == id) return a;
+        for (a in _blueprint.internalAtoms) {
+            if (a.instanceId == id) return a;
+        }
         return null;
     }
-    
+
     private function resolveContact(point:ConnectionPoint):Contact {
-        // Копия логики из NodeEditor/ConnectCommand
-        if (point.atomId == "SELF") return null; // Не должно быть SELF на уровне текущей сборки
+        if (point.atomId == "SELF") return null;
         var atom = _assembly.internalAtoms.get(point.atomId);
         if (atom == null) return null;
         var a:Atom = cast atom;
         return (a.getInput(point.contactName) != null) ? a.getInput(point.contactName) : a.getOutput(point.contactName);
     }
+
+    override public function getDescription():String return 'Group ${_selectedNodeIds.length} Atoms';
 }
+

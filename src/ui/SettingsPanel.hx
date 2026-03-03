@@ -7,8 +7,8 @@ import openfl.text.TextFormatAlign;
 import openfl.events.MouseEvent;
 
 /**
- * SETTINGS PANEL v1.1
- * Application settings panel with ECS toggle and wire type selection.
+ * SETTINGS PANEL v1.3
+ * Application settings panel with ECS toggle, wire type selection, and Assembly toggle.
  */
 class SettingsPanel extends Sprite {
 
@@ -29,11 +29,18 @@ class SettingsPanel extends Sprite {
     private var _wireType:WireType = WireType.BEZIER;
 
     /**
+     * Allow Assembly creation and editing.
+     */
+    public var allowAssembly(get, set):Bool;
+    private var _allowAssembly:Bool = true;
+
+    /**
      * Callback when settings change.
      */
     public var onSettingsChanged:Void -> Void = null;
 
     private var _ecsCheckbox:Checkbox;
+    private var _assemblyCheckbox:Checkbox;
     private var _wireButtons:Array<RadioButton> = [];
 
     public function new() {
@@ -93,16 +100,48 @@ class SettingsPanel extends Sprite {
     private function createSettings():Void {
         var yPos = 80;
 
-        // Section: Performance
+        // Section: Editor
         var sectionLabel = new TextField();
         sectionLabel.defaultTextFormat = new TextFormat("_typewriter", 14, 0x00AAFF, true);
         sectionLabel.width = 380;
         sectionLabel.height = 25;
         sectionLabel.x = 15;
         sectionLabel.y = yPos;
-        sectionLabel.text = "PERFORMANCE";
+        sectionLabel.text = "EDITOR";
         sectionLabel.selectable = false;
         addChild(sectionLabel);
+        yPos += 35;
+
+        // Assembly Toggle
+        _assemblyCheckbox = new Checkbox("Allow Assembly", _allowAssembly);
+        _assemblyCheckbox.x = 20;
+        _assemblyCheckbox.y = yPos;
+        _assemblyCheckbox.onChange = onAssemblyToggle;
+        addChild(_assemblyCheckbox);
+        yPos += 40;
+
+        // Description
+        var descAssembly = new TextField();
+        descAssembly.defaultTextFormat = new TextFormat("_typewriter", 11, 0x888888);
+        descAssembly.width = 360;
+        descAssembly.height = 60;
+        descAssembly.x = 20;
+        descAssembly.y = yPos;
+        descAssembly.text = "When enabled:\n- 'New Assembly' button is visible\n- 'Group to Assembly' in context menu\n- Double-click to enter nested assemblies";
+        descAssembly.selectable = false;
+        addChild(descAssembly);
+        yPos += 70;
+
+        // Section: Performance
+        var perfLabel = new TextField();
+        perfLabel.defaultTextFormat = new TextFormat("_typewriter", 14, 0x00AAFF, true);
+        perfLabel.width = 380;
+        perfLabel.height = 25;
+        perfLabel.x = 15;
+        perfLabel.y = yPos;
+        perfLabel.text = "PERFORMANCE";
+        perfLabel.selectable = false;
+        addChild(perfLabel);
         yPos += 35;
 
         // ECS Toggle
@@ -137,11 +176,10 @@ class SettingsPanel extends Sprite {
         addChild(wireSection);
         yPos += 35;
 
-        // Wire type options
+        // Wire type options - only Bezier and Straight now
         var wireOptions = [
             { label: "Bezier Curve", type: WireType.BEZIER, desc: "Smooth curved lines" },
-            { label: "Straight Line", type: WireType.STRAIGHT, desc: "Direct point-to-point" },
-            { label: "Corners Line", type: WireType.CORNERS, desc: "Right-angle stepped lines" }
+            { label: "Straight Line", type: WireType.STRAIGHT, desc: "Horizontal tails + direct line" }
         ];
 
         for (opt in wireOptions) {
@@ -184,10 +222,17 @@ class SettingsPanel extends Sprite {
         statsDesc.height = 100;
         statsDesc.x = 20;
         statsDesc.y = yPos;
-        statsDesc.text = "Node count: --\nWire count: --\nRender mode: --\nWire type: --";
+        statsDesc.text = "Node count: --\nWire count: --\nRender mode: --\nWire type: --\nAssembly: --";
         statsDesc.selectable = false;
         statsDesc.name = "statsDisplay";
         addChild(statsDesc);
+    }
+
+    private function onAssemblyToggle(value:Bool):Void {
+        _allowAssembly = value;
+        if (onSettingsChanged != null) {
+            onSettingsChanged();
+        }
     }
 
     private function onEcsToggle(value:Bool):Void {
@@ -235,18 +280,29 @@ class SettingsPanel extends Sprite {
         return v;
     }
 
+    private function get_allowAssembly():Bool {
+        return _allowAssembly;
+    }
+
+    private function set_allowAssembly(v:Bool):Bool {
+        _allowAssembly = v;
+        if (_assemblyCheckbox != null) {
+            _assemblyCheckbox.checked = v;
+        }
+        return v;
+    }
+
     /**
      * Update statistics display.
      */
-    public function updateStats(nodeCount:Int, wireCount:Int, ecsMode:Bool, wire:WireType):Void {
+    public function updateStats(nodeCount:Int, wireCount:Int, ecsMode:Bool, wire:WireType, assemblyAllowed:Bool):Void {
         var statsDisplay = cast(getChildByName("statsDisplay"), TextField);
         if (statsDisplay != null) {
             var wireName = switch(wire) {
                 case WireType.BEZIER: "Bezier";
                 case WireType.STRAIGHT: "Straight";
-                case WireType.CORNERS: "Corners";
             }
-            statsDisplay.text = 'Node count: $nodeCount\nWire count: $wireCount\nRender mode: ${ecsMode ? "ECS" : "Direct"}\nWire type: $wireName';
+            statsDisplay.text = 'Node count: $nodeCount\nWire count: $wireCount\nRender mode: ${ecsMode ? "ECS" : "Direct"}\nWire type: $wireName\nAssembly: ${assemblyAllowed ? "Allowed" : "Disabled"}';
         }
     }
 

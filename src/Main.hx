@@ -20,12 +20,19 @@ import ui.DevicePanel;
 import ui.PropertiesWindow;
 import ui.ButtonComponent;
 import ui.SettingsPanel;
+import ui.WireType;
 import system.io.ProjectIO;
 import system.commands.editor.GroupAtomsCommand;
 import ecs.ECS;
 
+// Импорты для работы с окнами и либами
+import openfl.Lib;
+import openfl.events.Event;
+import lime.ui.Window;
+import lime.ui.WindowAttributes;
+
 #if desktop
-import ui.virtual.VirtualDeviceWindow;
+import ui.virtual.NativeWindowExtension;
 #end
 
 #if html5
@@ -34,7 +41,7 @@ import js.Browser;
 #end
 
 /**
- * MAIN APPLICATION v3.2 (ECS + Settings + WireType)
+ * MAIN APPLICATION v3.4 (Added Main Loop for immediate Driver execution)
  */
 class Main extends Sprite {
 
@@ -64,7 +71,20 @@ class Main extends Sprite {
     private var _backBtn:ButtonComponent;
     private var _pathField:TextField;
 
-    public function new() {
+    private var _newAssemblyBtn:ButtonComponent;
+
+    // === ПЕРЕМЕННЫЕ ДЛЯ ОКОН И ВРЕМЕНИ ===
+    private var _lastTime:Int = 0;
+    
+    #if cpp
+    private var _overlaySprite:Sprite;
+    #end
+    
+    #if hl
+    private var _playerWindow:Window;
+    #end
+
+public function new() {
         super();
 
         #if html5
@@ -97,6 +117,41 @@ class Main extends Sprite {
 
         setupLayers();
         buildUI();
+        
+        // === ЗАПУСК ГЛАВНОГО ЦИКЛА ОБРАБОТКИ СИГНАЛОВ ===
+        // DriverManager запускается сам при регистрации драйвера.
+        // Но SignalQueue нужно "прокручивать" вручную, чтобы импульсы доходили.
+        addEventListener(Event.ENTER_FRAME, onMainLoop);
+    }
+
+    // === ГЛАВНЫЙ ЦИКЛ (HEARTBEAT) ===
+    private function onMainLoop(e:Event):Void {
+        // 1. Считаем дельту времени (dt)
+        var now = Lib.getTimer();
+        var dt = (now - _lastTime) / 1000.0;
+        _lastTime = now;
+
+        // 2. Обновляем менеджер драйверов (это "тикает" все атомы)
+        // Если у вашего DriverManager есть метод update, он должен вызываться здесь.
+        // Если DriverManager автоматически управляет атомами, добавленными в него.
+        if (DriverManager.getInstance() != null) {
+        //   DriverManager.getInstance().update(dt);
+        }
+
+        // 3. Обрабатываем очередь сигналов (Impulsys)
+        // Чтобы импульсы проходили сразу, а не ждали клика
+        if (SignalQueue.getInstance() != null) {
+            SignalQueue.getInstance().process();
+        }
+        
+        // 4. Обновляем нативное окно (для C++)
+        #if cpp
+        // NativeWindowExtension.pollEvents();
+        // Если оверлей активен и контент меняется динамически, можно обновлять тут:
+        // if (_overlaySprite != null && _overlaySprite.visible) {
+        //    NativeWindowExtension.updateFromSprite(_overlaySprite); 
+        // }
+        #end
     }
 
     private function log(msg:String) {
@@ -151,7 +206,7 @@ class Main extends Sprite {
     private function buildUI():Void {
         _backBtn = new ButtonComponent("<- BACK", onBackClick);
         _backBtn.x = 10;
-        _backBtn.y = 10;
+        _backBtn.y = -10;
         _backBtn.visible = false;
         _uiLayer.addChild(_backBtn);
 
@@ -180,10 +235,10 @@ class Main extends Sprite {
         playerBtn.y = 10;
         _uiLayer.addChild(playerBtn);
 
-        var newBtn = new ButtonComponent("New Assembly", onNewAssembly);
-        newBtn.x = 840;
-        newBtn.y = 10;
-        _uiLayer.addChild(newBtn);
+        _newAssemblyBtn = new ButtonComponent("New Assembly", onNewAssembly);
+        _newAssemblyBtn.x = 840;
+        _newAssemblyBtn.y = 10;
+        _uiLayer.addChild(_newAssemblyBtn);
 
         _pathField = new TextField();
         _pathField.width = 400;
@@ -229,8 +284,21 @@ class Main extends Sprite {
         if (_editor != null) {
             _editor.setUseEcsRender(_settingsPanel.useEcsRender);
             _editor.setWireType(_settingsPanel.wireType);
+            _editor.setAllowAssembly(_settingsPanel.allowAssembly);
         }
-        log("Render mode: " + (_settingsPanel.useEcsRender ? "ECS" : "Direct") + ", Wire: " + Std.string(_settingsPanel.wireType));
+        
+        _newAssemblyBtn.visible = _settingsPanel.allowAssembly;
+        
+        if (!_settingsPanel.allowAssembly && _assemblyStack.length > 0) {
+            while (_assemblyStack.length > 0) {
+                onBackClick();
+            }
+        }
+        _backBtn.visible = _settingsPanel.allowAssembly && (_assemblyStack.length > 0);
+        
+        log("Render: " + (_settingsPanel.useEcsRender ? "ECS" : "Direct") 
+            + ", Wire: " + Std.string(_settingsPanel.wireType)
+            + ", Assembly: " + (_settingsPanel.allowAssembly ? "Allowed" : "Disabled"));
         updateSettingsStats();
     }
 
@@ -238,7 +306,7 @@ class Main extends Sprite {
         if (_settingsPanel != null && _editor != null) {
             var nodeCount = _editor.getNodeCount();
             var wireCount = _editor.getWireCount();
-            _settingsPanel.updateStats(nodeCount, wireCount, _settingsPanel.useEcsRender, _settingsPanel.wireType);
+            _settingsPanel.updateStats(nodeCount, wireCount, _settingsPanel.useEcsRender, _settingsPanel.wireType, _settingsPanel.allowAssembly);
         }
     }
 
@@ -247,8 +315,6 @@ class Main extends Sprite {
             log("Already at root level");
             return;
         }
-
-      //  var currentView = _editor.getViewState(); // не используется ?
 
         _editor.dispose();
         _editorLayer.removeChild(_editor);
@@ -260,6 +326,7 @@ class Main extends Sprite {
         _editor.setViewState(prev.viewState);
         _editor.setUseEcsRender(_settingsPanel.useEcsRender);
         _editor.setWireType(_settingsPanel.wireType);
+        _editor.setAllowAssembly(_settingsPanel.allowAssembly);
         _editorLayer.addChild(_editor);
 
         updateNavigationUI();
@@ -267,7 +334,7 @@ class Main extends Sprite {
     }
 
     private function updateNavigationUI():Void {
-        _backBtn.visible = (_assemblyStack.length > 0);
+        _backBtn.visible = _settingsPanel.allowAssembly && (_assemblyStack.length > 0);
 
         var path = "/ " + _assembly.blueprint.name;
         for (item in _assemblyStack) {
@@ -307,7 +374,7 @@ class Main extends Sprite {
         _menu.addItem("Delete " + impulse.data.name, "DELETE_ATOM", {id: _contextTargetId});
 
         var selected = _editor.getSelectedNodeIds();
-        if (selected.length > 1) {
+        if (_settingsPanel.allowAssembly && selected.length > 1) {
             _menu.addItem("Group to Assembly", "GROUP_ATOMS", {id: _contextTargetId});
         }
 
@@ -370,6 +437,7 @@ class Main extends Sprite {
                         _editor.setViewState(loadData.viewState);
                         _editor.setUseEcsRender(_settingsPanel.useEcsRender);
                         _editor.setWireType(_settingsPanel.wireType);
+                        _editor.setAllowAssembly(_settingsPanel.allowAssembly);
                         _editorLayer.addChild(_editor);
 
                         updateNavigationUI();
@@ -389,7 +457,11 @@ class Main extends Sprite {
                 return;
 
             case "GROUP_ATOMS":
-                groupSelectedToAssembly();
+                if (_settingsPanel.allowAssembly) {
+                    groupSelectedToAssembly();
+                } else {
+                    log("Assembly is disabled in settings");
+                }
                 return;
         }
 
@@ -426,6 +498,7 @@ class Main extends Sprite {
         _editor.setViewState(vs);
         _editor.setUseEcsRender(_settingsPanel.useEcsRender);
         _editor.setWireType(_settingsPanel.wireType);
+        _editor.setAllowAssembly(_settingsPanel.allowAssembly);
         _editorLayer.addChild(_editor);
 
         log("Grouping complete.");
@@ -433,6 +506,11 @@ class Main extends Sprite {
     }
 
     private function onNewAssembly():Void {
+        if (!_settingsPanel.allowAssembly) {
+            log("Assembly is disabled in settings");
+            return;
+        }
+
         hardReset();
         _assemblyStack = [];
 
@@ -441,6 +519,7 @@ class Main extends Sprite {
         _editor = new NodeEditor(_assembly);
         _editor.setUseEcsRender(_settingsPanel.useEcsRender);
         _editor.setWireType(_settingsPanel.wireType);
+        _editor.setAllowAssembly(_settingsPanel.allowAssembly);
         _editorLayer.addChild(_editor);
 
         updateNavigationUI();
@@ -448,6 +527,11 @@ class Main extends Sprite {
     }
 
     private function onOpenAssemblyRequest(impulse:Impulse):Void {
+        if (!_settingsPanel.allowAssembly) {
+            log("Assembly editing is disabled in settings");
+            return;
+        }
+
         if (impulse == null || impulse.data == null) {
             log("ERROR: Invalid impulse in onOpenAssemblyRequest");
             return;
@@ -477,6 +561,7 @@ class Main extends Sprite {
             _editor = new NodeEditor(_assembly);
             _editor.setUseEcsRender(_settingsPanel.useEcsRender);
             _editor.setWireType(_settingsPanel.wireType);
+            _editor.setAllowAssembly(_settingsPanel.allowAssembly);
             _editorLayer.addChild(_editor);
 
             updateNavigationUI();
@@ -489,11 +574,53 @@ class Main extends Sprite {
     private function onLaunchPlayer():Void {
         log("Launching Virtual Device Window...");
 
-        #if desktop
-        var player = new VirtualDeviceWindow(_assembly);
-        player.show();
+        #if cpp
+        log("Target C++: Creating Native Overlay...");
+        
+        NativeWindowExtension.destroyWindow(); 
+        
+        NativeWindowExtension.createWindow(1280, 500, "ALTAURI Overlay");
+        
+        if (_overlaySprite == null) {
+            _overlaySprite = new Sprite();
+        }
+        
+        while (_overlaySprite.numChildren > 0) {
+            _overlaySprite.removeChildAt(0);
+        }
+        
+        var panel = new DevicePanel(_assembly);
+        _overlaySprite.addChild(panel);
+        
+        NativeWindowExtension.updateFromSprite(_overlaySprite);
+        
+        // Цикл обновления уже запущен глобально в onMainLoop, тут ничего добавлять не нужно
+
+        #elseif hl
+        log("Target HL: Creating Standard Window...");
+        
+        if (_playerWindow != null) {
+            _playerWindow.focus();
+            return;
+        }
+
+        var attributes:WindowAttributes = {
+            width: 1280,
+            height: 500,
+            title: "ALTAURI Player",
+          //  transparent: false,
+            resizable: true
+        };
+
+        _playerWindow = Lib.application.createWindow(attributes);
+        
+        if (_playerWindow.stage != null) {
+            var panel = new DevicePanel(_assembly);
+            _playerWindow.stage.addChild(panel);
+        }
+
         #else
-        log("Virtual Window is Desktop only. Switching to Device View.");
+        log("Target not supported for separate window. Switching to Device View.");
         onToggleView();
         #end
     }
@@ -510,6 +637,7 @@ class Main extends Sprite {
         _editor = new NodeEditor(_assembly);
         _editor.setUseEcsRender(_settingsPanel.useEcsRender);
         _editor.setWireType(_settingsPanel.wireType);
+        _editor.setAllowAssembly(_settingsPanel.allowAssembly);
         _editorLayer.addChild(_editor);
 
         updateNavigationUI();
@@ -577,7 +705,7 @@ class Main extends Sprite {
             if (_menu != null) _menu.hide();
             if (_fileMenu != null) _fileMenu.hide();
 
-            if (_assemblyStack.length > 0) {
+            if (_settingsPanel.allowAssembly && _assemblyStack.length > 0) {
                 onBackClick();
             }
         }
@@ -589,7 +717,9 @@ class Main extends Sprite {
         if (e.keyCode == Keyboard.R) onResetClick();
 
         if (e.keyCode == Keyboard.BACKSPACE) {
-            onBackClick();
+            if (_settingsPanel.allowAssembly) {
+                onBackClick();
+            }
         }
 
         if (e.keyCode == Keyboard.DELETE) {

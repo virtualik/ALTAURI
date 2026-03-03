@@ -62,14 +62,13 @@ class NodeView extends Sprite {
      */
     private var _ecsMode:Bool = true;
 
-    // Новый метод:
     /**
      * Set ECS rendering mode.
      */
     public function setEcsMode(enabled:Bool):Void {
         _ecsMode = enabled;
     }
-	
+
     public function new(atom:Atom, nodeId:String) {
         super();
         this.atom = atom;
@@ -100,10 +99,10 @@ class NodeView extends Sprite {
     function set_selected(v:Bool):Bool {
         if (selected != v) {
             selected = v;
-            
+
             // Update ECS VisualComponent
             ECS.setSelected(nodeId, v);
-            
+
             // Immediate visual feedback
             draw();
         }
@@ -180,8 +179,8 @@ class NodeView extends Sprite {
             var c = contacts[i];
             var port = new Sprite();
 
-            port.graphics.beginFill(isInput ? 0xFF8800 : 0x00FF88);
-            port.graphics.lineStyle(1, 0xFFFFFF);
+            // Белый сплошной круг без обводки
+            port.graphics.beginFill(0xFFFFFF);
             port.graphics.drawCircle(0, 0, 5);
             port.graphics.endFill();
 
