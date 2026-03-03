@@ -1,5 +1,7 @@
 package editor;
 
+import ui.WireType;
+import ui.WireType.WireType as WireTypeEnum;
 import openfl.display.Sprite;
 import openfl.events.Event;
 import openfl.events.MouseEvent;
@@ -20,34 +22,57 @@ import system.commands.editor.CreateAtomCommand;
 import system.commands.base.MacroCommand;
 import core.data.Blueprint.ConnectionDef;
 import core.data.Blueprint.ConnectionPoint;
+import ecs.ECS;
 
+/**
+ * NODE EDITOR v3.0 (ECS Integrated)
+ * Main editor canvas for visual node programming.
+ *
+ * CHANGES v3.0:
+ * - ECS initialization in constructor
+ * - ECS-based lasso selection (Query.getInRect)
+ * - ECS-based selection management
+ * - Render loop for future RenderSystem integration
+ * - NodeView uses ECS for position/selection tracking
+ */
 class NodeEditor extends Sprite {
-
+    /**
+     * ECS render mode flag.
+     * When true, uses centralized RenderSystem.
+     * When false, uses direct sprite manipulation.
+     */
+    private var _useEcsRender:Bool = true;
+	
+	/**
+     * Current wire rendering style.
+     */
+    private var _wireType:WireTypeEnum = WireType.BEZIER;
+	
     private var _assembly:Assembly;
     private var _blueprint:core.data.Blueprint;
     private var _nodes:Map<String, NodeView> = new Map();
-    
-    private var _canvas:Sprite; 
-    
-    private var _wireContainer:Sprite; 
-    private var _wireSprites:Map<String, Sprite>; 
-    private var _activeWires:Array<Sprite>; 
-    
+
+    private var _canvas:Sprite;
+
+    private var _wireContainer:Sprite;
+    private var _wireSprites:Map<String, Sprite>;
+    private var _activeWires:Array<Sprite>;
+
     private var _selectedNodes:Map<String, NodeView> = new Map();
     private var _selectedWireId:String = null;
-    
+
     private var _frame:Sprite;
     private var _edgePortsContainer:Sprite;
     private var _edgePorts:Map<String, Sprite> = new Map();
     private var _fileNameField:TextField;
-    
+
     private var _lasso:Sprite;
     private var _isLassoing:Bool = false;
     private var _lassoStartX:Float = 0;
     private var _lassoStartY:Float = 0;
-    
+
     private var _dragStartPositions:Map<String, {x:Float, y:Float}>;
-    
+
     private var _spawnCounter:Int = 0;
 
     private var _isDraggingPort:Bool = false;
@@ -58,7 +83,7 @@ class NodeEditor extends Sprite {
     private var _dragStartIsInput:Bool = false;
 
     private var _ghostWire:Sprite;
-    
+
     private var _draggingNode:NodeView = null;
 
     private var _isPanning:Bool = false;
@@ -69,17 +94,27 @@ class NodeEditor extends Sprite {
 
     private var _cbRedraw:Impulse -> Void;
 
+    /**
+     * ECS render loop enabled flag.
+     * Currently not actively used (direct sprite manipulation),
+     * but ready for future RenderSystem integration.
+     */
+    private var _ecsRenderEnabled:Bool = true;
+
     public function new(assembly:Assembly) {
         super();
         this._assembly = assembly;
         this._blueprint = assembly.blueprint;
+
+        // Initialize ECS for this editor context
+        ECS.init();
 
         _canvas = new Sprite();
         _canvas.graphics.beginFill(0x333333, 1);
         _canvas.graphics.drawRect(-5000, -5000, 10000, 10000);
         _canvas.graphics.endFill();
         addChild(_canvas);
-        
+
         _canvas.addEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
 
         _wireContainer = new Sprite();
@@ -102,11 +137,11 @@ class NodeEditor extends Sprite {
         _frame = new Sprite();
         _frame.mouseEnabled = false;
         addChild(_frame);
-        
+
         _edgePortsContainer = new Sprite();
-        _edgePortsContainer.mouseEnabled = true; 
+        _edgePortsContainer.mouseEnabled = true;
         addChild(_edgePortsContainer);
-        
+
         _fileNameField = new TextField();
         _fileNameField.defaultTextFormat = new TextFormat("_typewriter", 12, 0xFFFFFF);
         _fileNameField.text = _blueprint.name;
@@ -115,7 +150,7 @@ class NodeEditor extends Sprite {
         addChild(_fileNameField);
 
         drawFrame();
-        
+
         addEventListener(Event.ADDED_TO_STAGE, onAddedToStage_Frame);
 
         _cbRedraw = function(_) rebuildAllWires();
@@ -137,7 +172,7 @@ class NodeEditor extends Sprite {
 
         rebuildAllWires();
     }
-    
+
     private function drawFrame(e:Event = null):Void {
         if (stage == null) return;
 
@@ -157,12 +192,12 @@ class NodeEditor extends Sprite {
 
         var leftIdx:Int = 0;
         var rightIdx:Int = 0;
-        
+
         var leftCount:Int = 0;
         var rightCount:Int = 0;
-        
+
         for (p in _assembly.ports) {
-            if (p.type == INPUT) leftCount++; 
+            if (p.type == INPUT) leftCount++;
             else rightCount++;
         }
 
@@ -174,13 +209,13 @@ class NodeEditor extends Sprite {
             var portView:Sprite;
 
             if (p.type == INPUT) {
-                portView = createEdgePort(c, false, p.name); 
-                portView.x = 0; 
+                portView = createEdgePort(c, false, p.name);
+                portView.x = 0;
                 portView.y = leftStep * (leftIdx + 1);
                 leftIdx++;
             } else {
                 portView = createEdgePort(c, true, p.name);
-                portView.x = w; 
+                portView.x = w;
                 portView.y = rightStep * (rightIdx + 1);
                 rightIdx++;
             }
@@ -191,7 +226,7 @@ class NodeEditor extends Sprite {
 
         updateEdgeWires();
     }
-    
+
     private function createEdgePort(contact:Contact, isInput:Bool, portName:String):Sprite {
         var s = new Sprite();
         s.graphics.beginFill(isInput ? 0xFF8800 : 0x00FF88);
@@ -217,10 +252,10 @@ class NodeEditor extends Sprite {
 
         return s;
     }
-    
+
     private function updateEdgeWires():Void {
         if (_blueprint.internalConnections == null) return;
-        
+
         for (link in _blueprint.internalConnections) {
             if (link.from.atomId == "SELF" || link.to.atomId == "SELF") {
                 var wireID = getWireID(link);
@@ -245,15 +280,15 @@ class NodeEditor extends Sprite {
         _canvas.scaleY = z;
         updateVisibility();
     }
-    
+
     private function onCanvasMouseDown(e:MouseEvent):Void {
         deselectAll();
-        
+
         _isLassoing = true;
         var local = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
         _lassoStartX = local.x;
         _lassoStartY = local.y;
-        
+
         stage.addEventListener(MouseEvent.MOUSE_MOVE, onLassoMove);
         stage.addEventListener(MouseEvent.MOUSE_UP, onLassoUp);
     }
@@ -261,7 +296,7 @@ class NodeEditor extends Sprite {
     private function onLassoMove(e:MouseEvent):Void {
         if (!_isLassoing) return;
         var local = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
-        
+
         var x = Math.min(_lassoStartX, local.x);
         var y = Math.min(_lassoStartY, local.y);
         var w = Math.abs(local.x - _lassoStartX);
@@ -274,6 +309,10 @@ class NodeEditor extends Sprite {
         _lasso.graphics.endFill();
     }
 
+    /**
+     * ECS-powered lasso selection.
+     * Uses Query.getInRect for O(N) spatial query.
+     */
     private function onLassoUp(e:MouseEvent):Void {
         stage.removeEventListener(MouseEvent.MOUSE_MOVE, onLassoMove);
         stage.removeEventListener(MouseEvent.MOUSE_UP, onLassoUp);
@@ -282,26 +321,30 @@ class NodeEditor extends Sprite {
 
         if (_lasso.width > 5 && _lasso.height > 5) {
             var lassoBounds:Rectangle = _lasso.getBounds(_canvas);
-            for (id in _nodes.keys()) {
+            
+            // Use ECS Query for spatial selection
+            var idsInRect = ECS.getInRect(
+                lassoBounds.x, 
+                lassoBounds.y, 
+                lassoBounds.width, 
+                lassoBounds.height
+            );
+
+            for (id in idsInRect) {
                 var view = _nodes.get(id);
-                if (view != null) {
-                    var nodeBounds:Rectangle = view.getBounds(_canvas);
-                    if (lassoBounds.intersects(nodeBounds)) {
-                        if (!_selectedNodes.exists(id)) {
-                            view.selected = true;
-                            _selectedNodes.set(id, view);
-                        }
-                    }
+                if (view != null && !_selectedNodes.exists(id)) {
+                    view.selected = true;
+                    _selectedNodes.set(id, view);
                 }
             }
         }
         _lasso.graphics.clear();
     }
-    
+
     private function onNodeClicked(impulse:Impulse):Void {
         var view:NodeView = impulse.data.view;
         var ctrl:Bool = impulse.data.ctrlKey;
-        
+
         _isLassoing = false;
         _lasso.graphics.clear();
         Impulsys.quickEmit("CLOSE_CONTEXT_MENU");
@@ -322,16 +365,26 @@ class NodeEditor extends Sprite {
             }
         }
     }
-    
+
+    /**
+     * Deselect all nodes using ECS.
+     */
     public function deselectAll():Void {
-        for (node in _selectedNodes) node.selected = false;
+        // Use ECS to clear all selections
+        ECS.clearSelections();
+        
+        // Update local tracking
+        for (node in _selectedNodes) {
+            node.selected = false;
+        }
         _selectedNodes = new Map();
-        if (_selectedWireId != null) { 
+        
+        if (_selectedWireId != null) {
             _selectedWireId = null;
-            rebuildAllWires(); 
+            rebuildAllWires();
         }
     }
-    
+
     private function clearAllWires():Void {
         for (key in _wireSprites.keys()) {
             var spr = _wireSprites.get(key);
@@ -355,21 +408,21 @@ class NodeEditor extends Sprite {
         var spr = new Sprite();
         spr.mouseEnabled = true;
         spr.buttonMode = true;
-        
+
         var color = 0x666666;
         var thickness = 2.0;
         var id = getWireID(link);
-        
+
         if (id == _selectedWireId) {
             color = 0xFFCC00;
             thickness = 4;
         }
-        
+
         drawWireGraphics(spr.graphics, link, color, thickness);
-        
+
         spr.addEventListener(MouseEvent.CLICK, function(e:MouseEvent) {
             e.stopPropagation();
-            
+
             if (_selectedWireId == id) {
                 deleteWire(link);
             } else {
@@ -385,7 +438,7 @@ class NodeEditor extends Sprite {
         _wireSprites.set(id, spr);
         return spr;
     }
-    
+
     public function deleteWire(link:ConnectionDef):Void {
         _blueprint.internalConnections.remove(link);
         var cOut = resolveContact(link.from);
@@ -394,7 +447,7 @@ class NodeEditor extends Sprite {
         _selectedWireId = null;
         rebuildAllWires();
     }
-    
+
     private function resolveContact(point:ConnectionPoint):Contact {
         if (point.atomId == "SELF") {
             var port = _assembly.ports.get(point.contactName);
@@ -418,7 +471,7 @@ class NodeEditor extends Sprite {
             if (portSpr == null) return;
             var pt = _canvas.globalToLocal(portSpr.localToGlobal(new Point(0, 0)));
             p1 = {x: pt.x, y: pt.y};
-            isFromInput = (portSpr.x != 0); 
+            isFromInput = (portSpr.x != 0);
         } else {
             var fromView = _nodes.get(link.from.atomId);
             if (fromView == null) return;
@@ -446,6 +499,21 @@ class NodeEditor extends Sprite {
         g.lineStyle(thickness, color);
         g.moveTo(p1.x, p1.y);
 
+        // Choose rendering style based on _wireType
+        switch (_wireType) {
+            case WireType.BEZIER:
+                drawWireBezier(g, p1, p2, isFromInput, isToInput);
+            case WireType.STRAIGHT:
+                drawWireStraight(g, p1, p2);
+            case WireType.CORNERS:
+                drawWireCorners(g, p1, p2, isFromInput);
+        }
+    }
+
+    /**
+     * Bezier curve wire (original smooth style).
+     */
+    private function drawWireBezier(g:openfl.display.Graphics, p1:{x:Float, y:Float}, p2:{x:Float, y:Float}, isFromInput:Bool, isToInput:Bool):Void {
         var dist = Math.abs(p2.x - p1.x);
         var tension = dist * 0.5;
         if (tension < 50) tension = 50;
@@ -454,6 +522,80 @@ class NodeEditor extends Sprite {
         var c2x = p2.x + (isToInput ? -tension : tension);
 
         g.cubicCurveTo(c1x, p1.y, c2x, p2.y, p2.x, p2.y);
+    }
+
+    /**
+     * Straight line wire (direct point-to-point).
+     */
+    private function drawWireStraight(g:openfl.display.Graphics, p1:{x:Float, y:Float}, p2:{x:Float, y:Float}):Void {
+        g.lineTo(p2.x, p2.y);
+    }
+
+    /**
+     * Corners wire (right-angle stepped line).
+     */
+    private function drawWireCorners(g:openfl.display.Graphics, p1:{x:Float, y:Float}, p2:{x:Float, y:Float}, isFromInput:Bool):Void {
+        var dx = p2.x - p1.x;
+        var dy = p2.y - p1.y;
+
+        // Determine step direction based on flow
+        // Output (left) -> Input (right): normal flow
+        // We create a "step" pattern
+
+        if (Math.abs(dx) < 30) {
+            // Very close horizontally - just vertical then horizontal
+            var midY = p1.y + dy * 0.5;
+            g.lineTo(p1.x, midY);
+            g.lineTo(p2.x, midY);
+            g.lineTo(p2.x, p2.y);
+        } else {
+            // Normal case: step pattern
+            // Go horizontal first, then vertical, then horizontal again
+            var stepRatio = 0.5; // Middle point
+
+            // Calculate intermediate points
+            var midX = p1.x + dx * stepRatio;
+
+            // Alternative: use fixed offset from endpoints
+            var offset = 40;
+            if (dx > 0) {
+                // Output to Input (normal)
+                midX = p1.x + offset + (dx - offset * 2) * 0.5;
+                if (midX < p1.x + offset) midX = p1.x + offset;
+                if (midX > p2.x - offset && p2.x > p1.x) midX = p2.x - offset;
+            } else {
+                // Input to Output (reverse)
+                midX = p1.x - offset + (dx + offset * 2) * 0.5;
+            }
+
+            // Simple L-shape or Z-shape
+            if (Math.abs(dy) < 20) {
+                // Almost same Y - just horizontal
+                g.lineTo(p2.x, p2.y);
+            } else {
+                // Step pattern: horizontal -> vertical -> horizontal
+                var halfY = p1.y + dy * 0.5;
+                g.lineTo(midX, p1.y);
+                g.lineTo(midX, halfY);
+                g.lineTo(p2.x, halfY);
+                g.lineTo(p2.x, p2.y);
+            }
+        }
+    }
+
+    /**
+     * Set wire rendering type.
+     */
+    public function setWireType(type:WireTypeEnum):Void {
+        _wireType = type;
+        rebuildAllWires();
+    }
+
+    /**
+     * Get current wire type.
+     */
+    public function getWireType():WireTypeEnum {
+        return _wireType;
     }
 
     private function onNodeMoved(impulse:Impulse):Void {
@@ -487,8 +629,8 @@ class NodeEditor extends Sprite {
             for (id in _selectedNodes.keys()) {
                 if (id != sourceView.nodeId) {
                     var otherView = _selectedNodes.get(id);
-                    otherView.x += dx;
-                    otherView.y += dy;
+                    // Use setPosition to update both sprite and ECS
+                    otherView.setPosition(otherView.x + dx, otherView.y + dy);
                 }
             }
         }
@@ -523,7 +665,7 @@ class NodeEditor extends Sprite {
                      break;
                  }
              }
-             
+
              if (wireId != null && wireId.indexOf("SELF") == -1) {
                  spr.cacheAsBitmap = true;
              }
@@ -531,7 +673,7 @@ class NodeEditor extends Sprite {
         _activeWires = [];
         _draggingNode = null;
         _dragStartPositions = null;
-        
+
         updateEdgeWires();
     }
 
@@ -546,8 +688,8 @@ class NodeEditor extends Sprite {
 
     private function updateVisibility():Void {
         if (stage == null) return;
-        
-        var margin:Float = 150; 
+
+        var margin:Float = 150;
         var viewLeft:Float = (-_canvas.x / _canvas.scaleX) - margin;
         var viewTop:Float = (-_canvas.y / _canvas.scaleY) - margin;
         var viewRight:Float = viewLeft + (stage.stageWidth / _canvas.scaleX) + (margin * 2);
@@ -564,7 +706,7 @@ class NodeEditor extends Sprite {
             var wireID = getWireID(link);
             var spr = _wireSprites.get(wireID);
             if (spr == null) continue;
-            
+
             if (link.from.atomId == "SELF" || link.to.atomId == "SELF") {
                 spr.visible = true;
                 continue;
@@ -584,8 +726,8 @@ class NodeEditor extends Sprite {
         var view = _nodes.get(data.id);
         if (view != null) {
             if (view.x != data.x || view.y != data.y) {
-                view.x = data.x;
-                view.y = data.y;
+                // Use setPosition to update both sprite and ECS
+                view.setPosition(data.x, data.y);
                 rebuildAllWires();
             }
         }
@@ -607,8 +749,7 @@ class NodeEditor extends Sprite {
     private function createViewForAtom(atom:Atom, id:String, x:Float, y:Float):Void {
         if (_nodes.exists(id)) return;
         var view = new NodeView(atom, id);
-        view.x = x;
-        view.y = y;
+        view.setPosition(x, y); // Use setPosition to register with ECS
         _canvas.addChild(view);
         _nodes.set(id, view);
     }
@@ -630,8 +771,23 @@ class NodeEditor extends Sprite {
         stage.addEventListener(MouseEvent.MIDDLE_MOUSE_DOWN, onMiddleMouseDown);
         stage.addEventListener(MouseEvent.MIDDLE_MOUSE_UP, onMiddleMouseUp);
         stage.addEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
+        
+        // ECS render loop (ready for future RenderSystem integration)
+        stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
     }
-    
+
+    /**
+     * ECS render loop entry point.
+     * Currently minimal - ECS handles position sync.
+     * Ready for future RenderSystem expansion.
+     */
+    private function onEnterFrame(e:Event):Void {
+        if (_ecsRenderEnabled) {
+            // Future: batch rendering, wire batching, effects
+            // ECS.render();
+        }
+    }
+
     private function onMiddleMouseDown(e:MouseEvent):Void {
         _isPanning = true;
         _panStartX = e.stageX;
@@ -647,8 +803,7 @@ class NodeEditor extends Sprite {
             updateVisibility();
         }
     }
-    
-    // --- ВОССТАНОВЛЕННЫЙ МЕТОД ---
+
     private function onMouseWheel(e:MouseEvent):Void {
         var zoomFactor:Float = 1.1;
         if (e.delta < 0) zoomFactor = 1 / 1.1;
@@ -663,11 +818,10 @@ class NodeEditor extends Sprite {
         _canvas.scaleY = newScale;
         _canvas.x = e.stageX - (mouseLocal.x * newScale);
         _canvas.y = e.stageY - (mouseLocal.y * newScale);
-        
+
         updateEdgeWires();
         updateVisibility();
     }
-    // ------------------------------
 
     public function getNodePositions():Array<{id:String, x:Float, y:Float}> {
         var positions = [];
@@ -720,14 +874,14 @@ class NodeEditor extends Sprite {
 
         if (_isDraggingPort) {
             var target = findPortAt(e.stageX, e.stageY);
-            
+
             if (target != null) {
                 var isSameContact = (_dragNodeId == target.nodeId && _dragContactName == target.contactName);
                 var startIsSource = !_dragStartIsInput;
                 var targetIsSource = !target.isInput;
 
                 if (!isSameContact && (startIsSource != targetIsSource)) {
-                    
+
                     var realFromId:String;
                     var realFromContact:String;
                     var realToId:String;
@@ -754,7 +908,7 @@ class NodeEditor extends Sprite {
             _ghostWire.graphics.clear();
         }
     }
-    
+
     private function onAtomDeleted(impulse:Impulse):Void {
         var id:String = impulse.data.id;
         var view = _nodes.get(id);
@@ -777,7 +931,7 @@ class NodeEditor extends Sprite {
             rebuildAllWires();
         }
     }
-    
+
     private function findPortAt(x:Float, y:Float):{nodeId:String, contactName:String, isInput:Bool} {
         for (name in _edgePorts.keys()) {
             var port = _edgePorts.get(name);
@@ -785,7 +939,7 @@ class NodeEditor extends Sprite {
             if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) {
                 var asmPort = _assembly.ports.get(name);
                 var isInput:Bool;
-                if (asmPort.type == INPUT) isInput = false; 
+                if (asmPort.type == INPUT) isInput = false;
                 else isInput = true;
                 return { nodeId: "SELF", contactName: name, isInput: isInput };
             }
@@ -814,32 +968,118 @@ class NodeEditor extends Sprite {
     }
 
     private function drawGhostWire(startX:Float, startY:Float, endX:Float, endY:Float, isInput:Bool):Void {
-        var g = _ghostWire.graphics;
-        g.clear();
-        
-        var p1 = _canvas.globalToLocal(new Point(startX, startY));
-        var p2 = _canvas.globalToLocal(new Point(endX, endY));
+		var g = _ghostWire.graphics;
+		g.clear();
 
-        g.lineStyle(3, 0x00FF00, 0.8);
-        g.moveTo(p1.x, p1.y);
-        
-        var dx = Math.abs(p2.x - p1.x) * 0.5;
-        if (dx < 50) dx = 50;
-        
-        if (isInput) g.cubicCurveTo(p1.x - dx, p1.y, p2.x + dx, p2.y, p2.x, p2.y);
-        else g.cubicCurveTo(p1.x + dx, p1.y, p2.x - dx, p2.y, p2.x, p2.y);
-    }
-    
+		var p1 = _canvas.globalToLocal(new Point(startX, startY));
+		var p2 = _canvas.globalToLocal(new Point(endX, endY));
+
+		g.lineStyle(3, 0x00FF00, 0.8);
+		g.moveTo(p1.x, p1.y);
+
+		switch (_wireType) {
+			case WireType.BEZIER:
+				drawGhostBezier(g, p1, p2, isInput);
+			case WireType.STRAIGHT:
+				drawGhostStraight(g, p2);
+			case WireType.CORNERS:
+				drawGhostCorners(g, p1, p2, isInput);
+		}
+	}
+
+	private function drawGhostBezier(g:openfl.display.Graphics, p1:{x:Float, y:Float}, p2:{x:Float, y:Float}, isInput:Bool):Void {
+		var dx = Math.abs(p2.x - p1.x) * 0.5;
+		if (dx < 50) dx = 50;
+
+		if (isInput) g.cubicCurveTo(p1.x - dx, p1.y, p2.x + dx, p2.y, p2.x, p2.y);
+		else g.cubicCurveTo(p1.x + dx, p1.y, p2.x - dx, p2.y, p2.x, p2.y);
+	}
+
+	private function drawGhostStraight(g:openfl.display.Graphics, p2:{x:Float, y:Float}):Void {
+		g.lineTo(p2.x, p2.y);
+	}
+
+	private function drawGhostCorners(g:openfl.display.Graphics, p1:{x:Float, y:Float}, p2:{x:Float, y:Float}, isInput:Bool):Void {
+		var dx = p2.x - p1.x;
+		var dy = p2.y - p1.y;
+
+		if (Math.abs(dx) < 30) {
+			var midY = p1.y + dy * 0.5;
+			g.lineTo(p1.x, midY);
+			g.lineTo(p2.x, midY);
+			g.lineTo(p2.x, p2.y);
+		} else {
+			var offset = 40;
+			var midX = p1.x + offset + (dx - offset * 2) * 0.5;
+			if (midX < p1.x + offset) midX = p1.x + offset;
+			if (midX > p2.x - offset && p2.x > p1.x) midX = p2.x - offset;
+
+			if (Math.abs(dy) < 20) {
+				g.lineTo(p2.x, p2.y);
+			} else {
+				var halfY = p1.y + dy * 0.5;
+				g.lineTo(midX, p1.y);
+				g.lineTo(midX, halfY);
+				g.lineTo(p2.x, halfY);
+				g.lineTo(p2.x, p2.y);
+			}
+		}
+	}
+
     public function deleteAtom(id:String):Void {
         var cmd = new DeleteAtomCommand(_blueprint, _assembly, id);
         UndoManager.getInstance().executeAndStore(cmd);
     }
-    
+
     public function getSelectedNodeIds():Array<String> {
         return [for (id in _selectedNodes.keys()) id];
     }
-    
+
+    /**
+     * Get selected IDs using ECS Query (alternative method).
+     * Useful when selection state might be out of sync.
+     */
+    public function getSelectedNodeIdsFromECS():Array<String> {
+        return ECS.getSelected();
+    }
+
+	    /**
+     * Enable or disable ECS rendering mode.
+     */
+    public function setUseEcsRender(value:Bool):Void {
+        _useEcsRender = value;
+    }
+
+    /**
+     * Get current ECS render mode.
+     */
+    public function getUseEcsRender():Bool {
+        return _useEcsRender;
+    }
+
+    /**
+     * Get total node count for stats.
+     */
+    public function getNodeCount():Int {
+        var count = 0;
+        for (id in _nodes.keys()) count++;
+        return count;
+    }
+
+    /**
+     * Get total wire count for stats.
+     */
+    public function getWireCount():Int {
+        if (_blueprint.internalConnections == null) return 0;
+        return _blueprint.internalConnections.length;
+    }
+
     public function dispose():Void {
+        // Remove render loop
+        if (stage != null) {
+            stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
+        }
+
         Impulsys.removeImpulse("PORT_DRAG_START", onPortDragStart);
         Impulsys.removeImpulse("EDITOR_NODE_MOVED", onNodeMoved);
         Impulsys.removeImpulse("NODE_DRAG_FINISHED", onNodeDragFinished);
@@ -848,7 +1088,7 @@ class NodeEditor extends Sprite {
         Impulsys.removeImpulse("ATOM_DELETED", onAtomDeleted);
         Impulsys.removeImpulse("ATOM_RESTORED", onAtomRestored);
         Impulsys.removeImpulse("NODE_CLICKED", onNodeClicked);
-        
+
         if (stage != null) {
             stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
             stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
@@ -859,7 +1099,7 @@ class NodeEditor extends Sprite {
             stage.removeEventListener(MouseEvent.MOUSE_UP, onLassoUp);
             stage.removeEventListener(Event.RESIZE, drawFrame);
         }
-        
+
         _canvas.removeEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
         clearAllWires();
         for (nodeId in _nodes.keys()) {
@@ -870,5 +1110,8 @@ class NodeEditor extends Sprite {
             }
         }
         _nodes.clear();
+
+        // Reset ECS for clean slate
+        ECS.reset();
     }
 }

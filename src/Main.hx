@@ -3,7 +3,6 @@ package;
 import openfl.display.Sprite;
 import openfl.events.MouseEvent;
 import openfl.events.KeyboardEvent;
-import openfl.events.Event;
 import openfl.ui.Keyboard;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
@@ -20,8 +19,10 @@ import ui.ContextMenu;
 import ui.DevicePanel;
 import ui.PropertiesWindow;
 import ui.ButtonComponent;
+import ui.SettingsPanel;
 import system.io.ProjectIO;
 import system.commands.editor.GroupAtomsCommand;
+import ecs.ECS;
 
 #if desktop
 import ui.virtual.VirtualDeviceWindow;
@@ -32,17 +33,22 @@ import js.html.CanvasElement;
 import js.Browser;
 #end
 
+/**
+ * MAIN APPLICATION v3.2 (ECS + Settings + WireType)
+ */
 class Main extends Sprite {
 
     private var _editorLayer:Sprite;
     private var _deviceLayer:Sprite;
     private var _uiLayer:Sprite;
+    private var _settingsLayer:Sprite;
 
     private var _editor:NodeEditor;
     private var _devicePanel:DevicePanel;
     private var _menu:ContextMenu;
     private var _fileMenu:ContextMenu;
     private var _propertiesWindow:PropertiesWindow;
+    private var _settingsPanel:SettingsPanel;
 
     private var _assembly:Assembly;
     private var _isEditorMode:Bool = true;
@@ -52,12 +58,11 @@ class Main extends Sprite {
     private var _contextTargetId:String = null;
 
     private var _fileBtn:ButtonComponent;
-    
-    // ========== НОВОЕ: Навигация по сборкам ==========
+    private var _settingsBtn:ButtonComponent;
+
     private var _assemblyStack:Array<{assembly:Assembly, viewState:{x:Float, y:Float, zoom:Float}}>;
     private var _backBtn:ButtonComponent;
     private var _pathField:TextField;
-    // ==================================================
 
     public function new() {
         super();
@@ -79,9 +84,10 @@ class Main extends Sprite {
 
         log("System initialized");
 
-        // ========== НОВОЕ: Инициализация стека ==========
+        ECS.init();
+        log("ECS initialized");
+
         _assemblyStack = [];
-        // =================================================
 
         var emptyBlueprint = new Blueprint("main_scheme", "Main Scheme", [
             {name: "IN", type: INPUT},
@@ -136,16 +142,18 @@ class Main extends Sprite {
 
         _uiLayer = new Sprite();
         addChild(_uiLayer);
+
+        _settingsLayer = new Sprite();
+        _settingsLayer.mouseEnabled = false;
+        addChild(_settingsLayer);
     }
 
     private function buildUI():Void {
-        // ========== НОВОЕ: Кнопка BACK (первая) ==========
         _backBtn = new ButtonComponent("<- BACK", onBackClick);
         _backBtn.x = 10;
         _backBtn.y = 10;
-        _backBtn.visible = false;  // Скрыта по умолчанию
+        _backBtn.visible = false;
         _uiLayer.addChild(_backBtn);
-        // =================================================
 
         var toggleBtn = new ButtonComponent("Toggle View [F5]", onToggleView);
         toggleBtn.x = 120;
@@ -157,22 +165,26 @@ class Main extends Sprite {
         _fileBtn.y = 10;
         _uiLayer.addChild(_fileBtn);
 
+        _settingsBtn = new ButtonComponent("[S]", onSettingsClick);
+        _settingsBtn.x = 440;
+        _settingsBtn.y = 10;
+        _uiLayer.addChild(_settingsBtn);
+
         var resetBtn = new ButtonComponent("Reset [R]", onResetClick);
-        resetBtn.x = 440;
+        resetBtn.x = 520;
         resetBtn.y = 10;
         _uiLayer.addChild(resetBtn);
 
         var playerBtn = new ButtonComponent("Launch Player", onLaunchPlayer);
-        playerBtn.x = 600;
+        playerBtn.x = 680;
         playerBtn.y = 10;
         _uiLayer.addChild(playerBtn);
 
         var newBtn = new ButtonComponent("New Assembly", onNewAssembly);
-        newBtn.x = 760;
+        newBtn.x = 840;
         newBtn.y = 10;
         _uiLayer.addChild(newBtn);
 
-        // ========== НОВОЕ: Поле пути ==========
         _pathField = new TextField();
         _pathField.width = 400;
         _pathField.height = 20;
@@ -184,11 +196,15 @@ class Main extends Sprite {
         _pathField.defaultTextFormat = pathFmt;
         _pathField.text = "/ Main Scheme";
         _uiLayer.addChild(_pathField);
-        // ======================================
 
         _propertiesWindow = new PropertiesWindow();
         _propertiesWindow.visible = false;
         _uiLayer.addChild(_propertiesWindow);
+
+        _settingsPanel = new SettingsPanel();
+        _settingsPanel.visible = false;
+        _settingsPanel.onSettingsChanged = onSettingsChanged;
+        _settingsLayer.addChild(_settingsPanel);
 
         stage.addEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
         stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
@@ -200,47 +216,65 @@ class Main extends Sprite {
         Impulsys.subscribeToImpulse("OPEN_ASSEMBLY_REQUEST", onOpenAssemblyRequest);
     }
 
-    // ========== НОВОЕ: Обработчик кнопки BACK ==========
+    private function onSettingsClick():Void {
+        if (_settingsPanel.visible) {
+            _settingsPanel.visible = false;
+        } else {
+            _settingsPanel.show(stage.stageWidth, stage.stageHeight);
+            updateSettingsStats();
+        }
+    }
+
+    private function onSettingsChanged():Void {
+        if (_editor != null) {
+            _editor.setUseEcsRender(_settingsPanel.useEcsRender);
+            _editor.setWireType(_settingsPanel.wireType);
+        }
+        log("Render mode: " + (_settingsPanel.useEcsRender ? "ECS" : "Direct") + ", Wire: " + Std.string(_settingsPanel.wireType));
+        updateSettingsStats();
+    }
+
+    private function updateSettingsStats():Void {
+        if (_settingsPanel != null && _editor != null) {
+            var nodeCount = _editor.getNodeCount();
+            var wireCount = _editor.getWireCount();
+            _settingsPanel.updateStats(nodeCount, wireCount, _settingsPanel.useEcsRender, _settingsPanel.wireType);
+        }
+    }
+
     private function onBackClick():Void {
         if (_assemblyStack.length == 0) {
             log("Already at root level");
             return;
         }
 
-        // Сохраняем текущее состояние
-        var currentView = _editor.getViewState();
+      //  var currentView = _editor.getViewState(); // не используется ?
 
-        // Удаляем текущий редактор
         _editor.dispose();
         _editorLayer.removeChild(_editor);
 
-        // Восстанавливаем предыдущую сборку
         var prev = _assemblyStack.pop();
         _assembly = prev.assembly;
 
         _editor = new NodeEditor(_assembly);
         _editor.setViewState(prev.viewState);
+        _editor.setUseEcsRender(_settingsPanel.useEcsRender);
+        _editor.setWireType(_settingsPanel.wireType);
         _editorLayer.addChild(_editor);
 
-        // Обновляем UI
         updateNavigationUI();
         log("Navigated back");
     }
 
     private function updateNavigationUI():Void {
-        // Показываем/скрываем кнопку BACK
         _backBtn.visible = (_assemblyStack.length > 0);
 
-        // Обновляем путь
         var path = "/ " + _assembly.blueprint.name;
         for (item in _assemblyStack) {
             path += " / " + item.assembly.blueprint.name;
         }
         _pathField.text = path;
     }
-    // ===================================================
-
-    // --- Menu Logic ---
 
     private function resetContextMenu():Void {
         if (_menu == null) {
@@ -289,8 +323,6 @@ class Main extends Sprite {
         }
     }
 
-    // --- Actions ---
-
     private function onMenuAction(impulse:Impulse):Void {
         if (_menu != null) _menu.hide();
         if (_fileMenu != null) _fileMenu.hide();
@@ -329,16 +361,17 @@ class Main extends Sprite {
                 ProjectIO.load(function(loadData) {
                     try {
                         log("File loaded: " + loadData.blueprint.name);
-                        
-                        // Очищаем стек навигации
+
                         _assemblyStack = [];
-                        
+
                         hardReset();
                         _assembly = new Assembly("loaded_asm", loadData.blueprint);
                         _editor = new NodeEditor(_assembly);
                         _editor.setViewState(loadData.viewState);
+                        _editor.setUseEcsRender(_settingsPanel.useEcsRender);
+                        _editor.setWireType(_settingsPanel.wireType);
                         _editorLayer.addChild(_editor);
-                        
+
                         updateNavigationUI();
                         log("SUCCESS: Loaded " + loadData.blueprint.name);
                     } catch (e:Dynamic) {
@@ -351,6 +384,7 @@ class Main extends Sprite {
                 if (data != null && data.id != null) {
                     _editor.deleteAtom(data.id);
                     _contextTargetId = null;
+                    updateSettingsStats();
                 }
                 return;
 
@@ -362,6 +396,7 @@ class Main extends Sprite {
         if (action == "ADD_ATOM") {
             if (data != null && data.typeId != null) {
                 _editor.createAtom(data.typeId, x, y);
+                updateSettingsStats();
             }
         }
     }
@@ -389,25 +424,29 @@ class Main extends Sprite {
 
         _editor = new NodeEditor(_assembly);
         _editor.setViewState(vs);
+        _editor.setUseEcsRender(_settingsPanel.useEcsRender);
+        _editor.setWireType(_settingsPanel.wireType);
         _editorLayer.addChild(_editor);
 
         log("Grouping complete.");
+        updateSettingsStats();
     }
 
     private function onNewAssembly():Void {
         hardReset();
         _assemblyStack = [];
-        
+
         var bp = new Blueprint("new_assembly", "New Assembly", []);
         _assembly = new Assembly("main_asm", bp);
         _editor = new NodeEditor(_assembly);
+        _editor.setUseEcsRender(_settingsPanel.useEcsRender);
+        _editor.setWireType(_settingsPanel.wireType);
         _editorLayer.addChild(_editor);
-        
+
         updateNavigationUI();
         log("Created New Empty Assembly");
     }
 
-    // ========== НОВОЕ: Открытие вложенной сборки с сохранением состояния ==========
     private function onOpenAssemblyRequest(impulse:Impulse):Void {
         if (impulse == null || impulse.data == null) {
             log("ERROR: Invalid impulse in onOpenAssemblyRequest");
@@ -423,15 +462,12 @@ class Main extends Sprite {
         var bp = AtomRegistry.get(atomInst.type);
 
         if (bp != null && bp.internalAtoms != null && bp.internalAtoms.length > 0) {
-            // Сохраняем текущее состояние в стек
             var currentViewState = _editor.getViewState();
             _assemblyStack.push({
                 assembly: _assembly,
                 viewState: currentViewState
             });
 
-            // Создаём новый редактор для вложенной сборки
-            // ВАЖНО: не вызываем hardReset - это очистило бы стек!
             if (_editor != null) {
                 _editor.dispose();
                 _editorLayer.removeChild(_editor);
@@ -439,6 +475,8 @@ class Main extends Sprite {
 
             _assembly = new Assembly("nested_view", bp);
             _editor = new NodeEditor(_assembly);
+            _editor.setUseEcsRender(_settingsPanel.useEcsRender);
+            _editor.setWireType(_settingsPanel.wireType);
             _editorLayer.addChild(_editor);
 
             updateNavigationUI();
@@ -447,7 +485,6 @@ class Main extends Sprite {
             log("Atom is primitive, cannot open.");
         }
     }
-    // =============================================================================
 
     private function onLaunchPlayer():Void {
         log("Launching Virtual Device Window...");
@@ -464,15 +501,17 @@ class Main extends Sprite {
     private function onResetClick():Void {
         hardReset();
         _assemblyStack = [];
-        
+
         var emptyBlueprint = new Blueprint("main_scheme", "Main Scheme", [
             {name: "IN", type: INPUT},
             {name: "OUT", type: OUTPUT}
         ]);
         _assembly = new Assembly("main_asm", emptyBlueprint);
         _editor = new NodeEditor(_assembly);
+        _editor.setUseEcsRender(_settingsPanel.useEcsRender);
+        _editor.setWireType(_settingsPanel.wireType);
         _editorLayer.addChild(_editor);
-        
+
         updateNavigationUI();
         log("System Reset Complete.");
     }
@@ -493,7 +532,9 @@ class Main extends Sprite {
             _assembly.dispose();
             _assembly = null;
         }
-        log("SYSTEM: Memory cleared.");
+
+        ECS.reset();
+        log("SYSTEM: Memory cleared. ECS reset.");
     }
 
     private function onToggleView():Void {
@@ -523,15 +564,22 @@ class Main extends Sprite {
     }
 
     private function onKeyDown(e:KeyboardEvent):Void {
+        if (e.keyCode == Keyboard.S && !e.ctrlKey) {
+            onSettingsClick();
+            return;
+        }
+
         if (e.keyCode == Keyboard.ESCAPE) {
+            if (_settingsPanel.visible) {
+                _settingsPanel.visible = false;
+                return;
+            }
             if (_menu != null) _menu.hide();
             if (_fileMenu != null) _fileMenu.hide();
-            
-            // ========== НОВОЕ: ESC тоже возвращает назад ==========
+
             if (_assemblyStack.length > 0) {
                 onBackClick();
             }
-            // =====================================================
         }
         if (e.keyCode == Keyboard.F5) onToggleView();
 
@@ -540,16 +588,15 @@ class Main extends Sprite {
 
         if (e.keyCode == Keyboard.R) onResetClick();
 
-        // ========== НОВОЕ: Backspace для возврата ==========
         if (e.keyCode == Keyboard.BACKSPACE) {
             onBackClick();
         }
-        // ===================================================
 
         if (e.keyCode == Keyboard.DELETE) {
             if (_contextTargetId != null) {
                 _editor.deleteAtom(_contextTargetId);
                 _contextTargetId = null;
+                updateSettingsStats();
             }
         }
     }
