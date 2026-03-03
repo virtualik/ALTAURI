@@ -592,7 +592,7 @@ public function new() {
         var panel = new DevicePanel(_assembly);
         _overlaySprite.addChild(panel);
         
-        NativeWindowExtension.updateFromSprite(_overlaySprite);
+        NativeWindowExtension.updateFromSprite();
         
         // Цикл обновления уже запущен глобально в onMainLoop, тут ничего добавлять не нужно
 

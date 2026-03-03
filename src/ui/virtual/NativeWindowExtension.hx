@@ -1,9 +1,11 @@
 package ui.virtual;
+import flash.display.Sprite;
 
 @:headerCode('
 extern "C" {
     void nativewindow_create(int width, int height, const char* title);
     void nativewindow_destroy();
+	void nativewindow_updateFromSprite();
     void nativewindow_center();
 }
 ')
@@ -129,6 +131,11 @@ void destroyOverlayWindowImpl() {
     }
 }
 
+void nativewindow_updateFromSpriteImpl() {
+    if (g_overlayHwnd == NULL) return;
+}
+
+
 void centerOverlayWindowImpl() {
     if (g_overlayHwnd == NULL) return;
     
@@ -148,6 +155,9 @@ extern "C" {
     void nativewindow_destroy() {
         destroyOverlayWindowImpl();
     }
+    void nativewindow_updateFromSprite() {
+        nativewindow_updateFromSpriteImpl();
+    }
     void nativewindow_center() {
         centerOverlayWindowImpl();
     }
@@ -161,6 +171,9 @@ class NativeWindowExtension {
     @:native("nativewindow_destroy")
     public static extern function destroyWindow():Void;
     
+    @:native("nativewindow_updateFromSprite")
+    public static extern function updateFromSprite():Void;
+	
     @:native("nativewindow_center")
     public static extern function centerWindow():Void;
     
