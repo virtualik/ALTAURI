@@ -4,93 +4,50 @@ import library.AtomRegistry;
 import library.drivers.FPSMonitorAtom;
 import library.drivers.FrameTimeAtom;
 import core.data.Blueprint;
-import core.base.Atom;
 import core.base.Assembly;
 import core.base.Contact;
 import core.types.ContactType;
 
 /**
- * ASSEMBLY FACTORY v2.3
- * Centralized factory for creating Atoms and Assemblies from Blueprints.
- * 
- * CHANGES v2.3:
- * - Fixed: Assembly now extends Atom, so cast works correctly
- * - Simplified createAtom logic
+ * ASSEMBLY FACTORY v3.0 (Unified)
+ * Теперь создает Assembly для всех типов, кроме специальных Active-драйверов.
  */
 class AssemblyFactory {
 
     private static var _uidCounter:Int = 0;
 
     /**
-     * Creates an Atom or Assembly instance from a registered Blueprint ID.
-     * 
-     * Automatically creates Assembly for composite Blueprints.
-     * Since Assembly extends Atom, the return type is always Atom.
-     *
-     * @param typeId The ID of the Blueprint definition.
-     * @param forcedId Optional ID to use instead of generating a new one.
+     * Creates an Atom or Assembly instance.
      */
     public static function createAtom(typeId:String, ?forcedId:String):Atom {
         var bp = AtomRegistry.get(typeId);
-        if (bp == null) {
-            trace('ERROR: Blueprint not found: $typeId');
-            return null;
-        }
-
-        // --- ID Logic ---
         var id:String = (forcedId != null) ? forcedId : "atom_" + (_uidCounter++);
 
-        // --- Special classes (Active Atoms with custom implementation) ---
-        if (typeId == "FPSMonitorAtom") {
-            return new FPSMonitorAtom(id);
-        }
+        // 1. Special Active Classes (Drivers)
+        // Они остаются классами, так как требуют update(dt) и специальных флагов isActive.
+        if (typeId == "FPSMonitorAtom") return new FPSMonitorAtom(id);
+        if (typeId == "FrameTimeAtom") return new FrameTimeAtom(id);
 
-        if (typeId == "FrameTimeAtom") {
-            return new FrameTimeAtom(id);
-        }
-
-        // --- Check if composite (Assembly) ---
-        // Composite = no logic AND has internal atoms
-        var isComposite = (bp.logic == null && bp.internalAtoms != null && bp.internalAtoms.length > 0);
-
-        if (isComposite) {
-            // Create Assembly - it extends Atom now!
+        // 2. Standard Unified Assembly
+        // Если Blueprint найден, создаем Assembly (она сама разберется, это Native logic или Custom container).
+        if (bp != null) {
             return new Assembly(id, bp);
         }
 
-        // --- Create standard Atom ---
-        var inputs:Array<Contact> = [];
-        var outputs:Array<Contact> = [];
-
-        for (pin in bp.pins) {
-            var c = new Contact(pin.defaultValue, pin.type, pin.name);
-            if (pin.type == ContactType.INPUT) inputs.push(c);
-            else outputs.push(c);
-        }
-
-        return new Atom(inputs, outputs, bp.logic, id, typeId);
+        // 3. Fallback (should not happen if Registry is correct)
+        trace('ERROR: Blueprint not found: $typeId');
+        return null;
     }
 
-    /**
-     * Creates an Assembly (Composite) from a Blueprint.
-     */
     public static function createAssembly(typeId:String):Assembly {
-        var bp = AtomRegistry.get(typeId);
-        if (bp == null) {
-            trace("Error: Assembly Blueprint not found: " + typeId);
-            return null;
-        }
-
-        var id = "asm_" + (_uidCounter++) + "_" + typeId;
-        return new Assembly(id, bp);
+        var atom = createAtom(typeId);
+        return cast atom;
     }
 
-    /**
-     * Checks if a Blueprint is composite.
-     */
     public static function isComposite(typeId:String):Bool {
         var bp = AtomRegistry.get(typeId);
         if (bp == null) return false;
+        // Composite = Custom Assembly (no logic, has internals)
         return (bp.logic == null && bp.internalAtoms != null && bp.internalAtoms.length > 0);
     }
 }

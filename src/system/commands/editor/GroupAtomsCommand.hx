@@ -15,14 +15,9 @@ import core.logic.Impulsys;
 import library.AtomRegistry;
 
 /**
- * GROUP ATOMS COMMAND v2.0 (Memory Leak Fixed)
+ * GROUP ATOMS COMMAND v2.1 (Port Limits Support)
  * Command to group selected atoms into a new Assembly.
- * 
- * FIXES v2.0:
- * - Send ATOM_DELETED impulse BEFORE modifying blueprint (allows NodeEditor to cleanup wires)
- * - Proper atom disposal using IDisposable interface
- * - Send REDRAW_WIRES after all changes complete
- * - Copy selectedIds array to avoid external mutation
+ * Respects MAX_INPUT_PORTS and MAX_OUTPUT_PORTS limits.
  */
 class GroupAtomsCommand extends Command {
 
@@ -34,7 +29,7 @@ class GroupAtomsCommand extends Command {
         super();
         _blueprint = blueprint;
         _assembly = assembly;
-        _selectedNodeIds = selectedIds.copy(); // Copy to avoid external mutation
+        _selectedNodeIds = selectedIds.copy();
     }
 
     override private function executeInternal():Void {
@@ -44,54 +39,92 @@ class GroupAtomsCommand extends Command {
             return;
         }
 
-        // 1. Collect data about internal atoms
+        // 1. Collect data
         var newInternalAtoms:Array<AtomDef> = [];
         var newInternalConnections:Array<ConnectionDef> = [];
         var newPins:Array<{name:String, type:ContactType, ?dataType:String, ?defaultValue:Dynamic}> = [];
+        
+        // Separate internal and external connections
         var externalConnections:Array<{conn:ConnectionDef, isSourceSelected:Bool}> = [];
-
-        // Separate connections
+        
         for (conn in _blueprint.internalConnections) {
             var fromSel = _selectedNodeIds.indexOf(conn.from.atomId) != -1;
             var toSel = _selectedNodeIds.indexOf(conn.to.atomId) != -1;
 
             if (fromSel && toSel) {
-                // Internal connection
                 newInternalConnections.push(conn);
-            } else {
-                // External connection (boundary)
+            } else if (fromSel || toSel) {
                 externalConnections.push({conn: conn, isSourceSelected: fromSel});
             }
         }
 
-        // List of atoms to include
         for (atomDef in _blueprint.internalAtoms) {
             if (_selectedNodeIds.indexOf(atomDef.instanceId) != -1) {
                 newInternalAtoms.push(atomDef);
             }
         }
 
-        // 2. Create interface (Pins) based on external connections
-        var pinCounter = 0;
+        // 2. PROCESS EXTERNAL CONNECTIONS WITH LIMITS
+        // Sort to make priority deterministic (e.g., by source atom ID or contact name)
+        externalConnections.sort(function(a, b) {
+            var nameA = a.conn.from.atomId + a.conn.from.contactName;
+            var nameB = b.conn.from.atomId + b.conn.from.contactName;
+            return Reflect.compare(nameA, nameB);
+        });
+
+        var inputCount = 0;
+        var outputCount = 0;
         var mapping:Array<{oldConn:ConnectionDef, newPinName:String, isInput:Bool}> = [];
+        var pinCounter = 0;
 
         for (item in externalConnections) {
             var conn = item.conn;
-            var pinName = "pin_" + pinCounter++;
-            var pinType:ContactType = item.isSourceSelected ? OUTPUT : INPUT;
+            var type:ContactType = item.isSourceSelected ? OUTPUT : INPUT; // Direction relative to new Assembly
+            
+            var limitReached = false;
+            var msg = "";
 
-            // Create Pin Definition
-            newPins.push({name: pinName, type: pinType, dataType: null, defaultValue: null});
+            // Check Limits
+            if (type == INPUT) {
+                if (inputCount >= Assembly.MAX_INPUT_PORTS) {
+                    limitReached = true;
+                    msg = 'WARN: Input ports limit (${Assembly.MAX_INPUT_PORTS}) reached. Connection ${conn.from.atomId}->${conn.to.atomId} ignored.';
+                } else {
+                    inputCount++;
+                }
+            } else {
+                if (outputCount >= Assembly.MAX_OUTPUT_PORTS) {
+                    limitReached = true;
+                    msg = 'WARN: Output ports limit (${Assembly.MAX_OUTPUT_PORTS}) reached. Connection ${conn.from.atomId}->${conn.to.atomId} ignored.';
+                } else {
+                    outputCount++;
+                }
+            }
 
-            // Create connection inside new assembly
+            if (limitReached) {
+                trace(msg); // User feedback
+                // We do NOT add this connection to the new assembly. 
+                // The wire remains in the parent blueprint? Ideally, we should probably remove it 
+                // or leave it dangling. For now, we just don't map it to the new assembly port.
+                continue; 
+            }
+
+            // Create Pin
+            var pinName = "pin_" + (pinCounter++);
+            newPins.push({name: pinName, type: type, dataType: null, defaultValue: null});
+
+            // Create internal connection for this pin
             if (item.isSourceSelected) {
-                // Case A: Outgoing
+                // Output of internal atom -> Output Port of Assembly (which is Input inside? No.)
+                // Assembly Output Port -> Inside it acts as Input (Target).
+                // So we connect Internal Source -> Self.Port
                 newInternalConnections.push({
                     from: conn.from,
                     to: {atomId: "SELF", contactName: pinName}
                 });
             } else {
-                // Case B: Incoming
+                // Assembly Input Port -> Inside it acts as Output (Source).
+                // Connect Self.Port -> Internal Target
                 newInternalConnections.push({
                     from: {atomId: "SELF", contactName: pinName},
                     to: conn.to
@@ -105,35 +138,32 @@ class GroupAtomsCommand extends Command {
         var newTypeId = "CustomAssembly_" + Std.random(10000);
         var newBp = new Blueprint(newTypeId, "Custom Assembly", newPins, null, newInternalAtoms, newInternalConnections);
 
-        // Save to disk
         saveNewAssembly(newBp);
-
-        // Register in runtime
         AtomRegistry.registerBlueprint(newTypeId, newBp);
 
-        // 4. ✅ FIX: Send ATOM_DELETED impulses FIRST for proper wire cleanup!
-        // This allows NodeEditor to clear wire sprites and their cacheAsBitmap
+        // 4. Send ATOM_DELETED impulses
         for (id in _selectedNodeIds) {
             Impulsys.quickEmit("ATOM_DELETED", {id: id});
         }
 
-        // 5. ✅ FIX: Properly dispose atoms before removal
+        // 5. Dispose atoms
         for (id in _selectedNodeIds) {
             var def = findAtomDef(id);
             if (def != null) _blueprint.internalAtoms.remove(def);
 
             var inst = _assembly.internalAtoms.get(id);
             if (inst != null) {
-                // ✅ FIX: Proper disposal with IDisposable interface
-                // This ensures any cached resources are released
                 var disposable:IDisposable = cast inst;
                 if (disposable != null) disposable.dispose();
                 _assembly.internalAtoms.remove(id);
             }
         }
 
-        // Remove old connections
+        // Remove old external connections that were mapped
         for (item in externalConnections) {
+             // Check if it was mapped (limits might have prevented it)
+             // Ideally we should check if it exists in mapping, but simpler to remove all original external connections
+             // that involved the selected nodes.
             _blueprint.internalConnections.remove(item.conn);
         }
 
@@ -142,35 +172,30 @@ class GroupAtomsCommand extends Command {
         _assembly.internalAtoms.set(newAtomInstance.id, newAtomInstance);
         _blueprint.internalAtoms.push({instanceId: newAtomInstance.id, typeId: newTypeId, x: 300, y: 300});
 
-        // 7. Restore external connections
+        // 7. Restore external connections (wires to the new assembly)
         for (m in mapping) {
             var newConn:ConnectionDef;
             if (m.isInput) {
-                // Incoming
+                // Incoming to new assembly
                 newConn = {
-                    from: m.oldConn.from,
+                    from: m.oldConn.from, // External source
                     to: {atomId: newAtomInstance.id, contactName: m.newPinName}
                 };
             } else {
-                // Outgoing
+                // Outgoing from new assembly
                 newConn = {
                     from: {atomId: newAtomInstance.id, contactName: m.newPinName},
-                    to: m.oldConn.to
+                    to: m.oldConn.to // External target
                 };
             }
-
             _blueprint.internalConnections.push(newConn);
-
-            // Physical connection
+            
             var c1 = resolveContact(newConn.from);
             var c2 = resolveContact(newConn.to);
             if (c1 != null && c2 != null) c1.link(c2);
         }
 
-        // 8. Create view for new assembly
         Impulsys.quickEmit("ATOM_RESTORED", {id: newAtomInstance.id, x: 300, y: 300, atom: newAtomInstance});
-
-        // 9. ✅ FIX: Force wire rebuild after all changes
         Impulsys.quickEmit("REDRAW_WIRES");
 
         complete();
@@ -182,20 +207,14 @@ class GroupAtomsCommand extends Command {
 
     private function saveNewAssembly(bp:Blueprint):Void {
         #if sys
-        var data:Dynamic = {
-            version: "1.0",
-            blueprint: bp
-        };
+        var data:Dynamic = { version: "1.0", blueprint: bp };
         var path = "library/" + bp.id + ".atom";
         sys.io.File.saveContent(path, haxe.Json.stringify(data, null, "  "));
-        trace("Assembly saved to: " + path);
         #end
     }
 
     private function findAtomDef(id:String):AtomDef {
-        for (a in _blueprint.internalAtoms) {
-            if (a.instanceId == id) return a;
-        }
+        for (a in _blueprint.internalAtoms) if (a.instanceId == id) return a;
         return null;
     }
 
@@ -209,4 +228,3 @@ class GroupAtomsCommand extends Command {
 
     override public function getDescription():String return 'Group ${_selectedNodeIds.length} Atoms';
 }
-

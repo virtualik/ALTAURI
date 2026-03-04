@@ -3,15 +3,19 @@ package library;
 import core.data.Blueprint;
 import core.data.Blueprint.PinDef;
 import core.types.ContactType;
-// Импорты для классов, если используются в логике по умолчанию
 import library.logic.NandAtom;
 import library.electro.ButtonAtom;
 import library.electro.LedAtom;
 import library.electro.RelayAtom;
+import sys.FileSystem;
+import sys.io.File;
 
 class AtomRegistry {
     private static var _initialized:Bool = false;
     private static var _blueprints:Map<String, Blueprint> = new Map();
+
+    // Путь к библиотеке будет установлен извне
+    public static var customLibraryPath:String = "";
 
     private static function reg(id:String, name:String, pins:Array<PinDef>, ?logic) {
         _blueprints.set(id, new Blueprint(id, name, pins, logic));
@@ -24,37 +28,39 @@ class AtomRegistry {
     public static function initialize():Void {
         if (_initialized) return;
 
-        // --- 1. LOGIC PRIMITIVES (Foundation) ---
+        // --- 1. NATIVE ATOMS (Logic defined in code) ---
+        
         reg("NAND", "NAND Gate",
             [{name: "A", type: INPUT}, {name: "B", type: INPUT}, {name: "Q", type: OUTPUT}],
-            null // Logic is inside NandAtom class
+            function(v) return [!(v[0] && v[1])]
         );
 
-        // --- 2. ELECTRO COMPONENTS (I/O) ---
-
-        // Button (Source)
         reg("Button", "Push Button",
             [{name: "out", type: OUTPUT, dataType: "bool"}],
-            null
+            null // Logic handled by View/Driver interaction usually, or just toggle
         );
 
-        // LED (Display)
         reg("LED", "LED Indicator",
             [{name: "in", type: INPUT, dataType: "bool"}],
             null
         );
 
-        // Relay (Commutator)
         reg("Relay", "Relay Switch",
             [
                 {name: "signal", type: INPUT, dataType: "any"},
                 {name: "control", type: INPUT, dataType: "bool"},
                 {name: "out", type: OUTPUT, dataType: "any"}
             ],
-            null
+            null // Logic handled in RelayAtom class (if it exists) or logic func
+            // Note: If RelayAtom is a class extending Atom, Factory handles it.
+            // If we want it to be generic Assembly, we add logic here.
+        );
+        
+        reg("Pass", "Pass Through",
+            [{name: "in", type: INPUT}, {name: "out", type: OUTPUT}],
+            function(v) return v
         );
 
-        // --- INPUTS (Sources) ---
         reg("SensorMock", "Random Sensor",
             [{name: "value", type: OUTPUT, dataType: "number", defaultValue: 0}],
             null
@@ -70,16 +76,9 @@ class AtomRegistry {
             null
         );
 
-        // --- OUTPUTS (Displays) ---
         reg("AlphaNumericLine", "Display",
             [{name: "in", type: INPUT, dataType: "any"}],
             null
-        );
-
-        // --- LOGIC (Basics) ---
-        reg("Pass", "Pass Through",
-            [{name: "in", type: INPUT}, {name: "out", type: OUTPUT}],
-            function(v) return v
         );
 
         _initialized = true;
@@ -89,82 +88,87 @@ class AtomRegistry {
         return _blueprints.get(id);
     }
 
-    // --- НОВОЕ: Регистрация сборок ---
-
     public static function registerBlueprint(id:String, bp:Blueprint):Void {
         _blueprints.set(id, bp);
     }
 
-    // --- НОВОЕ: Сканирование папки ---
-    #if sys
+    // --- SCAN FOLDER ---
     public static function scanFolder(path:String):Void {
-        if (!sys.FileSystem.exists(path)) {
-            sys.FileSystem.createDirectory(path);
+        if (!FileSystem.exists(path)) {
+            try {
+                FileSystem.createDirectory(path);
+            } catch(e:Dynamic) {
+                trace("Error creating library dir: " + e);
+            }
             return;
         }
-        
+
         trace("Scanning library folder: " + path);
-        
-        for (file in sys.FileSystem.readDirectory(path)) {
+
+        for (file in FileSystem.readDirectory(path)) {
             if (StringTools.endsWith(file, ".atom")) {
                 var fullPath = path + "/" + file;
-                try {
-                    var content = sys.io.File.getContent(fullPath);
-                    var json = haxe.Json.parse(content);
-                    var rawBp:Dynamic = json.blueprint;
+                loadAtomFile(fullPath);
+            }
+        }
+    }
 
-                    // Восстанавливаем типы
-                    var pins:Array<PinDef> = [];
-                    if (rawBp.pins != null) {
-                        for (p in (cast(rawBp.pins, Array<Dynamic>))) {
-                            pins.push({
-                                name: Std.string(p.name),
-                                type: _parseContactType(p.type),
-                                defaultValue: p.defaultValue,
-                                dataType: Std.string(p.dataType)
-                            });
-                        }
-                    }
-                    
-                    // Восстанавливаем связи (нужно привести типы)
-                    var conns = [];
-                    if (rawBp.internalConnections != null) {
-                        for(c in (cast(rawBp.internalConnections, Array<Dynamic>))) {
-                            conns.push({
-                                from: { atomId: Std.string(c.from.atomId), contactName: Std.string(c.from.contactName) },
-                                to: { atomId: Std.string(c.to.atomId), contactName: Std.string(c.to.contactName) }
-                            });
-                        }
-                    }
-                    
-                    var atoms = [];
-                     if (rawBp.internalAtoms != null) {
-                        for(a in (cast(rawBp.internalAtoms, Array<Dynamic>))) {
-                            atoms.push({
-                                instanceId: Std.string(a.instanceId),
-                                typeId: Std.string(a.typeId),
-                                x: a.x,
-                                y: a.y
-                            });
-                        }
-                    }
+    public static function loadAtomFile(fullPath:String):Bool {
+        try {
+            var content = File.getContent(fullPath);
+            var json = haxe.Json.parse(content);
+            var rawBp:Dynamic = json.blueprint;
 
-                    var bp = new Blueprint(
-                        Std.string(rawBp.id),
-                        Std.string(rawBp.name),
-                        pins,
-                        null,
-                        atoms,
-                        conns,
-                        Std.string(rawBp.category)
-                    );
-
-                    registerBlueprint(bp.id, bp);
-                    trace("Library loaded: " + bp.id);
-                } catch(e:Dynamic) {
-                    trace("Failed to load atom: " + file + " | Error: " + e);
+            var pins:Array<PinDef> = [];
+            if (rawBp.pins != null) {
+                for (p in (cast(rawBp.pins, Array<Dynamic>))) {
+                    pins.push({
+                        name: Std.string(p.name),
+                        type: _parseContactType(p.type),
+                        defaultValue: p.defaultValue,
+                        dataType: Std.string(p.dataType)
+                    });
                 }
             }
+
+            var conns = [];
+            if (rawBp.internalConnections != null) {
+                for(c in (cast(rawBp.internalConnections, Array<Dynamic>))) {
+                    conns.push({
+                        from: { atomId: Std.string(c.from.atomId), contactName: Std.string(c.from.contactName) },
+                        to: { atomId: Std.string(c.to.atomId), contactName: Std.string(c.to.contactName) }
+                    });
+                }
+            }
+
+            var atoms = [];
+             if (rawBp.internalAtoms != null) {
+                for(a in (cast(rawBp.internalAtoms, Array<Dynamic>))) {
+                    atoms.push({
+                        instanceId: Std.string(a.instanceId),
+                        typeId: Std.string(a.typeId),
+                        x: a.x,
+                        y: a.y
+                    });
+                }
+            }
+
+            var bp = new Blueprint(
+                Std.string(rawBp.id),
+                Std.string(rawBp.name),
+                pins,
+                null, // Logic is always null for loaded files (Custom Assemblies)
+                atoms,
+                conns,
+                Std.string(rawBp.category)
+            );
+
+            registerBlueprint(bp.id, bp);
+            trace("Library loaded: " + bp.id);
+            return true;
+        } catch(e:Dynamic) {
+            trace("Failed to load atom: " + fullPath + " | Error: " + e);
+            return false;
         }
     }
 
@@ -189,5 +193,4 @@ class AtomRegistry {
         }
         return UNDEFINED;
     }
-    #end
 }

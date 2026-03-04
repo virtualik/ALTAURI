@@ -25,9 +25,6 @@ import core.data.Blueprint.ConnectionDef;
 import core.data.Blueprint.ConnectionPoint;
 import ecs.ECS;
 
-/**
- * NODE EDITOR v3.6 (Assembly Port Management)
- */
 class NodeEditor extends Sprite {
 
     private var _useEcsRender:Bool = true;
@@ -80,6 +77,10 @@ class NodeEditor extends Sprite {
 
     private var _ecsRenderEnabled:Bool = true;
     private var _allowAssembly:Bool = true;
+    
+    // Sizing Support
+    private var _forcedWidth:Float = 0;
+    private var _forcedHeight:Float = 0;
 
     public function new(assembly:Assembly) {
         super();
@@ -128,7 +129,7 @@ class NodeEditor extends Sprite {
         _fileNameField.mouseEnabled = false;
         addChild(_fileNameField);
 
-        drawFrame();
+        // drawFrame will be called on ADDED_TO_STAGE or via resize
         addEventListener(Event.ADDED_TO_STAGE, onAddedToStage_Frame);
 
         _cbRedraw = function(_) rebuildAllWires();
@@ -143,15 +144,12 @@ class NodeEditor extends Sprite {
         Impulsys.subscribeToImpulse("ATOM_DELETED", onAtomDeleted);
         Impulsys.subscribeToImpulse("ATOM_RESTORED", onAtomRestored);
         Impulsys.subscribeToImpulse("NODE_CLICKED", onNodeClicked);
-
-        if (stage != null) {
-            initListeners();
-            drawFrame();
-        } else {
-            addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
-        }
-
-        rebuildAllWires();
+    }
+    
+    public function setSize(w:Float, h:Float):Void {
+        _forcedWidth = w;
+        _forcedHeight = h;
+        drawFrame();
     }
 
     private function onPortsChanged():Void {
@@ -160,10 +158,10 @@ class NodeEditor extends Sprite {
     }
 
     private function drawFrame(e:Event = null):Void {
-        if (stage == null) return;
-
-        var w:Float = stage.stageWidth;
-        var h:Float = stage.stageHeight;
+        // Determine dimensions
+        var w:Float = _forcedWidth > 0 ? _forcedWidth : (stage != null ? stage.stageWidth : 800);
+        var h:Float = _forcedHeight > 0 ? _forcedHeight : (stage != null ? stage.stageHeight : 600);
+        
         var borderColor:Int = 0x00AAFF;
 
         _frame.graphics.clear();
@@ -595,7 +593,6 @@ class NodeEditor extends Sprite {
         updateEdgeWires();
     }
     
-    // RESTORED METHOD
     private function updateActiveWires():Void {
         if (_activeWires.length == 0) return;
         for (link in _blueprint.internalConnections) {
@@ -676,13 +673,20 @@ class NodeEditor extends Sprite {
 
     private function onAddedToStage_Frame(e:Event):Void {
         removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage_Frame);
-        stage.addEventListener(Event.RESIZE, drawFrame);
-        drawFrame();
-    }
-
-    private function onAddedToStage(e:Event):Void {
-        removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
+        stage.addEventListener(Event.RESIZE, onResize);
         initListeners();
+        drawFrame();
+        
+        // FIX: Rebuild wires AFTER frame is drawn (ports are created)
+        rebuildAllWires();
+    }
+    
+    private function onResize(e:Event):Void {
+        // If not forced size, redraw using stage dimensions
+        if (_forcedWidth == 0 && _forcedHeight == 0) {
+            drawFrame();
+            rebuildAllWires(); // Also rebuild wires on resize
+        }
     }
 
     private function initListeners():Void {
@@ -691,10 +695,8 @@ class NodeEditor extends Sprite {
         stage.addEventListener(MouseEvent.MIDDLE_MOUSE_DOWN, onMiddleMouseDown);
         stage.addEventListener(MouseEvent.MIDDLE_MOUSE_UP, onMiddleMouseUp);
         stage.addEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
-        stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
     }
 
-    private function onEnterFrame(e:Event):Void { }
     private function onMiddleMouseDown(e:MouseEvent):Void {
         _isPanning = true;
         _panStartX = e.stageX; _panStartY = e.stageY;
@@ -894,7 +896,14 @@ class NodeEditor extends Sprite {
     public function getWireCount():Int return (_blueprint.internalConnections == null) ? 0 : _blueprint.internalConnections.length;
 
     public function dispose():Void {
-        if (stage != null) stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
+        if (stage != null) {
+            stage.removeEventListener(Event.RESIZE, onResize);
+            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
+            stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+            stage.removeEventListener(MouseEvent.MIDDLE_MOUSE_DOWN, onMiddleMouseDown);
+            stage.removeEventListener(MouseEvent.MIDDLE_MOUSE_UP, onMiddleMouseUp);
+            stage.removeEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
+        }
         
         Impulsys.removeImpulse("PORT_DRAG_START", onPortDragStart);
         Impulsys.removeImpulse("EDITOR_NODE_MOVED", onNodeMoved);
@@ -906,16 +915,6 @@ class NodeEditor extends Sprite {
         Impulsys.removeImpulse("ATOM_RESTORED", onAtomRestored);
         Impulsys.removeImpulse("NODE_CLICKED", onNodeClicked);
 
-        if (stage != null) {
-            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
-            stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
-            stage.removeEventListener(MouseEvent.MIDDLE_MOUSE_DOWN, onMiddleMouseDown);
-            stage.removeEventListener(MouseEvent.MIDDLE_MOUSE_UP, onMiddleMouseUp);
-            stage.removeEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
-            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onLassoMove);
-            stage.removeEventListener(MouseEvent.MOUSE_UP, onLassoUp);
-            stage.removeEventListener(Event.RESIZE, drawFrame);
-        }
         _canvas.removeEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
         clearAllWires();
         for (nodeId in _nodes.keys()) {

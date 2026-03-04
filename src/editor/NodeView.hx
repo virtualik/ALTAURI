@@ -70,7 +70,7 @@ class NodeView extends Sprite {
         this.atom = atom;
         this.nodeId = nodeId;
 
-        if (Std.isOfType(atom, Assembly)) {
+		if (Std.isOfType(atom, Assembly)) {
             this._assemblyInstance = cast(atom, Assembly);
         }
 

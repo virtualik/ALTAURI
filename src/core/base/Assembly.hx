@@ -4,12 +4,16 @@ import core.data.Blueprint;
 import core.data.Blueprint.PinDef;
 import core.data.Blueprint.ConnectionPoint;
 import core.base.Contact;
-import core.base.Atom;
 import core.base.IDisposable;
 import core.types.ContactType;
 
 /**
- * ASSEMBLY v3.3 (Dynamic Ports Support)
+ * ASSEMBLY v4.0 (Unified Model)
+ * Универсальный базовый класс для ВСЕХ узлов.
+ * Объединяет возможности Atom (логика) и Assembly (контейнер).
+ * 
+ * Native атомы: имеют logic, не имеют internalAtoms.
+ * Custom сборки: не имеют logic, имеют internalAtoms.
  */
 class Assembly extends Atom {
 
@@ -20,9 +24,11 @@ class Assembly extends Atom {
     public var ports(default, null):Map<String, ConductorPort>;
     public var internalAtoms(default, null):Map<String, Dynamic>;
 
+    // ИСПРАВЛЕНИЕ: Объявляем свойства (Map) без override, так как в Atom их нет (там Array)
     public var inputs(get, null):Map<String, Contact>;
     public var outputs(get, null):Map<String, Contact>;
 
+    // Геттеры для свойств Maps
     private function get_inputs():Map<String, Contact> {
         var map = new Map<String, Contact>();
         for (p in ports) if (p.type == INPUT) map.set(p.name, p.external);
@@ -40,13 +46,14 @@ class Assembly extends Atom {
         this.ports = new Map();
         this.internalAtoms = new Map();
 
+        // 1. Создаем интерфейс (порты)
         _createInterface();
 
+        // 2. Формируем массивы контактов для передачи в super (Atom)
         var inputsArr:Array<Contact> = [];
         var outputsArr:Array<Contact> = [];
-
-        // Сортируем порты согласно Blueprint при создании
         var ordered = _getOrderedPortDefs();
+        
         for (pinDef in ordered) {
             var p = ports.get(pinDef.name);
             if (p != null) {
@@ -55,11 +62,18 @@ class Assembly extends Atom {
             }
         }
 
-        var typeName = blueprint != null ? blueprint.id : "Assembly";
-        super(inputsArr, outputsArr, null, id, typeName, false);
+        var typeName = blueprint != null ? blueprint.name : "Assembly";
+        
+        // 3. Вызываем конструктор Atom.
+        // ИСПРАВЛЕНИЕ: Передаем blueprint.logic. Если это Native атом, логика будет выполнена.
+        super(inputsArr, outputsArr, blueprint.logic, id, typeName, false);
 
-        _createInternalInstances();
-        _createInternalConnections();
+        // 4. Если логики нет (это Custom сборка), создаем внутренности.
+        // Если логика есть, внутренности игнорируются (Native атом).
+        if (blueprint.logic == null) {
+            _createInternalInstances();
+            _createInternalConnections();
+        }
     }
 
     private function _createInterface():Void {
@@ -123,10 +137,9 @@ class Assembly extends Atom {
     }
 
     public function addPort(name:String, type:ContactType, defaultValue:Dynamic = null):ConductorPort {
-        // 1. Validate Limits
         var currentCount = 0;
         for (p in ports) if (p.type == type) currentCount++;
-        
+
         var max = (type == INPUT) ? MAX_INPUT_PORTS : MAX_OUTPUT_PORTS;
         if (currentCount >= max) {
             trace('ERROR: Max ports limit reached for type $type');
@@ -138,17 +151,12 @@ class Assembly extends Atom {
             return null;
         }
 
-        // 2. Add to Blueprint
         var pinDef:PinDef = { name: name, type: type, defaultValue: defaultValue };
         blueprint.pins.push(pinDef);
 
-        // 3. Create Port Object
         var port = new ConductorPort(name, type, defaultValue);
         ports.set(name, port);
 
-        // 4. Update Atom arrays
-        // Используем прямой доступ к приватным полям _inputs/_outputs родительского класса Atom.
-        // Это разрешено, так как Assembly находится в том же пакете core.base.
         if (type == INPUT) {
             _inputs.push(port.external);
         } else {
@@ -162,9 +170,6 @@ class Assembly extends Atom {
         var port = ports.get(name);
         if (port == null) return;
 
-        // 1. Remove from Blueprint
-        // ИСПРАВЛЕНИЕ: Мы не можем писать в blueprint.pins = ..., так как сеттер null.
-        // Вместо этого ищем элемент в массиве и удаляем его методом remove().
         var pinToRemove:PinDef = null;
         for (pin in blueprint.pins) {
             if (pin.name == name) {
@@ -176,15 +181,12 @@ class Assembly extends Atom {
             blueprint.pins.remove(pinToRemove);
         }
 
-        // 2. Remove from Atom arrays
-        // Используем прямой доступ к приватным полям.
         if (port.type == INPUT) {
             _inputs.remove(port.external);
         } else {
             _outputs.remove(port.external);
         }
 
-        // 3. Dispose and Remove
         port.dispose();
         ports.remove(name);
     }
