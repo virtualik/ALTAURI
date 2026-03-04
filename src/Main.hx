@@ -23,7 +23,10 @@ import ui.SettingsPanel;
 import ui.WireType;
 import system.io.ProjectIO;
 import system.commands.editor.GroupAtomsCommand;
+import system.commands.editor.AddPortCommand;
+import system.commands.editor.RemovePortCommand;
 import ecs.ECS;
+import core.types.ContactType;
 
 import openfl.Lib;
 import openfl.events.Event;
@@ -38,7 +41,7 @@ import js.Browser;
 #end
 
 /**
- * MAIN APPLICATION v3.7 (Auto-save nested Assembly on Exit)
+ * MAIN APPLICATION v3.8 (Port Management Integration)
  */
 class Main extends Sprite {
 
@@ -70,6 +73,9 @@ class Main extends Sprite {
 
     private var _newAssemblyBtn:ButtonComponent;
     private var _lastTime:Int = 0;
+    
+    // Callback reference for cleanup
+    private var _cbPortRightClick:Impulse -> Void;
 
     public function new() {
         super();
@@ -231,6 +237,8 @@ class Main extends Sprite {
 
         stage.addEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
         stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
+        
+        _cbPortRightClick = onPortRightClick;
 
         Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION", onMenuAction);
         Impulsys.subscribeToImpulse("CLOSE_CONTEXT_MENU", onCloseContextMenu);
@@ -238,6 +246,7 @@ class Main extends Sprite {
         Impulsys.subscribeToImpulse("NODE_RIGHT_CLICKED", onNodeRightClick);
         Impulsys.subscribeToImpulse("OPEN_ASSEMBLY_REQUEST", onOpenAssemblyRequest);
         Impulsys.subscribeToImpulse("WIRE_RIGHT_CLICKED", onWireRightClick);
+        Impulsys.subscribeToImpulse("PORT_RIGHT_CLICKED", _cbPortRightClick);
     }
 
     private function onSettingsClick():Void {
@@ -265,7 +274,7 @@ class Main extends Sprite {
 
     private function updateSettingsStats():Void {
         if (_settingsPanel != null && _editor != null) {
-            _settingsPanel.updateStats(_editor.getNodeCount(), _editor.getWireCount(), 
+            _settingsPanel.updateStats(_editor.getNodeCount(), _editor.getWireCount(),
                 _settingsPanel.useEcsRender, _settingsPanel.wireType, _settingsPanel.allowAssembly);
         }
     }
@@ -276,11 +285,9 @@ class Main extends Sprite {
             return;
         }
 
-        // --- NEW: Save current nested assembly before exiting ---
         #if sys
         saveCurrentAssemblyToDisk();
         #end
-        // ------------------------------------------------------
 
         _editor.dispose();
         _editorLayer.removeChild(_editor);
@@ -298,30 +305,25 @@ class Main extends Sprite {
         updateNavigationUI();
         log("Navigated back");
     }
-    
-    /**
-     * Saves the current assembly blueprint to disk and updates the registry.
-     */
+
     private function saveCurrentAssemblyToDisk():Void {
         if (_assembly == null || _assembly.blueprint == null) return;
-        
+
         var bp = _assembly.blueprint;
-        
-        // Don't save the temporary "nested_view" or main container if they are generic
+
         if (bp.id == "nested_view" || bp.id == "main_scheme" || bp.id == "loaded_asm") return;
-        
+
         #if sys
         var data:Dynamic = {
             version: "1.0",
             blueprint: bp
         };
         var path = "library/" + bp.id + ".atom";
-        
+
         try {
             sys.io.File.saveContent(path, haxe.Json.stringify(data, null, "  "));
             log("Saved nested assembly: " + path);
-            
-            // Update registry immediately so new instances use the new logic
+
             AtomRegistry.registerBlueprint(bp.id, bp);
         } catch (e:Dynamic) {
             log("Error saving assembly: " + Std.string(e));
@@ -366,6 +368,13 @@ class Main extends Sprite {
         _menu.show(stage.mouseX, stage.mouseY);
     }
     
+    private function onPortRightClick(impulse:Impulse):Void {
+        if (impulse == null || impulse.data == null) return;
+        resetContextMenu();
+        _menu.addItem('Delete Port "${impulse.data.portName}"', "REMOVE_PORT", {name: impulse.data.portName});
+        _menu.show(impulse.data.x, impulse.data.y);
+    }
+
     private function onWireRightClick(impulse:Impulse):Void {
         if (impulse == null || impulse.data == null) return;
         resetContextMenu();
@@ -381,6 +390,11 @@ class Main extends Sprite {
             var bp = AtomRegistry.get(id);
             if (bp != null) _menu.addItem("Add " + bp.name, "ADD_ATOM", {typeId: id});
         }
+        
+        // ADD PORT OPTIONS
+        _menu.addItem("——————", "SEP");
+        _menu.addItem("Add Input Port", "ADD_PORT", {type: INPUT});
+        _menu.addItem("Add Output Port", "ADD_PORT", {type: OUTPUT});
     }
 
     private function onMenuAction(impulse:Impulse):Void {
@@ -399,7 +413,6 @@ class Main extends Sprite {
                 var positions = _editor.getNodePositions();
                 var viewState = _editor.getViewState();
                 ProjectIO.save(_assembly.blueprint, positions, viewState);
-                // Also save custom assembly if we are inside one
                 #if sys
                 saveCurrentAssemblyToDisk();
                 #end
@@ -435,7 +448,7 @@ class Main extends Sprite {
                     updateSettingsStats();
                 }
                 return;
-            
+
             case "DELETE_WIRES":
                 _editor.deleteSelectedWires();
                 updateSettingsStats();
@@ -444,6 +457,20 @@ class Main extends Sprite {
             case "GROUP_ATOMS":
                 if (_settingsPanel.allowAssembly) groupSelectedToAssembly();
                 else log("Assembly is disabled in settings");
+                return;
+                
+            case "ADD_PORT":
+                if (data != null && data.type != null) {
+                    var cmd = new AddPortCommand(_assembly, data.type);
+                    UndoManager.getInstance().executeAndStore(cmd);
+                }
+                return;
+                
+            case "REMOVE_PORT":
+                if (data != null && data.name != null) {
+                    var cmd = new RemovePortCommand(_assembly, data.name);
+                    UndoManager.getInstance().executeAndStore(cmd);
+                }
                 return;
         }
 
@@ -572,6 +599,7 @@ class Main extends Sprite {
         Impulsys.subscribeToImpulse("NODE_RIGHT_CLICKED", onNodeRightClick);
         Impulsys.subscribeToImpulse("OPEN_ASSEMBLY_REQUEST", onOpenAssemblyRequest);
         Impulsys.subscribeToImpulse("WIRE_RIGHT_CLICKED", onWireRightClick);
+        Impulsys.subscribeToImpulse("PORT_RIGHT_CLICKED", _cbPortRightClick);
 
         DriverManager.getInstance().dispose();
         SignalQueue.getInstance().clear();

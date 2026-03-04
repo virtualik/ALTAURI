@@ -1,6 +1,7 @@
 package core.base;
 
 import core.data.Blueprint;
+import core.data.Blueprint.PinDef;
 import core.data.Blueprint.ConnectionPoint;
 import core.base.Contact;
 import core.base.Atom;
@@ -8,22 +9,17 @@ import core.base.IDisposable;
 import core.types.ContactType;
 
 /**
- * ASSEMBLY v3.2 (Memory Leak Fixed)
- * Composite structure containing Atoms and internal connections.
- * Extends Atom for full compatibility.
- *
- * CHANGES v3.2:
- * - Fixed: Memory leak in dispose() - now properly clears all references
- * - Fixed: ConductorPort disposal now unlinks contacts before clearing
- * - Added: Deep disposal of internal atoms with null checks
+ * ASSEMBLY v3.3 (Dynamic Ports Support)
  */
 class Assembly extends Atom {
+
+    public static inline var MAX_INPUT_PORTS:Int = 20;
+    public static inline var MAX_OUTPUT_PORTS:Int = 20;
 
     public var blueprint(default, null):Blueprint;
     public var ports(default, null):Map<String, ConductorPort>;
     public var internalAtoms(default, null):Map<String, Dynamic>;
 
-    // Public getters for external access (DevicePanel, NodeEditor, etc.)
     public var inputs(get, null):Map<String, Contact>;
     public var outputs(get, null):Map<String, Contact>;
 
@@ -44,34 +40,30 @@ class Assembly extends Atom {
         this.ports = new Map();
         this.internalAtoms = new Map();
 
-        // Create interface ports first
         _createInterface();
 
-        // Build inputs/outputs arrays from ports for Atom constructor
         var inputsArr:Array<Contact> = [];
         var outputsArr:Array<Contact> = [];
 
-        for (p in ports) {
-            if (p.type == INPUT) {
-                inputsArr.push(p.external);
-            } else {
-                outputsArr.push(p.external);
+        // Сортируем порты согласно Blueprint при создании
+        var ordered = _getOrderedPortDefs();
+        for (pinDef in ordered) {
+            var p = ports.get(pinDef.name);
+            if (p != null) {
+                if (p.type == INPUT) inputsArr.push(p.external);
+                else outputsArr.push(p.external);
             }
         }
 
-        // Call Atom constructor
-        // type = blueprint.id, isActive = false
         var typeName = blueprint != null ? blueprint.id : "Assembly";
         super(inputsArr, outputsArr, null, id, typeName, false);
 
-        // Now create internal structure
         _createInternalInstances();
         _createInternalConnections();
     }
 
     private function _createInterface():Void {
         if (blueprint == null || blueprint.pins == null) return;
-
         for (pinDef in blueprint.pins) {
             var port = new ConductorPort(pinDef.name, pinDef.type, pinDef.defaultValue);
             ports.set(pinDef.name, port);
@@ -80,86 +72,144 @@ class Assembly extends Atom {
 
     private function _createInternalInstances():Void {
         if (blueprint == null || blueprint.internalAtoms == null) return;
-
         for (atomDef in blueprint.internalAtoms) {
             var instance = AssemblyFactory.createAtom(atomDef.typeId, atomDef.instanceId);
-            if (instance != null) {
-                internalAtoms.set(atomDef.instanceId, instance);
-            }
+            if (instance != null) internalAtoms.set(atomDef.instanceId, instance);
         }
     }
 
     private function _createInternalConnections():Void {
         if (blueprint == null || blueprint.internalConnections == null) return;
-
         for (conn in blueprint.internalConnections) {
             var fromContact = resolveContact(conn.from);
             var toContact = resolveContact(conn.to);
-
-            if (fromContact != null && toContact != null) {
-                fromContact.link(toContact);
-            }
+            if (fromContact != null && toContact != null) fromContact.link(toContact);
         }
     }
 
     private function resolveContact(point:ConnectionPoint):Contact {
         if (point.atomId == "SELF") {
             var port = ports.get(point.contactName);
-            if (port == null) return null;
-            return port.internal;
+            return (port == null) ? null : port.internal;
         } else {
             var obj = internalAtoms.get(point.atomId);
             if (obj == null) return null;
             var atom:Atom = cast obj;
-            for (c in atom.getInputs()) if (c.name == point.contactName) return c;
-            for (c in atom.getOutputs()) if (c.name == point.contactName) return c;
+            var c = atom.getInput(point.contactName);
+            if (c == null) c = atom.getOutput(point.contactName);
+            return c;
         }
-        return null;
     }
 
-    /**
-     * Override dispose to clean up internal atoms properly.
-     * FIX v3.2: Complete cleanup of all references.
-     */
-    override public function dispose():Void {
-        // 1. Dispose all internal atoms FIRST
-        // Collect keys to avoid concurrent modification
-        var keys = [for (k in internalAtoms.keys()) k];
+    // =========================================================================
+    // PORT MANAGEMENT API
+    // =========================================================================
+
+    private function _getOrderedPortDefs():Array<PinDef> {
+        if (blueprint == null || blueprint.pins == null) return [];
+        return blueprint.pins.copy();
+    }
+
+    public function getOrderedPorts(type:ContactType):Array<ConductorPort> {
+        var result:Array<ConductorPort> = [];
+        var defs = _getOrderedPortDefs();
+        for (pin in defs) {
+            if (pin.type == type) {
+                var p = ports.get(pin.name);
+                if (p != null) result.push(p);
+            }
+        }
+        return result;
+    }
+
+    public function addPort(name:String, type:ContactType, defaultValue:Dynamic = null):ConductorPort {
+        // 1. Validate Limits
+        var currentCount = 0;
+        for (p in ports) if (p.type == type) currentCount++;
         
+        var max = (type == INPUT) ? MAX_INPUT_PORTS : MAX_OUTPUT_PORTS;
+        if (currentCount >= max) {
+            trace('ERROR: Max ports limit reached for type $type');
+            return null;
+        }
+
+        if (ports.exists(name)) {
+            trace('ERROR: Port name "$name" already exists');
+            return null;
+        }
+
+        // 2. Add to Blueprint
+        var pinDef:PinDef = { name: name, type: type, defaultValue: defaultValue };
+        blueprint.pins.push(pinDef);
+
+        // 3. Create Port Object
+        var port = new ConductorPort(name, type, defaultValue);
+        ports.set(name, port);
+
+        // 4. Update Atom arrays
+        // Используем прямой доступ к приватным полям _inputs/_outputs родительского класса Atom.
+        // Это разрешено, так как Assembly находится в том же пакете core.base.
+        if (type == INPUT) {
+            _inputs.push(port.external);
+        } else {
+            _outputs.push(port.external);
+        }
+
+        return port;
+    }
+
+    public function removePort(name:String):Void {
+        var port = ports.get(name);
+        if (port == null) return;
+
+        // 1. Remove from Blueprint
+        // ИСПРАВЛЕНИЕ: Мы не можем писать в blueprint.pins = ..., так как сеттер null.
+        // Вместо этого ищем элемент в массиве и удаляем его методом remove().
+        var pinToRemove:PinDef = null;
+        for (pin in blueprint.pins) {
+            if (pin.name == name) {
+                pinToRemove = pin;
+                break;
+            }
+        }
+        if (pinToRemove != null) {
+            blueprint.pins.remove(pinToRemove);
+        }
+
+        // 2. Remove from Atom arrays
+        // Используем прямой доступ к приватным полям.
+        if (port.type == INPUT) {
+            _inputs.remove(port.external);
+        } else {
+            _outputs.remove(port.external);
+        }
+
+        // 3. Dispose and Remove
+        port.dispose();
+        ports.remove(name);
+    }
+
+    override public function dispose():Void {
+        var keys = [for (k in internalAtoms.keys()) k];
         for (key in keys) {
             var obj = internalAtoms.get(key);
             if (obj != null) {
                 if (Std.isOfType(obj, IDisposable)) {
-                    try {
-                        cast(obj, IDisposable).dispose();
-                    } catch (e:Dynamic) {
-                        trace('Assembly.dispose: Error disposing atom $key: $e');
-                    }
+                    try { cast(obj, IDisposable).dispose(); } catch (e:Dynamic) { trace('Error: $e'); }
                 }
             }
         }
         internalAtoms.clear();
         internalAtoms = null;
 
-        // 2. Dispose all ports (this clears external and internal contacts)
         var portKeys = [for (k in ports.keys()) k];
         for (key in portKeys) {
             var port = ports.get(key);
-            if (port != null) {
-                port.dispose();
-            }
+            if (port != null) port.dispose();
         }
         ports.clear();
         ports = null;
 
-        // 3. Clear blueprint reference (optional - keep if needed elsewhere)
-        // blueprint = null;  // Commented out - Blueprint might be shared
-
-        // 4. Call parent dispose (clears inputs/outputs)
         super.dispose();
-        
-        #if debug
-        trace('Assembly "$id" disposed');
-        #end
     }
 }
