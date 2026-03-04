@@ -14,18 +14,12 @@ import ui.ContextMenu;
 import core.logic.Impulsys;
 import core.logic.Impulse;
 
-/**
- * DEVICE PANEL v2.1
- * Panel for interacting with Atoms in Runtime mode.
- * Supports Compact Mode for VirtualDevice Player (transparent background, no controls).
- */
 class DevicePanel extends Sprite {
 
     private var _target:Dynamic; // Atom or Assembly
     private var _assembly:Assembly;
     private var _widgets:Array<IHMIWidget>;
 
-    // UI Elements
     private var _header:Sprite;
     private var _titleField:TextField;
     private var _selectBtn:Sprite;
@@ -37,12 +31,11 @@ class DevicePanel extends Sprite {
     public function new(assembly:Assembly) {
         super();
         _assembly = assembly;
-        _target = assembly; // Default target is the Assembly itself
+        _target = assembly;
         _widgets = new Array();
 
-        // Always create content container first
         _content = new Sprite();
-        _content.y = 50; // Offset for header
+        _content.y = 50;
         addChild(_content);
 
         setupHeader();
@@ -50,19 +43,12 @@ class DevicePanel extends Sprite {
         layoutWidgets();
     }
 
-    /**
-     * Toggles compact mode.
-     * In Compact Mode: No background, no header, pure widgets.
-     */
     public function setCompactMode(val:Bool):Void {
         _isCompact = val;
         
         if (_isCompact) {
-            // Clear graphics (background)
             this.graphics.clear();
-            // Hide header
             if (_header != null) _header.visible = false;
-            // Adjust content position
             _content.y = 0;
         } else {
             drawBackground();
@@ -72,7 +58,6 @@ class DevicePanel extends Sprite {
     }
 
     private function drawBackground():Void {
-        // Draw main background
         graphics.clear();
         graphics.beginFill(0x1a1a24);
         graphics.drawRect(0, 0, 400, 500);
@@ -86,7 +71,6 @@ class DevicePanel extends Sprite {
         _header.y = 0;
         addChild(_header);
 
-        // Title
         _titleField = new TextField();
         _titleField.width = 200;
         _titleField.height = 40;
@@ -99,7 +83,6 @@ class DevicePanel extends Sprite {
         _titleField.text = "Device: SELF";
         _header.addChild(_titleField);
 
-        // Select Button
         _selectBtn = new Sprite();
         _selectBtn.graphics.beginFill(0x444455);
         _selectBtn.graphics.drawRoundRect(0, 5, 120, 30, 5, 5);
@@ -123,15 +106,11 @@ class DevicePanel extends Sprite {
     }
 
     private function onSelectClick(e:MouseEvent):Void {
-        // Create menu on the fly
         if (_contextMenu != null) removeChild(_contextMenu);
         
         _contextMenu = new ContextMenu();
-        
-        // Add SELF (Root)
         _contextMenu.addItem("[ SELF ]", "SELECT_ATOM", {id: "SELF"});
 
-        // Add all internal atoms
         if (_assembly != null && _assembly.internalAtoms != null) {
             for (id in _assembly.internalAtoms.keys()) {
                 var atom = _assembly.internalAtoms.get(id);
@@ -144,7 +123,6 @@ class DevicePanel extends Sprite {
         _contextMenu.y = 45;
         addChild(_contextMenu);
 
-        // Subscribe once
         Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION", onMenuAction);
     }
 
@@ -171,7 +149,6 @@ class DevicePanel extends Sprite {
         _target = target;
         _titleField.text = "Device: " + name;
         
-        // Clear old widgets
         for (w in _widgets) w.dispose();
         _widgets = [];
         while (_content.numChildren > 0) _content.removeChildAt(0);
@@ -185,6 +162,7 @@ class DevicePanel extends Sprite {
 
         if (Std.isOfType(_target, Assembly)) {
             var asm:Assembly = cast _target;
+            // Используем публичные свойства inputs и outputs
             inputs = asm.inputs;
             outputs = asm.outputs;
         } else if (Std.isOfType(_target, Atom)) {
@@ -195,7 +173,6 @@ class DevicePanel extends Sprite {
             for (c in atom.getOutputs()) outputs.set(c.name, c);
         }
 
-        // Draw Inputs (Left side)
         if (inputs != null) {
             var i = 0;
             for (name in inputs.keys()) {
@@ -209,7 +186,6 @@ class DevicePanel extends Sprite {
             }
         }
 
-        // Draw Outputs (Right side)
         if (outputs != null) {
             var i = 0;
             for (name in outputs.keys()) {

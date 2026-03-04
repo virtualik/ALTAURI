@@ -10,10 +10,6 @@ import core.types.ContactType;
 /**
  * ASSEMBLY v4.0 (Unified Model)
  * Универсальный базовый класс для ВСЕХ узлов.
- * Объединяет возможности Atom (логика) и Assembly (контейнер).
- * 
- * Native атомы: имеют logic, не имеют internalAtoms.
- * Custom сборки: не имеют logic, имеют internalAtoms.
  */
 class Assembly extends Atom {
 
@@ -24,11 +20,11 @@ class Assembly extends Atom {
     public var ports(default, null):Map<String, ConductorPort>;
     public var internalAtoms(default, null):Map<String, Dynamic>;
 
-    // ИСПРАВЛЕНИЕ: Объявляем свойства (Map) без override, так как в Atom их нет (там Array)
+    // ИСПРАВЛЕНИЕ: Свойства для доступа к контактам как к Map.
+    // В классе Atom они хранятся в Array, здесь мы предоставляем Map для удобства.
     public var inputs(get, null):Map<String, Contact>;
     public var outputs(get, null):Map<String, Contact>;
 
-    // Геттеры для свойств Maps
     private function get_inputs():Map<String, Contact> {
         var map = new Map<String, Contact>();
         for (p in ports) if (p.type == INPUT) map.set(p.name, p.external);
@@ -46,10 +42,8 @@ class Assembly extends Atom {
         this.ports = new Map();
         this.internalAtoms = new Map();
 
-        // 1. Создаем интерфейс (порты)
         _createInterface();
 
-        // 2. Формируем массивы контактов для передачи в super (Atom)
         var inputsArr:Array<Contact> = [];
         var outputsArr:Array<Contact> = [];
         var ordered = _getOrderedPortDefs();
@@ -64,12 +58,10 @@ class Assembly extends Atom {
 
         var typeName = blueprint != null ? blueprint.name : "Assembly";
         
-        // 3. Вызываем конструктор Atom.
-        // ИСПРАВЛЕНИЕ: Передаем blueprint.logic. Если это Native атом, логика будет выполнена.
+        // Передаем логику в super. Если это Native атом, логика выполнится.
         super(inputsArr, outputsArr, blueprint.logic, id, typeName, false);
 
-        // 4. Если логики нет (это Custom сборка), создаем внутренности.
-        // Если логика есть, внутренности игнорируются (Native атом).
+        // Если логики нет (Custom сборка), создаем внутренности.
         if (blueprint.logic == null) {
             _createInternalInstances();
             _createInternalConnections();

@@ -35,13 +35,11 @@ import core.types.ContactType;
 import openfl.Lib;
 import openfl.events.Event;
 
-// Исправление: добавляем StringTools для работы со строками
 using StringTools;
 
 #if sys
 import sys.FileSystem;
 import sys.io.File;
-// import sys.io.Path; // Убираем проблемный импорт
 #end
 
 #if desktop
@@ -96,7 +94,7 @@ class Main extends Sprite {
     private var _btnSettings:ButtonComponent;
 
     private var _pathField:TextField;
-    private var _nameField:TextField; // Moved name field
+    private var _nameField:TextField;
 
     private var _lastTime:Int = 0;
 
@@ -113,8 +111,6 @@ class Main extends Sprite {
 
         setupDebugLog();
         ProjectIO.logger = log;
-
-        // --- PATH SETUP ---
         setupPaths();
 
         AtomRegistry.initialize();
@@ -124,7 +120,6 @@ class Main extends Sprite {
         ECS.init();
 
         _editorStack = [];
-
         setupLayers();
 
         if (stage != null) init();
@@ -133,30 +128,26 @@ class Main extends Sprite {
 
     private function setupPaths():Void {
         #if sys
-        // Determine Documents Path
         var home = Sys.getEnv("HOME");
         if (home == null) home = Sys.getEnv("USERPROFILE");
 
         if (home != null) {
-            // Manual normalization of path
             home = home.replace("\\", "/");
             if (!home.endsWith("/")) home += "/";
             _documentsPath = home + "Documents";
         } else {
-            _documentsPath = Sys.getCwd(); // Fallback
+            _documentsPath = Sys.getCwd();
         }
 
         var altairRoot = _documentsPath + "/ALTAURI";
         _libraryPath = altairRoot + "/Library";
         _selfrunPath = altairRoot + "/Selfrun.atom";
 
-        // Ensure directories exist
         if (!FileSystem.exists(altairRoot)) FileSystem.createDirectory(altairRoot);
         if (!FileSystem.exists(_libraryPath)) FileSystem.createDirectory(_libraryPath);
 
         AtomRegistry.customLibraryPath = _libraryPath;
         #else
-        // Fallback for non-sys targets
         _selfrunPath = "Selfrun.atom";
         _libraryPath = "library";
         #end
@@ -169,12 +160,8 @@ class Main extends Sprite {
         SignalQueue.getInstance();
 
         addEventListener(Event.ENTER_FRAME, onMainLoop);
-
         buildUI();
-
         stage.addEventListener(Event.RESIZE, onResize);
-
-        // --- AUTO LOAD SELFRUN ---
         loadSelfrun();
     }
 
@@ -188,13 +175,10 @@ class Main extends Sprite {
                 var content = File.getContent(_selfrunPath);
                 var json = haxe.Json.parse(content);
                 var rawBp:Dynamic = json.blueprint;
-
-                // Parse Blueprint manually to ensure types are correct
                 var bp = parseBlueprintFromJson(rawBp);
 
                 rootAssembly = new Assembly("main_asm", bp);
 
-                // Restore view state if exists
                 var viewState = {x: 0.0, y: 0.0, zoom: 1.0};
                 if (json.editor != null) {
                     viewState.x = json.editor.x;
@@ -203,13 +187,12 @@ class Main extends Sprite {
                 }
 
                 pushEditor(rootAssembly, true);
-                // Apply view state after push
                 _currentEditor.setViewState(viewState);
                 log("Selfrun loaded.");
 
             } catch (err:Dynamic) {
                 log("Error parsing Selfrun: " + Std.string(err));
-                createEmptySelfrun(); // Fallback
+                createEmptySelfrun();
             }
         } else {
             createEmptySelfrun();
@@ -235,7 +218,7 @@ class Main extends Sprite {
             for (p in (cast(rawBp.pins, Array<Dynamic>))) {
                 pins.push({
                     name: Std.string(p.name),
-                    type: parseContactType(p.type), // Local helper
+                    type: parseContactType(p.type),
                     defaultValue: p.defaultValue,
                     dataType: Std.string(p.dataType)
                 });
@@ -275,7 +258,6 @@ class Main extends Sprite {
         );
     }
 
-    // Local helper to avoid dependency on AtomRegistry private methods
     private function parseContactType(val:Dynamic):ContactType {
         if (Std.isOfType(val, ContactType)) return val;
         if (Std.isOfType(val, String)) {
@@ -287,8 +269,7 @@ class Main extends Sprite {
             }
         }
         if (Std.isOfType(val, Int) || Std.isOfType(val, Float)) {
-            var index = Std.int(val);
-            switch(index) {
+            switch(Std.int(val)) {
                 case 0: return INPUT;
                 case 1: return OUTPUT;
                 case 2: return BIDIRECTIONAL;
@@ -317,10 +298,7 @@ class Main extends Sprite {
         }
 
         var container = new Sprite();
-
-        // Frame is handled by resize logic now, but we draw initial here
         drawContainerFrame(container);
-
         _editorLayer.addChild(container);
 
         var editor = new NodeEditor(assembly);
@@ -342,7 +320,7 @@ class Main extends Sprite {
     }
 
     private function drawContainerFrame(container:Sprite):Void {
-        var margin = 12; // 24px total margin (12 left + 12 right)
+        var margin = 12;
         var w = stage.stageWidth - margin * 2;
         var h = stage.stageHeight - margin * 2;
 
@@ -388,7 +366,6 @@ class Main extends Sprite {
         var now = Lib.getTimer();
         var dt = (now - _lastTime) / 1000.0;
         _lastTime = now;
-
         SignalQueue.getInstance().process();
     }
 
@@ -441,7 +418,8 @@ class Main extends Sprite {
         var startX = stage.stageWidth - btnPadding;
         var startY = btnPadding;
 
-        // Order: Back, View, New, Load, Save (Right to Left)
+        // Order: Back, View, New, Load, Save, Settings
+        // Layout: Right to Left
         
         _btnBack = new ButtonComponent("<", popEditor);
         _btnBack.x = startX - btnSize; _btnBack.y = startY;
@@ -475,8 +453,8 @@ class Main extends Sprite {
         _nameField.autoSize = LEFT;
         _nameField.selectable = false;
         _nameField.mouseEnabled = false;
-        _nameField.x = 20; // Outside frame margin
-        _nameField.y = 5;  // Top alignment
+        _nameField.x = 20;
+        _nameField.y = 5;
         _uiLayer.addChild(_nameField);
 
         // --- Path Field (Bottom Left) ---
@@ -514,12 +492,11 @@ class Main extends Sprite {
     }
 
     private function onResize(e:Event):Void {
-        // Resize debug field
         _debugField.y = stage.stageHeight - 40;
         _pathField.y = stage.stageHeight - 20;
 
         // Reposition buttons
-        var btnSize = 40; // Approximation
+        var btnSize = 40;
         var btnPadding = 5;
         var rightEdge = stage.stageWidth - btnPadding;
 
@@ -553,11 +530,9 @@ class Main extends Sprite {
         var isRoot = (_editorStack.length == 1);
 
         if (isRoot) {
-            // Save Selfrun
             log("Saving Selfrun...");
             saveSelfrun();
         } else {
-            // Save Custom Assembly to Library
             log("Saving Assembly to Library...");
             saveAssemblyToLibrary(_currentAssembly);
         }
@@ -566,14 +541,12 @@ class Main extends Sprite {
 
     private function saveSelfrun():Void {
         #if sys
-        // 1. Update internal atom positions
         var positions = _currentEditor.getNodePositions();
         for (atomDef in _currentAssembly.blueprint.internalAtoms) {
             var nodeData = Lambda.find(positions, function(n) return n.id == atomDef.instanceId);
             if (nodeData != null) { atomDef.x = nodeData.x; atomDef.y = nodeData.y; }
         }
 
-        // 2. Prepare JSON
         var viewState = _currentEditor.getViewState();
         var data:Dynamic = {
             version: "1.1",
@@ -581,13 +554,11 @@ class Main extends Sprite {
             editor: viewState
         };
 
-        // 3. Save
         try {
             File.saveContent(_selfrunPath, haxe.Json.stringify(data, null, "  "));
             log("Selfrun saved.");
         } catch(e:Dynamic) { log("Error saving Selfrun: " + e); }
 
-        // 4. Recursively save dirty children
         saveInternalAssemblies(_currentAssembly);
         #end
     }
@@ -615,10 +586,9 @@ class Main extends Sprite {
             var sub = asm.internalAtoms.get(key);
             if (Std.isOfType(sub, Assembly)) {
                 var subAsm = cast(sub, Assembly);
-                // If it's a custom assembly (has internals), save it
                 if (subAsm.blueprint.internalAtoms != null && subAsm.blueprint.internalAtoms.length > 0) {
                     saveAssemblyToLibrary(subAsm);
-                    saveInternalAssemblies(subAsm); // Recursion
+                    saveInternalAssemblies(subAsm);
                 }
             }
         }
@@ -694,7 +664,6 @@ class Main extends Sprite {
         }
         _pathField.text = path;
 
-        // Update Top Left Name
         if (_currentAssembly != null) {
             _nameField.text = _currentAssembly.blueprint.name;
         }
@@ -885,13 +854,11 @@ class Main extends Sprite {
     }
 
     private function onKeyDown(e:KeyboardEvent):Void {
-        // S - Save
         if (e.keyCode == Keyboard.S && !e.ctrlKey) {
             saveCurrentContext();
             return;
         }
 
-        // ESCAPE - Close Settings or Pop Editor
         if (e.keyCode == Keyboard.ESCAPE) {
             if (_settingsPanel.visible) { _settingsPanel.visible = false; return; }
             if (_menu != null) _menu.hide();
