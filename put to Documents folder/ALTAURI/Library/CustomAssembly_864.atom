@@ -1,0 +1,67 @@
+{
+  "blueprint": {
+    "id": "CustomAssembly_864",
+    "name": "Custom Assembly",
+    "category": "General",
+    "pins": [
+      {
+        "defaultValue": null,
+        "name": "Out_1",
+        "type": 1
+      },
+      {
+        "defaultValue": null,
+        "name": "In_1",
+        "type": 0
+      }
+    ],
+    "internalAtoms": [
+      {
+        "x": 510.63499389932,
+        "y": 285.832148337162,
+        "typeId": "Pass",
+        "instanceId": "Pass_8"
+      },
+      {
+        "x": 700.63499389932,
+        "y": 285.832148337162,
+        "typeId": "Pass",
+        "instanceId": "Pass_9"
+      }
+    ],
+    "internalConnections": [
+      {
+        "to": {
+          "atomId": "Pass_9",
+          "contactName": "in"
+        },
+        "from": {
+          "atomId": "Pass_8",
+          "contactName": "out"
+        }
+      },
+      {
+        "to": {
+          "atomId": "SELF",
+          "contactName": "Out_1"
+        },
+        "from": {
+          "atomId": "Pass_9",
+          "contactName": "out"
+        }
+      },
+      {
+        "to": {
+          "atomId": "Pass_8",
+          "contactName": "in"
+        },
+        "from": {
+          "atomId": "SELF",
+          "contactName": "In_1"
+        }
+      }
+    ],
+    "logic": null
+  },
+  "version": "1.0"
+}

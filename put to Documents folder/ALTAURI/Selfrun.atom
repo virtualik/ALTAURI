@@ -1,0 +1,79 @@
+{
+  "blueprint": {
+    "category": "General",
+    "id": "selfrun",
+    "name": "Selfrun",
+    "pins": [
+      {
+        "dataType": "null",
+        "defaultValue": null,
+        "name": "IN",
+        "type": "INPUT"
+      },
+      {
+        "dataType": "null",
+        "defaultValue": null,
+        "name": "OUT",
+        "type": "OUTPUT"
+      }
+    ],
+    "internalAtoms": [
+      {
+        "x": 149.63499389932,
+        "y": 396.832148337162,
+        "typeId": "FrameTimeAtom",
+        "instanceId": "FrameTimeAtom_7"
+      },
+      {
+        "x": 426,
+        "y": 306,
+        "typeId": "CustomAssembly_864",
+        "instanceId": "CustomAssembly_864_inst"
+      },
+      {
+        "x": 722.63499389932,
+        "y": 294.832148337162,
+        "typeId": "AlphaNumericLine",
+        "instanceId": "AlphaNumericLine_10"
+      }
+    ],
+    "internalConnections": [
+      {
+        "to": {
+          "atomId": "Relay_3",
+          "contactName": "signal"
+        },
+        "from": {
+          "atomId": "Pass_2",
+          "contactName": "out"
+        }
+      },
+      {
+        "to": {
+          "atomId": "AlphaNumericLine_10",
+          "contactName": "in"
+        },
+        "from": {
+          "atomId": "CustomAssembly_864_inst",
+          "contactName": "Out_1"
+        }
+      },
+      {
+        "to": {
+          "atomId": "CustomAssembly_864_inst",
+          "contactName": "In_1"
+        },
+        "from": {
+          "atomId": "FrameTimeAtom_7",
+          "contactName": "ms"
+        }
+      }
+    ]
+  },
+  "editor": {
+    "x": -20.6349938993202,
+    "y": 51.1678516628378,
+    "zoom": 1
+  },
+  "version": "1.1"
+}
