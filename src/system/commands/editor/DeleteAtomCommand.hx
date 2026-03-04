@@ -6,6 +6,7 @@ import core.base.Assembly;
 import core.base.Atom;
 import core.base.Contact;
 import core.base.ConductorPort;
+import core.base.IDisposable;
 import core.types.ContactType;
 import core.logic.Impulsys;
 import library.AtomRegistry;
@@ -52,7 +53,20 @@ class DeleteAtomCommand extends Command {
         if (_atomDef != null) {
             _blueprint.internalAtoms.remove(_atomDef);
         }
-        _assembly.internalAtoms.remove(_atomId);
+        
+        var atomInstance = _assembly.internalAtoms.get(_atomId);
+        
+        // 4. FIX: Properly dispose atom instance
+        if (atomInstance != null) {
+            if (Std.isOfType(atomInstance, IDisposable)) {
+                try {
+                    cast(atomInstance, IDisposable).dispose();
+                } catch (e:Dynamic) {
+                    trace('DeleteAtomCommand: Error disposing atom $_atomId: $e');
+                }
+            }
+            _assembly.internalAtoms.remove(_atomId);
+        }
 
         Impulsys.quickEmit("ATOM_DELETED", {id: _atomId});
         complete();
@@ -93,7 +107,7 @@ class DeleteAtomCommand extends Command {
     }
 
     private function saveSnapshot():Void {
-        if (_atomDef != null) return; 
+        if (_atomDef != null) return;
 
         for (a in _blueprint.internalAtoms) {
             if (a.instanceId == _atomId) {
@@ -120,11 +134,10 @@ class DeleteAtomCommand extends Command {
 
     private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact {
         if (atomId == "SELF") {
-            // ИСПРАВЛЕНИЕ: Берем внутренний контакт порта
             var port:ConductorPort = _assembly.ports.get(contactName);
-            if (port != null) return port.internal;
-            
-            return null;
+            if (port == null) return null;
+            // Используем internal для соединений внутри схемы
+            return port.internal;
         } else {
             var atom = _assembly.internalAtoms.get(atomId);
             if (atom == null) return null;

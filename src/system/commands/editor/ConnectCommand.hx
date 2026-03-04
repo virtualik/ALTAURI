@@ -86,12 +86,14 @@ class ConnectCommand extends Command {
 
     private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact {
         if (atomId == "SELF") {
-            // ИСПРАВЛЕНИЕ: Берем внутренний контакт порта
             var port:ConductorPort = _assembly.ports.get(contactName);
-            if (port != null) return port.internal;
+            if (port == null) return null;
             
-            // Fallback (на всякий случай)
-            return null;
+            // Для внутренней схемы Assembly:
+            // Input порт сборки -> internal является ВЫХОДОМ (источник).
+            // Output порт сборки -> internal является ВХОДОМ (приемник).
+            // Поэтому всегда возвращаем internal, так как он соответствует правильному направлению внутри.
+            return port.internal;
         } else {
             var obj = _assembly.internalAtoms.get(atomId);
             if (obj == null) return null;

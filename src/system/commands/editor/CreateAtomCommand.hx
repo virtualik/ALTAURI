@@ -5,6 +5,7 @@ import core.data.Blueprint;
 import core.base.Assembly;
 import core.base.Atom;
 import core.base.Contact;
+import core.base.IDisposable; // Импорт
 import core.types.ContactType;
 import core.logic.Impulsys;
 import library.AtomRegistry;
@@ -50,7 +51,7 @@ class CreateAtomCommand extends Command {
         // 2. Create Atom instance (logic, contacts)
         if (_atomInstance == null) {
             var bp = AtomRegistry.get(_typeId);
-            if (bp == null) return; 
+            if (bp == null) return;
 
             var inputs = [];
             var outputs = [];
@@ -76,7 +77,19 @@ class CreateAtomCommand extends Command {
         _blueprint.internalAtoms.remove(_atomDef);
 
         // 2. Remove from Assembly
-        _assembly.internalAtoms.remove(_instanceId);
+        var inst = _assembly.internalAtoms.get(_instanceId);
+        
+        // FIX: Properly dispose atom instance
+        if (inst != null) {
+            if (Std.isOfType(inst, IDisposable)) {
+                try {
+                    cast(inst, IDisposable).dispose();
+                } catch (e:Dynamic) {
+                     trace('CreateAtomCommand Undo: Error disposing atom $_instanceId: $e');
+                }
+            }
+            _assembly.internalAtoms.remove(_instanceId);
+        }
 
         // 3. Send impulse to delete View
         Impulsys.quickEmit("ATOM_DELETED", {id: _instanceId});

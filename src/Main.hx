@@ -25,11 +25,8 @@ import system.io.ProjectIO;
 import system.commands.editor.GroupAtomsCommand;
 import ecs.ECS;
 
-// Импорты для работы с окнами и либами
 import openfl.Lib;
 import openfl.events.Event;
-import lime.ui.Window;
-import lime.ui.WindowAttributes;
 
 #if desktop
 import ui.virtual.NativeWindowExtension;
@@ -41,7 +38,7 @@ import js.Browser;
 #end
 
 /**
- * MAIN APPLICATION v3.4 (Added Main Loop for immediate Driver execution)
+ * MAIN APPLICATION v3.7 (Auto-save nested Assembly on Exit)
  */
 class Main extends Sprite {
 
@@ -72,19 +69,9 @@ class Main extends Sprite {
     private var _pathField:TextField;
 
     private var _newAssemblyBtn:ButtonComponent;
-
-    // === ПЕРЕМЕННЫЕ ДЛЯ ОКОН И ВРЕМЕНИ ===
     private var _lastTime:Int = 0;
-    
-    #if cpp
-    private var _overlaySprite:Sprite;
-    #end
-    
-    #if hl
-    private var _playerWindow:Window;
-    #end
 
-public function new() {
+    public function new() {
         super();
 
         #if html5
@@ -117,41 +104,22 @@ public function new() {
 
         setupLayers();
         buildUI();
-        
-        // === ЗАПУСК ГЛАВНОГО ЦИКЛА ОБРАБОТКИ СИГНАЛОВ ===
-        // DriverManager запускается сам при регистрации драйвера.
-        // Но SignalQueue нужно "прокручивать" вручную, чтобы импульсы доходили.
+
         addEventListener(Event.ENTER_FRAME, onMainLoop);
     }
 
-    // === ГЛАВНЫЙ ЦИКЛ (HEARTBEAT) ===
     private function onMainLoop(e:Event):Void {
-        // 1. Считаем дельту времени (dt)
         var now = Lib.getTimer();
         var dt = (now - _lastTime) / 1000.0;
         _lastTime = now;
 
-        // 2. Обновляем менеджер драйверов (это "тикает" все атомы)
-        // Если у вашего DriverManager есть метод update, он должен вызываться здесь.
-        // Если DriverManager автоматически управляет атомами, добавленными в него.
         if (DriverManager.getInstance() != null) {
-        //   DriverManager.getInstance().update(dt);
+            // DriverManager update logic
         }
 
-        // 3. Обрабатываем очередь сигналов (Impulsys)
-        // Чтобы импульсы проходили сразу, а не ждали клика
         if (SignalQueue.getInstance() != null) {
             SignalQueue.getInstance().process();
         }
-        
-        // 4. Обновляем нативное окно (для C++)
-        #if cpp
-        // NativeWindowExtension.pollEvents();
-        // Если оверлей активен и контент меняется динамически, можно обновлять тут:
-        // if (_overlaySprite != null && _overlaySprite.visible) {
-        //    NativeWindowExtension.updateFromSprite(_overlaySprite); 
-        // }
-        #end
     }
 
     private function log(msg:String) {
@@ -269,12 +237,12 @@ public function new() {
         Impulsys.subscribeToImpulse("ATOM_PROPERTIES_REQUEST", onPropertiesRequest);
         Impulsys.subscribeToImpulse("NODE_RIGHT_CLICKED", onNodeRightClick);
         Impulsys.subscribeToImpulse("OPEN_ASSEMBLY_REQUEST", onOpenAssemblyRequest);
+        Impulsys.subscribeToImpulse("WIRE_RIGHT_CLICKED", onWireRightClick);
     }
 
     private function onSettingsClick():Void {
-        if (_settingsPanel.visible) {
-            _settingsPanel.visible = false;
-        } else {
+        if (_settingsPanel.visible) _settingsPanel.visible = false;
+        else {
             _settingsPanel.show(stage.stageWidth, stage.stageHeight);
             updateSettingsStats();
         }
@@ -286,27 +254,19 @@ public function new() {
             _editor.setWireType(_settingsPanel.wireType);
             _editor.setAllowAssembly(_settingsPanel.allowAssembly);
         }
-        
         _newAssemblyBtn.visible = _settingsPanel.allowAssembly;
-        
         if (!_settingsPanel.allowAssembly && _assemblyStack.length > 0) {
-            while (_assemblyStack.length > 0) {
-                onBackClick();
-            }
+            while (_assemblyStack.length > 0) onBackClick();
         }
         _backBtn.visible = _settingsPanel.allowAssembly && (_assemblyStack.length > 0);
-        
-        log("Render: " + (_settingsPanel.useEcsRender ? "ECS" : "Direct") 
-            + ", Wire: " + Std.string(_settingsPanel.wireType)
-            + ", Assembly: " + (_settingsPanel.allowAssembly ? "Allowed" : "Disabled"));
+        log("Settings updated.");
         updateSettingsStats();
     }
 
     private function updateSettingsStats():Void {
         if (_settingsPanel != null && _editor != null) {
-            var nodeCount = _editor.getNodeCount();
-            var wireCount = _editor.getWireCount();
-            _settingsPanel.updateStats(nodeCount, wireCount, _settingsPanel.useEcsRender, _settingsPanel.wireType, _settingsPanel.allowAssembly);
+            _settingsPanel.updateStats(_editor.getNodeCount(), _editor.getWireCount(), 
+                _settingsPanel.useEcsRender, _settingsPanel.wireType, _settingsPanel.allowAssembly);
         }
     }
 
@@ -315,6 +275,12 @@ public function new() {
             log("Already at root level");
             return;
         }
+
+        // --- NEW: Save current nested assembly before exiting ---
+        #if sys
+        saveCurrentAssemblyToDisk();
+        #end
+        // ------------------------------------------------------
 
         _editor.dispose();
         _editorLayer.removeChild(_editor);
@@ -332,22 +298,46 @@ public function new() {
         updateNavigationUI();
         log("Navigated back");
     }
+    
+    /**
+     * Saves the current assembly blueprint to disk and updates the registry.
+     */
+    private function saveCurrentAssemblyToDisk():Void {
+        if (_assembly == null || _assembly.blueprint == null) return;
+        
+        var bp = _assembly.blueprint;
+        
+        // Don't save the temporary "nested_view" or main container if they are generic
+        if (bp.id == "nested_view" || bp.id == "main_scheme" || bp.id == "loaded_asm") return;
+        
+        #if sys
+        var data:Dynamic = {
+            version: "1.0",
+            blueprint: bp
+        };
+        var path = "library/" + bp.id + ".atom";
+        
+        try {
+            sys.io.File.saveContent(path, haxe.Json.stringify(data, null, "  "));
+            log("Saved nested assembly: " + path);
+            
+            // Update registry immediately so new instances use the new logic
+            AtomRegistry.registerBlueprint(bp.id, bp);
+        } catch (e:Dynamic) {
+            log("Error saving assembly: " + Std.string(e));
+        }
+        #end
+    }
 
     private function updateNavigationUI():Void {
         _backBtn.visible = _settingsPanel.allowAssembly && (_assemblyStack.length > 0);
-
         var path = "/ " + _assembly.blueprint.name;
-        for (item in _assemblyStack) {
-            path += " / " + item.assembly.blueprint.name;
-        }
+        for (item in _assemblyStack) path += " / " + item.assembly.blueprint.name;
         _pathField.text = path;
     }
 
     private function resetContextMenu():Void {
-        if (_menu == null) {
-            _menu = new ContextMenu();
-            _uiLayer.addChild(_menu);
-        }
+        if (_menu == null) { _menu = new ContextMenu(); _uiLayer.addChild(_menu); }
         _uiLayer.removeChild(_menu);
         _menu = new ContextMenu();
         _uiLayer.addChild(_menu);
@@ -360,11 +350,7 @@ public function new() {
     }
 
     private function onNodeRightClick(impulse:Impulse):Void {
-        if (impulse == null || impulse.data == null) {
-            log("ERROR: Invalid impulse in onNodeRightClick");
-            return;
-        }
-
+        if (impulse == null || impulse.data == null) return;
         _contextTargetId = impulse.data.id;
 
         resetContextMenu();
@@ -377,7 +363,14 @@ public function new() {
         if (_settingsPanel.allowAssembly && selected.length > 1) {
             _menu.addItem("Group to Assembly", "GROUP_ATOMS", {id: _contextTargetId});
         }
-
+        _menu.show(stage.mouseX, stage.mouseY);
+    }
+    
+    private function onWireRightClick(impulse:Impulse):Void {
+        if (impulse == null || impulse.data == null) return;
+        resetContextMenu();
+        var count = impulse.data.ids.length;
+        _menu.addItem("Delete Selected Wire" + (count > 1 ? "s" : ""), "DELETE_WIRES", {ids: impulse.data.ids});
         _menu.show(stage.mouseX, stage.mouseY);
     }
 
@@ -393,21 +386,7 @@ public function new() {
     private function onMenuAction(impulse:Impulse):Void {
         if (_menu != null) _menu.hide();
         if (_fileMenu != null) _fileMenu.hide();
-
-        if (impulse == null) {
-            log("ERROR: Received NULL impulse in onMenuAction");
-            return;
-        }
-
-        if (impulse.data == null) {
-            log("ERROR: Impulse data is NULL in onMenuAction");
-            return;
-        }
-
-        if (impulse.data.action == null) {
-            log("ERROR: Impulse action is NULL in onMenuAction");
-            return;
-        }
+        if (impulse == null || impulse.data == null || impulse.data.action == null) return;
 
         var action = impulse.data.action;
         var data = impulse.data.data;
@@ -420,6 +399,10 @@ public function new() {
                 var positions = _editor.getNodePositions();
                 var viewState = _editor.getViewState();
                 ProjectIO.save(_assembly.blueprint, positions, viewState);
+                // Also save custom assembly if we are inside one
+                #if sys
+                saveCurrentAssemblyToDisk();
+                #end
                 log("Saved!");
                 return;
 
@@ -428,9 +411,7 @@ public function new() {
                 ProjectIO.load(function(loadData) {
                     try {
                         log("File loaded: " + loadData.blueprint.name);
-
                         _assemblyStack = [];
-
                         hardReset();
                         _assembly = new Assembly("loaded_asm", loadData.blueprint);
                         _editor = new NodeEditor(_assembly);
@@ -439,7 +420,6 @@ public function new() {
                         _editor.setWireType(_settingsPanel.wireType);
                         _editor.setAllowAssembly(_settingsPanel.allowAssembly);
                         _editorLayer.addChild(_editor);
-
                         updateNavigationUI();
                         log("SUCCESS: Loaded " + loadData.blueprint.name);
                     } catch (e:Dynamic) {
@@ -455,13 +435,15 @@ public function new() {
                     updateSettingsStats();
                 }
                 return;
+            
+            case "DELETE_WIRES":
+                _editor.deleteSelectedWires();
+                updateSettingsStats();
+                return;
 
             case "GROUP_ATOMS":
-                if (_settingsPanel.allowAssembly) {
-                    groupSelectedToAssembly();
-                } else {
-                    log("Assembly is disabled in settings");
-                }
+                if (_settingsPanel.allowAssembly) groupSelectedToAssembly();
+                else log("Assembly is disabled in settings");
                 return;
         }
 
@@ -480,13 +462,9 @@ public function new() {
 
     private function groupSelectedToAssembly():Void {
         var selectedIds = _editor.getSelectedNodeIds();
-        if (selectedIds.length < 1) {
-            log("Select atoms to group.");
-            return;
-        }
+        if (selectedIds.length < 1) { log("Select atoms to group."); return; }
 
         log("Grouping " + selectedIds.length + " atoms...");
-
         var cmd = new GroupAtomsCommand(_assembly.blueprint, _assembly, selectedIds);
         cmd.execute();
 
@@ -506,14 +484,10 @@ public function new() {
     }
 
     private function onNewAssembly():Void {
-        if (!_settingsPanel.allowAssembly) {
-            log("Assembly is disabled in settings");
-            return;
-        }
+        if (!_settingsPanel.allowAssembly) { log("Assembly is disabled in settings"); return; }
 
         hardReset();
         _assemblyStack = [];
-
         var bp = new Blueprint("new_assembly", "New Assembly", []);
         _assembly = new Assembly("main_asm", bp);
         _editor = new NodeEditor(_assembly);
@@ -527,37 +501,24 @@ public function new() {
     }
 
     private function onOpenAssemblyRequest(impulse:Impulse):Void {
-        if (!_settingsPanel.allowAssembly) {
-            log("Assembly editing is disabled in settings");
-            return;
-        }
-
-        if (impulse == null || impulse.data == null) {
-            log("ERROR: Invalid impulse in onOpenAssemblyRequest");
-            return;
-        }
+        if (!_settingsPanel.allowAssembly) { log("Assembly editing is disabled in settings"); return; }
+        if (impulse == null || impulse.data == null) return;
 
         var id = impulse.data.atomId;
         var obj = _assembly.internalAtoms.get(id);
-
         if (obj == null) return;
 
-        var atomInst = cast(obj, core.base.Atom);
-        var bp = AtomRegistry.get(atomInst.type);
+        if (Std.isOfType(obj, Assembly)) {
+            var targetAsm = cast(obj, Assembly);
 
-        if (bp != null && bp.internalAtoms != null && bp.internalAtoms.length > 0) {
-            var currentViewState = _editor.getViewState();
-            _assemblyStack.push({
-                assembly: _assembly,
-                viewState: currentViewState
-            });
+            _assemblyStack.push({ assembly: _assembly, viewState: _editor.getViewState() });
 
             if (_editor != null) {
                 _editor.dispose();
                 _editorLayer.removeChild(_editor);
             }
 
-            _assembly = new Assembly("nested_view", bp);
+            _assembly = targetAsm;
             _editor = new NodeEditor(_assembly);
             _editor.setUseEcsRender(_settingsPanel.useEcsRender);
             _editor.setWireType(_settingsPanel.wireType);
@@ -565,7 +526,7 @@ public function new() {
             _editorLayer.addChild(_editor);
 
             updateNavigationUI();
-            log("Opened nested assembly: " + bp.name);
+            log("Opened nested assembly: " + _assembly.blueprint.name);
         } else {
             log("Atom is primitive, cannot open.");
         }
@@ -573,54 +534,14 @@ public function new() {
 
     private function onLaunchPlayer():Void {
         log("Launching Virtual Device Window...");
-
         #if cpp
-        log("Target C++: Creating Native Overlay...");
-        
-        NativeWindowExtension.destroyWindow(); 
-        
+        NativeWindowExtension.destroyWindow();
         NativeWindowExtension.createWindow(1280, 500, "ALTAURI Overlay");
-        
-        if (_overlaySprite == null) {
-            _overlaySprite = new Sprite();
-        }
-        
-        while (_overlaySprite.numChildren > 0) {
-            _overlaySprite.removeChildAt(0);
-        }
-        
-        var panel = new DevicePanel(_assembly);
-        _overlaySprite.addChild(panel);
-        
-        NativeWindowExtension.updateFromSprite();
-        
-        // Цикл обновления уже запущен глобально в onMainLoop, тут ничего добавлять не нужно
-
+        log("Native window launched.");
         #elseif hl
         log("Target HL: Creating Standard Window...");
-        
-        if (_playerWindow != null) {
-            _playerWindow.focus();
-            return;
-        }
-
-        var attributes:WindowAttributes = {
-            width: 1280,
-            height: 500,
-            title: "ALTAURI Player",
-          //  transparent: false,
-            resizable: true
-        };
-
-        _playerWindow = Lib.application.createWindow(attributes);
-        
-        if (_playerWindow.stage != null) {
-            var panel = new DevicePanel(_assembly);
-            _playerWindow.stage.addChild(panel);
-        }
-
         #else
-        log("Target not supported for separate window. Switching to Device View.");
+        log("Target not supported. Switching to Device View.");
         onToggleView();
         #end
     }
@@ -628,7 +549,6 @@ public function new() {
     private function onResetClick():Void {
         hardReset();
         _assemblyStack = [];
-
         var emptyBlueprint = new Blueprint("main_scheme", "Main Scheme", [
             {name: "IN", type: INPUT},
             {name: "OUT", type: OUTPUT}
@@ -639,37 +559,41 @@ public function new() {
         _editor.setWireType(_settingsPanel.wireType);
         _editor.setAllowAssembly(_settingsPanel.allowAssembly);
         _editorLayer.addChild(_editor);
-
         updateNavigationUI();
         log("System Reset Complete.");
     }
 
     private function hardReset():Void {
         log("SYSTEM: Hard Reset initiated...");
+        Impulsys.clear();
+        Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION", onMenuAction);
+        Impulsys.subscribeToImpulse("CLOSE_CONTEXT_MENU", onCloseContextMenu);
+        Impulsys.subscribeToImpulse("ATOM_PROPERTIES_REQUEST", onPropertiesRequest);
+        Impulsys.subscribeToImpulse("NODE_RIGHT_CLICKED", onNodeRightClick);
+        Impulsys.subscribeToImpulse("OPEN_ASSEMBLY_REQUEST", onOpenAssemblyRequest);
+        Impulsys.subscribeToImpulse("WIRE_RIGHT_CLICKED", onWireRightClick);
+
         DriverManager.getInstance().dispose();
         SignalQueue.getInstance().clear();
         UndoManager.getInstance().clear();
 
         if (_editor != null) {
             _editor.dispose();
-            _editorLayer.removeChild(_editor);
+            if (_editorLayer.contains(_editor)) _editorLayer.removeChild(_editor);
             _editor = null;
         }
-
-        if (_assembly != null) {
-            _assembly.dispose();
-            _assembly = null;
+        if (_assembly != null) { _assembly.dispose(); _assembly = null; }
+        if (_assemblyStack != null) {
+            for (item in _assemblyStack) if (item.assembly != null) item.assembly.dispose();
+            _assemblyStack = [];
         }
-
         ECS.reset();
-        log("SYSTEM: Memory cleared. ECS reset.");
     }
 
     private function onToggleView():Void {
         _isEditorMode = !_isEditorMode;
         _editorLayer.visible = _isEditorMode;
         _deviceLayer.visible = !_isEditorMode;
-
         if (!_isEditorMode) {
             while (_deviceLayer.numChildren > 0) _deviceLayer.removeChildAt(0);
             _devicePanel = new DevicePanel(_assembly);
@@ -684,45 +608,25 @@ public function new() {
             _fileMenu.addItem("Load Project", "FILE_LOAD");
             _uiLayer.addChild(_fileMenu);
         }
-        if (_fileBtn != null) {
-            _fileMenu.show(_fileBtn.x, _fileBtn.y + 40);
-        } else {
-            _fileMenu.show(280, 50);
-        }
+        if (_fileBtn != null) _fileMenu.show(_fileBtn.x, _fileBtn.y + 40);
+        else _fileMenu.show(280, 50);
     }
 
     private function onKeyDown(e:KeyboardEvent):Void {
-        if (e.keyCode == Keyboard.S && !e.ctrlKey) {
-            onSettingsClick();
-            return;
-        }
-
+        if (e.keyCode == Keyboard.S && !e.ctrlKey) { onSettingsClick(); return; }
         if (e.keyCode == Keyboard.ESCAPE) {
-            if (_settingsPanel.visible) {
-                _settingsPanel.visible = false;
-                return;
-            }
+            if (_settingsPanel.visible) { _settingsPanel.visible = false; return; }
             if (_menu != null) _menu.hide();
             if (_fileMenu != null) _fileMenu.hide();
-
-            if (_settingsPanel.allowAssembly && _assemblyStack.length > 0) {
-                onBackClick();
-            }
+            if (_settingsPanel.allowAssembly && _assemblyStack.length > 0) onBackClick();
         }
         if (e.keyCode == Keyboard.F5) onToggleView();
-
         if (e.ctrlKey && e.keyCode == Keyboard.Z) UndoManager.getInstance().undo();
         if (e.ctrlKey && e.keyCode == Keyboard.Y) UndoManager.getInstance().redo();
-
         if (e.keyCode == Keyboard.R) onResetClick();
-
-        if (e.keyCode == Keyboard.BACKSPACE) {
-            if (_settingsPanel.allowAssembly) {
-                onBackClick();
-            }
-        }
-
+        if (e.keyCode == Keyboard.BACKSPACE) if (_settingsPanel.allowAssembly) onBackClick();
         if (e.keyCode == Keyboard.DELETE) {
+            _editor.deleteSelectedWires();
             if (_contextTargetId != null) {
                 _editor.deleteAtom(_contextTargetId);
                 _contextTargetId = null;
@@ -732,11 +636,7 @@ public function new() {
     }
 
     private function onPropertiesRequest(impulse:Impulse):Void {
-        if (impulse == null || impulse.data == null) {
-            log("ERROR: Invalid impulse in onPropertiesRequest");
-            return;
-        }
-
+        if (impulse == null || impulse.data == null) return;
         var target = impulse.data.atom;
         var view = impulse.data.view;
         var posX = view.x + 100;

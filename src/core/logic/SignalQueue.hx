@@ -3,7 +3,7 @@ package core.logic;
 import core.types.Priority;
 
 /**
- * SIGNAL QUEUE v2.0
+ * SIGNAL QUEUE v2.1 (Overflow Protection)
  * Priority-based Task Scheduler.
  */
 class SignalQueue {
@@ -60,7 +60,13 @@ class SignalQueue {
                 // Overflow protection
                 _currentIteration++;
                 if (_currentIteration > maxIterationsPerFrame) {
-                    trace('WARN: SignalQueue overflow at priority $p. Pausing.');
+                    trace('WARN: SignalQueue overflow at priority $p. Clearing remaining tasks to prevent freeze.');
+                    
+                    // FIX: Clear queues to prevent persistent lag spikes
+                    for (q in _queues) {
+                        if (q != null) q.resize(0);
+                    }
+                    
                     _isProcessing = false;
                     return;
                 }
@@ -87,5 +93,12 @@ class SignalQueue {
         _queues.set(NORMAL, []);
         _queues.set(BACKGROUND, []);
         _isProcessing = false;
+    }
+
+    public static function reset():Void {
+        if (_instance != null) {
+            _instance.clear();
+            _instance = null;
+        }
     }
 }

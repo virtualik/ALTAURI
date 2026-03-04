@@ -15,14 +15,13 @@ import core.logic.Impulse;
 import ecs.ECS;
 
 /**
- * NODE VIEW v2.0 (ECS Integrated)
+ * NODE VIEW v2.1 (Memory Leak Fixed)
  * Visual representation of an Atom.
  *
- * CHANGES v2.0:
- * - Position managed by ECS (PositionComponent)
- * - Selection state managed by ECS (VisualComponent)
- * - Direct sprite manipulation during drag (immediate feedback)
- * - ECS updated in parallel for queries
+ * FIX v2.1:
+ * - dispose() now removes ALL event listeners
+ * - dispose() removes children from sprite
+ * - Clear all sprite references
  */
 class NodeView extends Sprite {
 
@@ -46,25 +45,22 @@ class NodeView extends Sprite {
 
     private var _settingsBtn:Sprite;
 
-    /**
-     * Selection now uses ECS VisualComponent.
-     * Local property kept for backward compatibility.
-     */
     public var selected(default, set):Bool = false;
 
     private var _bgColor:Int = 0x333344;
     private var _borderColor:Int = 0x00AAFF;
     private var _selectedColor:Int = 0xFFCC00;
 
-	/**
-     * When true, position updates go through ECS.
-     * When false, direct sprite manipulation only.
-     */
     private var _ecsMode:Bool = true;
+    
+    // Store event handlers for proper removal
+    private var _mouseDownHandler:MouseEvent -> Void;
+    private var _rightMouseDownHandler:MouseEvent -> Void;
+    private var _doubleClickHandler:MouseEvent -> Void;
+    private var _settingsClickHandler:MouseEvent -> Void;
+    private var _mouseMoveHandler:MouseEvent -> Void;
+    private var _mouseUpHandler:MouseEvent -> Void;
 
-    /**
-     * Set ECS rendering mode.
-     */
     public function setEcsMode(enabled:Bool):Void {
         _ecsMode = enabled;
     }
@@ -81,16 +77,22 @@ class NodeView extends Sprite {
         inputPorts = new Map();
         outputPorts = new Map();
 
+        // Create handlers for later removal
+        _mouseDownHandler = onMouseDown;
+        _rightMouseDownHandler = onRightMouseDown;
+        _doubleClickHandler = onDoubleClick;
+        _settingsClickHandler = onSettingsClick;
+
         draw();
 
         this.buttonMode = true;
         this.useHandCursor = true;
 
-        addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
-        addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, onRightMouseDown);
+        addEventListener(MouseEvent.MOUSE_DOWN, _mouseDownHandler);
+        addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, _rightMouseDownHandler);
 
         this.doubleClickEnabled = true;
-        addEventListener(MouseEvent.DOUBLE_CLICK, onDoubleClick);
+        addEventListener(MouseEvent.DOUBLE_CLICK, _doubleClickHandler);
 
         // Register with ECS for position tracking and queries
         ECS.register(nodeId, this, this.x, this.y);
@@ -99,11 +101,7 @@ class NodeView extends Sprite {
     function set_selected(v:Bool):Bool {
         if (selected != v) {
             selected = v;
-
-            // Update ECS VisualComponent
             ECS.setSelected(nodeId, v);
-
-            // Immediate visual feedback
             draw();
         }
         return v;
@@ -150,7 +148,7 @@ class NodeView extends Sprite {
         _settingsBtn.buttonMode = true;
         _settingsBtn.useHandCursor = true;
         _settingsBtn.mouseEnabled = true;
-        _settingsBtn.addEventListener(MouseEvent.CLICK, onSettingsClick);
+        _settingsBtn.addEventListener(MouseEvent.CLICK, _settingsClickHandler);
         addChild(_settingsBtn);
 
         var ins:Array<Contact> = [];
@@ -179,7 +177,6 @@ class NodeView extends Sprite {
             var c = contacts[i];
             var port = new Sprite();
 
-            // Белый сплошной круг без обводки
             port.graphics.beginFill(0xFFFFFF);
             port.graphics.drawCircle(0, 0, 5);
             port.graphics.endFill();
@@ -271,8 +268,12 @@ class NodeView extends Sprite {
 
         if (parent != null) parent.addChild(this);
 
-        stage.addEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
-        stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+        // Create handlers if not exists
+        if (_mouseMoveHandler == null) _mouseMoveHandler = onMouseMove;
+        if (_mouseUpHandler == null) _mouseUpHandler = onMouseUp;
+
+        stage.addEventListener(MouseEvent.MOUSE_MOVE, _mouseMoveHandler);
+        stage.addEventListener(MouseEvent.MOUSE_UP, _mouseUpHandler);
     }
 
     private function onRightMouseDown(e:MouseEvent):Void {
@@ -295,11 +296,9 @@ class NodeView extends Sprite {
         var dx = newX - this.x;
         var dy = newY - this.y;
 
-        // Direct sprite manipulation for immediate visual feedback
         this.x = newX;
         this.y = newY;
 
-        // Update ECS only in ECS mode
         if (_ecsMode) {
             ECS.updatePosition(nodeId, newX, newY);
         }
@@ -316,8 +315,11 @@ class NodeView extends Sprite {
         if (!_isDragging) return;
 
         _isDragging = false;
-        stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
-        stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+        
+        if (stage != null) {
+            stage.removeEventListener(MouseEvent.MOUSE_MOVE, _mouseMoveHandler);
+            stage.removeEventListener(MouseEvent.MOUSE_UP, _mouseUpHandler);
+        }
 
         if (_dragStartX != this.x || _dragStartY != this.y) {
             Impulsys.emit(new Impulse("NODE_DRAG_FINISHED", {
@@ -330,34 +332,77 @@ class NodeView extends Sprite {
         }
     }
 
-    /**
-     * Update sprite position from external source (undo/redo, restore).
-     * Also updates ECS to keep in sync.
-     */
     public function setPosition(x:Float, y:Float):Void {
         this.x = x;
         this.y = y;
         ECS.updatePosition(nodeId, x, y);
     }
 
+    /**
+     * Properly dispose the NodeView.
+     * FIX v2.1: Complete cleanup of all references.
+     */
     public function dispose():Void {
-        // Unregister from ECS
+        // 1. Unregister from ECS
         ECS.unregister(nodeId);
 
+        // 2. Remove all event listeners from this sprite
+        removeEventListener(MouseEvent.MOUSE_DOWN, _mouseDownHandler);
+        removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, _rightMouseDownHandler);
+        removeEventListener(MouseEvent.DOUBLE_CLICK, _doubleClickHandler);
+
+        // 3. Remove stage listeners if still attached
+        if (stage != null) {
+            stage.removeEventListener(MouseEvent.MOUSE_MOVE, _mouseMoveHandler);
+            stage.removeEventListener(MouseEvent.MOUSE_UP, _mouseUpHandler);
+        }
+
+        // 4. Clean settings button
         if (_settingsBtn != null) {
-            _settingsBtn.removeEventListener(MouseEvent.CLICK, onSettingsClick);
+            _settingsBtn.removeEventListener(MouseEvent.CLICK, _settingsClickHandler);
+            if (contains(_settingsBtn)) removeChild(_settingsBtn);
+            _settingsBtn = null;
         }
 
-        for (port in inputPorts) {
-            port.removeEventListener(MouseEvent.MOUSE_DOWN, onPortMouseDown);
+        // 5. Clean port sprites
+        if (inputPorts != null) {
+            for (port in inputPorts) {
+                if (port != null) {
+                    port.removeEventListener(MouseEvent.MOUSE_DOWN, onPortMouseDown);
+                    if (contains(port)) removeChild(port);
+                }
+            }
+            inputPorts.clear();
+            inputPorts = null;
         }
-        for (port in outputPorts) {
-            port.removeEventListener(MouseEvent.MOUSE_DOWN, onPortMouseDown);
+        
+        if (outputPorts != null) {
+            for (port in outputPorts) {
+                if (port != null) {
+                    port.removeEventListener(MouseEvent.MOUSE_DOWN, onPortMouseDown);
+                    if (contains(port)) removeChild(port);
+                }
+            }
+            outputPorts.clear();
+            outputPorts = null;
         }
 
-        inputPorts = null;
-        outputPorts = null;
+        // 6. Clear graphics
+        graphics.clear();
+
+        // 7. Remove all children
+        while (numChildren > 0) {
+            removeChildAt(0);
+        }
+
+        // 8. Clear references
         atom = null;
         _assemblyInstance = null;
+        _mouseDownHandler = null;
+        _rightMouseDownHandler = null;
+        _doubleClickHandler = null;
+        _settingsClickHandler = null;
+        _mouseMoveHandler = null;
+        _mouseUpHandler = null;
     }
 }

@@ -50,4 +50,16 @@ class Impulsys {
     public static function quickEmit(type:String, data:Dynamic = null):Void {
         emit(new Impulse(type, data));
     }
+
+    /**
+     * Clear ALL subscriptions.
+     */
+    public static function clear():Void {
+        for (type in _bus.keys()) {
+            var list = _bus.get(type);
+            if (list != null) list.resize(0);
+        }
+        _bus.clear();
+        _bus = new Map();
+    }
 }
