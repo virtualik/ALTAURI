@@ -18,6 +18,7 @@ import core.logic.Impulse;
 import system.managers.UndoManager;
 import system.managers.DriverManager;
 import editor.NodeEditor;
+import editor.NodeView;
 import ui.ContextMenu;
 import ui.DevicePanel;
 import ui.PropertiesWindow;
@@ -153,17 +154,28 @@ class Main extends Sprite {
         #end
     }
 
-    private function init(e:Event = null):Void {
-        removeEventListener(Event.ADDED_TO_STAGE, init);
+	private function init(e:Event = null):Void {
+		removeEventListener(Event.ADDED_TO_STAGE, init);
 
-        DriverManager.getInstance();
-        SignalQueue.getInstance();
+		DriverManager.getInstance();
+		SignalQueue.getInstance();
 
-        addEventListener(Event.ENTER_FRAME, onMainLoop);
-        buildUI();
-        stage.addEventListener(Event.RESIZE, onResize);
-        loadSelfrun();
-    }
+		addEventListener(Event.ENTER_FRAME, onMainLoop);
+		buildUI();
+		stage.addEventListener(Event.RESIZE, onResize);
+		
+		// ИСПРАВЛЕНИЕ: Автосохранение при выходе
+		#if sys
+		openfl.Lib.current.stage.window.onClose.add(saveOnExit);
+		#end
+		
+		loadSelfrun();
+	}
+
+	private function saveOnExit():Void {
+		log("Auto-saving Selfrun on exit...");
+		saveSelfrun();
+	}
 
     private function loadSelfrun():Void {
         var rootAssembly:Assembly = null;
@@ -334,33 +346,40 @@ class Main extends Sprite {
         container.y = margin;
     }
 
-    private function popEditor():Void {
-        if (_editorStack.length <= 1) {
-            log("Cannot close root assembly.");
-            return;
-        }
+	private function popEditor():Void {
+		if (_editorStack.length <= 1) {
+			log("Cannot close root assembly.");
+			return;
+		}
 
-        var current = _editorStack.pop();
-        current.editor.dispose();
-        _editorLayer.removeChild(current.container);
+		var current = _editorStack.pop();
+		
+		// ИСПРАВЛЕНИЕ: Автосохранение Assembly в Library перед выходом
+		saveAssemblyToLibrary(current.assembly);
+		
+		current.editor.dispose();
+		_editorLayer.removeChild(current.container);
 
-        var prev = _editorStack[_editorStack.length - 1];
+		var prev = _editorStack[_editorStack.length - 1];
 
-        if (prev.blocker != null) {
-            _editorLayer.removeChild(prev.blocker);
-            prev.blocker = null;
-        }
+		if (prev.blocker != null) {
+			_editorLayer.removeChild(prev.blocker);
+			prev.blocker = null;
+		}
 
-        prev.editor.mouseEnabled = true;
-        prev.editor.mouseChildren = true;
+		prev.editor.mouseEnabled = true;
+		prev.editor.mouseChildren = true;
 
-        _currentEditor = prev.editor;
-        _currentAssembly = prev.assembly;
+		_currentEditor = prev.editor;
+		_currentAssembly = prev.assembly;
 
-        updateNavigationUI();
-        updateButtonStates();
-        log("Returned to: " + _currentAssembly.blueprint.name);
-    }
+		// ИСПРАВЛЕНИЕ: Обновить визуал Assembly в родительском редакторе
+		_currentEditor.refreshAssemblyViews();
+
+		updateNavigationUI();
+		updateButtonStates();
+		log("Returned to: " + _currentAssembly.blueprint.name);
+	}
 
     private function onMainLoop(e:Event):Void {
         var now = Lib.getTimer();
@@ -609,20 +628,28 @@ class Main extends Sprite {
         });
     }
 
-    private function onOpenAssemblyRequest(impulse:Impulse):Void {
-        if (!_settingsPanel.allowAssembly) { log("Assembly editing disabled"); return; }
+	private function onOpenAssemblyRequest(impulse:Impulse):Void {
+		if (!_settingsPanel.allowAssembly) { log("Assembly editing disabled"); return; }
 
-        var id = impulse.data.atomId;
-        var obj = _currentAssembly.internalAtoms.get(id);
+		var id = impulse.data.atomId;
+		var obj = _currentAssembly.internalAtoms.get(id);
 
-        if (Std.isOfType(obj, Assembly)) {
-            var targetAsm = cast(obj, Assembly);
-            pushEditor(targetAsm);
-            log("Opened: " + targetAsm.blueprint.name);
-        } else {
-            log("Atom is primitive or not found.");
-        }
-    }
+		// ИСПРАВЛЕНИЕ: Разрешить вход ТОЛЬКО в Assembly (не в Native атомы)
+		if (Std.isOfType(obj, Assembly)) {
+			var targetAsm = cast(obj, Assembly);
+			
+			// ИСПРАВЛЕНИЕ: Снять выделение перед входом
+			_currentEditor.deselectAll();
+			
+			// ИСПРАВЛЕНИЕ: Закрыть PropertiesWindow
+			_propertiesWindow.close();
+			
+			pushEditor(targetAsm);
+			log("Opened: " + targetAsm.blueprint.name);
+		} else {
+			log("Cannot enter: not an Assembly or not found.");
+		}
+	}
 
     private function onRequestNewContext(impulse:Impulse):Void {
         var bp:Blueprint = impulse.data.blueprint;
@@ -682,20 +709,30 @@ class Main extends Sprite {
         _menu.show(e.stageX, e.stageY);
     }
 
-    private function onNodeRightClick(impulse:Impulse):Void {
-        if (impulse == null || impulse.data == null) return;
-        _contextTargetId = impulse.data.id;
+	private function onNodeRightClick(impulse:Impulse):Void {
+		if (impulse == null || impulse.data == null) return;
+		
+		var view:NodeView = impulse.data.view;
+		_contextTargetId = impulse.data.id;
 
-        resetContextMenu();
-        buildAtomMenu();
+		// ИСПРАВЛЕНИЕ: Выделить элемент при правом клике
+		if (!_currentEditor.isSelected(_contextTargetId)) {
+			_currentEditor.deselectAll();
+			_currentEditor.selectNode(_contextTargetId, view);
+		}
 
-        _menu.addItem("——————", "SEP");
-        _menu.addItem("Delete " + impulse.data.name, "DELETE_ATOM", {id: _contextTargetId});
+		resetContextMenu();
+		buildAtomMenu();
 
-        var selected = _currentEditor.getSelectedNodeIds();
-        if (_settingsPanel.allowAssembly && selected.length > 1) {
-            _menu.addItem("Group to Assembly", "GROUP_ATOMS", {id: _contextTargetId});
-        }
+		_menu.addItem("——————", "SEP");
+
+		// ИСПРАВЛЕНИЕ: Показать правильный текст для Delete
+		var selectedCount = _currentEditor.getSelectedNodeCount();
+		if (selectedCount > 1) {
+			_menu.addItem("Delete Selected (" + selectedCount + ")", "DELETE_SELECTED", {});
+		} else {
+			_menu.addItem("Delete " + impulse.data.name, "DELETE_ATOM", {id: _contextTargetId});
+		}
         _menu.show(stage.mouseX, stage.mouseY);
     }
 
@@ -741,13 +778,19 @@ class Main extends Sprite {
                 onFileLoad();
                 return;
 
-            case "DELETE_ATOM":
-                if (data != null && data.id != null) {
-                    _currentEditor.deleteAtom(data.id);
-                    _contextTargetId = null;
-                    updateSettingsStats();
-                }
-                return;
+			case "DELETE_ATOM":
+				// ИСПРАВЛЕНИЕ: Удалять все выделенные, а не только один
+				if (_currentEditor.getSelectedNodeCount() > 0) {
+					_currentEditor.deleteSelectedNodes();
+					updateSettingsStats();
+				}
+				_contextTargetId = null;
+				return;
+
+			case "DELETE_SELECTED":
+				_currentEditor.deleteSelectedNodes();
+				updateSettingsStats();
+				return;
 
             case "DELETE_WIRES":
                 _currentEditor.deleteSelectedWires();
@@ -871,14 +914,17 @@ class Main extends Sprite {
         if (e.ctrlKey && e.keyCode == Keyboard.Y) UndoManager.getInstance().redo();
         if (e.keyCode == Keyboard.R) onResetClick();
         if (e.keyCode == Keyboard.BACKSPACE) if (_editorStack.length > 1) popEditor();
-        if (e.keyCode == Keyboard.DELETE) {
-            _currentEditor.deleteSelectedWires();
-            if (_contextTargetId != null) {
-                _currentEditor.deleteAtom(_contextTargetId);
-                _contextTargetId = null;
-                updateSettingsStats();
-            }
-        }
+		if (e.keyCode == Keyboard.DELETE) {
+			_currentEditor.deleteSelectedWires();
+			
+			// ИСПРАВЛЕНИЕ: Удалять все выделенные ноды
+			if (_currentEditor.getSelectedNodeCount() > 0) {
+				_currentEditor.deleteSelectedNodes();
+				updateSettingsStats();
+			}
+			
+			_contextTargetId = null;
+		}
     }
 
     private function onPropertiesRequest(impulse:Impulse):Void {

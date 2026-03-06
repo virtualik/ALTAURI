@@ -16,14 +16,16 @@ import core.base.Contact;
 import core.logic.Impulsys;
 import core.logic.Impulse;
 import system.managers.UndoManager;
+import system.commands.base.MacroCommand;
 import system.commands.editor.MoveNodeCommand;
 import system.commands.editor.ConnectCommand;
 import system.commands.editor.DeleteAtomCommand;
 import system.commands.editor.CreateAtomCommand;
-import system.commands.base.MacroCommand;
+
 import core.data.Blueprint.ConnectionDef;
 import core.data.Blueprint.ConnectionPoint;
 import ecs.ECS;
+import library.AtomRegistry;
 
 class NodeEditor extends Sprite {
 
@@ -266,17 +268,20 @@ class NodeEditor extends Sprite {
         updateVisibility();
     }
 
-    private function onCanvasMouseDown(e:MouseEvent):Void {
-        deselectAll();
+	private function onCanvasMouseDown(e:MouseEvent):Void {
+		deselectAll();
 
-        _isLassoing = true;
-        var local = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
-        _lassoStartX = local.x;
-        _lassoStartY = local.y;
+		// ИСПРАВЛЕНИЕ: Переместить лассо наверх (поверх всех узлов)
+		_canvas.addChild(_lasso);
 
-        stage.addEventListener(MouseEvent.MOUSE_MOVE, onLassoMove);
-        stage.addEventListener(MouseEvent.MOUSE_UP, onLassoUp);
-    }
+		_isLassoing = true;
+		var local = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
+		_lassoStartX = local.x;
+		_lassoStartY = local.y;
+
+		stage.addEventListener(MouseEvent.MOUSE_MOVE, onLassoMove);
+		stage.addEventListener(MouseEvent.MOUSE_UP, onLassoUp);
+	}
 
     private function onLassoMove(e:MouseEvent):Void {
         if (!_isLassoing) return;
@@ -323,21 +328,20 @@ class NodeEditor extends Sprite {
         _lasso.graphics.clear();
         Impulsys.quickEmit("CLOSE_CONTEXT_MENU");
 
-        if (ctrl) {
-            if (_selectedNodes.exists(view.nodeId)) {
-                view.selected = false;
-                _selectedNodes.remove(view.nodeId);
-            } else {
-                view.selected = true;
-                _selectedNodes.set(view.nodeId, view);
-            }
-        } else {
-            if (!_selectedNodes.exists(view.nodeId)) {
-                deselectAll();
-                view.selected = true;
-                _selectedNodes.set(view.nodeId, view);
-            }
-        }
+		if (ctrl) {
+			if (_selectedNodes.exists(view.nodeId)) {
+				view.selected = false;
+				_selectedNodes.remove(view.nodeId);
+			} else {
+				view.selected = true;
+				_selectedNodes.set(view.nodeId, view);
+			}
+		} else {
+			// ИСПРАВЛЕНИЕ: Всегда снимать выделение с других при обычном клике
+			deselectAll();
+			view.selected = true;
+			_selectedNodes.set(view.nodeId, view);
+		}
     }
 
     public function deselectAll():Void {
@@ -350,6 +354,15 @@ class NodeEditor extends Sprite {
             rebuildAllWires();
         }
     }
+
+	public function isSelected(nodeId:String):Bool {
+		return _selectedNodes.exists(nodeId);
+	}
+
+	public function selectNode(nodeId:String, view:NodeView):Void {
+		view.selected = true;
+		_selectedNodes.set(nodeId, view);
+	}
 
     private function clearAllWires():Void {
         for (key in _wireSprites.keys()) {
@@ -663,7 +676,40 @@ class NodeEditor extends Sprite {
         }
     }
 
-    private function createViewForAtom(atom:Atom, id:String, x:Float, y:Float):Void {
+	public function refreshAssemblyViews():Void {
+		// ИСПРАВЛЕНИЕ: Собрать все Assembly и их позиции
+		var toRefresh:Array<{id:String, view:NodeView, asm:Assembly, index:Int}> = [];
+		
+		for (nodeId in _nodes.keys()) {
+			var view = _nodes.get(nodeId);
+			var atom = _assembly.internalAtoms.get(nodeId);
+			
+			if (atom != null && Std.isOfType(atom, Assembly)) {
+				var asm = cast(atom, Assembly);
+				var idx = _canvas.getChildIndex(view);
+				toRefresh.push({id: nodeId, view: view, asm: asm, index: idx});
+			}
+		}
+		
+		// Перерисовать каждую Assembly
+		for (item in toRefresh) {
+			AtomRegistry.registerBlueprint(item.asm.blueprint.id, item.asm.blueprint);
+			item.view.redraw();
+			
+			// ИСПРАВЛЕНИЕ: Восстановить позицию в display list
+			if (_canvas.contains(item.view)) {
+				_canvas.setChildIndex(item.view, item.index);
+			}
+		}
+		
+		// Перестроить провода
+		rebuildAllWires();
+		
+		// Обновить видимость
+		updateVisibility();
+	}
+
+	private function createViewForAtom(atom:Atom, id:String, x:Float, y:Float):Void {
         if (_nodes.exists(id)) return;
         var view = new NodeView(atom, id);
         view.setPosition(x, y);
@@ -776,27 +822,69 @@ class NodeEditor extends Sprite {
                 var startIsSource = !_dragStartIsInput;
                 var targetIsSource = !target.isInput;
 
-                if (!isSameContact && (startIsSource != targetIsSource)) {
-                    var realFromId:String; var realFromContact:String;
-                    var realToId:String; var realToContact:String;
+				if (!isSameContact && (startIsSource != targetIsSource)) {
+					var realFromId:String; var realFromContact:String;
+					var realToId:String; var realToContact:String;
 
-                    if (startIsSource) {
-                        realFromId = _dragNodeId; realFromContact = _dragContactName;
-                        realToId = target.nodeId; realToContact = target.contactName;
-                    } else {
-                        realFromId = target.nodeId; realFromContact = target.contactName;
-                        realToId = _dragNodeId; realToContact = _dragContactName;
-                    }
+					if (startIsSource) {
+						realFromId = _dragNodeId; realFromContact = _dragContactName;
+						realToId = target.nodeId; realToContact = target.contactName;
+					} else {
+						realFromId = target.nodeId; realFromContact = target.contactName;
+						realToId = _dragNodeId; realToContact = _dragContactName;
+					}
 
-                    var cmd = new ConnectCommand(_blueprint, _assembly, realFromId, realFromContact, realToId, realToContact);
-                    UndoManager.getInstance().executeAndStore(cmd);
-                    rebuildAllWires();
-                }
+					// ИСПРАВЛЕНИЕ: Если вход занят - удалить старое соединение
+					var existingLink = findConnectionToInput(realToId, realToContact);
+					if (existingLink != null) {
+						deleteWire(existingLink);
+					}
+
+					var cmd = new ConnectCommand(_blueprint, _assembly, realFromId, realFromContact, realToId, realToContact);
+					UndoManager.getInstance().executeAndStore(cmd);
+					rebuildAllWires();
+				}
             }
             _isDraggingPort = false;
             _ghostWire.graphics.clear();
         }
     }
+
+	private function findConnectionToInput(atomId:String, contactName:String):ConnectionDef {
+		if (_blueprint.internalConnections == null) return null;
+		
+		for (conn in _blueprint.internalConnections) {
+			if (conn.to.atomId == atomId && conn.to.contactName == contactName) {
+				return conn;
+			}
+		}
+		return null;
+	}
+
+	public function deleteSelectedNodes():Array<String> {
+		var deletedIds:Array<String> = [];
+		for (nodeId in _selectedNodes.keys()) {
+			deletedIds.push(nodeId);
+		}
+		
+		// ИСПРАВЛЕНИЕ: Групповое удаление через MacroCommand
+		var macrocom = new MacroCommand();
+		
+		for (id in deletedIds) {
+			var cmd = new DeleteAtomCommand(_blueprint, _assembly, id);
+			macrocom.addCommand(cmd);
+		}
+		
+		UndoManager.getInstance().executeAndStore(macrocom);
+		
+		return deletedIds;
+	}
+
+	public function getSelectedNodeCount():Int {
+		var count = 0;
+		for (id in _selectedNodes.keys()) count++;
+		return count;
+	}
 
     private function onAtomDeleted(impulse:Impulse):Void {
         var id:String = impulse.data.id;
@@ -921,7 +1009,11 @@ class NodeEditor extends Sprite {
             var view = _nodes.get(nodeId);
             if (view != null) { view.dispose(); if (view.parent != null) view.parent.removeChild(view); }
         }
-        _nodes.clear();
-        ECS.reset();
+		// ИСПРАВЛЕНИЕ: Unregister узлы, но НЕ сбрасывать весь ECS (он глобальный!)
+		for (nodeId in _nodes.keys()) {
+			ECS.unregister(nodeId);
+		}
+		_nodes.clear();
+		// ECS.reset(); // УБРАНО - ломает другие редакторы
     }
 }

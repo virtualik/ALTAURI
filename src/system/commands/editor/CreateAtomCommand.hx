@@ -5,7 +5,8 @@ import core.data.Blueprint;
 import core.base.Assembly;
 import core.base.Atom;
 import core.base.Contact;
-import core.base.IDisposable; // Импорт
+import core.base.IDisposable;
+import core.base.AssemblyFactory;
 import core.types.ContactType;
 import core.logic.Impulsys;
 import library.AtomRegistry;
@@ -48,20 +49,11 @@ class CreateAtomCommand extends Command {
             _blueprint.internalAtoms.push(_atomDef);
         }
 
-        // 2. Create Atom instance (logic, contacts)
-        if (_atomInstance == null) {
-            var bp = AtomRegistry.get(_typeId);
-            if (bp == null) return;
-
-            var inputs = [];
-            var outputs = [];
-            for (pin in bp.pins) {
-                var c = new Contact(pin.defaultValue, pin.type, pin.name);
-                if (pin.type == ContactType.INPUT) inputs.push(c);
-                else outputs.push(c);
-            }
-            _atomInstance = new Atom(inputs, outputs, bp.logic, _instanceId, _typeId);
-        }
+		// 2. Create Atom instance using Factory (for active atoms support)
+		if (_atomInstance == null) {
+			_atomInstance = AssemblyFactory.createAtom(_typeId, _instanceId);
+			if (_atomInstance == null) return;
+		}
 
         // Register in Assembly
         _assembly.internalAtoms.set(_instanceId, _atomInstance);

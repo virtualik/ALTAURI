@@ -2,6 +2,9 @@ package system.commands.editor;
 
 import system.commands.base.Command;
 import core.data.Blueprint;
+import core.data.Blueprint.AtomDef;
+import core.data.Blueprint.ConnectionDef;
+import core.data.Blueprint.ConnectionPoint;
 import core.base.Assembly;
 import core.base.Atom;
 import core.base.Contact;
@@ -9,10 +12,12 @@ import core.base.ConductorPort;
 import core.base.IDisposable;
 import core.types.ContactType;
 import core.logic.Impulsys;
+import core.base.AssemblyFactory;
 import library.AtomRegistry;
 
 /**
  * Command to delete an atom and its connections.
+ * Supports Undo/Redo with proper visual restoration.
  */
 class DeleteAtomCommand extends Command {
 
@@ -21,9 +26,9 @@ class DeleteAtomCommand extends Command {
     private var _atomId:String;
 
     // Snapshot for restoration
-    private var _atomDef:core.data.Blueprint.AtomDef;
+    private var _atomDef:AtomDef;
     private var _atomType:String;
-    private var _connections:Array<core.data.Blueprint.ConnectionDef>;
+    private var _connections:Array<ConnectionDef>;
     private var _posX:Float;
     private var _posY:Float;
 
@@ -53,10 +58,10 @@ class DeleteAtomCommand extends Command {
         if (_atomDef != null) {
             _blueprint.internalAtoms.remove(_atomDef);
         }
-        
+
         var atomInstance = _assembly.internalAtoms.get(_atomId);
-        
-        // 4. FIX: Properly dispose atom instance
+
+        // 4. Properly dispose atom instance
         if (atomInstance != null) {
             if (Std.isOfType(atomInstance, IDisposable)) {
                 try {
@@ -78,32 +83,63 @@ class DeleteAtomCommand extends Command {
             _blueprint.internalAtoms.push(_atomDef);
         }
 
-        // 2. Recreate Atom instance
-        var bp = AtomRegistry.get(_atomType);
-        if (bp == null) return;
-
-        var inputs = [];
-        var outputs = [];
-        for (pin in bp.pins) {
-            var c = new Contact(pin.defaultValue, pin.type, pin.name);
-            if (pin.type == ContactType.INPUT) inputs.push(c);
-            else outputs.push(c);
+        // 2. Recreate Atom instance using Factory
+		// ИСПРАВЛЕНИЕ: Убедиться, что Blueprint зарегистрирован в Registry
+		var bp = AtomRegistry.get(_atomType);
+		if (bp == null) {
+			// Если Blueprint не найден, попроб восстановить из сохранённых данных
+			if (_atomDef != null && _atomDef.typeId != null) {
+				bp = new Blueprint(
+					_atomDef.typeId,
+					_assembly.blueprint.name, // Use the stored name
+					[], // Will be populated from snapshot
+					null,
+					[],
+					[]
+				);
+				AtomRegistry.registerBlueprint(bp.id, bp);
+			}
+		}
+        var atom = AssemblyFactory.createAtom(_atomType, _atomId);
+        if (atom == null) {
+            trace('DeleteAtomCommand.undo: Failed to create atom $_atomType');
+            return;
         }
-        var atom = new Atom(inputs, outputs, bp.logic, _atomId, _atomType);
+        
         _assembly.internalAtoms.set(_atomId, atom);
 
-        // 3. Restore connections
+        // 3. Restore connections in Blueprint
         if (_connections != null) {
             for (conn in _connections) {
                 _blueprint.internalConnections.push(conn);
-
-                var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
-                var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
-                if (cOut != null && cIn != null) cOut.link(cIn);
             }
         }
 
-        Impulsys.quickEmit("ATOM_RESTORED", {id: _atomId, x: _posX, y: _posY, atom: atom});
+        // 4. ИСПРАВЛЕНИЕ: Отправить событие для визуального восстановления
+        Impulsys.quickEmit("ATOM_RESTORED", {
+            id: _atomId, 
+            x: _posX, 
+            y: _posY, 
+            atom: atom
+        });
+        
+        // 5. Восстановить физические связи после небольшого delay
+        // (чтобы NodeEditor успел создать визуал)
+        haxe.Timer.delay(restorePhysicalConnections, 10);
+    }
+    
+    private function restorePhysicalConnections():Void {
+        if (_connections == null) return;
+        
+        for (conn in _connections) {
+            var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
+            var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
+            if (cOut != null && cIn != null) {
+                cOut.link(cIn);
+            }
+        }
+        
+        Impulsys.quickEmit("REDRAW_WIRES");
     }
 
     private function saveSnapshot():Void {
@@ -136,7 +172,6 @@ class DeleteAtomCommand extends Command {
         if (atomId == "SELF") {
             var port:ConductorPort = _assembly.ports.get(contactName);
             if (port == null) return null;
-            // Используем internal для соединений внутри схемы
             return port.internal;
         } else {
             var atom = _assembly.internalAtoms.get(atomId);

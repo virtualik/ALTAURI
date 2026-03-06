@@ -119,17 +119,24 @@ class AtomRegistry {
             var json = haxe.Json.parse(content);
             var rawBp:Dynamic = json.blueprint;
 
-            var pins:Array<PinDef> = [];
-            if (rawBp.pins != null) {
-                for (p in (cast(rawBp.pins, Array<Dynamic>))) {
-                    pins.push({
-                        name: Std.string(p.name),
-                        type: _parseContactType(p.type),
-                        defaultValue: p.defaultValue,
-                        dataType: Std.string(p.dataType)
-                    });
-                }
-            }
+			var pins:Array<PinDef> = [];
+			if (rawBp.pins != null) {
+				var seenNames = new Map<String, Bool>();  // ИСПРАВЛЕНИЕ: Отслеживание дубликатов
+				for (p in (cast(rawBp.pins, Array<Dynamic>))) {
+					var pinName = Std.string(p.name);
+					if (!seenNames.exists(pinName)) {  // Пропустить дубликаты
+						pins.push({
+							name: pinName,
+							type: _parseContactType(p.type),
+							defaultValue: p.defaultValue,
+							dataType: Std.string(p.dataType)
+						});
+						seenNames.set(pinName, true);
+					} else {
+						trace('WARN: Duplicate pin "$pinName" skipped in ${Std.string(rawBp.id)}');
+					}
+				}
+			}
 
             var conns = [];
             if (rawBp.internalConnections != null) {

@@ -28,12 +28,12 @@ class MacroCommand extends Command {
     /**
      * Execute all subcommands sequentially.
      */
-    override private function executeInternal():Void {
-        for (cmd in _subCommands) {
-            cmd.execute();
-        }
-        complete();
-    }
+	override private function executeInternal():Void {
+		for (cmd in _subCommands) {
+			cmd.execute();
+		}
+		complete();
+	}
 
     /**
      * Undo all subcommands in REVERSE order.

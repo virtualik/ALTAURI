@@ -13,6 +13,7 @@ import core.types.ContactType;
 import core.logic.Impulsys;
 import core.logic.Impulse;
 import ecs.ECS;
+import Lambda;
 
 /**
  * NODE VIEW v2.1 (Memory Leak Fixed)
@@ -33,8 +34,8 @@ class NodeView extends Sprite {
     public var inputPorts(default, null):Map<String, Sprite>;
     public var outputPorts(default, null):Map<String, Sprite>;
 
-    private var _width:Float = 100;
-    private var _height:Float = 40;
+	private var _width:Float = 100;
+	private var _height:Float;
 
     private var _isDragging:Bool = false;
     private var _offsetX:Float = 0;
@@ -64,6 +65,24 @@ class NodeView extends Sprite {
     public function setEcsMode(enabled:Bool):Void {
         _ecsMode = enabled;
     }
+
+	private function calculateHeight():Float {
+		var inputCount = 0;
+		var outputCount = 0;
+		
+		if (_assemblyInstance != null) {
+			inputCount = Lambda.count(_assemblyInstance.inputs);
+			outputCount = Lambda.count(_assemblyInstance.outputs);
+		} else if (atom != null) {
+			inputCount = atom.getInputs() != null ? atom.getInputs().length : 0;
+			outputCount = atom.getOutputs() != null ? atom.getOutputs().length : 0;
+		}
+		
+		var maxPorts = Std.int(Math.max(inputCount, outputCount));
+		
+		// Минимум 40, плюс 20 на каждый дополнительный порт
+		return Math.max(40, 30 + maxPorts * 20);
+	}
 
     public function new(atom:Atom, nodeId:String) {
         super();
@@ -108,7 +127,10 @@ class NodeView extends Sprite {
     }
 
     private function draw():Void {
-        graphics.clear();
+		_height = calculateHeight();  // ИСПРАВЛЕНИЕ: Рассчитать высоту
+		
+		graphics.clear();
+		
         graphics.beginFill(_bgColor);
 
         if (selected) {
@@ -166,7 +188,44 @@ class NodeView extends Sprite {
         drawPorts(outs, ContactType.OUTPUT);
     }
 
-    private function drawPorts(contacts:Array<Contact>, type:ContactType):Void {
+	public function redraw():Void {
+		// Запомнить позицию в display list
+		var parentContainer = this.parent;
+		var index = (parentContainer != null) ? parentContainer.getChildIndex(this) : -1;
+		
+		// Сохранить состояние
+		var wasSelected = selected;
+		var prevX = this.x;
+		var prevY = this.y;
+		
+		// Очистить детей
+		while (numChildren > 0) {
+			removeChildAt(0);
+		}
+		
+		// Очистить карты портов
+		inputPorts = new Map();
+		outputPorts = new Map();
+		
+		// Перерисовать
+		draw();
+		
+		// ИСПРАВЛЕНИЕ: Восстановить позицию в display list
+		if (parentContainer != null && index >= 0 && index < parentContainer.numChildren) {
+			parentContainer.setChildIndex(this, index);
+		}
+		
+		// Восстановить состояние
+		this.x = prevX;
+		this.y = prevY;
+		selected = wasSelected;
+		
+		// Обновить ECS
+		ECS.updatePosition(nodeId, this.x, this.y);
+		ECS.setSelected(nodeId, wasSelected);
+	}
+
+	private function drawPorts(contacts:Array<Contact>, type:ContactType):Void {
         var count = contacts.length;
         if (count == 0) return;
 
