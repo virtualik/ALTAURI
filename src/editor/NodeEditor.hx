@@ -28,7 +28,7 @@ import ecs.ECS;
 import library.AtomRegistry;
 
 class NodeEditor extends Sprite {
-
+	
     private var _useEcsRender:Bool = true;
     private var _wireType:WireTypeEnum = WireType.BEZIER;
 
@@ -49,7 +49,8 @@ class NodeEditor extends Sprite {
     private var _edgePortsContainer:Sprite;
     private var _edgePorts:Map<String, Sprite> = new Map();
     private var _fileNameField:TextField;
-
+	private var _viewportMask:Sprite;
+	
     private var _lasso:Sprite;
     private var _isLassoing:Bool = false;
     private var _lassoStartX:Float = 0;
@@ -96,8 +97,13 @@ class NodeEditor extends Sprite {
         _canvas.graphics.drawRect(-5000, -5000, 10000, 10000);
         _canvas.graphics.endFill();
         addChild(_canvas);
-
-        _canvas.addEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
+		
+		_viewportMask = new Sprite();
+        _viewportMask.mouseEnabled = false; // Маска не должна ловить мышь
+        addChild(_viewportMask);
+        _canvas.mask = _viewportMask; // Применяем маску к канве
+        
+		_canvas.addEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
 
         _wireContainer = new Sprite();
         _wireContainer.mouseEnabled = false;
@@ -169,7 +175,12 @@ class NodeEditor extends Sprite {
         _frame.graphics.clear();
         _frame.graphics.lineStyle(2, borderColor);
         _frame.graphics.drawRect(0, 0, w, h);
-
+		
+		// Обновляем маску
+        _viewportMask.graphics.clear();
+        _viewportMask.graphics.beginFill(0xFFFFFF); // Цвет не важен, важна форма
+        _viewportMask.graphics.drawRect(0, 0, w, h);
+        _viewportMask.graphics.endFill();
         _fileNameField.x = w - 10 - _fileNameField.width;
         _fileNameField.y = h - 20;
 
@@ -328,20 +339,28 @@ class NodeEditor extends Sprite {
         _lasso.graphics.clear();
         Impulsys.quickEmit("CLOSE_CONTEXT_MENU");
 
-		if (ctrl) {
-			if (_selectedNodes.exists(view.nodeId)) {
-				view.selected = false;
-				_selectedNodes.remove(view.nodeId);
-			} else {
-				view.selected = true;
-				_selectedNodes.set(view.nodeId, view);
-			}
-		} else {
-			// ИСПРАВЛЕНИЕ: Всегда снимать выделение с других при обычном клике
-			deselectAll();
-			view.selected = true;
-			_selectedNodes.set(view.nodeId, view);
-		}
+        // ИСПРАВЛЕНИЕ: Проверяем, выделен ли уже этот узел
+        var isAlreadySelected = _selectedNodes.exists(view.nodeId);
+
+        if (ctrl) {
+            // Ctrl + Click: Инвертируем выделение
+            if (isAlreadySelected) {
+                view.selected = false;
+                _selectedNodes.remove(view.nodeId);
+            } else {
+                view.selected = true;
+                _selectedNodes.set(view.nodeId, view);
+            }
+        } else {
+            // Обычный клик
+            if (!isAlreadySelected) {
+                // Если кликнули по невыделенному узлу -> сбрасываем остальных, выделяем этот
+                deselectAll();
+                view.selected = true;
+                _selectedNodes.set(view.nodeId, view);
+            }
+            // Если кликнули по уже выделенному узлу -> ничего не делаем (сохраняем группу для перетаскивания)
+        }
     }
 
     public function deselectAll():Void {
@@ -393,7 +412,7 @@ class NodeEditor extends Sprite {
         spr.buttonMode = true;
 
         var color = 0x666666;
-        var thickness = 2.0;
+        var thickness = 4.0;
         var id = getWireID(link);
 
         if (_selectedWireIds.indexOf(id) != -1) {
@@ -542,7 +561,8 @@ class NodeEditor extends Sprite {
     public function getWireType():WireTypeEnum { return _wireType; }
     public function setAllowAssembly(value:Bool):Void { _allowAssembly = value; }
     public function getAllowAssembly():Bool { return _allowAssembly; }
-
+    public function getSelectedWireIds():Array<String> { return _selectedWireIds.copy(); }
+	
     private function onNodeMoved(impulse:Impulse):Void {
         var sourceView:NodeView = impulse.data.view;
         var dx:Float = impulse.data.dx;
@@ -606,16 +626,23 @@ class NodeEditor extends Sprite {
         updateEdgeWires();
     }
     
-    private function updateActiveWires():Void {
-        if (_activeWires.length == 0) return;
-        for (link in _blueprint.internalConnections) {
-            var id = getWireID(link);
-            var entry = _wireSprites.get(id);
-            if (entry != null && _activeWires.indexOf(entry.sprite) != -1) {
-                drawWireGraphics(entry.sprite.graphics, link);
-            }
-        }
-    }
+	private function updateActiveWires():Void {
+		if (_activeWires.length == 0) return;
+		for (link in _blueprint.internalConnections) {
+			var id = getWireID(link);
+			var entry = _wireSprites.get(id);
+			
+			if (entry != null && _activeWires.indexOf(entry.sprite) != -1) {
+				// ИСПРАВЛЕНИЕ: Проверяем, выделен ли провод, чтобы сохранить его стиль
+				var isSelected = _selectedWireIds.indexOf(id) != -1;
+				
+				var thickness = isSelected ? 4 : 2; // Толщина 4 если выделен, 2 если нет
+				var color = isSelected ? 0xFFCC00 : 0x666666; // Цвет также сохраняется
+				
+				drawWireGraphics(entry.sprite.graphics, link, color, thickness);
+			}
+		}
+	}
 
     private function updateVisibility():Void {
         if (stage == null) return;
@@ -756,18 +783,39 @@ class NodeEditor extends Sprite {
     private function onMouseWheel(e:MouseEvent):Void {
         var zoomFactor:Float = 1.1;
         if (e.delta < 0) zoomFactor = 1 / 1.1;
+        
+        // 1. Определяем позицию мыши в локальных координатах канвы (ДО изменения масштаба)
         var mouseLocal:Point = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
+        
         var oldScale:Float = _canvas.scaleX;
         var newScale:Float = oldScale * zoomFactor;
+        
+        // Ограничения масштаба
         if (newScale < 0.1) newScale = 0.1;
         if (newScale > 5.0) newScale = 5.0;
         if (newScale == oldScale) return;
 
+        // 2. Применяем новый масштаб
         _canvas.scaleX = newScale;
         _canvas.scaleY = newScale;
-        _canvas.x = e.stageX - (mouseLocal.x * newScale);
-        _canvas.y = e.stageY - (mouseLocal.y * newScale);
-        updateEdgeWires(); updateVisibility();
+        
+        // 3. Вычисляем, где должен находиться верхний левый угол канвы (0,0) в ГЛОБАЛЬНЫХ координатах,
+        // чтобы точка под курсором осталась на месте.
+        // Формула: ГлобальныйЦентр = МышьГлобальная - (МышьЛокальная * Масштаб)
+        var targetGlobalPos:Point = new Point(
+            e.stageX - (mouseLocal.x * newScale),
+            e.stageY - (mouseLocal.y * newScale)
+        );
+        
+        // 4. Конвертируем эту глобальную точку в ЛОКАЛЬНЫЕ координаты NodeEditor (родителя _canvas).
+        // Это исправляет ошибку, так как учитывает смещение самого окна редактора (container margin).
+        var targetLocalPos:Point = this.globalToLocal(targetGlobalPos);
+        
+        _canvas.x = targetLocalPos.x;
+        _canvas.y = targetLocalPos.y;
+        
+        updateEdgeWires(); 
+        updateVisibility();
     }
 
     public function getNodePositions():Array<{id:String, x:Float, y:Float}> {

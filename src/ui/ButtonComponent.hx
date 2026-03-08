@@ -24,10 +24,11 @@ class ButtonComponent extends Sprite {
 
         _textField = new TextField();
         // Шрифт крупнее и жирнее для квадратной кнопки
-        var format = new TextFormat("_typewriter", 18, 0xffffff, true); 
+        var format = new TextFormat("_sans", 18, 0xffffff, true); 
         format.align = TextFormatAlign.CENTER;
         _textField.defaultTextFormat = format;
         
+		_textField.y = 5;
         _textField.width = SIZE;
         _textField.height = SIZE;
         _textField.text = label;

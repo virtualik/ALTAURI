@@ -11,8 +11,8 @@
 	<window 
 		borderless="false"
 		transparent="false"
-		background="0x00000000"
-		alwaysOnTop="true"
+		background="0x222222"
+		alwaysOnTop="false"
 		width="1024"
 		height="800"
 		fps="999"

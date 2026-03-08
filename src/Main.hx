@@ -30,6 +30,9 @@ import system.commands.editor.GroupAtomsCommand;
 import system.commands.editor.CreateNewAssemblyCommand;
 import system.commands.editor.AddPortCommand;
 import system.commands.editor.RemovePortCommand;
+import system.commands.editor.DeleteWiresCommand;
+import system.commands.editor.DeleteAtomCommand;
+import system.commands.base.MacroCommand;
 import ecs.ECS;
 import core.types.ContactType;
 
@@ -88,8 +91,7 @@ class Main extends Sprite {
 
     // Buttons
     private var _btnBack:ButtonComponent;
-    private var _btnSave:ButtonComponent;
-    private var _btnLoad:ButtonComponent;
+    private var _btnReset:ButtonComponent;
     private var _btnNew:ButtonComponent;
     private var _btnView:ButtonComponent;
     private var _btnSettings:ButtonComponent;
@@ -156,7 +158,9 @@ class Main extends Sprite {
 
 	private function init(e:Event = null):Void {
 		removeEventListener(Event.ADDED_TO_STAGE, init);
-
+		
+		stage.color = 0x0a0a0a; 
+		
 		DriverManager.getInstance();
 		SignalQueue.getInstance();
 
@@ -296,7 +300,7 @@ class Main extends Sprite {
             var top = _editorStack[_editorStack.length - 1];
 
             var blocker = new Sprite();
-            blocker.graphics.beginFill(0x000000, 0.6);
+            blocker.graphics.beginFill(0xFF0000, 0.6);
             blocker.graphics.drawRect(0, 0, stage.stageWidth, stage.stageHeight);
             blocker.graphics.endFill();
             blocker.addEventListener(MouseEvent.CLICK, function(e) { e.stopPropagation(); });
@@ -337,7 +341,7 @@ class Main extends Sprite {
         var h = stage.stageHeight - margin * 2;
 
         container.graphics.clear();
-        container.graphics.beginFill(0x222222);
+        container.graphics.beginFill(0x333333);
         container.graphics.lineStyle(2, 0x00AAFF);
         container.graphics.drawRoundRect(0, 0, w, h, 10, 10);
         container.graphics.endFill();
@@ -409,7 +413,7 @@ class Main extends Sprite {
         _debugField.backgroundColor = 0x333333;
         _debugField.textColor = 0x00FF00;
         _debugField.selectable = false;
-        var fmt = new TextFormat("_typewriter", 12);
+        var fmt = new TextFormat("_sans", 12);
         _debugField.defaultTextFormat = fmt;
         addChild(_debugField);
     }
@@ -437,9 +441,9 @@ class Main extends Sprite {
         var startX = stage.stageWidth - btnPadding;
         var startY = btnPadding;
 
-        // Order: Back, View, New, Load, Save, Settings
+        // Order: Back, View, New, Reset, Settings
         // Layout: Right to Left
-        
+
         _btnBack = new ButtonComponent("<", popEditor);
         _btnBack.x = startX - btnSize; _btnBack.y = startY;
         _uiLayer.addChild(_btnBack);
@@ -452,22 +456,18 @@ class Main extends Sprite {
         _btnNew.x = _btnView.x - btnSize - btnPadding; _btnNew.y = startY;
         _uiLayer.addChild(_btnNew);
 
-        _btnLoad = new ButtonComponent("L", onFileLoad);
-        _btnLoad.x = _btnNew.x - btnSize - btnPadding; _btnLoad.y = startY;
-        _uiLayer.addChild(_btnLoad);
-
-        _btnSave = new ButtonComponent("S", saveCurrentContext);
-        _btnSave.x = _btnLoad.x - btnSize - btnPadding; _btnSave.y = startY;
-        _uiLayer.addChild(_btnSave);
+        // НОВАЯ КНОПКА RESET
+        _btnReset = new ButtonComponent("R", onResetClick);
+        _btnReset.x = _btnNew.x - btnSize - btnPadding; _btnReset.y = startY;
+        _uiLayer.addChild(_btnReset);
 
         _btnSettings = new ButtonComponent("?", onSettingsClick);
-        _btnSettings.x = _btnSave.x - btnSize - btnPadding; _btnSettings.y = startY;
+        _btnSettings.x = _btnReset.x - btnSize - btnPadding; _btnSettings.y = startY;
         _uiLayer.addChild(_btnSettings);
-
 
         // --- Name Field (Top Left) ---
         _nameField = new TextField();
-        _nameField.defaultTextFormat = new TextFormat("_typewriter", 16, 0x00AAFF, true);
+        _nameField.defaultTextFormat = new TextFormat("_sans", 24, 0x00AAFF, true);
         _nameField.text = "Selfrun";
         _nameField.autoSize = LEFT;
         _nameField.selectable = false;
@@ -481,7 +481,7 @@ class Main extends Sprite {
         _pathField.width = 400; _pathField.height = 20;
         _pathField.x = 10; _pathField.y = stage.stageHeight - 20;
         _pathField.selectable = false; _pathField.mouseEnabled = false;
-        var pathFmt = new TextFormat("_typewriter", 11, 0x888888);
+        var pathFmt = new TextFormat("_sans", 16, 0x888888);
         _pathField.defaultTextFormat = pathFmt;
         _uiLayer.addChild(_pathField);
 
@@ -522,16 +522,15 @@ class Main extends Sprite {
         _btnBack.x = rightEdge - btnSize;
         _btnView.x = _btnBack.x - btnSize - btnPadding;
         _btnNew.x = _btnView.x - btnSize - btnPadding;
-        _btnLoad.x = _btnNew.x - btnSize - btnPadding;
-        _btnSave.x = _btnLoad.x - btnSize - btnPadding;
-        _btnSettings.x = _btnSave.x - btnSize - btnPadding;
+        _btnReset.x = _btnNew.x - btnSize - btnPadding; // Обновлено
+        _btnSettings.x = _btnReset.x - btnSize - btnPadding; // Обновлено
 
         // Resize current editor container
         if (_currentEditor != null) {
             var margin = 12;
             var w = stage.stageWidth - margin * 2;
             var h = stage.stageHeight - margin * 2;
-            
+
             var container = _editorStack[_editorStack.length - 1].container;
             drawContainerFrame(container);
             _currentEditor.setSize(w, h);
@@ -709,30 +708,58 @@ class Main extends Sprite {
         _menu.show(e.stageX, e.stageY);
     }
 
-	private function onNodeRightClick(impulse:Impulse):Void {
-		if (impulse == null || impulse.data == null) return;
-		
-		var view:NodeView = impulse.data.view;
-		_contextTargetId = impulse.data.id;
+    private function onNodeRightClick(impulse:Impulse):Void {
+        if (impulse == null || impulse.data == null) return;
 
-		// ИСПРАВЛЕНИЕ: Выделить элемент при правом клике
-		if (!_currentEditor.isSelected(_contextTargetId)) {
-			_currentEditor.deselectAll();
-			_currentEditor.selectNode(_contextTargetId, view);
-		}
+        var view:NodeView = impulse.data.view;
+        _contextTargetId = impulse.data.id;
 
-		resetContextMenu();
-		buildAtomMenu();
+        // Выделяем элемент при ПКМ, если он не выделен
+        if (!_currentEditor.isSelected(_contextTargetId)) {
+            _currentEditor.deselectAll();
+            _currentEditor.selectNode(_contextTargetId, view);
+        }
 
-		_menu.addItem("——————", "SEP");
+        resetContextMenu();
+        // ВАЖНО: Убрали вызов buildAtomMenu() отсюда
 
-		// ИСПРАВЛЕНИЕ: Показать правильный текст для Delete
-		var selectedCount = _currentEditor.getSelectedNodeCount();
-		if (selectedCount > 1) {
-			_menu.addItem("Delete Selected (" + selectedCount + ")", "DELETE_SELECTED", {});
-		} else {
-			_menu.addItem("Delete " + impulse.data.name, "DELETE_ATOM", {id: _contextTargetId});
-		}
+        // Считаем выделенное
+        var nodeCount = _currentEditor.getSelectedNodeCount();
+        var wireCount = _currentEditor.getSelectedWireIds().length; // Понадобится геттер
+
+        // Логика формирования пунктов меню
+        if (nodeCount > 0) {
+            // 1. Если есть и ноды, и провода -> предлагаем "Delete Selected" (все)
+            if (wireCount > 0) {
+                _menu.addItem("Delete Selected (" + nodeCount + " nodes, " + wireCount + " wires)", "DELETE_ALL_SELECTED", {});
+                _menu.addItem("——————", "SEP");
+            }
+
+            // 2. Пункт удаления только нод (с правильным названием)
+            var typeName = "Nodes"; // По умолчанию
+            
+            // Проверяем типы выделенных нод
+            var allAssemblies = true;
+            var allAtoms = true;
+            
+            for (id in _currentEditor.getSelectedNodeIds()) {
+                var atom = _currentAssembly.internalAtoms.get(id);
+                if (atom != null) {
+                    if (Std.isOfType(atom, Assembly)) allAtoms = false;
+                    else allAssemblies = false;
+                }
+            }
+
+            if (allAssemblies) typeName = "Assemblies";
+            else if (allAtoms) typeName = "Atoms";
+            else typeName = "Nodes";
+
+            // Склонение (1 элемент - единственное число)
+            if (nodeCount == 1) typeName = typeName.substr(0, typeName.length - 1); // убираем 's'
+
+            _menu.addItem("Delete Selected " + typeName + " (" + nodeCount + ")", "DELETE_SELECTED_ATOMS", {});
+        }
+
         _menu.show(stage.mouseX, stage.mouseY);
     }
 
@@ -746,8 +773,22 @@ class Main extends Sprite {
     private function onWireRightClick(impulse:Impulse):Void {
         if (impulse == null || impulse.data == null) return;
         resetContextMenu();
-        var count = impulse.data.ids.length;
-        _menu.addItem("Delete Selected Wire" + (count > 1 ? "s" : ""), "DELETE_WIRES", {ids: impulse.data.ids});
+
+        // ИСПРАВЛЕНИЕ: Явно приводим к Int
+        var wireCount:Int = Std.int(impulse.data.ids.length);
+        var nodeCount = _currentEditor.getSelectedNodeCount();
+
+        // 1. Если выделены и ноды -> предлагаем удалить всё
+        if (nodeCount > 0) {
+            _menu.addItem("Delete Selected (" + nodeCount + " nodes, " + wireCount + " wires)", "DELETE_ALL_SELECTED", {});
+            _menu.addItem("——————", "SEP");
+        }
+
+        // 2. Удаление только проводов
+        // Теперь сравнение Int > Int работает корректно
+        var label = (wireCount > 1) ? "Delete Selected Wires ("+wireCount+")" : "Delete Wire";
+        _menu.addItem(label, "DELETE_WIRES", {ids: impulse.data.ids});
+
         _menu.show(stage.mouseX, stage.mouseY);
     }
 
@@ -768,7 +809,8 @@ class Main extends Sprite {
         if (_fileMenu != null) _fileMenu.hide();
         if (impulse == null || impulse.data == null || impulse.data.action == null) return;
 
-        var action = impulse.data.action;
+        // ИСПРАВЛЕНИЕ: Явно приводим action к String, чтобы избежать ошибки сравнения типов
+        var action:String = Std.string(impulse.data.action);
         var data = impulse.data.data;
         var x = impulse.data.x;
         var y = impulse.data.y;
@@ -778,23 +820,45 @@ class Main extends Sprite {
                 onFileLoad();
                 return;
 
-			case "DELETE_ATOM":
-				// ИСПРАВЛЕНИЕ: Удалять все выделенные, а не только один
-				if (_currentEditor.getSelectedNodeCount() > 0) {
-					_currentEditor.deleteSelectedNodes();
-					updateSettingsStats();
-				}
-				_contextTargetId = null;
-				return;
+            case "DELETE_ALL_SELECTED":
+                // ИСПРАВЛЕНО: macrocom вместо macro
+                var macrocom = new MacroCommand();
+                
+                // 1. Удаляем ноды
+                var nodeIds = _currentEditor.getSelectedNodeIds();
+                for (id in nodeIds) {
+                    macrocom.addCommand(new DeleteAtomCommand(_currentAssembly.blueprint, _currentAssembly, id));
+                }
 
-			case "DELETE_SELECTED":
-				_currentEditor.deleteSelectedNodes();
-				updateSettingsStats();
-				return;
+                // 2. Удаляем провода
+                var wireIds = _currentEditor.getSelectedWireIds();
+                if (wireIds.length > 0) {
+                    macrocom.addCommand(new DeleteWiresCommand(_currentAssembly.blueprint, _currentAssembly, wireIds));
+                }
+
+                UndoManager.getInstance().executeAndStore(macrocom);
+                _currentEditor.deselectAll();
+                updateSettingsStats();
+                return;
+
+            case "DELETE_SELECTED_ATOMS":
+                _currentEditor.deleteSelectedNodes();
+                updateSettingsStats();
+                _contextTargetId = null;
+                return;
+
+            case "DELETE_ATOM":
+                // Этот кейс может сработать для совместимости
+                if (_currentEditor.getSelectedNodeCount() > 0) {
+                    _currentEditor.deleteSelectedNodes();
+                    updateSettingsStats();
+                }
+                _contextTargetId = null;
+                return;
 
             case "DELETE_WIRES":
-                _currentEditor.deleteSelectedWires();
-                updateSettingsStats();
+                var cmd = new DeleteWiresCommand(_currentAssembly.blueprint, _currentAssembly, data.ids);
+                UndoManager.getInstance().executeAndStore(cmd);
                 return;
 
             case "GROUP_ATOMS":
@@ -915,12 +979,18 @@ class Main extends Sprite {
         if (e.keyCode == Keyboard.R) onResetClick();
         if (e.keyCode == Keyboard.BACKSPACE) if (_editorStack.length > 1) popEditor();
 		if (e.keyCode == Keyboard.DELETE) {
-			_currentEditor.deleteSelectedWires();
-			
-			// ИСПРАВЛЕНИЕ: Удалять все выделенные ноды
+		// 1. Приоритет: Удаление нод (они сами удалят свои провода)
 			if (_currentEditor.getSelectedNodeCount() > 0) {
 				_currentEditor.deleteSelectedNodes();
 				updateSettingsStats();
+			} 
+			// 2. Иначе: Удаление проводов через команду Undo
+			else {
+				var selectedIds = _currentEditor.getSelectedWireIds();
+				if (selectedIds.length > 0) {
+					var cmd = new DeleteWiresCommand(_currentAssembly.blueprint, _currentAssembly, selectedIds);
+					UndoManager.getInstance().executeAndStore(cmd);
+				}
 			}
 			
 			_contextTargetId = null;

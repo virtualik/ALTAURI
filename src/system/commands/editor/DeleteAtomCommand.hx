@@ -145,6 +145,7 @@ class DeleteAtomCommand extends Command {
     private function saveSnapshot():Void {
         if (_atomDef != null) return;
 
+        // 1. Сначала находим определение в Blueprint (оно содержит правильный typeId)
         for (a in _blueprint.internalAtoms) {
             if (a.instanceId == _atomId) {
                 _atomDef = a;
@@ -155,11 +156,20 @@ class DeleteAtomCommand extends Command {
         var atomInst = _assembly.internalAtoms.get(_atomId);
 
         if (atomInst != null) {
-            _atomType = atomInst.type;
+            // ИСПРАВЛЕНИЕ: Берем typeId из определения (_atomDef), а не из atomInst.type.
+            // atomInst.type может быть просто именем ("Frame Time"), а нужен ID ("FrameTimeAtom").
+            if (_atomDef != null) {
+                _atomType = _atomDef.typeId;
+            } else {
+                // Fallback на случай странностей
+                _atomType = atomInst.type; 
+            }
+            
             _posX = (_atomDef != null && _atomDef.x != null) ? _atomDef.x : 0;
             _posY = (_atomDef != null && _atomDef.y != null) ? _atomDef.y : 0;
         }
 
+        // Сохраняем связи
         _connections = [];
         for (conn in _blueprint.internalConnections) {
             if (conn.from.atomId == _atomId || conn.to.atomId == _atomId) {

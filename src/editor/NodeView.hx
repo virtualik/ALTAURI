@@ -121,7 +121,7 @@ class NodeView extends Sprite {
         if (selected != v) {
             selected = v;
             ECS.setSelected(nodeId, v);
-            draw();
+            redraw();
         }
         return v;
     }
