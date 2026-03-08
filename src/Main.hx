@@ -203,7 +203,7 @@ class Main extends Sprite {
                     log("Failed to enable DWM transparency");
                 }
             }
-        }, 200);
+        }, 1);
         #end
     }
 
@@ -1059,6 +1059,17 @@ class Main extends Sprite {
         if (e.ctrlKey && e.keyCode == Keyboard.Z) UndoManager.getInstance().undo();
         if (e.ctrlKey && e.keyCode == Keyboard.Y) UndoManager.getInstance().redo();
         if (e.keyCode == Keyboard.R) onResetClick();
+		
+		if (e.ctrlKey && e.keyCode == Keyboard.C) {
+			if (_currentEditor != null) _currentEditor.copySelection();
+			return;
+		}
+
+		if (e.ctrlKey && e.keyCode == Keyboard.V) {
+			if (_currentEditor != null) _currentEditor.pasteSelection();
+			return;
+		}
+		
         if (e.keyCode == Keyboard.BACKSPACE) if (_editorStack.length > 1) popEditor();
         if (e.keyCode == Keyboard.DELETE) {
             if (_currentEditor.getSelectedNodeCount() > 0) {

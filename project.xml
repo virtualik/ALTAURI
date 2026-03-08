@@ -8,7 +8,7 @@
 	<!-- output -->
 	<app main="Main" file="ALTAURI" path="bin" />
 	<define name="disable-high-dpi" />
-	<window borderless="false" hardware="true" vsync="true" allow-shaders="true" width="1024" height="800" fps="999" />
+	<window borderless="true" hardware="true" vsync="true" allow-shaders="true" width="1024" height="800" fps="999" />
 
 	<!-- classpath, haxe libs -->
 	<source path="src" />

@@ -1,3 +1,6 @@
+// =========================================================================
+// THIS CLASS NOT USED IN APP. NEEDED FOR EXAMPLE FOR THE NATIVE EXTENSIONS
+// =========================================================================
 package ui.virtual;
 import flash.display.Sprite;
 
@@ -35,7 +38,7 @@ LRESULT CALLBACK OverlayWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
     switch (message) {
         case WM_CREATE:
             g_overlayHwnd = hWnd;
-            SetLayeredWindowAttributes(hWnd, 0, 255, LWA_ALPHA);
+			SetLayeredWindowAttributes(hWnd, 0x000000, 255, LWA_COLORKEY); // window transparency
             centerOverlayWindowImpl();
             break;
             
