@@ -162,11 +162,8 @@ class Main extends Sprite {
     private function init(e:Event = null):Void {
         removeEventListener(Event.ADDED_TO_STAGE, init);
 
-        // CRITICAL: Set black background for LWA_COLORKEY transparency
-		stage.color = 0x000000;
-
-		// Initialize WindowController with DWM transparency
-		initWindowController();
+        // Initialize WindowController with DWM transparency
+        initWindowController();
 
         // Setup transparent background
         setupTransparentBackground();
@@ -229,15 +226,15 @@ class Main extends Sprite {
         _transparentBg.graphics.clear();
         
         #if windows
-        // For LWA_COLORKEY: color 0x000000 = transparent
-		// Alpha is ignored by color key - only exact color match matters
-		_transparentBg.graphics.beginFill(0x000000, 1.0);  // Alpha doesn't matter
+        // Draw with alpha = 0.0 for fully transparent background
+        // DWM will make this area transparent to desktop
+        _transparentBg.graphics.beginFill(0x000000, 0.0);
         #else
         // On other platforms, use a dark semi-transparent background
         _transparentBg.graphics.beginFill(0x0a0a12, 0.95);
         #end
         
-       _transparentBg.graphics.drawRect(0, 0, stage.stageWidth, stage.stageHeight);
+        _transparentBg.graphics.drawRect(0, 0, stage.stageWidth, stage.stageHeight);
         _transparentBg.graphics.endFill();
     }
 

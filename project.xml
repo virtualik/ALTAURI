@@ -1,39 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <project>
 	<!-- NMML reference: https://gist.github.com/1763850 -->
-	
+
 	<!-- metadata, make sure 'package' is at least 3 segments (ie. com.mycompany.myproject) -->
 	<meta title="ALTAURI" package="ALTAURI" version="1.0.0" company="ViRTUALiK" />
-	
+
 	<!-- output -->
 	<app main="Main" file="ALTAURI" path="bin" />
-	
-	<window 
-		borderless="false"
-		transparent="false"
-		background="0x222222"
-		alwaysOnTop="false"
-		width="1024"
-		height="800"
-		fps="999"
-		vsync="false"
-		antialiasing="0"
-		unless="mobile"
-		orientation="landscape"
-		if="cpp" 
-	/>
-	<haxedef name="lime-multiwindow" />
-	<window transparent="false" if="desktop" />
-	
+	<define name="disable-high-dpi" />
+	<window borderless="false" hardware="true" vsync="true" allow-shaders="true" width="1024" height="800" fps="999" />
+
 	<!-- classpath, haxe libs -->
 	<source path="src" />
 	<haxelib name="openfl" />
-	
+
 	<!-- assets -->
 	<icon path="assets/openfl.svg" />
-	<assets path="assets/img" rename="img" />
-	
-	<!-- optimize output
-	<haxeflag name="-dce full" /> -->
-	
+
 </project>

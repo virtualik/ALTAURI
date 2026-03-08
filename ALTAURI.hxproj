@@ -23,7 +23,7 @@
   </classpaths>
   <!-- Build options -->
   <build>
-    <option directives="openfl=9.4.0&#xA;lime=8.1.3&#xA;lime-openal&#xA;native&#xA;lime-curl&#xA;openfl-native&#xA;hl.command=C:\HaxeToolkit\hl\hl.exe&#xA;lime-harfbuzz&#xA;tools=8.1.3&#xA;lime-cairo&#xA;lime-opengl&#xA;no-compilation&#xA;disable_preloader_assets=1&#xA;lime-multiwindow&#xA;lime-native&#xA;lime-vorbis&#xA;lime-cffi&#xA;fdb&#xA;windows&#xA;desktop" />
+    <option directives="openfl=9.4.0&#xA;lime=8.1.3&#xA;lime-openal&#xA;disable-high-dpi&#xA;native&#xA;lime-curl&#xA;openfl-native&#xA;hl.command=C:\HaxeToolkit\hl\hl.exe&#xA;lime-harfbuzz&#xA;tools=8.1.3&#xA;lime-cairo&#xA;lime-opengl&#xA;no-compilation&#xA;disable_preloader_assets=1&#xA;lime-native&#xA;lime-vorbis&#xA;lime-cffi&#xA;fdb&#xA;windows&#xA;desktop" />
     <option flashStrict="False" />
     <option noInlineOnDebug="False" />
     <option mainClass="ApplicationMain" />

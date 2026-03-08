@@ -305,7 +305,7 @@ class NodeEditor extends Sprite {
 
         _lasso.graphics.clear();
         _lasso.graphics.lineStyle(1, 0xFFFFFF, 0.8);
-        _lasso.graphics.beginFill(0x00AAFF, 0.2);
+        _lasso.graphics.beginFill(0x000000, 0.0);
         _lasso.graphics.drawRect(x, y, w, h);
         _lasso.graphics.endFill();
     }

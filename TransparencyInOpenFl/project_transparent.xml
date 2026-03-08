@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<project>
+    <!-- NMML reference: https://gist.github.com/1763850 -->
+    
+    <!-- metadata, make sure 'package' is at least 3 segments -->
+    <meta title="ALTAURI" package="ALTAURI" version="1.0.0" company="ViRTUALiK" />
+    
+    <!-- output -->
+    <app main="Main" file="ALTAURI" path="bin" />
+    
+    <!-- TRANSPARENT WINDOW CONFIGURATION -->
+    <!-- background="0x000000" - Black color will be transparent (LWA_COLORKEY) -->
+    <!-- transparent="true" - Tells SDL to support transparency -->
+    <!-- borderless="true" - Removes window frame (optional) -->
+    <!-- hardware="true" - Works with hardware rendering! -->
+    <window 
+        background="0x000000"
+        transparent="true"
+        borderless="true"
+        hardware="true" 
+        allow-shaders="true"
+        width="1024"
+        height="800"
+        fps="60"
+    />
+    
+    <!-- classpath, haxe libs -->
+    <source path="src" />
+    <haxelib name="openfl" />
+    
+    <!-- assets -->
+    <icon path="assets/openfl.svg" />
+    
+</project>
