@@ -102,9 +102,6 @@ class Main extends Sprite {
 
     // Window Controller
     private var _windowController:WindowController;
-    
-    // Transparency background layer
-    private var _transparentBg:Sprite;
 
     public function new() {
         super();
@@ -162,14 +159,8 @@ class Main extends Sprite {
     private function init(e:Event = null):Void {
         removeEventListener(Event.ADDED_TO_STAGE, init);
 
-        // CRITICAL: Set black background for LWA_COLORKEY transparency
-		stage.color = 0x000000;
-
-		// Initialize WindowController with DWM transparency
-		initWindowController();
-
-        // Setup transparent background
-        setupTransparentBackground();
+        stage.color = 0x000000;
+        initWindowController();
 
         DriverManager.getInstance();
         SignalQueue.getInstance();
@@ -185,70 +176,17 @@ class Main extends Sprite {
         loadSelfrun();
     }
 
-    // =========================================================================
-    // WINDOW CONTROLLER INITIALIZATION
-    // =========================================================================
-
     private function initWindowController():Void {
         _windowController = new WindowController();
 
         #if windows
-        // Enable DWM transparency after window is ready
         haxe.Timer.delay(function() {
             if (_windowController != null) {
-                var success = _windowController.enableDWMTransparency();
-                if (success) {
-                    log("DWM Transparency enabled");
-                } else {
-                    log("Failed to enable DWM transparency");
-                }
+                _windowController.enableDWMTransparency();
             }
         }, 1);
         #end
     }
-
-    // =========================================================================
-    // TRANSPARENT BACKGROUND SETUP
-    // =========================================================================
-
-    /**
-     * Setup transparent background for DWM transparency.
-     * This creates a fully transparent base layer.
-     * UI elements drawn on top will be visible.
-     */
-    private function setupTransparentBackground():Void {
-        _transparentBg = new Sprite();
-        addChildAt(_transparentBg, 0);
-        
-        // Draw transparent background (alpha = 0.0)
-        // This makes the base layer fully transparent
-        drawTransparentBackground();
-    }
-
-    private function drawTransparentBackground():Void {
-        _transparentBg.graphics.clear();
-        
-        #if windows
-        // For LWA_COLORKEY: color 0x000000 = transparent
-		// Alpha is ignored by color key - only exact color match matters
-		_transparentBg.graphics.beginFill(0x000000, 1.0);  // Alpha doesn't matter
-        #else
-        // On other platforms, use a dark semi-transparent background
-        _transparentBg.graphics.beginFill(0x0a0a12, 0.95);
-        #end
-        
-       _transparentBg.graphics.drawRect(0, 0, stage.stageWidth, stage.stageHeight);
-        _transparentBg.graphics.endFill();
-    }
-
-    /**
-     * Redraw transparent background on resize.
-     */
-    private function redrawTransparentBackground():Void {
-        drawTransparentBackground();
-    }
-
-    // =========================================================================
 
     private function saveOnExit():Void {
         log("Auto-saving Selfrun on exit...");
@@ -415,15 +353,13 @@ class Main extends Sprite {
         var h = stage.stageHeight - margin * 2;
 
         container.graphics.clear();
-        
+
         #if windows
-        // Semi-transparent container background for DWM
-        // Alpha = 0.85 makes it visible but slightly transparent
-        container.graphics.beginFill(0x1a1a2e, 0.9);
+        container.graphics.beginFill(0x1a1a2e, 1.0);
         #else
         container.graphics.beginFill(0x333333, 1.0);
         #end
-        
+
         container.graphics.lineStyle(2, 0x00AAFF);
         container.graphics.drawRoundRect(0, 0, w, h, 10, 10);
         container.graphics.endFill();
@@ -439,9 +375,7 @@ class Main extends Sprite {
         }
 
         var current = _editorStack.pop();
-
         saveAssemblyToLibrary(current.assembly);
-
         current.editor.dispose();
         _editorLayer.removeChild(current.container);
 
@@ -457,7 +391,6 @@ class Main extends Sprite {
 
         _currentEditor = prev.editor;
         _currentAssembly = prev.assembly;
-
         _currentEditor.refreshAssemblyViews();
 
         updateNavigationUI();
@@ -596,9 +529,6 @@ class Main extends Sprite {
         _btnReset.x = _btnNew.x - btnSize - btnPadding;
         _btnSettings.x = _btnReset.x - btnSize - btnPadding;
 
-        // Redraw transparent background on resize
-        redrawTransparentBackground();
-
         if (_currentEditor != null) {
             var margin = 12;
             var w = stage.stageWidth - margin * 2;
@@ -619,7 +549,6 @@ class Main extends Sprite {
     private function saveCurrentContext():Void {
         #if sys
         var isRoot = (_editorStack.length == 1);
-
         if (isRoot) {
             log("Saving Selfrun...");
             saveSelfrun();
@@ -708,10 +637,8 @@ class Main extends Sprite {
 
         if (Std.isOfType(obj, Assembly)) {
             var targetAsm = cast(obj, Assembly);
-
             _currentEditor.deselectAll();
             _propertiesWindow.close();
-
             pushEditor(targetAsm);
             log("Opened: " + targetAsm.blueprint.name);
         } else {
@@ -722,7 +649,6 @@ class Main extends Sprite {
     private function onRequestNewContext(impulse:Impulse):Void {
         var bp:Blueprint = impulse.data.blueprint;
         var id:String = impulse.data.id;
-
         var newAsm = new Assembly(id, bp);
         pushEditor(newAsm);
         log("Created New Assembly Context");
@@ -800,7 +726,6 @@ class Main extends Sprite {
             }
 
             var typeName = "Nodes";
-
             var allAssemblies = true;
             var allAtoms = true;
 
@@ -878,7 +803,6 @@ class Main extends Sprite {
 
             case "DELETE_ALL_SELECTED":
                 var macrocom = new MacroCommand();
-
                 var nodeIds = _currentEditor.getSelectedNodeIds();
                 for (id in nodeIds) {
                     macrocom.addCommand(new DeleteAtomCommand(_currentAssembly.blueprint, _currentAssembly, id));
@@ -1015,26 +939,17 @@ class Main extends Sprite {
     private function onKeyDown(e:KeyboardEvent):Void {
         #if windows
         if (e.keyCode == Keyboard.F4 && !e.ctrlKey) {
-            if (_windowController != null) {
-                _windowController.toggleTransparency();
-            }
+            if (_windowController != null) _windowController.toggleTransparency();
             return;
         }
-
         if (e.keyCode == Keyboard.F5 && !e.ctrlKey) {
-            if (_windowController != null) {
-                _windowController.toggleBlurBehind();
-            }
+            if (_windowController != null) _windowController.toggleBlurBehind();
             return;
         }
-
         if (e.keyCode == Keyboard.F6) {
-            if (_windowController != null) {
-                _windowController.debugWindowInfo();
-            }
+            if (_windowController != null) _windowController.debugWindowInfo();
             return;
         }
-
         if (e.keyCode == Keyboard.F7) {
             if (_windowController != null) {
                 _windowController.setOpacity(128);
@@ -1048,6 +963,30 @@ class Main extends Sprite {
             saveCurrentContext();
             return;
         }
+        
+        // COPY
+        if (e.ctrlKey && e.keyCode == Keyboard.C) {
+            if (_currentEditor != null) _currentEditor.copySelection();
+            return;
+        }
+        
+        // CUT
+        if (e.ctrlKey && e.keyCode == Keyboard.X) {
+            if (_currentEditor != null) _currentEditor.cutSelection();
+            return;
+        }
+
+        // PASTE
+        if (e.ctrlKey && e.keyCode == Keyboard.V) {
+            if (_currentEditor != null) _currentEditor.pasteSelection();
+            return;
+        }
+
+        // SELECT ALL
+        if (e.ctrlKey && e.keyCode == Keyboard.A) {
+            if (_currentEditor != null) _currentEditor.selectAll();
+            return;
+        }
 
         if (e.keyCode == Keyboard.ESCAPE) {
             if (_settingsPanel.visible) { _settingsPanel.visible = false; return; }
@@ -1059,17 +998,6 @@ class Main extends Sprite {
         if (e.ctrlKey && e.keyCode == Keyboard.Z) UndoManager.getInstance().undo();
         if (e.ctrlKey && e.keyCode == Keyboard.Y) UndoManager.getInstance().redo();
         if (e.keyCode == Keyboard.R) onResetClick();
-		
-		if (e.ctrlKey && e.keyCode == Keyboard.C) {
-			if (_currentEditor != null) _currentEditor.copySelection();
-			return;
-		}
-
-		if (e.ctrlKey && e.keyCode == Keyboard.V) {
-			if (_currentEditor != null) _currentEditor.pasteSelection();
-			return;
-		}
-		
         if (e.keyCode == Keyboard.BACKSPACE) if (_editorStack.length > 1) popEditor();
         if (e.keyCode == Keyboard.DELETE) {
             if (_currentEditor.getSelectedNodeCount() > 0) {

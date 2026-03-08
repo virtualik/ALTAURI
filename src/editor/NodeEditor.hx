@@ -28,7 +28,6 @@ import ecs.ECS;
 import library.AtomRegistry;
 import utils.UID;
 
-// Структура данных для буфера обмена
 typedef ClipboardAtomData = {
     var id:String;
     var typeId:String;
@@ -46,6 +45,7 @@ class NodeEditor extends Sprite {
     private var _nodes:Map<String, NodeView> = new Map();
 
     private var _canvas:Sprite;
+    private var _bgHitArea:Sprite; 
     private var _wireContainer:Sprite;
 
     private var _wireSprites:Map<String, {sprite:Sprite, clickHandler:MouseEvent -> Void, rightClickHandler:MouseEvent -> Void}>;
@@ -67,8 +67,6 @@ class NodeEditor extends Sprite {
 
     private var _dragStartPositions:Map<String, {x:Float, y:Float}>;
     
-    // _spawnCounter removed - replaced by UID
-
     private var _isDraggingPort:Bool = false;
     private var _dragNodeId:String;
     private var _dragContactName:String;
@@ -91,11 +89,9 @@ class NodeEditor extends Sprite {
     private var _ecsRenderEnabled:Bool = true;
     private var _allowAssembly:Bool = true;
 
-    // Sizing Support
     private var _forcedWidth:Float = 0;
     private var _forcedHeight:Float = 0;
 
-    // === CLIPBOARD (Static to persist across editor instances) ===
     private static var _clipboard:{
         atoms:Array<ClipboardAtomData>,
         connections:Array<ConnectionDef>
@@ -114,12 +110,19 @@ class NodeEditor extends Sprite {
         _canvas.graphics.endFill();
         addChild(_canvas);
 
+        _bgHitArea = new Sprite();
+        _bgHitArea.graphics.beginFill(0x000000, 0.01); 
+        _bgHitArea.graphics.drawRect(-5000, -5000, 10000, 10000);
+        _bgHitArea.graphics.endFill();
+        _bgHitArea.mouseEnabled = true;
+        _canvas.addChild(_bgHitArea); 
+
         _viewportMask = new Sprite();
         _viewportMask.mouseEnabled = false;
         addChild(_viewportMask);
         _canvas.mask = _viewportMask;
 
-        _canvas.addEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
+        _bgHitArea.addEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
 
         _wireContainer = new Sprite();
         _wireContainer.mouseEnabled = false;
@@ -378,6 +381,17 @@ class NodeEditor extends Sprite {
         if (_selectedWireIds.length > 0) {
             _selectedWireIds = [];
             rebuildAllWires();
+        }
+    }
+
+    public function selectAll():Void {
+        deselectAll();
+        for (id in _nodes.keys()) {
+            var view = _nodes.get(id);
+            if (view != null) {
+                view.selected = true;
+                _selectedNodes.set(id, view);
+            }
         }
     }
 
@@ -815,13 +829,8 @@ class NodeEditor extends Sprite {
         var bp = library.AtomRegistry.get(typeId);
         if (bp == null) return null;
         var localPoint = _canvas.globalToLocal(new Point(posX, posY));
-        
-        // ID генерируется внутри CreateAtomCommand
         var cmd = new CreateAtomCommand(_blueprint, _assembly, typeId, null, localPoint.x, localPoint.y);
         UndoManager.getInstance().executeAndStore(cmd);
-        
-        // Возвращаем null, так как атом создается асинхронно через события или уже в модели,
-        // но UI обновится через ATOM_RESTORED импульс.
         return null;
     }
 
@@ -1018,12 +1027,9 @@ class NodeEditor extends Sprite {
     public function getWireCount():Int return (_blueprint.internalConnections == null) ? 0 : _blueprint.internalConnections.length;
 
     // =========================================================================
-    // COPY / PASTE LOGIC
+    // CLIPBOARD LOGIC
     // =========================================================================
 
-    /**
-     * Copies selected nodes and internal wires to the clipboard.
-     */
     public function copySelection():Void {
         var selectedIds = getSelectedNodeIds();
         if (selectedIds.length == 0) return;
@@ -1031,7 +1037,6 @@ class NodeEditor extends Sprite {
         var atomsData = [];
         var connsData = [];
 
-        // 1. Save Atom Data
         for (id in selectedIds) {
             var view = _nodes.get(id);
             var def = findAtomDef(id);
@@ -1046,10 +1051,8 @@ class NodeEditor extends Sprite {
             }
         }
 
-        // 2. Save Wires connecting selected nodes (internal wires only)
         if (_blueprint.internalConnections != null) {
             for (conn in _blueprint.internalConnections) {
-                // Skip boundary wires (SELF)
                 if (conn.from.atomId == "SELF" || conn.to.atomId == "SELF") continue;
 
                 var fromSelected = selectedIds.indexOf(conn.from.atomId) != -1;
@@ -1062,20 +1065,22 @@ class NodeEditor extends Sprite {
         }
 
         _clipboard = { atoms: atomsData, connections: connsData };
-        trace('Copied ${atomsData.length} atoms and ${connsData.length} wires');
+        trace('Copied ${atomsData.length} atoms');
     }
 
-    /**
-     * Pastes clipboard content with offset. Generates new IDs.
-     */
+    public function cutSelection():Void {
+        if (getSelectedNodeCount() == 0) return;
+        copySelection();
+        deleteSelectedNodes();
+    }
+
     public function pasteSelection():Void {
         if (_clipboard == null || _clipboard.atoms.length == 0) return;
 
         var offset = 20.0;
         var macrocom = new MacroCommand();
-        var idMap = new Map<String, String>(); // Old ID -> New ID
+        var idMap = new Map<String, String>();
 
-        // 1. Create Atom Commands
         for (data in _clipboard.atoms) {
             var newId = UID.generate();
             idMap.set(data.id, newId);
@@ -1091,7 +1096,6 @@ class NodeEditor extends Sprite {
             macrocom.addCommand(cmd);
         }
 
-        // 2. Create Wire Commands
         for (conn in _clipboard.connections) {
             var newFromId = idMap.get(conn.from.atomId);
             var newToId = idMap.get(conn.to.atomId);
@@ -1109,10 +1113,8 @@ class NodeEditor extends Sprite {
             }
         }
 
-        // 3. Execute
         UndoManager.getInstance().executeAndStore(macrocom);
 
-        // 4. Select pasted nodes
         deselectAll();
         for (newId in idMap) {
             var view = _nodes.get(newId);
@@ -1125,7 +1127,6 @@ class NodeEditor extends Sprite {
         trace('Pasted ${_clipboard.atoms.length} atoms');
     }
 
-    // Helper to find AtomDef in Blueprint
     private function findAtomDef(id:String):core.data.Blueprint.AtomDef {
         if (_blueprint.internalAtoms == null) return null;
         for (a in _blueprint.internalAtoms) {
@@ -1154,7 +1155,7 @@ class NodeEditor extends Sprite {
         Impulsys.removeImpulse("ATOM_RESTORED", onAtomRestored);
         Impulsys.removeImpulse("NODE_CLICKED", onNodeClicked);
 
-        _canvas.removeEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
+        _bgHitArea.removeEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
         clearAllWires();
         for (nodeId in _nodes.keys()) {
             var view = _nodes.get(nodeId);
