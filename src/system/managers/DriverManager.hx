@@ -1,20 +1,18 @@
 package system.managers;
 
 import haxe.ds.StringMap;
-import openfl.events.Event;
 import system.managers.Driver;
 
 /**
- * DRIVER MANAGER
+ * DRIVER MANAGER v2.0
  * Manages active drivers (update loops).
+ * Relies on external update call (from Main) for deterministic execution order.
  */
 class DriverManager {
 
     private static var _instance:DriverManager;
 
     private var _drivers:Map<String, Driver>;
-    private var _isRunning:Bool = false;
-    private var _lastTime:Float = 0;
 
     public static function getInstance():DriverManager {
         if (_instance == null) _instance = new DriverManager();
@@ -30,32 +28,20 @@ class DriverManager {
 
         _drivers.set(driver.id, driver);
         driver.init();
-
-        _lastTime = haxe.Timer.stamp();
-
-        if (!_isRunning) {
-            openfl.Lib.current.stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
-            _isRunning = true;
-        }
     }
 
     public function unregister(id:String):Void {
         var driver = _drivers.get(id);
         if (driver != null) {
-            // Do not call dispose here, Main.hardReset handles it
             _drivers.remove(id);
         }
     }
 
-    private function onEnterFrame(e:Event):Void {
-        if (!_isRunning) return;
-
-        var now = haxe.Timer.stamp();
-        var dt = now - _lastTime;
-        _lastTime = now;
-
-        if (dt > 0.1) dt = 0.1;
-
+    /**
+     * Main update loop. Called from Main.onMainLoop.
+     * @param dt Delta time in seconds.
+     */
+    public function update(dt:Float):Void {
         for (driver in _drivers) {
             if (driver != null) {
                 driver.update(dt);
@@ -64,15 +50,7 @@ class DriverManager {
     }
 
     public function dispose():Void {
-        if (_isRunning) {
-            openfl.Lib.current.stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
-            _isRunning = false;
-        }
-
-        for (driver in _drivers) {
-            if (driver != null) driver.dispose();
-        }
-
+        // Cleanup logic if needed
         _drivers = new Map();
     }
 }

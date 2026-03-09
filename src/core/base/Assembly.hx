@@ -6,9 +6,10 @@ import core.data.Blueprint.ConnectionPoint;
 import core.base.Contact;
 import core.base.IDisposable;
 import core.types.ContactType;
+import utils.UID;
 
 /**
- * ASSEMBLY v4.0 (Unified Model)
+ * ASSEMBLY v4.2 (Instance ID Remapping & Save Support)
  * Универсальный базовый класс для ВСЕХ узлов.
  */
 class Assembly extends Atom {
@@ -20,11 +21,28 @@ class Assembly extends Atom {
     public var ports(default, null):Map<String, ConductorPort>;
     public var internalAtoms(default, null):Map<String, Dynamic>;
 
-    // ИСПРАВЛЕНИЕ: Свойства для доступа к контактам как к Map.
-    // В классе Atom они хранятся в Array, здесь мы предоставляем Map для удобства.
     public var inputs(get, null):Map<String, Contact>;
     public var outputs(get, null):Map<String, Contact>;
 
+    // Карта для трансляции ID из Blueprint в реальные InstanceID
+    // Ключ: ID из файла (Blueprint), Значение: Реальный ID экземпляра
+    private var _idMap:Map<String, String>;
+    
+    // Публичный геттер для доступа из Main при сохранении
+    public var idMap(get, never):Map<String, String>;
+    private function get_idMap():Map<String, String> return _idMap;
+	/**
+     * Возвращает Template ID (из файла) по известному Runtime ID (из интерфейса).
+     * Нужно для команд удаления и сохранения.
+     */
+    public function getTemplateId(runtimeId:String):String {
+        for (templateId => rId in _idMap) {
+            if (rId == runtimeId) return templateId;
+        }
+        // Если это динамически созданный атом, его ID совпадает
+        return runtimeId;
+	}
+	
     private function get_inputs():Map<String, Contact> {
         var map = new Map<String, Contact>();
         for (p in ports) if (p.type == INPUT) map.set(p.name, p.external);
@@ -41,13 +59,16 @@ class Assembly extends Atom {
         this.blueprint = blueprint;
         this.ports = new Map();
         this.internalAtoms = new Map();
+        
+        // Инициализируем карту ID
+        _idMap = new Map();
 
         _createInterface();
 
         var inputsArr:Array<Contact> = [];
         var outputsArr:Array<Contact> = [];
         var ordered = _getOrderedPortDefs();
-        
+
         for (pinDef in ordered) {
             var p = ports.get(pinDef.name);
             if (p != null) {
@@ -57,11 +78,9 @@ class Assembly extends Atom {
         }
 
         var typeName = blueprint != null ? blueprint.name : "Assembly";
-        
-        // Передаем логику в super. Если это Native атом, логика выполнится.
+
         super(inputsArr, outputsArr, blueprint.logic, id, typeName, false);
 
-        // Если логики нет (Custom сборка), создаем внутренности.
         if (blueprint.logic == null) {
             _createInternalInstances();
             _createInternalConnections();
@@ -78,28 +97,56 @@ class Assembly extends Atom {
 
     private function _createInternalInstances():Void {
         if (blueprint == null || blueprint.internalAtoms == null) return;
+        
         for (atomDef in blueprint.internalAtoms) {
-            var instance = AssemblyFactory.createAtom(atomDef.typeId, atomDef.instanceId);
-            if (instance != null) internalAtoms.set(atomDef.instanceId, instance);
+            // ИСПРАВЛЕНИЕ: Генерируем НОВЫЙ уникальный ID для каждого экземпляра
+            var newInstanceID = UID.generate();
+            
+            // Сохраняем маппинг: ID из Blueprint -> Новый ID
+            _idMap.set(atomDef.instanceId, newInstanceID);
+
+            var instance = AssemblyFactory.createAtom(atomDef.typeId, newInstanceID);
+            if (instance != null) {
+                internalAtoms.set(newInstanceID, instance);
+            }
         }
     }
 
     private function _createInternalConnections():Void {
         if (blueprint == null || blueprint.internalConnections == null) return;
         for (conn in blueprint.internalConnections) {
+            // Используем метод resolveContact, который учитывает карту ID
             var fromContact = resolveContact(conn.from);
             var toContact = resolveContact(conn.to);
-            if (fromContact != null && toContact != null) fromContact.link(toContact);
+            if (fromContact != null && toContact != null) {
+                fromContact.link(toContact);
+            }
         }
     }
 
+    // Обновленный метод поиска контактов с учетом маппинга ID
     private function resolveContact(point:ConnectionPoint):Contact {
         if (point.atomId == "SELF") {
             var port = ports.get(point.contactName);
             return (port == null) ? null : port.internal;
         } else {
-            var obj = internalAtoms.get(point.atomId);
+            // ИСПРАВЛЕНИЕ: Транслируем ID из Blueprint в реальный ID экземпляра
+            var realAtomId = _idMap.get(point.atomId);
+            
+            // Если ID нет в карте, возможно это атом, добавленный динамически (не из файла)
+            // Попробуем найти прямым доступом (fallback)
+            if (realAtomId == null) {
+                // Проверяем, может быть ID уже реальный
+                if (internalAtoms.exists(point.atomId)) {
+                    realAtomId = point.atomId;
+                } else {
+                    return null; 
+                }
+            }
+
+            var obj = internalAtoms.get(realAtomId);
             if (obj == null) return null;
+            
             var atom:Atom = cast obj;
             var c = atom.getInput(point.contactName);
             if (c == null) c = atom.getOutput(point.contactName);

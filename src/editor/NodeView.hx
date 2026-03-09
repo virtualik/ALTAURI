@@ -16,13 +16,9 @@ import ecs.ECS;
 import Lambda;
 
 /**
- * NODE VIEW v2.1 (Memory Leak Fixed)
+ * NODE VIEW v2.2 (Theme Support)
  * Visual representation of an Atom.
- *
- * FIX v2.1:
- * - dispose() now removes ALL event listeners
- * - dispose() removes children from sprite
- * - Clear all sprite references
+ * Uses EditorTheme singleton for colors.
  */
 class NodeView extends Sprite {
 
@@ -34,8 +30,8 @@ class NodeView extends Sprite {
     public var inputPorts(default, null):Map<String, Sprite>;
     public var outputPorts(default, null):Map<String, Sprite>;
 
-	private var _width:Float = 100;
-	private var _height:Float;
+    private var _width:Float = 100;
+    private var _height:Float;
 
     private var _isDragging:Bool = false;
     private var _offsetX:Float = 0;
@@ -48,12 +44,11 @@ class NodeView extends Sprite {
 
     public var selected(default, set):Bool = false;
 
-    private var _bgColor:Int = 0x333344;
-    private var _borderColor:Int = 0x00AAFF;
-    private var _selectedColor:Int = 0xFFCC00;
+    // Theme Reference
+    private var _theme:EditorTheme;
 
     private var _ecsMode:Bool = true;
-    
+
     // Store event handlers for proper removal
     private var _mouseDownHandler:MouseEvent -> Void;
     private var _rightMouseDownHandler:MouseEvent -> Void;
@@ -66,30 +61,31 @@ class NodeView extends Sprite {
         _ecsMode = enabled;
     }
 
-	private function calculateHeight():Float {
-		var inputCount = 0;
-		var outputCount = 0;
-		
-		if (_assemblyInstance != null) {
-			inputCount = Lambda.count(_assemblyInstance.inputs);
-			outputCount = Lambda.count(_assemblyInstance.outputs);
-		} else if (atom != null) {
-			inputCount = atom.getInputs() != null ? atom.getInputs().length : 0;
-			outputCount = atom.getOutputs() != null ? atom.getOutputs().length : 0;
-		}
-		
-		var maxPorts = Std.int(Math.max(inputCount, outputCount));
-		
-		// Минимум 40, плюс 20 на каждый дополнительный порт
-		return Math.max(40, 30 + maxPorts * 20);
-	}
+    private function calculateHeight():Float {
+        var inputCount = 0;
+        var outputCount = 0;
+
+        if (_assemblyInstance != null) {
+            inputCount = Lambda.count(_assemblyInstance.inputs);
+            outputCount = Lambda.count(_assemblyInstance.outputs);
+        } else if (atom != null) {
+            inputCount = atom.getInputs() != null ? atom.getInputs().length : 0;
+            outputCount = atom.getOutputs() != null ? atom.getOutputs().length : 0;
+        }
+
+        var maxPorts = Std.int(Math.max(inputCount, outputCount));
+        return Math.max(40, 30 + maxPorts * 20);
+    }
 
     public function new(atom:Atom, nodeId:String) {
         super();
         this.atom = atom;
         this.nodeId = nodeId;
+        
+        // Get Theme Instance
+        _theme = EditorTheme.getInstance();
 
-		if (Std.isOfType(atom, Assembly)) {
+        if (Std.isOfType(atom, Assembly)) {
             this._assemblyInstance = cast(atom, Assembly);
         }
 
@@ -113,7 +109,7 @@ class NodeView extends Sprite {
         this.doubleClickEnabled = true;
         addEventListener(MouseEvent.DOUBLE_CLICK, _doubleClickHandler);
 
-        // Register with ECS for position tracking and queries
+        // Register with ECS
         ECS.register(nodeId, this, this.x, this.y);
     }
 
@@ -127,16 +123,17 @@ class NodeView extends Sprite {
     }
 
     private function draw():Void {
-		_height = calculateHeight();  // ИСПРАВЛЕНИЕ: Рассчитать высоту
-		
-		graphics.clear();
-		
-        graphics.beginFill(_bgColor);
+        _height = calculateHeight();
+
+        graphics.clear();
+
+        // Use Theme Colors
+        graphics.beginFill(_theme.NODE_BG_COLOR);
 
         if (selected) {
-            graphics.lineStyle(3, _selectedColor);
+            graphics.lineStyle(3, _theme.NODE_SELECTED_COLOR);
         } else {
-            graphics.lineStyle(2, _borderColor);
+            graphics.lineStyle(2, _theme.NODE_BORDER_COLOR);
         }
 
         graphics.drawRoundRect(0, 0, _width, _height, 10, 10);
@@ -154,16 +151,18 @@ class NodeView extends Sprite {
         title.height = _height;
         title.selectable = false;
         title.mouseEnabled = false;
-        var fmt = new TextFormat("_typewriter", 10, 0xFFFFFF);
+        
+        // Use Theme Text Color
+        var fmt = new TextFormat("_typewriter", 10, _theme.NODE_TEXT_COLOR);
         fmt.align = TextFormatAlign.CENTER;
         title.defaultTextFormat = fmt;
         addChild(title);
 
         _settingsBtn = new Sprite();
-        _settingsBtn.graphics.beginFill(0x888888, 0.8);
+        _settingsBtn.graphics.beginFill(_theme.NODE_SETTINGS_BTN_COLOR, 0.8);
         _settingsBtn.graphics.drawCircle(_width - 10, _height / 2, 6);
         _settingsBtn.graphics.endFill();
-        _settingsBtn.graphics.lineStyle(1, 0xFFFFFF);
+        _settingsBtn.graphics.lineStyle(1, _theme.NODE_SETTINGS_BTN_ICON);
         _settingsBtn.graphics.moveTo(-3, -3);
         _settingsBtn.graphics.lineTo(3, 3);
         _settingsBtn.x = 0;
@@ -188,44 +187,36 @@ class NodeView extends Sprite {
         drawPorts(outs, ContactType.OUTPUT);
     }
 
-	public function redraw():Void {
-		// Запомнить позицию в display list
-		var parentContainer = this.parent;
-		var index = (parentContainer != null) ? parentContainer.getChildIndex(this) : -1;
-		
-		// Сохранить состояние
-		var wasSelected = selected;
-		var prevX = this.x;
-		var prevY = this.y;
-		
-		// Очистить детей
-		while (numChildren > 0) {
-			removeChildAt(0);
-		}
-		
-		// Очистить карты портов
-		inputPorts = new Map();
-		outputPorts = new Map();
-		
-		// Перерисовать
-		draw();
-		
-		// ИСПРАВЛЕНИЕ: Восстановить позицию в display list
-		if (parentContainer != null && index >= 0 && index < parentContainer.numChildren) {
-			parentContainer.setChildIndex(this, index);
-		}
-		
-		// Восстановить состояние
-		this.x = prevX;
-		this.y = prevY;
-		selected = wasSelected;
-		
-		// Обновить ECS
-		ECS.updatePosition(nodeId, this.x, this.y);
-		ECS.setSelected(nodeId, wasSelected);
-	}
+    public function redraw():Void {
+        var parentContainer = this.parent;
+        var index = (parentContainer != null) ? parentContainer.getChildIndex(this) : -1;
 
-	private function drawPorts(contacts:Array<Contact>, type:ContactType):Void {
+        var wasSelected = selected;
+        var prevX = this.x;
+        var prevY = this.y;
+
+        while (numChildren > 0) {
+            removeChildAt(0);
+        }
+
+        inputPorts = new Map();
+        outputPorts = new Map();
+
+        draw();
+
+        if (parentContainer != null && index >= 0 && index < parentContainer.numChildren) {
+            parentContainer.setChildIndex(this, index);
+        }
+
+        this.x = prevX;
+        this.y = prevY;
+        selected = wasSelected;
+
+        ECS.updatePosition(nodeId, this.x, this.y);
+        ECS.setSelected(nodeId, wasSelected);
+    }
+
+    private function drawPorts(contacts:Array<Contact>, type:ContactType):Void {
         var count = contacts.length;
         if (count == 0) return;
 
@@ -236,7 +227,8 @@ class NodeView extends Sprite {
             var c = contacts[i];
             var port = new Sprite();
 
-            port.graphics.beginFill(0xFFFFFF);
+            // Use Theme Port Color
+            port.graphics.beginFill(_theme.PORT_COLOR_DEFAULT);
             port.graphics.drawCircle(0, 0, 5);
             port.graphics.endFill();
 
@@ -327,7 +319,6 @@ class NodeView extends Sprite {
 
         if (parent != null) parent.addChild(this);
 
-        // Create handlers if not exists
         if (_mouseMoveHandler == null) _mouseMoveHandler = onMouseMove;
         if (_mouseUpHandler == null) _mouseUpHandler = onMouseUp;
 
@@ -374,7 +365,7 @@ class NodeView extends Sprite {
         if (!_isDragging) return;
 
         _isDragging = false;
-        
+
         if (stage != null) {
             stage.removeEventListener(MouseEvent.MOUSE_MOVE, _mouseMoveHandler);
             stage.removeEventListener(MouseEvent.MOUSE_UP, _mouseUpHandler);
@@ -397,33 +388,24 @@ class NodeView extends Sprite {
         ECS.updatePosition(nodeId, x, y);
     }
 
-    /**
-     * Properly dispose the NodeView.
-     * FIX v2.1: Complete cleanup of all references.
-     */
     public function dispose():Void {
-        // 1. Unregister from ECS
         ECS.unregister(nodeId);
 
-        // 2. Remove all event listeners from this sprite
         removeEventListener(MouseEvent.MOUSE_DOWN, _mouseDownHandler);
         removeEventListener(MouseEvent.RIGHT_MOUSE_DOWN, _rightMouseDownHandler);
         removeEventListener(MouseEvent.DOUBLE_CLICK, _doubleClickHandler);
 
-        // 3. Remove stage listeners if still attached
         if (stage != null) {
             stage.removeEventListener(MouseEvent.MOUSE_MOVE, _mouseMoveHandler);
             stage.removeEventListener(MouseEvent.MOUSE_UP, _mouseUpHandler);
         }
 
-        // 4. Clean settings button
         if (_settingsBtn != null) {
             _settingsBtn.removeEventListener(MouseEvent.CLICK, _settingsClickHandler);
             if (contains(_settingsBtn)) removeChild(_settingsBtn);
             _settingsBtn = null;
         }
 
-        // 5. Clean port sprites
         if (inputPorts != null) {
             for (port in inputPorts) {
                 if (port != null) {
@@ -434,7 +416,7 @@ class NodeView extends Sprite {
             inputPorts.clear();
             inputPorts = null;
         }
-        
+
         if (outputPorts != null) {
             for (port in outputPorts) {
                 if (port != null) {
@@ -446,15 +428,12 @@ class NodeView extends Sprite {
             outputPorts = null;
         }
 
-        // 6. Clear graphics
         graphics.clear();
 
-        // 7. Remove all children
         while (numChildren > 0) {
             removeChildAt(0);
         }
 
-        // 8. Clear references
         atom = null;
         _assemblyInstance = null;
         _mouseDownHandler = null;
