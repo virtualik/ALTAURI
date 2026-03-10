@@ -97,11 +97,19 @@ class Assembly extends Atom {
 
     private function _createInternalInstances():Void {
         if (blueprint == null || blueprint.internalAtoms == null) return;
-        
+
         for (atomDef in blueprint.internalAtoms) {
-            // ИСПРАВЛЕНИЕ: Генерируем НОВЫЙ уникальный ID для каждого экземпляра
-            var newInstanceID = UID.generate();
             
+            // ИСПРАВЛЕНИЕ: Защита от рекурсии.
+            // Если тип атома совпадает с типом текущей сборки, пропускаем его.
+            if (atomDef.typeId == this.blueprint.id) {
+                trace('WARN: Skipped recursive instantiation of ${atomDef.typeId} inside itself.');
+                continue;
+            }
+
+            // Генерируем НОВЫЙ уникальный ID для каждого экземпляра
+            var newInstanceID = UID.generate();
+
             // Сохраняем маппинг: ID из Blueprint -> Новый ID
             _idMap.set(atomDef.instanceId, newInstanceID);
 

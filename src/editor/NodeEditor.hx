@@ -92,7 +92,6 @@ class NodeEditor extends Sprite {
     private var _forcedWidth:Float = 0;
     private var _forcedHeight:Float = 0;
 
-    // Theme Reference
     private var _theme:EditorTheme;
 
     private static var _clipboard:{
@@ -104,7 +103,7 @@ class NodeEditor extends Sprite {
         super();
         this._assembly = assembly;
         this._blueprint = assembly.blueprint;
-        
+
         _theme = EditorTheme.getInstance();
 
         ECS.init();
@@ -137,7 +136,7 @@ class NodeEditor extends Sprite {
         _activeWires = [];
 
         restoreExistingAtoms();
-		rebuildAllWires(); // Явный вызов отрисовки
+        rebuildAllWires(); // Явный вызов отрисовки
 
         _ghostWire = new Sprite();
         _ghostWire.mouseEnabled = false;
@@ -426,31 +425,56 @@ class NodeEditor extends Sprite {
         return '${link.from.atomId}_${link.from.contactName}->${link.to.atomId}_${link.to.contactName}';
     }
 
-	private function rebuildAllWires():Void {
-		// ИСПРАВЛЕНИЕ: Не удаляем спрайты, а обновляем их (как updateEdgeWires)
-		// clearAllWires(); 
+    // Helper to remove wire sprite
+    private function removeWireSprite(id:String):Void {
+        var entry = _wireSprites.get(id);
+        if (entry != null) {
+            entry.sprite.removeEventListener(MouseEvent.CLICK, entry.clickHandler);
+            if (entry.rightClickHandler != null) entry.sprite.removeEventListener(MouseEvent.RIGHT_CLICK, entry.rightClickHandler);
+            entry.sprite.graphics.clear();
+            if (entry.sprite.parent != null) entry.sprite.parent.removeChild(entry.sprite);
+            _wireSprites.remove(id);
+        }
+    }
 
-		if (_blueprint.internalConnections == null) return;
-		
-		for (link in _blueprint.internalConnections) {
-			var id = getWireID(link);
-			var entry = _wireSprites.get(id);
+    private function rebuildAllWires():Void {
+        var activeWireIds = new Map<String, Bool>();
 
-			if (entry != null) {
-				// Спрайт существует - обновляем графику
-				var color = _theme.WIRE_COLOR_DEFAULT;
-				var thickness = _theme.WIRE_THICKNESS;
-				if (_selectedWireIds.indexOf(id) != -1) {
-					color = _theme.WIRE_COLOR_SELECTED;
-					thickness = 4;
-				}
-				drawWireGraphics(entry.sprite.graphics, link, color, thickness);
-			} else {
-				// Спрайта нет - создаем новый
-				createWireSprite(link);
-			}
-		}
-	}
+        if (_blueprint.internalConnections != null) {
+            for (link in _blueprint.internalConnections) {
+                var id = getWireID(link);
+                activeWireIds.set(id, true);
+
+                var entry = _wireSprites.get(id);
+
+                if (entry != null) {
+                    // Update existing
+                    var color = _theme.WIRE_COLOR_DEFAULT;
+                    var thickness = _theme.WIRE_THICKNESS;
+                    if (_selectedWireIds.indexOf(id) != -1) {
+                        color = _theme.WIRE_COLOR_SELECTED;
+                        thickness = 4;
+                    }
+                    drawWireGraphics(entry.sprite.graphics, link, color, thickness);
+                } else {
+                    // Create new
+                    createWireSprite(link);
+                }
+            }
+        }
+
+        // Remove dead wires
+        var idsToRemove:Array<String> = [];
+        for (id in _wireSprites.keys()) {
+            if (!activeWireIds.exists(id)) {
+                idsToRemove.push(id);
+            }
+        }
+
+        for (id in idsToRemove) {
+            removeWireSprite(id);
+        }
+    }
 
     private function createWireSprite(link:ConnectionDef):Sprite {
         var spr = new Sprite();
@@ -472,22 +496,30 @@ class NodeEditor extends Sprite {
 
         var clickHandler = function(e:MouseEvent) {
             e.stopPropagation();
-            if (e.ctrlKey) {
-                var idx = _selectedWireIds.indexOf(id);
-                if (idx != -1) _selectedWireIds.splice(idx, 1);
-                else _selectedWireIds.push(id);
-            } else {
-                _selectedWireIds = [id];
+            
+            // FIX: Clear node selection if not ctrl-clicking
+            if (!e.ctrlKey) {
+                deselectAll(); // This clears nodes and wires
             }
+            
+            // Toggle wire selection
+            var idx = _selectedWireIds.indexOf(id);
+            if (idx != -1) _selectedWireIds.splice(idx, 1);
+            else _selectedWireIds.push(id);
+
             rebuildAllWires();
         };
 
         var rightClickHandler = function(e:MouseEvent) {
             e.stopPropagation();
+            
+            // FIX: Select this wire if not already
             if (_selectedWireIds.indexOf(id) == -1) {
+                deselectAll(); // Clear nodes
                 _selectedWireIds = [id];
                 rebuildAllWires();
             }
+            
             Impulsys.emit(new Impulse("WIRE_RIGHT_CLICKED", {ids: _selectedWireIds.copy()}));
         };
 
@@ -526,79 +558,74 @@ class NodeEditor extends Sprite {
     }
 
     private function resolveContact(point:ConnectionPoint):Contact {
-		if (point.atomId == "SELF") {
-			var port = _assembly.ports.get(point.contactName);
-			if (port == null) return null;
-			return port.internal;
-		} else {
-			// ИСПРАВЛЕНИЕ: Сначала проверяем карту, потом берем напрямую
-			var realAtomId = _assembly.idMap.get(point.atomId);
-			if (realAtomId == null) realAtomId = point.atomId;
+        if (point.atomId == "SELF") {
+            var port = _assembly.ports.get(point.contactName);
+            if (port == null) return null;
+            return port.internal;
+        } else {
+            var realAtomId = _assembly.idMap.get(point.atomId);
+            if (realAtomId == null) realAtomId = point.atomId;
 
-			var atom = _assembly.internalAtoms.get(realAtomId);
-			if (atom == null) return null;
-			var a:Atom = cast atom;
-			var c = a.getInput(point.contactName);
-			if (c == null) c = a.getOutput(point.contactName);
-			return c;
-		}
-	}
+            var atom = _assembly.internalAtoms.get(realAtomId);
+            if (atom == null) return null;
+            var a:Atom = cast atom;
+            var c = a.getInput(point.contactName);
+            if (c == null) c = a.getOutput(point.contactName);
+            return c;
+        }
+    }
 
-	private function drawWireGraphics(g:Graphics, link:ConnectionDef, ?color:Int = -1, ?thickness:Float = -1):Void {
-		if (color == -1) color = _theme.WIRE_COLOR_DEFAULT;
-		if (thickness == -1) thickness = _theme.WIRE_THICKNESS;
+    private function drawWireGraphics(g:Graphics, link:ConnectionDef, ?color:Int = -1, ?thickness:Float = -1):Void {
+        if (color == -1) color = _theme.WIRE_COLOR_DEFAULT;
+        if (thickness == -1) thickness = _theme.WIRE_THICKNESS;
 
-		var p1:{x:Float, y:Float} = null;
-		var isFromInput = false;
+        var p1:{x:Float, y:Float} = null;
+        var isFromInput = false;
 
-		// --- БЛОК FROM ---
-		if (link.from.atomId == "SELF") {
-			var portSpr = _edgePorts.get(link.from.contactName);
-			if (portSpr == null) return;
-			var pt = _canvas.globalToLocal(portSpr.localToGlobal(new Point(0, 0)));
-			p1 = {x: pt.x, y: pt.y};
-			isFromInput = (portSpr.x != 0);
-		} else {
-			// ИСПРАВЛЕНИЕ: Сначала переводим ID, потом ищем
-			var fromRuntimeId = _assembly.idMap.get(link.from.atomId);
-			if (fromRuntimeId == null) fromRuntimeId = link.from.atomId;
+        if (link.from.atomId == "SELF") {
+            var portSpr = _edgePorts.get(link.from.contactName);
+            if (portSpr == null) return;
+            var pt = _canvas.globalToLocal(portSpr.localToGlobal(new Point(0, 0)));
+            p1 = {x: pt.x, y: pt.y};
+            isFromInput = (portSpr.x != 0);
+        } else {
+            var fromRuntimeId = _assembly.idMap.get(link.from.atomId);
+            if (fromRuntimeId == null) fromRuntimeId = link.from.atomId;
 
-			var fromView = _nodes.get(fromRuntimeId);
-			if (fromView == null) return; // Если нода не найдена, выходим
-			p1 = fromView.getPortPosition(link.from.contactName);
-			isFromInput = fromView.inputPorts.exists(link.from.contactName);
-		}
+            var fromView = _nodes.get(fromRuntimeId);
+            if (fromView == null) return;
+            p1 = fromView.getPortPosition(link.from.contactName);
+            isFromInput = fromView.inputPorts.exists(link.from.contactName);
+        }
 
-		var p2:{x:Float, y:Float} = null;
-		var isToInput = false;
+        var p2:{x:Float, y:Float} = null;
+        var isToInput = false;
 
-		// --- БЛОК TO ---
-		if (link.to.atomId == "SELF") {
-			var portSpr = _edgePorts.get(link.to.contactName);
-			if (portSpr == null) return;
-			var pt = _canvas.globalToLocal(portSpr.localToGlobal(new Point(0, 0)));
-			p2 = {x: pt.x, y: pt.y};
-			isToInput = (portSpr.x != 0);
-		} else {
-			// ИСПРАВЛЕНИЕ: Сначала переводим ID, потом ищем
-			var toRuntimeId = _assembly.idMap.get(link.to.atomId);
-			if (toRuntimeId == null) toRuntimeId = link.to.atomId;
+        if (link.to.atomId == "SELF") {
+            var portSpr = _edgePorts.get(link.to.contactName);
+            if (portSpr == null) return;
+            var pt = _canvas.globalToLocal(portSpr.localToGlobal(new Point(0, 0)));
+            p2 = {x: pt.x, y: pt.y};
+            isToInput = (portSpr.x != 0);
+        } else {
+            var toRuntimeId = _assembly.idMap.get(link.to.atomId);
+            if (toRuntimeId == null) toRuntimeId = link.to.atomId;
 
-			var toView = _nodes.get(toRuntimeId);
-			if (toView == null) return; // Если нода не найдена, выходим
-			p2 = toView.getPortPosition(link.to.contactName);
-			isToInput = toView.inputPorts.exists(link.to.contactName);
-		}
+            var toView = _nodes.get(toRuntimeId);
+            if (toView == null) return;
+            p2 = toView.getPortPosition(link.to.contactName);
+            isToInput = toView.inputPorts.exists(link.to.contactName);
+        }
 
-		g.clear();
-		g.lineStyle(thickness, color);
-		g.moveTo(p1.x, p1.y);
+        g.clear();
+        g.lineStyle(thickness, color);
+        g.moveTo(p1.x, p1.y);
 
-		switch (_wireType) {
-			case WireType.BEZIER: drawWireBezier(g, p1, p2, isFromInput, isToInput);
-			case WireType.STRAIGHT: drawWireStraight(g, p1, p2, isFromInput, isToInput);
-		}
-	}
+        switch (_wireType) {
+            case WireType.BEZIER: drawWireBezier(g, p1, p2, isFromInput, isToInput);
+            case WireType.STRAIGHT: drawWireStraight(g, p1, p2, isFromInput, isToInput);
+        }
+    }
 
     private function drawWireBezier(g:Graphics, p1:{x:Float, y:Float}, p2:{x:Float, y:Float}, isFromInput:Bool, isToInput:Bool):Void {
         var dist = Math.abs(p2.x - p1.x);
@@ -626,42 +653,40 @@ class NodeEditor extends Sprite {
     public function getAllowAssembly():Bool { return _allowAssembly; }
     public function getSelectedWireIds():Array<String> { return _selectedWireIds.copy(); }
 
-	private function onNodeMoved(impulse:Impulse):Void {
-		var sourceView:NodeView = impulse.data.view;
-		var dx:Float = impulse.data.dx;
-		var dy:Float = impulse.data.dy;
+    private function onNodeMoved(impulse:Impulse):Void {
+        var sourceView:NodeView = impulse.data.view;
+        var dx:Float = impulse.data.dx;
+        var dy:Float = impulse.data.dy;
 
-		if (_draggingNode == null) {
-			_draggingNode = sourceView;
-			_dragStartPositions = new Map();
-			var isMovingGroup = _selectedNodes.exists(sourceView.nodeId);
-			var nodesToMove = isMovingGroup ? _selectedNodes : [sourceView.nodeId => sourceView];
+        if (_draggingNode == null) {
+            _draggingNode = sourceView;
+            _dragStartPositions = new Map();
+            var isMovingGroup = _selectedNodes.exists(sourceView.nodeId);
+            var nodesToMove = isMovingGroup ? _selectedNodes : [sourceView.nodeId => sourceView];
 
-			for (id in nodesToMove.keys()) {
-				var v = nodesToMove.get(id);
-				_dragStartPositions.set(id, {x: v.x, y: v.y});
-				
-				for (link in _blueprint.internalConnections) {
-					// ИСПРАВЛЕНИЕ: Транслируем ID связи в Runtime ID для сравнения
-					var fromRuntimeId = _assembly.idMap.get(link.from.atomId);
-					if (fromRuntimeId == null) fromRuntimeId = link.from.atomId;
+            for (id in nodesToMove.keys()) {
+                var v = nodesToMove.get(id);
+                _dragStartPositions.set(id, {x: v.x, y: v.y});
 
-					var toRuntimeId = _assembly.idMap.get(link.to.atomId);
-					if (toRuntimeId == null) toRuntimeId = link.to.atomId;
+                for (link in _blueprint.internalConnections) {
+                    var fromRuntimeId = _assembly.idMap.get(link.from.atomId);
+                    if (fromRuntimeId == null) fromRuntimeId = link.from.atomId;
 
-					// Сравниваем Runtime ID ноды с Runtime ID из связи
-					if (fromRuntimeId == id || toRuntimeId == id) {
-						var wireID = getWireID(link);
-						var entry = _wireSprites.get(wireID);
-						if (entry != null) {
-							if (_activeWires.indexOf(entry.sprite) == -1) {
-								_activeWires.push(entry.sprite);
-							}
-						}
-					}
-				}
-			}
-		}
+                    var toRuntimeId = _assembly.idMap.get(link.to.atomId);
+                    if (toRuntimeId == null) toRuntimeId = link.to.atomId;
+
+                    if (fromRuntimeId == id || toRuntimeId == id) {
+                        var wireID = getWireID(link);
+                        var entry = _wireSprites.get(wireID);
+                        if (entry != null) {
+                            if (_activeWires.indexOf(entry.sprite) == -1) {
+                                _activeWires.push(entry.sprite);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         if (_selectedNodes.exists(sourceView.nodeId)) {
             for (id in _selectedNodes.keys()) {
@@ -715,48 +740,47 @@ class NodeEditor extends Sprite {
         }
     }
 
-	private function updateVisibility():Void {
-		if (stage == null) return;
-		var margin:Float = 150;
-		var viewLeft:Float = (-_canvas.x / _canvas.scaleX) - margin;
-		var viewTop:Float = (-_canvas.y / _canvas.scaleY) - margin;
-		var viewRight:Float = viewLeft + (stage.stageWidth / _canvas.scaleX) + (margin * 2);
-		var viewBottom:Float = viewTop + (stage.stageHeight / _canvas.scaleY) + (margin * 2);
+    private function updateVisibility():Void {
+        if (stage == null) return;
+        var margin:Float = 150;
+        var viewLeft:Float = (-_canvas.x / _canvas.scaleX) - margin;
+        var viewTop:Float = (-_canvas.y / _canvas.scaleY) - margin;
+        var viewRight:Float = viewLeft + (stage.stageWidth / _canvas.scaleX) + (margin * 2);
+        var viewBottom:Float = viewTop + (stage.stageHeight / _canvas.scaleY) + (margin * 2);
 
-		for (id in _nodes.keys()) {
-			var view = _nodes.get(id);
-			if (view == null) continue;
-			var isVisible = (view.x > viewLeft && view.x < viewRight && view.y > viewTop && view.y < viewBottom);
-			if (view.visible != isVisible) view.visible = isVisible;
-		}
+        for (id in _nodes.keys()) {
+            var view = _nodes.get(id);
+            if (view == null) continue;
+            var isVisible = (view.x > viewLeft && view.x < viewRight && view.y > viewTop && view.y < viewBottom);
+            if (view.visible != isVisible) view.visible = isVisible;
+        }
 
-		for (link in _blueprint.internalConnections) {
-			var wireID = getWireID(link);
-			var entry = _wireSprites.get(wireID);
-			if (entry == null) continue;
-			var spr = entry.sprite;
+        for (link in _blueprint.internalConnections) {
+            var wireID = getWireID(link);
+            var entry = _wireSprites.get(wireID);
+            if (entry == null) continue;
+            var spr = entry.sprite;
 
-			if (link.from.atomId == "SELF" || link.to.atomId == "SELF") {
-				spr.visible = true;
-				continue;
-			}
+            if (link.from.atomId == "SELF" || link.to.atomId == "SELF") {
+                spr.visible = true;
+                continue;
+            }
 
-			// ИСПРАВЛЕНИЕ: Трансляция Template ID в Runtime ID перед поиском в _nodes
-			var fromRuntimeId = _assembly.idMap.get(link.from.atomId);
-			if (fromRuntimeId == null) fromRuntimeId = link.from.atomId;
+            var fromRuntimeId = _assembly.idMap.get(link.from.atomId);
+            if (fromRuntimeId == null) fromRuntimeId = link.from.atomId;
 
-			var toRuntimeId = _assembly.idMap.get(link.to.atomId);
-			if (toRuntimeId == null) toRuntimeId = link.to.atomId;
+            var toRuntimeId = _assembly.idMap.get(link.to.atomId);
+            if (toRuntimeId == null) toRuntimeId = link.to.atomId;
 
-			var fromView = _nodes.get(fromRuntimeId);
-			var toView = _nodes.get(toRuntimeId);
-			
-			var fromVisible = (fromView != null && fromView.visible);
-			var toVisible = (toView != null && toView.visible);
-			var wireVisible = (fromVisible || toVisible);
-			if (spr.visible != wireVisible) spr.visible = wireVisible;
-		}
-	}
+            var fromView = _nodes.get(fromRuntimeId);
+            var toView = _nodes.get(toRuntimeId);
+
+            var fromVisible = (fromView != null && fromView.visible);
+            var toVisible = (toView != null && toView.visible);
+            var wireVisible = (fromVisible || toVisible);
+            if (spr.visible != wireVisible) spr.visible = wireVisible;
+        }
+    }
 
     private function onForceUpdatePosition(impulse:Impulse):Void {
         var data = impulse.data;
@@ -769,22 +793,19 @@ class NodeEditor extends Sprite {
         }
     }
 
-	private function restoreExistingAtoms():Void {
-		if (_blueprint.internalAtoms == null) return;
-		
-		for (atomDef in _blueprint.internalAtoms) {
-			// Получаем Runtime ID (новый сгенерированный)
-			var runtimeId = _assembly.idMap.get(atomDef.instanceId);
-			if (runtimeId == null) runtimeId = atomDef.instanceId;
+    private function restoreExistingAtoms():Void {
+        if (_blueprint.internalAtoms == null) return;
 
-			var atomInstance = _assembly.internalAtoms.get(runtimeId);
-			if (atomInstance != null) {
-				// Создаем вью, используя Runtime ID. 
-				// ВАЖНО: Именно этот ID будет ключом в карте _nodes
-				createViewForAtom(cast atomInstance, runtimeId, atomDef.x, atomDef.y);
-			}
-		}
-	}
+        for (atomDef in _blueprint.internalAtoms) {
+            var runtimeId = _assembly.idMap.get(atomDef.instanceId);
+            if (runtimeId == null) runtimeId = atomDef.instanceId;
+
+            var atomInstance = _assembly.internalAtoms.get(runtimeId);
+            if (atomInstance != null) {
+                createViewForAtom(cast atomInstance, runtimeId, atomDef.x, atomDef.y);
+            }
+        }
+    }
 
     public function refreshAssemblyViews():Void {
         var toRefresh:Array<{id:String, view:NodeView, asm:Assembly, index:Int}> = [];
@@ -880,12 +901,8 @@ class NodeEditor extends Sprite {
         _canvas.x = targetLocalPos.x;
         _canvas.y = targetLocalPos.y;
 
-        //updateEdgeWires();
-        // Полная перерисовка проводов при зуме
-		// updateEdgeWires обновляет только порты на краях, 
-		// а rebuildAllWires нужен для пересчета кривых внутри канваса
-		rebuildAllWires(); 
-		updateVisibility();
+        rebuildAllWires();
+        updateVisibility();
     }
 
     public function getNodePositions():Array<{id:String, x:Float, y:Float}> {
@@ -1002,7 +1019,6 @@ class NodeEditor extends Sprite {
     }
 
     private function onAtomDeleted(impulse:Impulse):Void {
-        // ИСПРАВЛЕНИЕ: Игнорируем события от других сборок
         if (impulse.data.assemblyId != _assembly.id) return;
 
         var id:String = impulse.data.id;
@@ -1017,7 +1033,6 @@ class NodeEditor extends Sprite {
     }
 
     private function onAtomRestored(impulse:Impulse):Void {
-        // ИСПРАВЛЕНИЕ: Игнорируем события от других сборок
         if (impulse.data.assemblyId != _assembly.id) return;
 
         var id:String = impulse.data.id;

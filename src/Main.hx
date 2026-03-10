@@ -81,7 +81,7 @@ class Main extends Sprite {
     private var _fileMenu:ContextMenu;
     private var _propertiesWindow:PropertiesWindow;
     private var _settingsPanel:SettingsPanel;
-    
+
     // Popup
     private var _popup:TextInputPopup;
 
@@ -97,7 +97,7 @@ class Main extends Sprite {
     private var _btnNew:ButtonComponent;
     private var _btnView:ButtonComponent;
     private var _btnSettings:ButtonComponent;
-    private var _btnDelete:ButtonComponent; // NEW
+    private var _btnDelete:ButtonComponent;
 
     private var _pathField:TextField;
     private var _nameField:TextField;
@@ -372,32 +372,24 @@ class Main extends Sprite {
         container.y = margin;
     }
 
-    // =========================================================================
-    // LOGIC CHANGE: popEditor is now private, use navigation methods
-    // =========================================================================
-    
     private function onBackClicked():Void {
         if (_editorStack.length <= 1) {
             log("Cannot close root assembly.");
             return;
         }
 
-        // Determine if this is a new unsaved assembly
         var isUnsaved = !isAssemblyFileExists(_currentAssembly.blueprint.id);
 
         if (isUnsaved) {
-            // Show Naming Popup
             _popup.show("Save New Assembly", "MyAssembly", function(name:String) {
                 if (name != null && name.length > 0) {
                     saveNewNamedAssembly(name);
                     performPopEditor();
                 } else {
-                    // Cancelled - do nothing
                     log("Save cancelled.");
                 }
             });
         } else {
-            // Existing assembly - just save and pop
             saveCurrentContext();
             performPopEditor();
         }
@@ -413,11 +405,9 @@ class Main extends Sprite {
         var isUnsaved = !isAssemblyFileExists(bp.id);
 
         if (isUnsaved) {
-            // Not saved yet -> Just discard (pop without saving)
             log("Discarding unsaved assembly.");
             performPopEditor();
         } else {
-            // Saved -> Delete file then pop
             #if sys
             var path = _libraryPath + "/" + bp.id + ".atom";
             if (FileSystem.exists(path)) {
@@ -435,7 +425,6 @@ class Main extends Sprite {
 
     private function performPopEditor():Void {
         var current = _editorStack.pop();
-        // We don't save here, saving is handled before calling this
         current.editor.dispose();
         _editorLayer.removeChild(current.container);
 
@@ -462,43 +451,30 @@ class Main extends Sprite {
         #if sys
         return FileSystem.exists(_libraryPath + "/" + id + ".atom");
         #else
-        return true; // Assume exists in non-sys targets
+        return true;
         #end
     }
 
-	private function saveNewNamedAssembly(name:String):Void {
-        // 1. Sanitize name (remove invalid chars for filename)
+    private function saveNewNamedAssembly(name:String):Void {
         var safeName = StringTools.replace(name, " ", "_");
-        // Add more sanitization if needed, e.g., remove slashes, dots.
-
         if (safeName.length == 0) {
             log("Error: Invalid assembly name.");
             return;
         }
 
         var bp = _currentAssembly.blueprint;
-        
-        // 2. Update Blueprint ID
         bp.id = safeName;
         bp.name = name;
 
-        // 3. Save to Library
         saveAssemblyToLibrary(_currentAssembly);
     }
-
-    // =========================================================================
 
     private function onMainLoop(e:Event):Void {
         var now = Lib.getTimer();
         var dt = (now - _lastTime) / 1000.0;
         _lastTime = now;
-        
-        // 1. Обновляем все активные атомы (драйверы)
-        // Теперь они сгенерируют данные и положут их в SignalQueue
-        DriverManager.getInstance().update(dt);
 
-        // 2. Обрабатываем очередь сигналов
-        // Распространяем сгенерированные данные по проводам
+        DriverManager.getInstance().update(dt);
         SignalQueue.getInstance().process();
     }
 
@@ -550,16 +526,14 @@ class Main extends Sprite {
         var startX = stage.stageWidth - btnPadding;
         var startY = btnPadding;
 
-        // Popup init
         _popup = new TextInputPopup();
         addChild(_popup);
 
-        // Buttons
         _btnBack = new ButtonComponent("<", onBackClicked);
         _btnBack.x = startX - btnSize; _btnBack.y = startY;
         _uiLayer.addChild(_btnBack);
 
-        _btnDelete = new ButtonComponent("D", onDeleteCurrentAssembly);
+        _btnDelete = new ButtonComponent("E", onDeleteCurrentAssembly); // Changed to E (Erase)
         _btnDelete.x = _btnBack.x - btnSize - btnPadding; _btnDelete.y = startY;
         _uiLayer.addChild(_btnDelete);
 
@@ -650,7 +624,7 @@ class Main extends Sprite {
     private function updateButtonStates():Void {
         var isRoot = (_editorStack.length <= 1);
         _btnBack.visible = !isRoot;
-        _btnDelete.visible = !isRoot; // Hide delete for root
+        _btnDelete.visible = !isRoot;
         _btnNew.visible = _settingsPanel.allowAssembly;
     }
 
@@ -667,139 +641,122 @@ class Main extends Sprite {
         #end
     }
 
-	private function saveSelfrun():Void {
-		#if sys
-		var positions = _currentEditor.getNodePositions();
-		
-		// Карта для быстрого поиска позиций: RuntimeID -> {x, y}
-		var posMap = new Map<String, {x:Float, y:Float}>();
-		for (p in positions) posMap.set(p.id, {x: p.x, y: p.y});
+    private function saveSelfrun():Void {
+        #if sys
+        // FIX: Always save the root assembly
+        if (_editorStack.length == 0) return;
+        
+        var rootEntry = _editorStack[0];
+        var rootAssembly:Assembly = rootEntry.assembly;
+        var rootEditor:NodeEditor = rootEntry.editor;
 
-		// 1. Подготовка списка атомов (сохраняем Template ID)
-		var atomsToSave:Array<Dynamic> = [];
-		for (atomDef in _currentAssembly.blueprint.internalAtoms) {
-			// atomDef.instanceId - это Template ID (как было в файле)
-			
-			// Находим Runtime ID, чтобы взять актуальную позицию
-			var runtimeId = _currentAssembly.idMap.get(atomDef.instanceId);
-			if (runtimeId == null) runtimeId = atomDef.instanceId; // Для вновь созданных атомов
+        var atomsToSave:Array<Dynamic> = [];
+        for (atomDef in rootAssembly.blueprint.internalAtoms) {
+            atomsToSave.push({
+                instanceId: atomDef.instanceId, 
+                typeId: atomDef.typeId,
+                x: atomDef.x,
+                y: atomDef.y
+            });
+        }
 
-			var pos = posMap.get(runtimeId);
-			
-			atomsToSave.push({
-				instanceId: atomDef.instanceId, // Сохраняем оригинальный ID
-				typeId: atomDef.typeId,
-				x: pos != null ? pos.x : atomDef.x,
-				y: pos != null ? pos.y : atomDef.y
-			});
-		}
+        var connsToSave:Array<Dynamic> = [];
+        for (conn in rootAssembly.blueprint.internalConnections) {
+            var fromId = conn.from.atomId;
+            var toId = conn.to.atomId;
 
-		// 2. Подготовка списка связей (реверс ID)
-		var connsToSave:Array<Dynamic> = [];
-		for (conn in _currentAssembly.blueprint.internalConnections) {
-			// conn содержит Runtime ID (так как схема работает в памяти)
-			
-			var fromId = conn.from.atomId;
-			var toId = conn.to.atomId;
+            if (fromId != "SELF") {
+                fromId = rootAssembly.getTemplateId(fromId);
+            }
+            if (toId != "SELF") {
+                toId = rootAssembly.getTemplateId(toId);
+            }
 
-			// Преобразуем Runtime ID -> Template ID для сохранения
-			if (fromId != "SELF") {
-				fromId = _currentAssembly.getTemplateId(fromId);
-			}
-			if (toId != "SELF") {
-				toId = _currentAssembly.getTemplateId(toId);
-			}
+            connsToSave.push({
+                from: { atomId: fromId, contactName: conn.from.contactName },
+                to: { atomId: toId, contactName: conn.to.contactName }
+            });
+        }
 
-			connsToSave.push({
-				from: { atomId: fromId, contactName: conn.from.contactName },
-				to: { atomId: toId, contactName: conn.to.contactName }
-			});
-		}
+        var bp = rootAssembly.blueprint;
+        var viewState = rootEditor.getViewState();
 
-		var bp = _currentAssembly.blueprint;
-		var viewState = _currentEditor.getViewState();
+        var data:Dynamic = {
+            version: "1.1",
+            blueprint: {
+                id: bp.id,
+                name: bp.name,
+                category: bp.category,
+                pins: bp.pins,
+                internalAtoms: atomsToSave,
+                internalConnections: connsToSave
+            },
+            editor: viewState
+        };
 
-		// Собираем чистую структуру для JSON
-		var data:Dynamic = {
-			version: "1.1",
-			blueprint: {
-				id: bp.id,
-				name: bp.name,
-				category: bp.category,
-				pins: bp.pins,
-				internalAtoms: atomsToSave,
-				internalConnections: connsToSave
-			},
-			editor: viewState
-		};
+        try {
+            File.saveContent(_selfrunPath, haxe.Json.stringify(data, null, "  "));
+            log("Selfrun saved (Root Context).");
+        } catch(e:Dynamic) { log("Error saving Selfrun: " + e); }
 
-		try {
-			File.saveContent(_selfrunPath, haxe.Json.stringify(data, null, "  "));
-			log("Selfrun saved (IDs remapped).");
-		} catch(e:Dynamic) { log("Error saving Selfrun: " + e); }
-
-		saveInternalAssemblies(_currentAssembly);
-		#end
-	}
+        saveInternalAssemblies(rootAssembly);
+        #end
+    }
 
     private function saveAssemblyToLibrary(asm:Assembly):Void {
-		#if sys
-		var bp = asm.blueprint;
-		if (bp.id == "selfrun" || bp.id == "loaded_asm") return;
+        #if sys
+        var bp = asm.blueprint;
+        if (bp.id == "selfrun" || bp.id == "loaded_asm") return;
 
-		// 1. Атомы
-		var atomsToSave:Array<Dynamic> = [];
-		for (atomDef in bp.internalAtoms) {
-			// Сохраняем как есть (Template ID или ID созданного атома)
-			atomsToSave.push({
-				instanceId: atomDef.instanceId,
-				typeId: atomDef.typeId,
-				x: atomDef.x,
-				y: atomDef.y
-			});
-		}
+        var atomsToSave:Array<Dynamic> = [];
+        for (atomDef in bp.internalAtoms) {
+            atomsToSave.push({
+                instanceId: atomDef.instanceId,
+                typeId: atomDef.typeId,
+                x: atomDef.x,
+                y: atomDef.y
+            });
+        }
 
-		// 2. Связи (Реверс ID)
-		var connsToSave:Array<Dynamic> = [];
-		for (conn in bp.internalConnections) {
-			var fromId = conn.from.atomId;
-			var toId = conn.to.atomId;
+        var connsToSave:Array<Dynamic> = [];
+        for (conn in bp.internalConnections) {
+            var fromId = conn.from.atomId;
+            var toId = conn.to.atomId;
 
-			// Преобразуем Runtime -> Template
-			if (fromId != "SELF") {
-				fromId = asm.getTemplateId(fromId);
-			}
-			if (toId != "SELF") {
-				toId = asm.getTemplateId(toId);
-			}
+            if (fromId != "SELF") {
+                fromId = asm.getTemplateId(fromId);
+            }
+            if (toId != "SELF") {
+                toId = asm.getTemplateId(toId);
+            }
 
-			connsToSave.push({
-				from: { atomId: fromId, contactName: conn.from.contactName },
-				to: { atomId: toId, contactName: conn.to.contactName }
-			});
-		}
+            connsToSave.push({
+                from: { atomId: fromId, contactName: conn.from.contactName },
+                to: { atomId: toId, contactName: conn.to.contactName }
+            });
+        }
 
-		var data:Dynamic = {
-			version: "1.0",
-			blueprint: {
-				id: bp.id,
-				name: bp.name,
-				category: bp.category,
-				pins: bp.pins,
-				internalAtoms: atomsToSave,
-				internalConnections: connsToSave
-			}
-		};
+        var data:Dynamic = {
+            version: "1.0",
+            blueprint: {
+                id: bp.id,
+                name: bp.name,
+                category: bp.category,
+                pins: bp.pins,
+                internalAtoms: atomsToSave,
+                internalConnections: connsToSave
+            }
+        };
 
-		var path = _libraryPath + "/" + bp.id + ".atom";
+        var path = _libraryPath + "/" + bp.id + ".atom";
 
-		try {
-			File.saveContent(path, haxe.Json.stringify(data, null, "  "));
-			log("Saved: " + bp.id + " to Library");
-			AtomRegistry.registerBlueprint(bp.id, bp);
-		} catch(e:Dynamic) { log("Error saving assembly: " + e); }
-		#end
-	}
+        try {
+            File.saveContent(path, haxe.Json.stringify(data, null, "  "));
+            log("Saved: " + bp.id + " to Library");
+            AtomRegistry.registerBlueprint(bp.id, bp);
+        } catch(e:Dynamic) { log("Error saving assembly: " + e); }
+        #end
+    }
 
     private function saveInternalAssemblies(asm:Assembly):Void {
         #if sys
@@ -979,7 +936,13 @@ class Main extends Sprite {
     private function buildAtomMenu():Void {
         var ids = AtomRegistry.getAllIds();
         ids.sort(function(a, b) return Reflect.compare(a, b));
+        
+        // FIX: Filter out current assembly to prevent recursion
+        var currentBpId:String = (_currentAssembly != null && _currentAssembly.blueprint != null) ? _currentAssembly.blueprint.id : null;
+
         for (id in ids) {
+            if (id == currentBpId) continue;
+
             var bp = AtomRegistry.get(id);
             if (bp != null) _menu.addItem("Add " + bp.name, "ADD_ATOM", {typeId: id});
         }
@@ -1139,7 +1102,6 @@ class Main extends Sprite {
     }
 
     private function onKeyDown(e:KeyboardEvent):Void {
-        // If popup is open, let it handle keys
         if (_popup.visible) return;
 
         #if windows
@@ -1193,34 +1155,57 @@ class Main extends Sprite {
             if (_settingsPanel.visible) { _settingsPanel.visible = false; return; }
             if (_menu != null) _menu.hide();
             if (_fileMenu != null) _fileMenu.hide();
-            if (_editorStack.length > 1) onBackClicked(); // Use back logic
+            if (_editorStack.length > 1) onBackClicked();
+            return;
         }
 
-        if (e.ctrlKey && e.keyCode == Keyboard.Z) UndoManager.getInstance().undo();
-        if (e.ctrlKey && e.keyCode == Keyboard.Y) UndoManager.getInstance().redo();
-        if (e.keyCode == Keyboard.R) onResetClick();
-        if (e.keyCode == Keyboard.BACKSPACE) if (_editorStack.length > 1) onBackClicked(); // Use back logic
-        
-        // DELETE key logic
-        if (e.keyCode == Keyboard.DELETE) {
-            // If inside a nested assembly, D behaves as Delete Assembly
+        if (e.ctrlKey && e.keyCode == Keyboard.Z) { UndoManager.getInstance().undo(); return; }
+        if (e.ctrlKey && e.keyCode == Keyboard.Y) { UndoManager.getInstance().redo(); return; }
+        if (e.keyCode == Keyboard.R) { onResetClick(); return; }
+
+        // --- CHANGED LOGIC: KEYS D, E, DELETE, BACKSPACE ---
+
+        // D or DELETE: Delete selected items on canvas (Wires or Nodes)
+        if (e.keyCode == Keyboard.D || e.keyCode == Keyboard.DELETE) {
+            deleteSelectedOnCanvas();
+            return;
+        }
+
+        // E (Erase): Delete current assembly context / Exit
+        if (e.keyCode == Keyboard.E) {
             if (_editorStack.length > 1) {
                 onDeleteCurrentAssembly();
             } else {
-                // Root level - delete selected nodes/wires
-                if (_currentEditor.getSelectedNodeCount() > 0) {
-                    _currentEditor.deleteSelectedNodes();
-                    updateSettingsStats();
-                } else {
-                    var selectedIds = _currentEditor.getSelectedWireIds();
-                    if (selectedIds.length > 0) {
-                        var cmd = new DeleteWiresCommand(_currentAssembly.blueprint, _currentAssembly, selectedIds);
-                        UndoManager.getInstance().executeAndStore(cmd);
-                    }
-                }
+                log("Cannot erase root assembly.");
             }
-            _contextTargetId = null;
+            return;
         }
+
+        // Backspace: Go Back
+        if (e.keyCode == Keyboard.BACKSPACE) {
+            if (_editorStack.length > 1) onBackClicked();
+            return;
+        }
+    }
+
+    /**
+     * Unified method to delete whatever is selected on the canvas.
+     */
+    private function deleteSelectedOnCanvas():Void {
+        if (_currentEditor == null) return;
+
+        var nodeCount = _currentEditor.getSelectedNodeCount();
+        var wireIds = _currentEditor.getSelectedWireIds();
+
+        if (nodeCount > 0) {
+            _currentEditor.deleteSelectedNodes();
+            updateSettingsStats();
+        } else if (wireIds.length > 0) {
+            var cmd = new DeleteWiresCommand(_currentAssembly.blueprint, _currentAssembly, wireIds);
+            UndoManager.getInstance().executeAndStore(cmd);
+        }
+        
+        _contextTargetId = null;
     }
 
     private function onPropertiesRequest(impulse:Impulse):Void {
