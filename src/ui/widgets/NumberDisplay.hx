@@ -32,7 +32,7 @@ class NumberDisplay extends Sprite implements IHMIWidget {
         _display.border = true;
         _display.borderColor = 0xFF8800;
         _display.background = true;
-        _display.backgroundColor = 0x112211;
+        _display.backgroundColor = 0x000000;
         _display.textColor = 0x00FF00;
         _display.width = 150;
         _display.height = 30;

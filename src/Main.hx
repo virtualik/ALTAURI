@@ -27,6 +27,7 @@ import ui.PropertiesWindow;
 import ui.ButtonComponent;
 import ui.SettingsPanel;
 import ui.WireType;
+import ui.DeviceWindow;
 import ui.WindowController;
 import system.io.ProjectIO;
 import system.commands.editor.GroupAtomsCommand;
@@ -107,7 +108,8 @@ class Main extends Sprite {
 
     private var _cbPortRightClick:Impulse -> Void;
 
-    private var _windowController:WindowController;
+	private var _deviceWindow:DeviceWindow;
+	private var _windowController:WindowController;
     private var _theme:EditorTheme;
 
     public function new() {
@@ -1227,13 +1229,14 @@ class Main extends Sprite {
     }
 
     private function onToggleView():Void {
-        _isEditorMode = !_isEditorMode;
-        _editorLayer.visible = _isEditorMode;
-        _deviceLayer.visible = !_isEditorMode;
-        if (!_isEditorMode) {
-            while (_deviceLayer.numChildren > 0) _deviceLayer.removeChildAt(0);
-            _devicePanel = new DevicePanel(_currentAssembly);
-            _deviceLayer.addChild(_devicePanel);
+        // Логика: Если окна нет - создаем. Если есть - закрываем (toggle).
+        if (_deviceWindow == null) {
+            log("Opening Device Window...");
+            _deviceWindow = new DeviceWindow(_currentAssembly);
+        } else {
+            log("Closing Device Window...");
+            _deviceWindow.close();
+            _deviceWindow = null;
         }
     }
 
@@ -1272,6 +1275,12 @@ class Main extends Sprite {
         SignalQueue.getInstance().clear();
         UndoManager.getInstance().clear();
         ECS.reset();
+
+	    // Внутри hardReset()
+		if (_deviceWindow != null) {
+        _deviceWindow.close();
+        _deviceWindow = null;
+		}
     }
 
     private function onKeyDown(e:KeyboardEvent):Void {
