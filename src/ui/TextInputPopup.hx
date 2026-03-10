@@ -14,9 +14,14 @@ class TextInputPopup extends Sprite {
     private var _bg:Sprite;
     private var _window:Sprite;
     private var _input:TextField;
+    private var _messageField:TextField;
     private var _okBtn:Sprite;
     private var _cancelBtn:Sprite;
+    
     private var _callback:String -> Void;
+    private var _boolCallback:Bool -> Void;
+    
+    private var _isConfirmMode:Bool = false;
 
     public function new() {
         super();
@@ -26,26 +31,36 @@ class TextInputPopup extends Sprite {
 
     public function show(title:String, defaultText:String, callback:String -> Void):Void {
         _callback = callback;
-        
-        // 1. Dim Background
+        _isConfirmMode = false;
+        buildUI(title, defaultText, false);
+    }
+
+    public function showConfirm(title:String, message:String, callback:Bool -> Void):Void {
+        _boolCallback = callback;
+        _isConfirmMode = true;
+        buildUI(title, message, true);
+    }
+
+    private function buildUI(title:String, content:String, isConfirm:Bool):Void {
+        // ... (код buildUI остается без изменений, он корректен) ...
         _bg = new Sprite();
         _bg.graphics.beginFill(0x000000, 0.6);
         _bg.graphics.drawRect(0, 0, stage.stageWidth, stage.stageHeight);
         _bg.graphics.endFill();
         addChild(_bg);
 
-        // 2. Window Container
+        var windowHeight = isConfirm ? 150 : 180;
+
         _window = new Sprite();
         _window.graphics.beginFill(0x222233);
         _window.graphics.lineStyle(2, 0x00AAFF);
-        _window.graphics.drawRoundRect(0, 0, 400, 150, 10, 10);
+        _window.graphics.drawRoundRect(0, 0, 400, windowHeight, 10, 10);
         _window.graphics.endFill();
-        
+
         _window.x = (stage.stageWidth - 400) / 2;
-        _window.y = (stage.stageHeight - 150) / 2;
+        _window.y = (stage.stageHeight - windowHeight) / 2;
         addChild(_window);
 
-        // 3. Title
         var titleTF = new TextField();
         titleTF.defaultTextFormat = new TextFormat("_typewriter", 16, 0x00AAFF, true);
         titleTF.text = title;
@@ -55,39 +70,54 @@ class TextInputPopup extends Sprite {
         titleTF.selectable = false;
         _window.addChild(titleTF);
 
-        // 4. Input Field
-        _input = new TextField();
-        _input.type = TextFieldType.INPUT;
-        _input.defaultTextFormat = new TextFormat("_sans", 14, 0xFFFFFF);
-        _input.text = defaultText;
-        _input.width = 380;
-        _input.height = 30;
-        _input.x = 10;
-        _input.y = 45;
-        _input.border = true;
-        _input.borderColor = 0x00AAFF;
-        _input.background = true;
-        _input.backgroundColor = 0x111122;
-        _window.addChild(_input);
+        if (isConfirm) {
+            _messageField = new TextField();
+            _messageField.defaultTextFormat = new TextFormat("_sans", 14, 0xFFFFFF);
+            _messageField.text = content;
+            _messageField.width = 380;
+            _messageField.height = 60;
+            _messageField.x = 10;
+            _messageField.y = 45;
+            _messageField.selectable = false;
+            _messageField.wordWrap = true;
+            _window.addChild(_messageField);
+        } else {
+            _input = new TextField();
+            _input.type = TextFieldType.INPUT;
+            _input.defaultTextFormat = new TextFormat("_sans", 14, 0xFFFFFF);
+            _input.text = content;
+            _input.width = 380;
+            _input.height = 30;
+            _input.x = 10;
+            _input.y = 45;
+            _input.border = true;
+            _input.borderColor = 0x00AAFF;
+            _input.background = true;
+            _input.backgroundColor = 0x111122;
+            _window.addChild(_input);
+        }
 
-        // 5. OK Button
         _okBtn = createButton("OK");
         _okBtn.x = 100;
-        _okBtn.y = 100;
+        _okBtn.y = isConfirm ? 100 : 130;
         _okBtn.addEventListener(MouseEvent.CLICK, onOk);
         _window.addChild(_okBtn);
 
-        // 6. Cancel Button
         _cancelBtn = createButton("Cancel");
         _cancelBtn.x = 210;
-        _cancelBtn.y = 100;
+        _cancelBtn.y = isConfirm ? 100 : 130;
         _cancelBtn.addEventListener(MouseEvent.CLICK, onCancel);
         _window.addChild(_cancelBtn);
 
         visible = true;
-        stage.focus = _input;
-        _input.setSelection(0, _input.text.length);
         
+        if (!isConfirm && _input != null) {
+            stage.focus = _input;
+            _input.setSelection(0, _input.text.length);
+        } else {
+            stage.focus = _okBtn;
+        }
+
         stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
     }
 
@@ -97,7 +127,7 @@ class TextInputPopup extends Sprite {
         s.graphics.lineStyle(1, 0x666666);
         s.graphics.drawRoundRect(0, 0, 80, 30, 5, 5);
         s.graphics.endFill();
-        
+
         var tf = new TextField();
         tf.defaultTextFormat = new TextFormat("_sans", 12, 0xFFFFFF, null, null, null, null, null, TextFormatAlign.CENTER);
         tf.text = label;
@@ -106,7 +136,7 @@ class TextInputPopup extends Sprite {
         tf.selectable = false;
         tf.mouseEnabled = false;
         s.addChild(tf);
-        
+
         s.buttonMode = true;
         return s;
     }
@@ -118,21 +148,39 @@ class TextInputPopup extends Sprite {
 
     private function onOk(_):Void {
         // ИСПРАВЛЕНИЕ: Сохраняем текст ПЕРЕД удалением визуальных элементов
-        var resultText:String = _input.text;
+        var resultText:String = "";
+        if (!_isConfirmMode && _input != null) {
+            resultText = _input.text;
+        }
+
+        hide(); // Теперь безопасно вызываем hide
         
-        hide();
-        
-        if (_callback != null) {
-            _callback(resultText);
-            _callback = null;
+        if (_isConfirmMode) {
+            if (_boolCallback != null) {
+                _boolCallback(true);
+                _boolCallback = null;
+            }
+        } else {
+            if (_callback != null) {
+                _callback(resultText); // Возвращаем сохраненный текст
+                _callback = null;
+            }
         }
     }
 
     private function onCancel(_):Void {
         hide();
-        if (_callback != null) {
-            _callback(null);
-            _callback = null;
+        
+        if (_isConfirmMode) {
+            if (_boolCallback != null) {
+                _boolCallback(false);
+                _boolCallback = null;
+            }
+        } else {
+            if (_callback != null) {
+                _callback(null);
+                _callback = null;
+            }
         }
     }
 
@@ -140,15 +188,19 @@ class TextInputPopup extends Sprite {
         stage.removeEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
         if (_okBtn != null) _okBtn.removeEventListener(MouseEvent.CLICK, onOk);
         if (_cancelBtn != null) _cancelBtn.removeEventListener(MouseEvent.CLICK, onCancel);
-        
-        // Удаляем графику
+
         while (numChildren > 0) removeChildAt(0);
+        if (_window != null) {
+             while (_window.numChildren > 0) _window.removeChildAt(0);
+        }
+        
         _bg = null;
         _window = null;
-        _input = null; // Здесь зануляется ссылка
+        _input = null; // Здесь ссылка обнуляется, но мы уже сохранили значение выше
+        _messageField = null;
         _okBtn = null;
         _cancelBtn = null;
-        
+
         visible = false;
     }
 }

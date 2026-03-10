@@ -9,15 +9,20 @@ import core.types.ContactType;
 import utils.UID;
 
 /**
- * ASSEMBLY v4.2 (Instance ID Remapping & Save Support)
+ * ASSEMBLY v4.4 (Hot Reload Fix)
  * Универсальный базовый класс для ВСЕХ узлов.
+ * 
+ * v4.4 Changes:
+ * - Fixed: updateFromBlueprint now correctly syncs ports without modifying the shared Blueprint object,
+ *   preventing duplication of pins when multiple instances of the same assembly exist.
  */
 class Assembly extends Atom {
 
     public static inline var MAX_INPUT_PORTS:Int = 20;
     public static inline var MAX_OUTPUT_PORTS:Int = 20;
 
-    public var blueprint(default, null):Blueprint;
+    public var blueprint:Blueprint;
+
     public var ports(default, null):Map<String, ConductorPort>;
     public var internalAtoms(default, null):Map<String, Dynamic>;
 
@@ -25,24 +30,19 @@ class Assembly extends Atom {
     public var outputs(get, null):Map<String, Contact>;
 
     // Карта для трансляции ID из Blueprint в реальные InstanceID
-    // Ключ: ID из файла (Blueprint), Значение: Реальный ID экземпляра
     private var _idMap:Map<String, String>;
-    
+
     // Публичный геттер для доступа из Main при сохранении
     public var idMap(get, never):Map<String, String>;
     private function get_idMap():Map<String, String> return _idMap;
-	/**
-     * Возвращает Template ID (из файла) по известному Runtime ID (из интерфейса).
-     * Нужно для команд удаления и сохранения.
-     */
+
     public function getTemplateId(runtimeId:String):String {
         for (templateId => rId in _idMap) {
             if (rId == runtimeId) return templateId;
         }
-        // Если это динамически созданный атом, его ID совпадает
         return runtimeId;
-	}
-	
+    }
+
     private function get_inputs():Map<String, Contact> {
         var map = new Map<String, Contact>();
         for (p in ports) if (p.type == INPUT) map.set(p.name, p.external);
@@ -59,8 +59,6 @@ class Assembly extends Atom {
         this.blueprint = blueprint;
         this.ports = new Map();
         this.internalAtoms = new Map();
-        
-        // Инициализируем карту ID
         _idMap = new Map();
 
         _createInterface();
@@ -87,6 +85,84 @@ class Assembly extends Atom {
         }
     }
 
+    // =========================================================================
+    // HOT RELOAD SUPPORT
+    // =========================================================================
+
+    /**
+     * Обновляет структуру портов сборки в соответствии с новым Blueprint.
+     * ИСПРАВЛЕНИЕ v4.4: Синхронизирует порты вручную, не вызывая addPort/removePort,
+     * чтобы избежать модификации общего объекта Blueprint.
+     */
+    public function updateFromBlueprint(newBp:Blueprint):Void {
+        if (newBp.id != this.blueprint.id) return; // Не та сборка
+
+        // 1. Обновляем имя
+        this.name = newBp.name;
+
+        // 2. Синхронизация портов
+        
+        // Собираем текущие имена портов
+        var currentPortNames = [for (name in ports.keys()) name];
+        
+        // Собираем целевые имена портов из нового чертежа
+        var targetPinNames = new Map<String, Bool>();
+        for (pin in newBp.pins) {
+            targetPinNames.set(pin.name, true);
+        }
+
+        // A. Удаляем порты, которых больше нет в новом чертеже
+        for (name in currentPortNames) {
+            if (!targetPinNames.exists(name)) {
+                var port = ports.get(name);
+                if (port != null) {
+                    // Удаляем из массивов Atom
+                    if (port.type == INPUT) {
+                        _inputs.remove(port.external);
+                    } else {
+                        _outputs.remove(port.external);
+                    }
+                    // Освобождаем ресурсы
+                    port.dispose();
+                    ports.remove(name);
+                }
+            }
+        }
+
+        // B. Добавляем или обновляем порты
+        for (pin in newBp.pins) {
+            var port = ports.get(pin.name);
+            
+            if (port == null) {
+                // Порта нет - создаем вручную (НЕ вызывая addPort, чтобы не ломать newBp)
+                
+                // Проверка лимитов
+                var currentCount = 0;
+                for (p in ports) if (p.type == pin.type) currentCount++;
+                var max = (pin.type == INPUT) ? MAX_INPUT_PORTS : MAX_OUTPUT_PORTS;
+                
+                if (currentCount < max) {
+                    var newPort = new ConductorPort(pin.name, pin.type, pin.defaultValue);
+                    ports.set(pin.name, newPort);
+                    
+                    if (pin.type == INPUT) {
+                        _inputs.push(newPort.external);
+                    } else {
+                        _outputs.push(newPort.external);
+                    }
+                } else {
+                    trace('WARN: Max ports limit reached during hot reload for type ${pin.type}');
+                }
+            } else {
+                // Порт уже существует, можно обновить defaultValue, если нужно
+                // port.defaultValue = pin.defaultValue; 
+            }
+        }
+
+        // 3. Заменяем ссылку на Blueprint
+        this.blueprint = newBp;
+    }
+
     private function _createInterface():Void {
         if (blueprint == null || blueprint.pins == null) return;
         for (pinDef in blueprint.pins) {
@@ -99,18 +175,12 @@ class Assembly extends Atom {
         if (blueprint == null || blueprint.internalAtoms == null) return;
 
         for (atomDef in blueprint.internalAtoms) {
-            
-            // ИСПРАВЛЕНИЕ: Защита от рекурсии.
-            // Если тип атома совпадает с типом текущей сборки, пропускаем его.
             if (atomDef.typeId == this.blueprint.id) {
                 trace('WARN: Skipped recursive instantiation of ${atomDef.typeId} inside itself.');
                 continue;
             }
 
-            // Генерируем НОВЫЙ уникальный ID для каждого экземпляра
             var newInstanceID = UID.generate();
-
-            // Сохраняем маппинг: ID из Blueprint -> Новый ID
             _idMap.set(atomDef.instanceId, newInstanceID);
 
             var instance = AssemblyFactory.createAtom(atomDef.typeId, newInstanceID);
@@ -123,7 +193,6 @@ class Assembly extends Atom {
     private function _createInternalConnections():Void {
         if (blueprint == null || blueprint.internalConnections == null) return;
         for (conn in blueprint.internalConnections) {
-            // Используем метод resolveContact, который учитывает карту ID
             var fromContact = resolveContact(conn.from);
             var toContact = resolveContact(conn.to);
             if (fromContact != null && toContact != null) {
@@ -132,39 +201,29 @@ class Assembly extends Atom {
         }
     }
 
-    // Обновленный метод поиска контактов с учетом маппинга ID
     private function resolveContact(point:ConnectionPoint):Contact {
         if (point.atomId == "SELF") {
             var port = ports.get(point.contactName);
             return (port == null) ? null : port.internal;
         } else {
-            // ИСПРАВЛЕНИЕ: Транслируем ID из Blueprint в реальный ID экземпляра
             var realAtomId = _idMap.get(point.atomId);
-            
-            // Если ID нет в карте, возможно это атом, добавленный динамически (не из файла)
-            // Попробуем найти прямым доступом (fallback)
             if (realAtomId == null) {
-                // Проверяем, может быть ID уже реальный
                 if (internalAtoms.exists(point.atomId)) {
                     realAtomId = point.atomId;
                 } else {
-                    return null; 
+                    return null;
                 }
             }
 
             var obj = internalAtoms.get(realAtomId);
             if (obj == null) return null;
-            
+
             var atom:Atom = cast obj;
             var c = atom.getInput(point.contactName);
             if (c == null) c = atom.getOutput(point.contactName);
             return c;
         }
     }
-
-    // =========================================================================
-    // PORT MANAGEMENT API
-    // =========================================================================
 
     private function _getOrderedPortDefs():Array<PinDef> {
         if (blueprint == null || blueprint.pins == null) return [];
@@ -199,7 +258,8 @@ class Assembly extends Atom {
         }
 
         var pinDef:PinDef = { name: name, type: type, defaultValue: defaultValue };
-        blueprint.pins.push(pinDef);
+        // Важно: добавляем в blueprint, чтобы он сохранился
+        if (blueprint.pins != null) blueprint.pins.push(pinDef);
 
         var port = new ConductorPort(name, type, defaultValue);
         ports.set(name, port);

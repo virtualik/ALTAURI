@@ -496,12 +496,12 @@ class NodeEditor extends Sprite {
 
         var clickHandler = function(e:MouseEvent) {
             e.stopPropagation();
-            
+
             // FIX: Clear node selection if not ctrl-clicking
             if (!e.ctrlKey) {
                 deselectAll(); // This clears nodes and wires
             }
-            
+
             // Toggle wire selection
             var idx = _selectedWireIds.indexOf(id);
             if (idx != -1) _selectedWireIds.splice(idx, 1);
@@ -512,14 +512,14 @@ class NodeEditor extends Sprite {
 
         var rightClickHandler = function(e:MouseEvent) {
             e.stopPropagation();
-            
+
             // FIX: Select this wire if not already
             if (_selectedWireIds.indexOf(id) == -1) {
                 deselectAll(); // Clear nodes
                 _selectedWireIds = [id];
                 rebuildAllWires();
             }
-            
+
             Impulsys.emit(new Impulse("WIRE_RIGHT_CLICKED", {ids: _selectedWireIds.copy()}));
         };
 
@@ -709,10 +709,20 @@ class NodeEditor extends Sprite {
                 var startPos = _dragStartPositions.get(id);
                 var view = _nodes.get(id);
                 if (view != null) {
-                    groupCommand.addCommand(new MoveNodeCommand(_blueprint, id, startPos.x, startPos.y, view.x, view.y));
+                    // ИСПРАВЛЕНИЕ: Получаем Template ID для сохранения в Blueprint
+                    var templateId = _assembly.getTemplateId(id);
+                    
+                    // Команда теперь принимает Template ID (логика внутри команды обновится)
+                    groupCommand.addCommand(new MoveNodeCommand(_blueprint, templateId, startPos.x, startPos.y, view.x, view.y));
                     hasChanges = true;
+                    
+                    // Также обновляем прямую ссылку в массиве internalAtoms (для немедленного сохранения)
                     for (atom in _blueprint.internalAtoms) {
-                        if (atom.instanceId == id) { atom.x = view.x; atom.y = view.y; break; }
+                        if (atom.instanceId == templateId) {
+                            atom.x = view.x;
+                            atom.y = view.y;
+                            break;
+                        }
                     }
                 }
             }
@@ -1147,9 +1157,13 @@ class NodeEditor extends Sprite {
         if (_blueprint.internalConnections != null) {
             for (conn in _blueprint.internalConnections) {
                 if (conn.from.atomId == "SELF" || conn.to.atomId == "SELF") continue;
+                
+                // Map runtime IDs back to template IDs for clipboard
+                var fromTemplate = _assembly.getTemplateId(conn.from.atomId);
+                var toTemplate = _assembly.getTemplateId(conn.to.atomId);
 
-                var fromSelected = selectedIds.indexOf(conn.from.atomId) != -1;
-                var toSelected = selectedIds.indexOf(conn.to.atomId) != -1;
+                var fromSelected = selectedIds.indexOf(fromTemplate) != -1 || selectedIds.indexOf(conn.from.atomId) != -1;
+                var toSelected = selectedIds.indexOf(toTemplate) != -1 || selectedIds.indexOf(conn.to.atomId) != -1;
 
                 if (fromSelected && toSelected) {
                     connsData.push(conn);
@@ -1190,8 +1204,23 @@ class NodeEditor extends Sprite {
         }
 
         for (conn in _clipboard.connections) {
-            var newFromId = idMap.get(conn.from.atomId);
-            var newToId = idMap.get(conn.to.atomId);
+            // Clipboard contains template IDs (from logic above), map to new IDs
+            // But conn.from.atomId might be runtime ID if copied from runtime instance?
+            // Safe approach: Try mapping from both source sets.
+            var sourceId = conn.from.atomId;
+            var targetId = conn.to.atomId;
+            
+            var newFromId = idMap.get(sourceId);
+            if (newFromId == null) {
+                 var template = _assembly.getTemplateId(sourceId);
+                 newFromId = idMap.get(template);
+            }
+            
+            var newToId = idMap.get(targetId);
+             if (newToId == null) {
+                 var template = _assembly.getTemplateId(targetId);
+                 newToId = idMap.get(template);
+            }
 
             if (newFromId != null && newToId != null) {
                 var cmd = new ConnectCommand(
@@ -1222,8 +1251,18 @@ class NodeEditor extends Sprite {
 
     private function findAtomDef(id:String):core.data.Blueprint.AtomDef {
         if (_blueprint.internalAtoms == null) return null;
+        
+        // Check direct match
         for (a in _blueprint.internalAtoms) {
             if (a.instanceId == id) return a;
+        }
+        
+        // Check template match
+        var template = _assembly.getTemplateId(id);
+        if (template != id) {
+            for (a in _blueprint.internalAtoms) {
+                if (a.instanceId == template) return a;
+            }
         }
         return null;
     }

@@ -16,9 +16,13 @@ import ecs.ECS;
 import Lambda;
 
 /**
- * NODE VIEW v2.2 (Theme Support)
+ * NODE VIEW v2.3 (Entry Logic Fix)
  * Visual representation of an Atom.
- * Uses EditorTheme singleton for colors.
+ * 
+ * v2.3 Changes:
+ * - Fixed: Double-click entry logic now checks for `blueprint.logic` instead of `internalAtoms.length`.
+ *   This allows entering empty Assemblies that have only ports, while still blocking entry to
+ *   primitive atoms (like NAND) that have code-defined logic.
  */
 class NodeView extends Sprite {
 
@@ -81,7 +85,7 @@ class NodeView extends Sprite {
         super();
         this.atom = atom;
         this.nodeId = nodeId;
-        
+
         // Get Theme Instance
         _theme = EditorTheme.getInstance();
 
@@ -151,7 +155,7 @@ class NodeView extends Sprite {
         title.height = _height;
         title.selectable = false;
         title.mouseEnabled = false;
-        
+
         // Use Theme Text Color
         var fmt = new TextFormat("_typewriter", 10, _theme.NODE_TEXT_COLOR);
         fmt.align = TextFormatAlign.CENTER;
@@ -277,6 +281,18 @@ class NodeView extends Sprite {
     }
 
     private function onDoubleClick(e:MouseEvent):Void {
+        // ИСПРАВЛЕНИЕ v2.3: Проверяем наличие логики, а не наличие внутренних атомов.
+        // Если _assemblyInstance null, это обычный Atom (не Assembly) -> вход запрещен.
+        if (_assemblyInstance == null) return;
+
+        // Если у сборки есть программная логика (logic != null), значит это "Примитив" (NAND, Button и т.д.).
+        // Внутрь примитивов входить нельзя.
+        if (_assemblyInstance.blueprint.logic != null) {
+            return;
+        }
+
+        // Если logic == null, значит это Пользовательская Сборка (схема).
+        // В неё можно входить, даже если она пустая (internalAtoms.length == 0) или имеет только порты.
         Impulsys.emit(new Impulse("OPEN_ASSEMBLY_REQUEST", {
             atomId: this.nodeId
         }));

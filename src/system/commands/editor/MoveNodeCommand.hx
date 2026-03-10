@@ -10,7 +10,7 @@ import core.logic.Impulsys;
 class MoveNodeCommand extends Command {
 
     private var _blueprint:Blueprint;
-    private var _nodeId:String;
+    private var _nodeId:String; // Теперь ожидает Template ID (так как мы его так передаем)
 
     private var _oldX:Float;
     private var _oldY:Float;
@@ -40,15 +40,24 @@ class MoveNodeCommand extends Command {
 
     private function apply(x:Float, y:Float):Void {
         // 1. Update Model
+        // Ищем по ID, который пришел (это Template ID из NodeEditor)
+        var found = false;
         for (atom in _blueprint.internalAtoms) {
             if (atom.instanceId == _nodeId) {
                 atom.x = x;
                 atom.y = y;
+                found = true;
                 break;
             }
         }
-        // 2. Update View
-        Impulsys.quickEmit("FORCE_UPDATE_NODE_POSITION", {id: _nodeId, x: x, y: y});
+        
+        // Примечание: Так как мы обновляем вид немедленно в NodeEditor,
+        // здесь нам нужно только обновить данные модели.
+        // Импульс на обновление вида можно не слать, чтобы не дергать лишний раз.
+        
+        if (!found) {
+            trace('MoveNodeCommand: Atom $_nodeId not found in blueprint');
+        }
     }
 
     override public function getDescription():String return 'Move Node $_nodeId';
