@@ -14,8 +14,11 @@ class AtomRegistry {
 
     public static var customLibraryPath:String = "";
 
-    private static function reg(id:String, name:String, pins:Array<core.data.Blueprint.PinDef>, ?logic) {
-        _blueprints.set(id, new Blueprint(id, name, pins, logic));
+    private static function reg(id:String, name:String, pins:Array<core.data.Blueprint.PinDef>, ?logic, ?deviceType:String = null, ?isNative:Bool = true) {
+        var bp = new Blueprint(id, name, pins, logic);
+        bp.deviceType = deviceType;
+        bp.isNative = isNative;
+        _blueprints.set(id, bp);
     }
 
     public static function getAllIds():Array<String> {
@@ -26,24 +29,8 @@ class AtomRegistry {
         if (_initialized) return;
 
         // Native Atoms Registration
-        reg("NAND", "NAND Gate",
-            [{name: "A", type: INPUT}, {name: "B", type: INPUT}, {name: "Q", type: OUTPUT}],
-            function(v) return [!(v[0] && v[1])]
-        );
-        reg("Button", "Push Button", [{name: "out", type: OUTPUT, dataType: "bool"}], null);
-        reg("LED", "LED Indicator", [{name: "in", type: INPUT, dataType: "bool"}], null);
-        reg("Relay", "Relay Switch",
-            [
-                {name: "signal", type: INPUT, dataType: "any"},
-                {name: "control", type: INPUT, dataType: "bool"},
-                {name: "out", type: OUTPUT, dataType: "any"}
-            ], null
-        );
-        reg("Pass", "Pass Through", [{name: "in", type: INPUT}, {name: "out", type: OUTPUT}], function(v) return v);
-        reg("SensorMock", "Random Sensor", [{name: "value", type: OUTPUT, dataType: "number", defaultValue: 0}], null);
-        reg("FPSMonitorAtom", "FPS Monitor Atom", [{name: "fps", type: OUTPUT, dataType: "number", defaultValue: 0}], null);
-        reg("FrameTimeAtom", "Frame Time (ms)", [{name: "ms", type: OUTPUT, dataType: "number", defaultValue: 0.0}], null);
-        reg("AlphaNumericLine", "Display", [{name: "in", type: INPUT, dataType: "any"}], null);
+        reg("Button", "Push Button", [{name: "out", type: OUTPUT, dataType: "bool"}], null, "button");
+        reg("LED", "LED Indicator", [{name: "in", type: INPUT, dataType: "bool"}], null, "led");
 
         _initialized = true;
     }
@@ -136,6 +123,14 @@ class AtomRegistry {
                 conns,
                 Std.string(rawBp.category)
             );
+            
+            // Загружаем deviceType из JSON
+            if (rawBp.deviceType != null) {
+                bp.deviceType = Std.string(rawBp.deviceType);
+            }
+            
+            // Пользовательские сборки не являются native
+            bp.isNative = false;
 
             registerBlueprint(bp.id, bp);
             trace("Library loaded: " + bp.id);

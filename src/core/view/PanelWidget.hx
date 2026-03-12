@@ -37,19 +37,13 @@ class PanelWidget extends DeviceView {
     public function new(asm:Assembly) {
         super(asm);
         
-        trace('PanelWidget.new: start');
-        
         _inputPorts = new Map();
         _outputPorts = new Map();
         
-        trace('PanelWidget.new: calling buildUI');
         buildUI();
-        trace('PanelWidget.new: done');
     }
     
     private function buildUI():Void {
-        trace('PanelWidget.buildUI: start');
-        
         // Фон панели
         graphics.clear();
         graphics.beginFill(bgColor);
@@ -57,17 +51,12 @@ class PanelWidget extends DeviceView {
         graphics.drawRoundRect(0, 0, panelWidth, panelHeight, 6, 6);
         graphics.endFill();
         
-        trace('PanelWidget.buildUI: background done');
-        
         // Заголовок
         _header = new Sprite();
         _header.graphics.beginFill(headerColor);
-        // Используем обычный drawRoundRect вместо drawRoundRectComplex
         _header.graphics.drawRoundRect(0, 0, panelWidth, headerHeight, 6, 6);
         _header.graphics.endFill();
         addChild(_header);
-        
-        trace('PanelWidget.buildUI: header done');
         
         _titleLabel = new TextField();
         _titleLabel.width = panelWidth - 10;
@@ -84,19 +73,13 @@ class PanelWidget extends DeviceView {
         
         _header.addChild(_titleLabel);
         
-        trace('PanelWidget.buildUI: title done');
-        
         // Область контента
         _content = new Sprite();
         _content.y = headerHeight + 5;
         addChild(_content);
         
-        trace('PanelWidget.buildUI: calling createPorts');
-        
         // Создаём порты
         createPorts();
-        
-        trace('PanelWidget.buildUI: done');
     }
     
     private function createPorts():Void {

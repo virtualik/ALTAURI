@@ -14,34 +14,22 @@ class DeviceWidgetFactory {
      * Создать DeviceView для атома по его типу.
      */
     public static function create(atom:Atom):DeviceView {
-        if (atom == null) {
-            trace('DeviceWidgetFactory.create: atom is null');
-            return null;
-        }
-        
-        trace('DeviceWidgetFactory.create: atom.type=${atom.type}');
+        if (atom == null) return null;
         
         try {
             // 1. СНАЧАЛА проверяем Assembly (это предотвращает рекурсию)
             if (Std.isOfType(atom, Assembly)) {
-                trace('DeviceWidgetFactory.create: atom is Assembly, calling createForAssembly');
                 var asm:Assembly = cast(atom, Assembly);
                 return createForAssembly(asm);
             }
             
             // 2. Для обычных атомов проверяем их собственный метод создания
-            trace('DeviceWidgetFactory.create: calling atom.createDeviceView()');
             var view = atom.createDeviceView();
-            if (view != null) {
-                trace('DeviceWidgetFactory.create: atom returned custom view');
-                return view;
-            }
+            if (view != null) return view;
             
             // 3. Fallback - определяем по типу атома
-            trace('DeviceWidgetFactory.create: using createByAtomType fallback');
             return createByAtomType(atom);
         } catch (e:Dynamic) {
-            trace('DeviceWidgetFactory: Error creating view for ${atom.type}: $e');
             return null;
         }
     }
@@ -50,25 +38,15 @@ class DeviceWidgetFactory {
      * Создать DeviceView для Assembly по blueprint.deviceType.
      */
     private static function createForAssembly(asm:Assembly):DeviceView {
-        if (asm == null || asm.blueprint == null) {
-            trace('DeviceWidgetFactory.createForAssembly: asm or blueprint is null');
-            return null;
-        }
-        
-        trace('DeviceWidgetFactory.createForAssembly: blueprint.name=${asm.blueprint.name}');
+        if (asm == null || asm.blueprint == null) return null;
         
         var bp = asm.blueprint;
         var deviceType:String = bp.deviceType;
         
-        trace('DeviceWidgetFactory.createForAssembly: deviceType=$deviceType');
-        
         if (deviceType == null || deviceType == "") {
             // Нет типа устройства - используем PanelWidget
-            trace('DeviceWidgetFactory.createForAssembly: no deviceType, creating PanelWidget');
             return new PanelWidget(asm);
         }
-        
-        trace('DeviceWidgetFactory.createForAssembly: creating widget for type $deviceType');
         
         return switch (deviceType.toLowerCase()) {
             case "led", "indicator", "light":
@@ -87,7 +65,6 @@ class DeviceWidgetFactory {
                 new PanelWidget(asm);
                 
             default:
-                // Попытка найти класс виджета по имени
                 createByClassName(deviceType, asm);
         }
     }
@@ -101,17 +78,11 @@ class DeviceWidgetFactory {
         var type = atom.type.toLowerCase();
         
         return switch (type) {
-            case "led", "ledatom":
+            case "led", "led indicator":
                 new LEDWidget(atom, "in");
                 
-            case "button", "buttonatom":
+            case "button", "push button":
                 new ButtonWidget(atom, "out");
-                
-            case "relay", "relayatom":
-                new ToggleWidget(atom, "control");
-                
-            case "display", "alphanumericline":
-                new TextWidget(atom, "in");
                 
             default:
                 // Универсальный виджет - текстовое отображение
@@ -123,7 +94,6 @@ class DeviceWidgetFactory {
      * Попытка создать виджет по имени класса.
      */
     private static function createByClassName(className:String, atom:Atom):DeviceView {
-        // Пытаемся найти класс в пакете core.view
         var fullClassName = "core.view." + className;
         
         try {
@@ -134,9 +104,7 @@ class DeviceWidgetFactory {
                     return cast(instance, DeviceView);
                 }
             }
-        } catch (e:Dynamic) {
-            trace('DeviceWidgetFactory: Failed to create $className: $e');
-        }
+        } catch (e:Dynamic) { }
         
         // Fallback
         return new TextWidget(atom);

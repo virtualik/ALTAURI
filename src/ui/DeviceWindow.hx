@@ -12,17 +12,17 @@ import core.base.Assembly;
 import core.base.Atom;
 import core.view.DeviceView;
 import core.view.DeviceWidgetFactory;
-import core.view.PanelWidget;
-import core.view.TextWidget;
 
 /**
- * DeviceWindow v3.0 (DeviceView Integration)
- * Вторичное окно с DeviceView выбранной Assembly.
+ * DeviceWindow v4.0 (Multi-Device with Drag & Drop)
+ * Вторичное окно с множеством DeviceView.
  * 
  * Features:
- * - ПКМ контекстное меню со списком всех Assembly в схеме
- * - Автоматическое создание DeviceView через DeviceWidgetFactory
- * - Прямой доступ к customSprite из Main
+ * - Множественные устройства на одном холсте
+ * - Drag & drop для позиционирования
+ * - ПКМ контекстное меню для добавления Assembly
+ * - Кнопка [X] для удаления устройства
+ * - Selfrun исключён из списка выбора
  */
 class DeviceWindow {
 
@@ -32,18 +32,17 @@ class DeviceWindow {
     private var _menuVisible:Bool = false;
     
     /**
-     * Публичный спрайт с прямым доступом из Main.
+     * Контейнер для устройств.
      */
-    public var customSprite(default, null):Sprite;
+    public var deviceCanvas(default, null):Sprite;
     
     /**
-     * Текущее отображаемое DeviceView.
+     * Список карточек устройств.
      */
-    private var _currentView:DeviceView;
+    private var _deviceCards:Array<DeviceCard>;
     
     /**
      * Callback для получения списка всех Assembly в схеме.
-     * Возвращает массив {id, name, assembly}.
      */
     public var onGetAssemblyList:Void -> Array<{id:String, name:String, assembly:Assembly}>;
     
@@ -52,89 +51,98 @@ class DeviceWindow {
      */
     public var onAssemblySelected:Assembly -> Void;
     
-    /**
-     * Текущая выбранная сборка.
-     */
-    public var currentAssembly(default, set):Assembly;
-    
     private var _titleLabel:TextField;
 
     public function new() {
+        _deviceCards = [];
         create();
     }
     
-    private function set_currentAssembly(value:Assembly):Assembly {
-        currentAssembly = value;
+    /**
+     * Добавить устройство на холст.
+     */
+    public function addDevice(asm:Assembly, ?x:Float = null, ?y:Float = null):Void {
+        if (asm == null) return;
+        if (deviceCanvas == null) return;
         
-        // Обновляем заголовок
-        if (_titleLabel != null && value != null) {
-            _titleLabel.text = "  Device: " + value.blueprint.name;
-        } else if (_titleLabel != null) {
-            _titleLabel.text = "  Device";
+        // Создаём карточку устройства
+        var card = new DeviceCard(asm, this);
+        _deviceCards.push(card);
+        deviceCanvas.addChild(card);
+        
+        // Позиционируем
+        if (x != null && y != null) {
+            card.x = x;
+            card.y = y;
+        } else {
+            // Авто-позиционирование - в первую свободную позицию
+            var pos = findFreePosition(card);
+            card.x = pos.x;
+            card.y = pos.y;
         }
-        
-        // Создаём DeviceView
-        if (value != null) {
-            setDeviceView(value);
-        }
-        
-        return value;
     }
     
     /**
-     * Установить отображаемую сборку.
+     * Удалить устройство с холста.
      */
-    public function setDeviceView(asm:Assembly):Void {
-        trace('DeviceWindow.setDeviceView: start for ${asm != null && asm.blueprint != null ? asm.blueprint.name : "null"}');
+    public function removeDevice(card:DeviceCard):Void {
+        if (card == null) return;
         
-        // Удаляем старый view
-        if (_currentView != null) {
-            trace('DeviceWindow.setDeviceView: disposing old view');
-            try {
-                _currentView.deactivate();
-                if (customSprite != null && customSprite.contains(_currentView)) {
-                    customSprite.removeChild(_currentView);
-                }
-                _currentView.dispose();
-            } catch (e:Dynamic) {
-                trace('DeviceWindow: Error disposing old view: $e');
-            }
-            _currentView = null;
+        _deviceCards.remove(card);
+        if (deviceCanvas != null && deviceCanvas.contains(card)) {
+            deviceCanvas.removeChild(card);
         }
+        card.dispose();
+    }
+    
+    /**
+     * Найти свободную позицию для новой карточки.
+     */
+    private function findFreePosition(card:DeviceCard):{x:Float, y:Float} {
+        var startX = 10;
+        var startY = 10;
+        var stepX = 120;
+        var stepY = 100;
+        var maxX = 380;
+        var maxY = 240;
         
-        if (asm == null) {
-            trace('DeviceWindow.setDeviceView: asm is null, returning');
-            return;
-        }
-        
-        if (customSprite == null) {
-            trace('DeviceWindow.setDeviceView: ERROR - customSprite is null!');
-            return;
-        }
-        
-        // Создаём новый view через фабрику
-        trace('DeviceWindow.setDeviceView: calling DeviceWidgetFactory.create');
-        try {
-            _currentView = DeviceWidgetFactory.create(asm);
-            trace('DeviceWindow.setDeviceView: factory returned ${_currentView != null ? "view" : "null"}');
-            
-            if (_currentView != null) {
-                trace('DeviceWindow.setDeviceView: adding to customSprite');
-                customSprite.addChild(_currentView);
-                trace('DeviceWindow.setDeviceView: activating view');
-                _currentView.activate();
-                trace('DeviceWindow.setDeviceView: view activated');
+        for (y in 0...3) {
+            for (x in 0...4) {
+                var px = startX + x * stepX;
+                var py = startY + y * stepY;
                 
-                // Центрируем
-                if (customSprite.width > 0 && customSprite.height > 0) {
-                    _currentView.x = (400 - _currentView.width) / 2;
-                    _currentView.y = (270 - _currentView.height) / 2;
+                if (isPositionFree(px, py)) {
+                    return {x: px, y: py};
                 }
-                trace('DeviceWindow.setDeviceView: done');
             }
-        } catch (e:Dynamic) {
-            trace('DeviceWindow: Error creating DeviceView: $e');
-            _currentView = null;
+        }
+        
+        // Если всё занято - случайная позиция
+        return {x: startX + Math.random() * 200, y: startY + Math.random() * 150};
+    }
+    
+    /**
+     * Проверить, свободна ли позиция.
+     */
+    private function isPositionFree(x:Float, y:Float):Bool {
+        for (card in _deviceCards) {
+            if (Math.abs(card.x - x) < 100 && Math.abs(card.y - y) < 80) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    /**
+     * Очистить все устройства.
+     */
+    public function clearDevices():Void {
+        while (_deviceCards.length > 0) {
+            var card = _deviceCards.pop();
+            if (deviceCanvas != null && deviceCanvas.contains(card)) {
+                deviceCanvas.removeChild(card);
+            }
+            card.dispose();
         }
     }
 
@@ -154,7 +162,7 @@ class DeviceWindow {
 
         if (_window != null && _window.stage != null) {
             createHeader();
-            createCustomSprite();
+            createDeviceCanvas();
             createContextMenu();
             
             // ПКМ для контекстного меню
@@ -174,14 +182,34 @@ class DeviceWindow {
         // Заголовок
         _titleLabel = new TextField();
         _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 12, 0xFFFFFF, true);
-        _titleLabel.text = "  Device (Right-Click to Select)";
+        _titleLabel.text = "  Device (Right-Click to Add)";
         _titleLabel.width = 300;
         _titleLabel.height = 30;
         _titleLabel.selectable = false;
         _titleLabel.mouseEnabled = false;
         _header.addChild(_titleLabel);
 
-        // Кнопка закрытия
+        // Кнопка очистки [C]
+        var clearBtn = new Sprite();
+        clearBtn.graphics.beginFill(0x555500);
+        clearBtn.graphics.drawRect(0, 0, 30, 30);
+        clearBtn.graphics.endFill();
+        clearBtn.x = 360;
+
+        var cText = new TextField();
+        cText.text = "C";
+        cText.width = 30;
+        cText.height = 30;
+        cText.selectable = false;
+        cText.mouseEnabled = false;
+        cText.defaultTextFormat = new TextFormat("_sans", 12, 0xFFFFFF, true, null, null, null, null, "center");
+        clearBtn.addChild(cText);
+
+        clearBtn.buttonMode = true;
+        clearBtn.addEventListener(MouseEvent.CLICK, function(e) { clearDevices(); });
+        _header.addChild(clearBtn);
+
+        // Кнопка закрытия [X]
         var closeBtn = new Sprite();
         closeBtn.graphics.beginFill(0xAA0000);
         closeBtn.graphics.drawRect(0, 0, 30, 30);
@@ -208,23 +236,21 @@ class DeviceWindow {
         _window.stage.addChild(_header);
     }
 
-    private function createCustomSprite():Void {
-        customSprite = new Sprite();
-        customSprite.y = 30;
+    private function createDeviceCanvas():Void {
+        deviceCanvas = new Sprite();
+        deviceCanvas.y = 30;
         
-        // Фон спрайта
-        customSprite.graphics.beginFill(0x222233);
-        customSprite.graphics.drawRect(0, 0, 420, 290);
-        customSprite.graphics.endFill();
+        // Фон холста
+        deviceCanvas.graphics.beginFill(0x222233);
+        deviceCanvas.graphics.drawRect(0, 0, 420, 290);
+        deviceCanvas.graphics.endFill();
         
-        _window.stage.addChild(customSprite);
+        _window.stage.addChild(deviceCanvas);
     }
     
     private function createContextMenu():Void {
         _contextMenu = new Sprite();
         _contextMenu.visible = false;
-        _contextMenu.x = 10;
-        _contextMenu.y = 40;
         _window.stage.addChild(_contextMenu);
     }
     
@@ -251,11 +277,14 @@ class DeviceWindow {
             assemblies = onGetAssemblyList();
         }
         
+        // Фильтруем - убираем Selfrun
+        assemblies = [for (a in assemblies) if (a.id != "selfrun" && a.assembly.blueprint.id != "selfrun") a];
+        
         // Создаём пункты меню
         var yPos = 0;
         
         // Заголовок меню
-        var headerItem = createMenuItem("Select Assembly:", null, true);
+        var headerItem = createMenuItem("Add Device:", null, true);
         headerItem.y = yPos;
         _contextMenu.addChild(headerItem);
         yPos += 28;
@@ -270,7 +299,7 @@ class DeviceWindow {
         yPos += 8;
         
         if (assemblies.length == 0) {
-            var emptyItem = createMenuItem("(No assemblies available)", null, true);
+            var emptyItem = createMenuItem("(No devices available)", null, true);
             emptyItem.y = yPos;
             _contextMenu.addChild(emptyItem);
             yPos += 26;
@@ -292,7 +321,7 @@ class DeviceWindow {
         
         // Позиционируем меню
         _contextMenu.x = Math.min(x, 420 - 200);
-        _contextMenu.y = Math.min(y, 320 - yPos - 10);
+        _contextMenu.y = Math.min(Math.max(y - 30, 0), 320 - yPos - 10);
         
         _menuVisible = true;
         _contextMenu.visible = true;
@@ -311,7 +340,7 @@ class DeviceWindow {
         
         var txt = new TextField();
         txt.defaultTextFormat = new TextFormat("_typewriter", 11, disabled ? 0x777788 : 0xFFFFFF);
-        txt.text = (disabled || assembly == null) ? label : "• " + label;
+        txt.text = (disabled || assembly == null) ? label : "+ " + label;
         txt.width = 170;
         txt.height = 24;
         txt.x = 8;
@@ -322,17 +351,14 @@ class DeviceWindow {
         if (!disabled && assembly != null) {
             item.buttonMode = true;
             
-            // Используем замыкание вместо Reflect
             final capturedAssembly = assembly;
+            final capturedX = _contextMenu.x;
+            final capturedY = _contextMenu.y;
+            
             item.addEventListener(MouseEvent.CLICK, function(e:MouseEvent) {
-                trace('DeviceWindow: Menu item clicked for ${capturedAssembly.blueprint != null ? capturedAssembly.blueprint.name : "unknown"}');
-                try {
-                    currentAssembly = capturedAssembly;
-                    if (onAssemblySelected != null) {
-                        onAssemblySelected(capturedAssembly);
-                    }
-                } catch (ex:Dynamic) {
-                    trace('DeviceWindow: Error selecting assembly: $ex');
+                addDevice(capturedAssembly);
+                if (onAssemblySelected != null) {
+                    onAssemblySelected(capturedAssembly);
                 }
                 hideContextMenu();
             });
@@ -353,6 +379,7 @@ class DeviceWindow {
         return item;
     }
 
+    // Window dragging
     private var _dragging:Bool = false;
     private var _dragOffsetX:Float = 0;
     private var _dragOffsetY:Float = 0;
@@ -395,14 +422,10 @@ class DeviceWindow {
             _window.stage.removeEventListener(MouseEvent.CLICK, onStageClick);
         }
         
-        // Очищаем DeviceView
-        if (_currentView != null) {
-            _currentView.deactivate();
-            _currentView.dispose();
-            _currentView = null;
-        }
+        // Очищаем все устройства
+        clearDevices();
 
-        customSprite = null;
+        deviceCanvas = null;
         _contextMenu = null;
         
         if (_window != null) {
@@ -417,5 +440,181 @@ class DeviceWindow {
     public var isOpen(get, never):Bool;
     private function get_isOpen():Bool {
         return _window != null;
+    }
+}
+
+/**
+ * DeviceCard - карточка устройства с заголовком и DeviceView внутри.
+ * Поддерживает drag & drop.
+ */
+class DeviceCard extends Sprite {
+    
+    private var _assembly:Assembly;
+    private var _deviceWindow:DeviceWindow;
+    private var _deviceView:DeviceView;
+    private var _titleBar:Sprite;
+    private var _titleLabel:TextField;
+    
+    // Drag state
+    private var _cardDragging:Bool = false;
+    private var _dragStartX:Float = 0;
+    private var _dragStartY:Float = 0;
+    private var _mouseStartX:Float = 0;
+    private var _mouseStartY:Float = 0;
+    
+    public function new(asm:Assembly, deviceWindow:DeviceWindow) {
+        super();
+        
+        _assembly = asm;
+        _deviceWindow = deviceWindow;
+        
+        buildCard();
+    }
+    
+    private function buildCard():Void {
+        // Создаём DeviceView
+        try {
+            _deviceView = DeviceWidgetFactory.create(_assembly);
+        } catch (e:Dynamic) {
+            _deviceView = null;
+        }
+        
+        if (_deviceView == null) {
+            // Fallback - простой текст
+            createFallbackCard();
+            return;
+        }
+        
+        // Активируем view
+        _deviceView.activate();
+        
+        // Заголовок карточки
+        _titleBar = new Sprite();
+        _titleBar.graphics.beginFill(0x3a3a4a);
+        _titleBar.graphics.drawRect(0, 0, _deviceView.width + 20, 20);
+        _titleBar.graphics.endFill();
+        addChild(_titleBar);
+        
+        // Название
+        _titleLabel = new TextField();
+        _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 10, 0xFFFFFF);
+        _titleLabel.text = " " + (_assembly.blueprint != null ? _assembly.blueprint.name : "Device");
+        _titleLabel.width = _deviceView.width;
+        _titleLabel.height = 20;
+        _titleLabel.selectable = false;
+        _titleLabel.mouseEnabled = false;
+        _titleBar.addChild(_titleLabel);
+        
+        // Кнопка закрытия [X]
+        var closeBtn = new Sprite();
+        closeBtn.graphics.beginFill(0x883333);
+        closeBtn.graphics.drawRect(0, 0, 16, 16);
+        closeBtn.graphics.endFill();
+        closeBtn.x = _deviceView.width + 2;
+        closeBtn.y = 2;
+        
+        var xText = new TextField();
+        xText.text = "x";
+        xText.width = 16;
+        xText.height = 16;
+        xText.selectable = false;
+        xText.mouseEnabled = false;
+        xText.defaultTextFormat = new TextFormat("_sans", 10, 0xFFFFFF, false, null, null, null, null, "center");
+        closeBtn.addChild(xText);
+        
+        closeBtn.buttonMode = true;
+        closeBtn.addEventListener(MouseEvent.CLICK, onCloseClick);
+        _titleBar.addChild(closeBtn);
+        
+        // DeviceView под заголовком
+        _deviceView.y = 20;
+        _deviceView.x = 0;
+        addChild(_deviceView);
+        
+        // Фон карточки
+        graphics.clear();
+        graphics.beginFill(0x2a2a3a, 0.9);
+        graphics.lineStyle(1, 0x4a4a5a);
+        graphics.drawRoundRect(-5, -5, _deviceView.width + 30, _deviceView.height + 30, 4, 4);
+        graphics.endFill();
+        
+        // Drag & drop для карточки
+        _titleBar.buttonMode = true;
+        _titleBar.addEventListener(MouseEvent.MOUSE_DOWN, onCardMouseDown);
+    }
+    
+    private function createFallbackCard():Void {
+        // Простой fallback если DeviceView не создан
+        graphics.beginFill(0x333344);
+        graphics.drawRoundRect(0, 0, 80, 50, 4, 4);
+        graphics.endFill();
+        
+        var txt = new TextField();
+        txt.defaultTextFormat = new TextFormat("_sans", 10, 0xFFFFFF);
+        txt.text = _assembly.blueprint != null ? _assembly.blueprint.name : "?";
+        txt.width = 80;
+        txt.height = 50;
+        txt.selectable = false;
+        txt.mouseEnabled = false;
+        addChild(txt);
+    }
+    
+    private function onCloseClick(e:MouseEvent):Void {
+        e.stopPropagation();
+        _deviceWindow.removeDevice(this);
+    }
+    
+    private function onCardMouseDown(e:MouseEvent):Void {
+        _cardDragging = true;
+        _dragStartX = this.x;
+        _dragStartY = this.y;
+        _mouseStartX = e.stageX;
+        _mouseStartY = e.stageY;
+        
+        // Поднимаем карточку наверх
+        if (parent != null) {
+            parent.addChild(this);
+        }
+        
+        if (stage != null) {
+            stage.addEventListener(MouseEvent.MOUSE_MOVE, onCardMouseMove);
+            stage.addEventListener(MouseEvent.MOUSE_UP, onCardMouseUp);
+        }
+    }
+    
+    private function onCardMouseMove(e:MouseEvent):Void {
+        if (!_cardDragging) return;
+        
+        var dx = e.stageX - _mouseStartX;
+        var dy = e.stageY - _mouseStartY;
+        
+        this.x = _dragStartX + dx;
+        this.y = _dragStartY + dy;
+    }
+    
+    private function onCardMouseUp(e:MouseEvent):Void {
+        _cardDragging = false;
+        
+        if (stage != null) {
+            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onCardMouseMove);
+            stage.removeEventListener(MouseEvent.MOUSE_UP, onCardMouseUp);
+        }
+    }
+    
+    public function dispose():Void {
+        if (_titleBar != null) {
+            _titleBar.removeEventListener(MouseEvent.MOUSE_DOWN, onCardMouseDown);
+        }
+        
+        if (_deviceView != null) {
+            _deviceView.deactivate();
+            _deviceView.dispose();
+            _deviceView = null;
+        }
+        
+        _assembly = null;
+        _deviceWindow = null;
+        _titleBar = null;
+        _titleLabel = null;
     }
 }

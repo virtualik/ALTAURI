@@ -40,6 +40,7 @@ class Blueprint {
     public var name:String;
     public var category:String;
     public var deviceType:String;  // Тип устройства для DeviceView: "led", "toggle", "button", "text", "panel"
+    public var isNative:Bool = false;  // true = системная сборка, нельзя редактировать
 
     public var pins(default, null):Array<PinDef>;
     public var internalAtoms(default, null):Array<AtomDef>;

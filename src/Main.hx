@@ -942,6 +942,13 @@ class Main extends Sprite {
 
         if (Std.isOfType(obj, Assembly)) {
             var targetAsm = cast(obj, Assembly);
+            
+            // Проверка на native сборку
+            if (targetAsm.blueprint != null && targetAsm.blueprint.isNative) {
+                log("Cannot edit native atom: " + targetAsm.blueprint.name);
+                return;
+            }
+            
             _currentEditor.deselectAll();
             _propertiesWindow.close();
             pushEditor(targetAsm);
@@ -1201,32 +1208,16 @@ class Main extends Sprite {
             // Callback для получения списка всех Assembly
             _deviceWindow.onGetAssemblyList = getAllAssembliesRecursive;
 
-            // Callback при выборе Assembly
+            // Callback при добавлении Assembly
             _deviceWindow.onAssemblySelected = function(asm:Assembly) {
-                log("Device selected: " + asm.blueprint.name);
+                log("Device added: " + asm.blueprint.name);
             };
 
-            _customSprite = _deviceWindow.customSprite;
-
-            // Добавляем надпись на спрайт
-            if (_customSprite != null) {
-                var label = new TextField();
-                label.defaultTextFormat = new TextFormat("_typewriter", 24, 0x00FF00, true, null, null, null, null, TextFormatAlign.CENTER);
-                label.text = "-=спрайт=-";
-                label.width = 400;
-                label.height = 40;
-                label.y = 100;
-                label.selectable = false;
-                label.mouseEnabled = false;
-                _customSprite.addChild(label);
-
-                log("Device Window opened.");
-            }
+            log("Device Window opened.");
         } else {
             log("Closing Device Window...");
             _deviceWindow.close();
             _deviceWindow = null;
-            _customSprite = null;
         }
     }
 

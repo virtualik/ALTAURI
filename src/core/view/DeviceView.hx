@@ -38,8 +38,6 @@ class DeviceView extends Sprite {
         super();
         this.atom = atom;
         
-        trace('DeviceView.new: atom=${atom != null ? atom.type : "null"}');
-        
         if (Std.isOfType(atom, Assembly)) {
             this.assembly = cast(atom, Assembly);
         }
