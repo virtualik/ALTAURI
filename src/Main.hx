@@ -22,13 +22,11 @@ import editor.NodeView;
 import editor.EditorTheme;
 import ui.TextInputPopup;
 import ui.ContextMenu;
-import ui.DevicePanel;
 import ui.PropertiesWindow;
 import ui.ButtonComponent;
 import ui.SettingsPanel;
 import ui.WireType;
 import ui.DeviceWindow;
-import ui.WindowController;
 import system.io.ProjectIO;
 import system.commands.editor.GroupAtomsCommand;
 import system.commands.editor.CreateNewAssemblyCommand;
@@ -64,7 +62,6 @@ class Main extends Sprite {
     private var _selfrunPath:String;
 
     private var _editorLayer:Sprite;
-    private var _deviceLayer:Sprite;
     private var _uiLayer:Sprite;
     private var _settingsLayer:Sprite;
 
@@ -78,7 +75,6 @@ class Main extends Sprite {
     private var _currentAssembly:Assembly;
     private var _currentEditor:NodeEditor;
 
-    private var _devicePanel:DevicePanel;
     private var _menu:ContextMenu;
     private var _fileMenu:ContextMenu;
     private var _propertiesWindow:PropertiesWindow;
@@ -107,10 +103,13 @@ class Main extends Sprite {
     private var _lastTime:Int = 0;
 
     private var _cbPortRightClick:Impulse -> Void;
-
-	private var _deviceWindow:DeviceWindow;
-	private var _windowController:WindowController;
     private var _theme:EditorTheme;
+
+    // ========================================
+    // DeviceWindow
+    // ========================================
+    private var _deviceWindow:DeviceWindow;
+    private var _customSprite:Sprite;
 
     public function new() {
         super();
@@ -170,7 +169,6 @@ class Main extends Sprite {
         removeEventListener(Event.ADDED_TO_STAGE, init);
 
         stage.color = _theme.APP_BG_COLOR;
-        initWindowController();
 
         DriverManager.getInstance();
         SignalQueue.getInstance();
@@ -184,15 +182,6 @@ class Main extends Sprite {
         #end
 
         loadSelfrun();
-    }
-
-    private function initWindowController():Void {
-        _windowController = new WindowController();
-        #if windows
-        haxe.Timer.delay(function() {
-            if (_windowController != null) _windowController.enableDWMTransparency();
-        }, 1);
-        #end
     }
 
     private function saveOnExit():Void {
@@ -360,13 +349,7 @@ class Main extends Sprite {
         var h = stage.stageHeight - margin * 2;
 
         container.graphics.clear();
-
-        #if windows
-        container.graphics.beginFill(_theme.FRAME_BORDER_COLOR, 2.0);
-        #else
         container.graphics.beginFill(_theme.FRAME_FILL_COLOR, _theme.FRAME_FILL_ALPHA);
-        #end
-
         container.graphics.lineStyle(2, _theme.FRAME_BORDER_COLOR);
         container.graphics.drawRoundRect(0, 0, w, h, 10, 10);
         container.graphics.endFill();
@@ -434,14 +417,12 @@ class Main extends Sprite {
         });
     }
 
-   private function deleteCurrentAssemblyConfirmed(isSaved:Bool):Void {
+    private function deleteCurrentAssemblyConfirmed(isSaved:Bool):Void {
         var bp = _currentAssembly.blueprint;
         var deletedId = bp.id;
 
-        // 1. Remove from Registry (cleans memory and removes from Menu)
         AtomRegistry.remove(deletedId);
 
-        // 2. Delete File
         if (isSaved) {
             #if sys
             var path = _libraryPath + "/" + bp.id + ".atom";
@@ -456,25 +437,20 @@ class Main extends Sprite {
             #end
         }
 
-        // 3. Pop Editor
         performPopEditor(false);
 
-        // 4. Clean up instances from ALL open assemblies recursively
         for (entry in _editorStack) {
             recursiveRemoveInstances(entry.assembly, deletedId);
         }
-        
-        // 5. Clean Registry Blueprints (for assemblies not currently open/loaded in runtime, but existing in library)
+
         cleanRegistryDanglingReferences(deletedId);
     }
 
-    // Recursively scans an assembly and its children for instances of the deleted type
     private function recursiveRemoveInstances(parent:Assembly, deletedId:String):Void {
         if (parent == null || parent.internalAtoms == null) return;
 
         var idsToRemove:Array<String> = [];
-        
-        // 1. Check direct children
+
         for (id in parent.internalAtoms.keys()) {
             var atom = parent.internalAtoms.get(id);
             if (atom != null && Std.isOfType(atom, Assembly)) {
@@ -482,15 +458,12 @@ class Main extends Sprite {
                 if (asm.blueprint != null && asm.blueprint.id == deletedId) {
                     idsToRemove.push(id);
                 } else {
-                    // 2. Recurse into other assemblies (nested search)
                     recursiveRemoveInstances(asm, deletedId);
                 }
             }
         }
 
-        // 3. Execute deletions
         if (idsToRemove.length > 0) {
-            trace('Removing ${idsToRemove.length} instances of $deletedId from ${parent.blueprint.name}');
             var macrocom = new MacroCommand();
             for (id in idsToRemove) {
                 macrocom.addCommand(new DeleteAtomCommand(parent.blueprint, parent, id));
@@ -499,7 +472,6 @@ class Main extends Sprite {
         }
     }
 
-    // Scans AtomRegistry for Blueprints that reference the deleted ID (dangling references in closed files)
     private function cleanRegistryDanglingReferences(deletedId:String):Void {
         #if sys
         var allIds = AtomRegistry.getAllIds();
@@ -509,8 +481,7 @@ class Main extends Sprite {
 
             var changed = false;
             var atomsToKeep = [];
-            
-            // Filter atoms
+
             for (atomDef in bp.internalAtoms) {
                 if (atomDef.typeId == deletedId) {
                     changed = true;
@@ -520,52 +491,46 @@ class Main extends Sprite {
             }
 
             if (changed) {
-                // Modify array content in-place (since fields are read-only)
                 var targetAtoms = bp.internalAtoms;
                 targetAtoms.resize(0);
                 for (a in atomsToKeep) targetAtoms.push(a);
-                
-                // Filter connections (remove connections to/from deleted atoms)
+
                 var connsToKeep = [];
                 if (bp.internalConnections != null) {
                     for (conn in bp.internalConnections) {
                         var fromValid = false;
                         var toValid = false;
-                        
-                        // Check From
+
                         if (conn.from.atomId == "SELF") fromValid = true;
                         else {
                             for (a in atomsToKeep) {
                                 if (a.instanceId == conn.from.atomId) { fromValid = true; break; }
                             }
                         }
-                        
-                        // Check To
+
                         if (conn.to.atomId == "SELF") toValid = true;
                         else {
                             for (a in atomsToKeep) {
                                 if (a.instanceId == conn.to.atomId) { toValid = true; break; }
                             }
                         }
-                        
+
                         if (fromValid && toValid) {
                             connsToKeep.push(conn);
                         }
                     }
-                    
+
                     var targetConns = bp.internalConnections;
                     targetConns.resize(0);
                     for (c in connsToKeep) targetConns.push(c);
                 }
 
-                // Save modified blueprint to disk
                 saveBlueprintToDisk(bp);
-                log('Cleaned references to $deletedId in library file: ${bp.id}');
             }
         }
         #end
     }
-    
+
     private function saveBlueprintToDisk(bp:Blueprint):Void {
         #if sys
         var atomsToSave:Array<Dynamic> = [];
@@ -644,7 +609,6 @@ class Main extends Sprite {
             if (Std.isOfType(atom, Assembly)) {
                 var asm = cast(atom, Assembly);
                 if (asm.blueprint.id == typeId) {
-                    trace('Updating instance $id to match new blueprint');
                     asm.updateFromBlueprint(newBp);
                 }
             }
@@ -690,7 +654,7 @@ class Main extends Sprite {
             _debugField.alpha = 1.0;
             _debugField.visible = true;
         }
-        _hideTimer = haxe.Timer.delay(() -> { fadeOutLog(); }, 5000);
+        _hideTimer = haxe.Timer.delay(function() { fadeOutLog(); }, 5000);
     }
 
     private function fadeOutLog() { if (_debugField != null) _debugField.visible = false; }
@@ -711,10 +675,6 @@ class Main extends Sprite {
     private function setupLayers():Void {
         _editorLayer = new Sprite();
         addChild(_editorLayer);
-
-        _deviceLayer = new Sprite();
-        _deviceLayer.visible = false;
-        addChild(_deviceLayer);
 
         _uiLayer = new Sprite();
         addChild(_uiLayer);
@@ -900,7 +860,7 @@ class Main extends Sprite {
 
         try {
             File.saveContent(_selfrunPath, haxe.Json.stringify(data, null, "  "));
-            log("Selfrun saved (Root Context).");
+            log("Selfrun saved.");
         } catch(e:Dynamic) { log("Error saving Selfrun: " + e); }
 
         saveInternalAssemblies(rootAssembly);
@@ -1228,15 +1188,85 @@ class Main extends Sprite {
         UndoManager.getInstance().executeAndStore(cmd);
     }
 
+    // ========================================
+    // DeviceWindow
+    // ========================================
+
     private function onToggleView():Void {
-        // Логика: Если окна нет - создаем. Если есть - закрываем (toggle).
-        if (_deviceWindow == null) {
+        if (_deviceWindow == null || !_deviceWindow.isOpen) {
             log("Opening Device Window...");
-            _deviceWindow = new DeviceWindow(_currentAssembly);
+
+            _deviceWindow = new DeviceWindow();
+
+            // Callback для получения списка всех Assembly
+            _deviceWindow.onGetAssemblyList = getAllAssembliesRecursive;
+
+            // Callback при выборе Assembly
+            _deviceWindow.onAssemblySelected = function(asm:Assembly) {
+                log("Device selected: " + asm.blueprint.name);
+            };
+
+            _customSprite = _deviceWindow.customSprite;
+
+            // Добавляем надпись на спрайт
+            if (_customSprite != null) {
+                var label = new TextField();
+                label.defaultTextFormat = new TextFormat("_typewriter", 24, 0x00FF00, true, null, null, null, null, TextFormatAlign.CENTER);
+                label.text = "-=спрайт=-";
+                label.width = 400;
+                label.height = 40;
+                label.y = 100;
+                label.selectable = false;
+                label.mouseEnabled = false;
+                _customSprite.addChild(label);
+
+                log("Device Window opened.");
+            }
         } else {
             log("Closing Device Window...");
             _deviceWindow.close();
             _deviceWindow = null;
+            _customSprite = null;
+        }
+    }
+
+    /**
+     * Рекурсивно получить все Assembly на всех уровнях вложенности.
+     */
+    private function getAllAssembliesRecursive():Array<{id:String, name:String, assembly:Assembly}> {
+        var result:Array<{id:String, name:String, assembly:Assembly}> = [];
+
+        // Проходим по всем уровням стека редакторов
+        for (entry in _editorStack) {
+            if (entry.assembly != null) {
+                collectAssembliesFromAssembly(entry.assembly, result);
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Рекурсивно собрать все Assembly из данной Assembly.
+     */
+    private function collectAssembliesFromAssembly(asm:Assembly, result:Array<{id:String, name:String, assembly:Assembly}>):Void {
+        if (asm == null) return;
+
+        // Добавляем саму сборку
+        result.push({
+            id: asm.id,
+            name: asm.blueprint != null ? asm.blueprint.name : asm.name,
+            assembly: asm
+        });
+
+        // Рекурсивно обходим внутренние атомы
+        if (asm.internalAtoms != null) {
+            for (id in asm.internalAtoms.keys()) {
+                var obj = asm.internalAtoms.get(id);
+                if (Std.isOfType(obj, Assembly)) {
+                    collectAssembliesFromAssembly(cast(obj, Assembly), result);
+                }
+            }
         }
     }
 
@@ -1261,6 +1291,12 @@ class Main extends Sprite {
         log("SYSTEM: Hard Reset...");
         clearStack();
 
+        if (_deviceWindow != null) {
+            _deviceWindow.close();
+            _deviceWindow = null;
+            _customSprite = null;
+        }
+
         Impulsys.clear();
         Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION", onMenuAction);
         Impulsys.subscribeToImpulse("CLOSE_CONTEXT_MENU", onCloseContextMenu);
@@ -1275,27 +1311,10 @@ class Main extends Sprite {
         SignalQueue.getInstance().clear();
         UndoManager.getInstance().clear();
         ECS.reset();
-
-	    // Внутри hardReset()
-		if (_deviceWindow != null) {
-        _deviceWindow.close();
-        _deviceWindow = null;
-		}
     }
 
     private function onKeyDown(e:KeyboardEvent):Void {
         if (_popup.visible) return;
-
-        #if windows
-        if (e.keyCode == Keyboard.F4 && !e.ctrlKey) {
-            if (_windowController != null) _windowController.toggleTransparency();
-            return;
-        }
-        if (e.keyCode == Keyboard.F5 && !e.ctrlKey) {
-            if (_windowController != null) _windowController.toggleBlurBehind();
-            return;
-        }
-        #end
 
         if (e.keyCode == Keyboard.S && !e.ctrlKey) {
             saveCurrentContext();

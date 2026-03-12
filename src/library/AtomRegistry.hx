@@ -1,22 +1,20 @@
 package library;
 
 import core.data.Blueprint;
-import core.data.Blueprint.PinDef;
 import core.types.ContactType;
-import library.logic.NandAtom;
-import library.electro.ButtonAtom;
-import library.electro.LedAtom;
-import library.electro.RelayAtom;
-import sys.FileSystem;
-import sys.io.File;
 
+/**
+ * Atom Registry v2.0
+ * Stores and manages blueprints for all atom types.
+ */
 class AtomRegistry {
+
     private static var _initialized:Bool = false;
     private static var _blueprints:Map<String, Blueprint> = new Map();
 
     public static var customLibraryPath:String = "";
 
-    private static function reg(id:String, name:String, pins:Array<PinDef>, ?logic) {
+    private static function reg(id:String, name:String, pins:Array<core.data.Blueprint.PinDef>, ?logic) {
         _blueprints.set(id, new Blueprint(id, name, pins, logic));
     }
 
@@ -58,7 +56,6 @@ class AtomRegistry {
         _blueprints.set(id, bp);
     }
 
-    // ИСПРАВЛЕНИЕ: Метод для удаления Blueprint из памяти (используется при Erase)
     public static function remove(id:String):Bool {
         if (_blueprints.exists(id)) {
             _blueprints.remove(id);
@@ -69,26 +66,29 @@ class AtomRegistry {
     }
 
     public static function scanFolder(path:String):Void {
-        if (!FileSystem.exists(path)) {
-            try { FileSystem.createDirectory(path); } catch(e:Dynamic) { trace("Error creating library dir: " + e); }
+        #if sys
+        if (!sys.FileSystem.exists(path)) {
+            try { sys.FileSystem.createDirectory(path); } catch(e:Dynamic) { trace("Error creating library dir: " + e); }
             return;
         }
         trace("Scanning library folder: " + path);
-        for (file in FileSystem.readDirectory(path)) {
+        for (file in sys.FileSystem.readDirectory(path)) {
             if (StringTools.endsWith(file, ".atom")) {
                 var fullPath = path + "/" + file;
                 loadAtomFile(fullPath);
             }
         }
+        #end
     }
 
     public static function loadAtomFile(fullPath:String):Bool {
+        #if sys
         try {
-            var content = File.getContent(fullPath);
+            var content = sys.io.File.getContent(fullPath);
             var json = haxe.Json.parse(content);
             var rawBp:Dynamic = json.blueprint;
 
-            var pins:Array<PinDef> = [];
+            var pins:Array<core.data.Blueprint.PinDef> = [];
             if (rawBp.pins != null) {
                 var seenNames = new Map<String, Bool>();
                 for (p in (cast(rawBp.pins, Array<Dynamic>))) {
@@ -144,6 +144,9 @@ class AtomRegistry {
             trace("Failed to load atom: " + fullPath + " | Error: " + e);
             return false;
         }
+        #else
+        return false;
+        #end
     }
 
     private static function _parseContactType(val:Dynamic):ContactType {
@@ -153,14 +156,6 @@ class AtomRegistry {
                 case "INPUT": return INPUT;
                 case "OUTPUT": return OUTPUT;
                 case "BIDIRECTIONAL": return BIDIRECTIONAL;
-                default: return UNDEFINED;
-            }
-        }
-        if (Std.isOfType(val, Int) || Std.isOfType(val, Float)) {
-            switch(Std.int(val)) {
-                case 0: return INPUT;
-                case 1: return OUTPUT;
-                case 2: return BIDIRECTIONAL;
                 default: return UNDEFINED;
             }
         }

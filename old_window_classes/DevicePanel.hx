@@ -14,38 +14,42 @@ import ui.ContextMenu;
 import core.logic.Impulsys;
 import core.logic.Impulse;
 
+/**
+ * DevicePanel v2.1
+ * FIXED: setTarget is public method
+ */
 class DevicePanel extends Sprite {
-
-    private var _target:Dynamic; // Atom or Assembly
+    private var _target:Dynamic;
     private var _assembly:Assembly;
     private var _widgets:Array<IHMIWidget>;
-
     private var _header:Sprite;
     private var _titleField:TextField;
     private var _selectBtn:Sprite;
     private var _contextMenu:ContextMenu;
     private var _content:Sprite;
-    
     private var _isCompact:Bool = false;
+    private var _isDisposed:Bool = false;
 
     public function new(assembly:Assembly) {
         super();
+        if (assembly == null) {
+            trace('ERROR: DevicePanel created with null assembly');
+            return;
+        }
         _assembly = assembly;
         _target = assembly;
         _widgets = new Array();
-
         _content = new Sprite();
         _content.y = 50;
         addChild(_content);
-
         setupHeader();
         drawBackground();
         layoutWidgets();
     }
 
     public function setCompactMode(val:Bool):Void {
+        if (_isDisposed) return;
         _isCompact = val;
-        
         if (_isCompact) {
             this.graphics.clear();
             if (_header != null) _header.visible = false;
@@ -58,6 +62,7 @@ class DevicePanel extends Sprite {
     }
 
     private function drawBackground():Void {
+        if (_isDisposed) return;
         graphics.clear();
         graphics.beginFill(0x1a1a24);
         graphics.drawRect(0, 0, 400, 500);
@@ -65,6 +70,7 @@ class DevicePanel extends Sprite {
     }
 
     private function setupHeader():Void {
+        if (_isDisposed) return;
         _header = new Sprite();
         _header.graphics.beginFill(0x2a2a34);
         _header.graphics.drawRect(0, 0, 400, 40);
@@ -77,6 +83,7 @@ class DevicePanel extends Sprite {
         _titleField.x = 10;
         _titleField.y = 0;
         _titleField.selectable = false;
+        _titleField.mouseEnabled = false;
         var fmt = new TextFormat("_typewriter", 14, 0xFFFFFF);
         fmt.align = "left";
         _titleField.defaultTextFormat = fmt;
@@ -89,7 +96,6 @@ class DevicePanel extends Sprite {
         _selectBtn.x = 270;
         _selectBtn.buttonMode = true;
         _selectBtn.useHandCursor = true;
-
         var btnTxt = new TextField();
         btnTxt.text = "Select Atom";
         btnTxt.width = 120;
@@ -100,17 +106,15 @@ class DevicePanel extends Sprite {
         btnTxt.defaultTextFormat = btnFmt;
         btnTxt.y = 5;
         _selectBtn.addChild(btnTxt);
-
         _selectBtn.addEventListener(MouseEvent.CLICK, onSelectClick);
         _header.addChild(_selectBtn);
     }
 
     private function onSelectClick(e:MouseEvent):Void {
+        if (_isDisposed) return;
         if (_contextMenu != null) removeChild(_contextMenu);
-        
         _contextMenu = new ContextMenu();
         _contextMenu.addItem("[ SELF ]", "SELECT_ATOM", {id: "SELF"});
-
         if (_assembly != null && _assembly.internalAtoms != null) {
             for (id in _assembly.internalAtoms.keys()) {
                 var atom = _assembly.internalAtoms.get(id);
@@ -118,25 +122,21 @@ class DevicePanel extends Sprite {
                 _contextMenu.addItem(name + " ("+id+")", "SELECT_ATOM", {id: id});
             }
         }
-
         _contextMenu.x = 270;
         _contextMenu.y = 45;
         addChild(_contextMenu);
-
         Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION", onMenuAction);
     }
 
     private function onMenuAction(impulse:Impulse):Void {
+        if (_isDisposed) return;
         if (impulse.data.action != "SELECT_ATOM") return;
-
         var id:String = impulse.data.data.id;
-        
         if (_contextMenu != null) {
             removeChild(_contextMenu);
             _contextMenu = null;
         }
         Impulsys.removeImpulse("CONTEXT_MENU_ACTION", onMenuAction);
-
         if (id == "SELF") {
             setTarget(_assembly, "SELF");
         } else {
@@ -146,63 +146,111 @@ class DevicePanel extends Sprite {
     }
 
     public function setTarget(target:Dynamic, name:String):Void {
+        if (_isDisposed) return;
         _target = target;
-        _titleField.text = "Device: " + name;
-        
-        for (w in _widgets) w.dispose();
-        _widgets = [];
-        while (_content.numChildren > 0) _content.removeChildAt(0);
-
+        if (_titleField != null) _titleField.text = "Device: " + name;
+        clearWidgets();
         layoutWidgets();
     }
 
+    private function clearWidgets():Void {
+        if (_widgets == null) return;
+        for (w in _widgets) {
+            if (w != null) {
+                try {
+                    w.dispose();
+                } catch (e:Dynamic) {
+                    trace('WARN: Error disposing widget: $e');
+                }
+            }
+        }
+        _widgets = [];
+        while (_content.numChildren > 0) {
+            _content.removeChildAt(0);
+        }
+    }
+
     private function layoutWidgets():Void {
+        if (_isDisposed || _target == null) return;
+
         var inputs:Map<String, Contact> = null;
         var outputs:Map<String, Contact> = null;
 
         if (Std.isOfType(_target, Assembly)) {
             var asm:Assembly = cast _target;
-            // Используем публичные свойства inputs и outputs
             inputs = asm.inputs;
             outputs = asm.outputs;
         } else if (Std.isOfType(_target, Atom)) {
             inputs = new Map();
             outputs = new Map();
             var atom:Atom = cast _target;
-            for (c in atom.getInputs()) inputs.set(c.name, c);
-            for (c in atom.getOutputs()) outputs.set(c.name, c);
+            if (atom.getInputs() != null) {
+                for (c in atom.getInputs()) {
+                    if (c != null) inputs.set(c.name, c);
+                }
+            }
+            if (atom.getOutputs() != null) {
+                for (c in atom.getOutputs()) {
+                    if (c != null) outputs.set(c.name, c);
+                }
+            }
         }
 
+        var yPos:Int = 10;
         if (inputs != null) {
-            var i = 0;
             for (name in inputs.keys()) {
                 var contact = inputs.get(name);
-                var widget = new NumberInput(contact, name);
-                widget.x = 20;
-                widget.y = 10 + i * 60;
-                _content.addChild(widget);
-                _widgets.push(widget);
-                i++;
+                if (contact == null) continue;
+                try {
+                    var widget = new NumberInput(contact, name);
+                    widget.x = 20;
+                    widget.y = yPos;
+                    _content.addChild(widget);
+                    _widgets.push(widget);
+                    yPos += 60;
+                } catch (e:Dynamic) {
+                    trace('ERROR: Failed to create NumberInput for $name: $e');
+                }
             }
         }
 
         if (outputs != null) {
-            var i = 0;
+            yPos = 10;
             for (name in outputs.keys()) {
                 var contact = outputs.get(name);
-                var widget = new NumberDisplay(contact, name);
-                widget.x = 220;
-                widget.y = 10 + i * 60;
-                _content.addChild(widget);
-                _widgets.push(widget);
-                i++;
+                if (contact == null) continue;
+                try {
+                    var widget = new NumberDisplay(contact, name);
+                    widget.x = 220;
+                    widget.y = yPos;
+                    _content.addChild(widget);
+                    _widgets.push(widget);
+                    yPos += 60;
+                } catch (e:Dynamic) {
+                    trace('ERROR: Failed to create NumberDisplay for $name: $e');
+                }
             }
         }
     }
 
     public function dispose():Void {
-        for (w in _widgets) w.dispose();
-        _selectBtn.removeEventListener(MouseEvent.CLICK, onSelectClick);
+        if (_isDisposed) return;
+        _isDisposed = true;
+        clearWidgets();
+        if (_selectBtn != null) {
+            _selectBtn.removeEventListener(MouseEvent.CLICK, onSelectClick);
+        }
         Impulsys.removeImpulse("CONTEXT_MENU_ACTION", onMenuAction);
+        if (_contextMenu != null && _contextMenu.parent != null) {
+            _contextMenu.parent.removeChild(_contextMenu);
+            _contextMenu = null;
+        }
+        _widgets = null;
+        _content = null;
+        _header = null;
+        _titleField = null;
+        _selectBtn = null;
+        _assembly = null;
+        _target = null;
     }
 }

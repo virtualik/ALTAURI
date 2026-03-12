@@ -1,16 +1,19 @@
 package core.base;
 
-import utils.Utils;
+import core.types.ContactType;
+import core.view.DeviceView;
 import system.managers.Driver;
 import system.managers.DriverManager;
-import core.logic.SignalQueue;
-import core.types.Priority;
-import core.base.Contact;
-import core.base.IDisposable;
 
 /**
- * Atom Base Class.
+ * ATOM BASE CLASS v5.0 (DeviceView Support)
  * Fundamental unit of logic.
+ *
+ * v5.0 Changes:
+ * - Added createDeviceView() for DeviceWindow
+ * - Added onContactChanged() for Contact notification
+ * - Added getInputs()/getOutputs() returning arrays
+ * - Added getInput()/getOutput() by name
  */
 class Atom implements IDisposable implements Driver {
 
@@ -37,20 +40,16 @@ class Atom implements IDisposable implements Driver {
     ) {
         this.id = (id != null) ? id : "atom_" + Std.random(100000);
         this.type = type;
-        // ИСПРАВЛЕНИЕ: Используем type как name по умолчанию
-        // Assembly может переопределить через blueprint.name
         this.name = type;
 
         this._isActive = isActive;
 
-        this._inputs = inputs;
-        this._outputs = outputs;
+        this._inputs = (inputs != null) ? inputs : [];
+        this._outputs = (outputs != null) ? outputs : [];
         this._process = processFunc;
 
         _inputCache = [];
-        if (_inputs != null) {
-            for(i in 0..._inputs.length) _inputCache.push(null);
-        }
+        for (i in 0..._inputs.length) _inputCache.push(null);
 
         _bind();
 
@@ -60,9 +59,8 @@ class Atom implements IDisposable implements Driver {
     }
 
     private function _bind():Void {
-        if (_inputs == null) return;
         for (input in _inputs) {
-            input.owner = this;
+            if (input != null) input.owner = this;
         }
     }
 
@@ -74,10 +72,14 @@ class Atom implements IDisposable implements Driver {
 
     private function _onUpdate(dt:Float):Void { }
 
+    /**
+     * Called by Contact when its value changes.
+     * Contact calls this directly instead of using closures.
+     */
     public function onContactChanged(c:Contact):Void {
         if (_isScheduled || _isDisposed) return;
         _isScheduled = true;
-        SignalQueue.getInstance().schedule(_calculate, NORMAL);
+        core.logic.SignalQueue.getInstance().schedule(_calculate, NORMAL);
     }
 
     private function _calculate():Void {
@@ -85,7 +87,9 @@ class Atom implements IDisposable implements Driver {
 
         if (_isDisposed || _process == null || _inputs == null) return;
 
-        for (i in 0..._inputs.length) _inputCache[i] = _inputs[i].value;
+        for (i in 0..._inputs.length) {
+            _inputCache[i] = _inputs[i].value;
+        }
 
         var results = _process(_inputCache);
 
@@ -96,20 +100,47 @@ class Atom implements IDisposable implements Driver {
         }
     }
 
+    // =========================================================================
+    // GETTERS
+    // =========================================================================
+
     public function getInputs():Array<Contact> return _inputs;
     public function getOutputs():Array<Contact> return _outputs;
 
     public function getInput(name:String):Contact {
         if (_inputs == null) return null;
-        for (c in _inputs) if (c.name == name) return c;
+        for (c in _inputs) {
+            if (c != null && c.name == name) return c;
+        }
         return null;
     }
 
     public function getOutput(name:String):Contact {
         if (_outputs == null) return null;
-        for (c in _outputs) if (c.name == name) return c;
+        for (c in _outputs) {
+            if (c != null && c.name == name) return c;
+        }
         return null;
     }
+
+    // =========================================================================
+    // DEVICE VIEW FACTORY
+    // =========================================================================
+
+    /**
+     * Create a DeviceView for this Atom.
+     * Override in subclasses to provide custom device representations.
+     * 
+     * @return DeviceView instance or null if this atom has no device representation
+     */
+    public function createDeviceView():DeviceView {
+        // Default: no device view
+        return null;
+    }
+
+    // =========================================================================
+    // DISPOSE
+    // =========================================================================
 
     public function dispose():Void {
         _isDisposed = true;
@@ -118,8 +149,17 @@ class Atom implements IDisposable implements Driver {
             DriverManager.getInstance().unregister(this.id);
         }
 
-        if (_inputs != null) for (c in _inputs) c.dispose();
-        if (_outputs != null) for (c in _outputs) c.dispose();
+        if (_inputs != null) {
+            for (c in _inputs) {
+                if (c != null) c.dispose();
+            }
+        }
+        
+        if (_outputs != null) {
+            for (c in _outputs) {
+                if (c != null) c.dispose();
+            }
+        }
 
         _inputs = null;
         _outputs = null;

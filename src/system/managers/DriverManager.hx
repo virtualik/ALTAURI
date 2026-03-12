@@ -1,12 +1,10 @@
 package system.managers;
 
-import haxe.ds.StringMap;
 import system.managers.Driver;
 
 /**
  * DRIVER MANAGER v2.0
  * Manages active drivers (update loops).
- * Relies on external update call (from Main) for deterministic execution order.
  */
 class DriverManager {
 
@@ -50,7 +48,6 @@ class DriverManager {
     }
 
     public function dispose():Void {
-        // Cleanup logic if needed
         _drivers = new Map();
     }
 }

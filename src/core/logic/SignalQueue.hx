@@ -3,7 +3,7 @@ package core.logic;
 import core.types.Priority;
 
 /**
- * SIGNAL QUEUE v2.1 (Overflow Protection)
+ * SIGNAL QUEUE v2.2 (Static Access)
  * Priority-based Task Scheduler.
  */
 class SignalQueue {
@@ -26,7 +26,6 @@ class SignalQueue {
 
     private function new() {
         _queues = new Map();
-        // Initialize queues
         _queues.set(CRITICAL, []);
         _queues.set(NORMAL, []);
         _queues.set(BACKGROUND, []);
@@ -61,18 +60,18 @@ class SignalQueue {
                 _currentIteration++;
                 if (_currentIteration > maxIterationsPerFrame) {
                     trace('WARN: SignalQueue overflow at priority $p. Clearing remaining tasks to prevent freeze.');
-                    
-                    // FIX: Clear queues to prevent persistent lag spikes
+
+                    // Clear queues to prevent persistent lag spikes
                     for (q in _queues) {
                         if (q != null) q.resize(0);
                     }
-                    
+
                     _isProcessing = false;
                     return;
                 }
 
                 var task = queue.shift();
-                task();
+                if (task != null) task();
             }
         }
 
@@ -81,7 +80,6 @@ class SignalQueue {
 
     /**
      * Returns true if the queue is overloaded (>80% of limit used).
-     * Use this in "heavy" atoms for deferred execution.
      */
     public function isOverloaded():Bool {
         return _currentIteration > Std.int(maxIterationsPerFrame * 0.8);

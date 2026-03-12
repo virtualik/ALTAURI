@@ -35,12 +35,11 @@ typedef ConnectionDef = {
  * Defines the schematic of an Atom or Assembly.
  */
 class Blueprint {
-    
-    // ИСПРАВЛЕНИЕ: Убрали (default, null), чтобы поля были доступны для записи (read/write).
-    // Это позволяет переименовывать сборки при сохранении.
+
     public var id:String;
     public var name:String;
     public var category:String;
+    public var deviceType:String;  // Тип устройства для DeviceView: "led", "toggle", "button", "text", "panel"
 
     public var pins(default, null):Array<PinDef>;
     public var internalAtoms(default, null):Array<AtomDef>;

@@ -6,15 +6,17 @@ import core.data.Blueprint.ConnectionPoint;
 import core.base.Contact;
 import core.base.IDisposable;
 import core.types.ContactType;
+import core.view.DeviceView;
+import core.view.DeviceWidgetFactory;
 import utils.UID;
 
 /**
- * ASSEMBLY v4.4 (Hot Reload Fix)
+ * ASSEMBLY v4.5 (DeviceView Support)
  * Универсальный базовый класс для ВСЕХ узлов.
- * 
- * v4.4 Changes:
- * - Fixed: updateFromBlueprint now correctly syncs ports without modifying the shared Blueprint object,
- *   preventing duplication of pins when multiple instances of the same assembly exist.
+ *
+ * v4.5 Changes:
+ * - Added createDeviceView() override
+ * - Added deviceType field support
  */
 class Assembly extends Atom {
 
@@ -89,77 +91,54 @@ class Assembly extends Atom {
     // HOT RELOAD SUPPORT
     // =========================================================================
 
-    /**
-     * Обновляет структуру портов сборки в соответствии с новым Blueprint.
-     * ИСПРАВЛЕНИЕ v4.4: Синхронизирует порты вручную, не вызывая addPort/removePort,
-     * чтобы избежать модификации общего объекта Blueprint.
-     */
     public function updateFromBlueprint(newBp:Blueprint):Void {
-        if (newBp.id != this.blueprint.id) return; // Не та сборка
+        if (newBp.id != this.blueprint.id) return;
 
-        // 1. Обновляем имя
         this.name = newBp.name;
 
-        // 2. Синхронизация портов
-        
-        // Собираем текущие имена портов
         var currentPortNames = [for (name in ports.keys()) name];
-        
-        // Собираем целевые имена портов из нового чертежа
+
         var targetPinNames = new Map<String, Bool>();
         for (pin in newBp.pins) {
             targetPinNames.set(pin.name, true);
         }
 
-        // A. Удаляем порты, которых больше нет в новом чертеже
         for (name in currentPortNames) {
             if (!targetPinNames.exists(name)) {
                 var port = ports.get(name);
                 if (port != null) {
-                    // Удаляем из массивов Atom
                     if (port.type == INPUT) {
                         _inputs.remove(port.external);
                     } else {
                         _outputs.remove(port.external);
                     }
-                    // Освобождаем ресурсы
                     port.dispose();
                     ports.remove(name);
                 }
             }
         }
 
-        // B. Добавляем или обновляем порты
         for (pin in newBp.pins) {
             var port = ports.get(pin.name);
-            
+
             if (port == null) {
-                // Порта нет - создаем вручную (НЕ вызывая addPort, чтобы не ломать newBp)
-                
-                // Проверка лимитов
                 var currentCount = 0;
                 for (p in ports) if (p.type == pin.type) currentCount++;
                 var max = (pin.type == INPUT) ? MAX_INPUT_PORTS : MAX_OUTPUT_PORTS;
-                
+
                 if (currentCount < max) {
                     var newPort = new ConductorPort(pin.name, pin.type, pin.defaultValue);
                     ports.set(pin.name, newPort);
-                    
+
                     if (pin.type == INPUT) {
                         _inputs.push(newPort.external);
                     } else {
                         _outputs.push(newPort.external);
                     }
-                } else {
-                    trace('WARN: Max ports limit reached during hot reload for type ${pin.type}');
                 }
-            } else {
-                // Порт уже существует, можно обновить defaultValue, если нужно
-                // port.defaultValue = pin.defaultValue; 
             }
         }
 
-        // 3. Заменяем ссылку на Blueprint
         this.blueprint = newBp;
     }
 
@@ -258,7 +237,6 @@ class Assembly extends Atom {
         }
 
         var pinDef:PinDef = { name: name, type: type, defaultValue: defaultValue };
-        // Важно: добавляем в blueprint, чтобы он сохранился
         if (blueprint.pins != null) blueprint.pins.push(pinDef);
 
         var port = new ConductorPort(name, type, defaultValue);
@@ -297,6 +275,22 @@ class Assembly extends Atom {
         port.dispose();
         ports.remove(name);
     }
+
+    // =========================================================================
+    // DEVICE VIEW
+    // =========================================================================
+
+    /**
+     * Create DeviceView for this Assembly.
+     * Uses DeviceWidgetFactory to create appropriate widget based on blueprint.deviceType.
+     */
+    override public function createDeviceView():DeviceView {
+        return DeviceWidgetFactory.create(this);
+    }
+
+    // =========================================================================
+    // DISPOSE
+    // =========================================================================
 
     override public function dispose():Void {
         var keys = [for (k in internalAtoms.keys()) k];

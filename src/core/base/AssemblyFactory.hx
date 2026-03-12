@@ -1,12 +1,7 @@
 package core.base;
 
 import library.AtomRegistry;
-import library.drivers.FPSMonitorAtom;
-import library.drivers.FrameTimeAtom;
 import core.data.Blueprint;
-import core.base.Assembly;
-import core.base.Contact;
-import core.types.ContactType;
 import utils.UID;
 
 /**
@@ -21,14 +16,9 @@ class AssemblyFactory {
      */
     public static function createAtom(typeId:String, ?forcedId:String):Atom {
         var bp = AtomRegistry.get(typeId);
-        // Генерируем ID только если не передан (для Undo/Redo/Copy)
         var id:String = (forcedId != null) ? forcedId : UID.generate();
 
-        // 1. Special Active Classes (Drivers)
-        if (typeId == "FPSMonitorAtom") return new FPSMonitorAtom(id);
-        if (typeId == "FrameTimeAtom") return new FrameTimeAtom(id);
-
-        // 2. Standard Unified Assembly
+        // Standard Unified Assembly
         if (bp != null) {
             return new Assembly(id, bp);
         }

@@ -5,14 +5,13 @@ import core.types.Priority;
 import core.types.ContactType;
 
 /**
- * CONTACT v4.1 (Memory Leak Fixed)
+ * CONTACT v4.2 (DeviceView Support)
  * Eliminates recursive data transfer.
  * Uses SignalQueue to schedule updates.
  *
- * FIX v4.1:
- * - dispose() now clears owner reference
- * - dispose() cancels scheduled propagation
- * - Added defensive null checks
+ * v4.2 Changes:
+ * - Added public subscribe/unsubscribe methods for DeviceView
+ * - Added isDisposed property check
  */
 class Contact {
 
@@ -31,9 +30,9 @@ class Contact {
 
     // Flag to protect against re-scheduling the same task
     private var _isScheduled:Bool = false;
-    
+
     // Flag to track if disposed
-    private var _isDisposed:Bool = false;
+    public var isDisposed(default, null):Bool = false;
 
     public function new(initialValue:Dynamic = null, ?type:ContactType, ?name:String = "unnamed") {
         this.id = "c_" + Std.random(100000);
@@ -67,12 +66,19 @@ class Contact {
         return linkedTargets.indexOf(target) != -1;
     }
 
+    /**
+     * Subscribe to value changes.
+     * Public method for DeviceView and other external subscribers.
+     */
     public function subscribe(callback:Dynamic -> Void):Void {
         if (callback == null) return;
         if (hasCallback(callback)) return;
         callbackTargets.push(callback);
     }
 
+    /**
+     * Unsubscribe from value changes.
+     */
     public function unsubscribe(callback:Dynamic -> Void):Void {
         if (callbackTargets != null) {
             callbackTargets.remove(callback);
@@ -86,8 +92,8 @@ class Contact {
 
     private function set_value(newValue:Dynamic):Dynamic {
         // Guard against disposed contact
-        if (_isDisposed) return newValue;
-        
+        if (isDisposed) return newValue;
+
         // Optimization: If value hasn't changed, exit
         if (_value == newValue) return newValue;
 
@@ -112,18 +118,17 @@ class Contact {
      */
     private function _propagate():Void {
         // Guard against disposed contact
-        if (_isDisposed) {
+        if (isDisposed) {
             _isScheduled = false;
             return;
         }
-        
+
         _isScheduled = false;
 
         // 1. Pass values to linked contacts
-        // This triggers set_value -> scheduling a new task -> stack doesn't grow.
         if (linkedTargets != null) {
             for (target in linkedTargets) {
-                if (target != null && !target._isDisposed) {
+                if (target != null && !target.isDisposed) {
                     target.value = this._value;
                 }
             }
@@ -134,7 +139,7 @@ class Contact {
             owner.onContactChanged(this);
         }
 
-        // 3. Notify external subscribers (e.g., UI, View)
+        // 3. Notify external subscribers (e.g., UI, View, DeviceView)
         if (callbackTargets != null) {
             for (callback in callbackTargets) {
                 if (callback != null) {
@@ -146,16 +151,12 @@ class Contact {
 
     /**
      * Properly dispose the contact.
-     * FIX v4.1: Complete cleanup to allow garbage collection.
      */
     public function dispose():Void {
-        // 1. Mark as disposed first to prevent any further operations
-        _isDisposed = true;
+        isDisposed = true;
         _isScheduled = false;
-        
-        // 2. Clear linked targets (break references)
+
         if (linkedTargets != null) {
-            // Unlink from all targets to break bidirectional references
             for (target in linkedTargets) {
                 if (target != null) {
                     target.unlink(this);
@@ -164,25 +165,13 @@ class Contact {
             linkedTargets.resize(0);
             linkedTargets = null;
         }
-        
-        // 3. Clear callback targets
+
         if (callbackTargets != null) {
             callbackTargets.resize(0);
             callbackTargets = null;
         }
-        
-        // 4. Clear value
+
         _value = null;
-        
-        // 5. Clear owner reference (CRITICAL!)
         owner = null;
-    }
-    
-    /**
-     * Check if this contact is disposed.
-     */
-    public var isDisposed(get, never):Bool;
-    private function get_isDisposed():Bool {
-        return _isDisposed;
     }
 }
