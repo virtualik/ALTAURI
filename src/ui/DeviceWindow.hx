@@ -12,6 +12,8 @@ import core.base.Assembly;
 import core.base.Atom;
 import core.view.DeviceView;
 import core.view.DeviceWidgetFactory;
+import core.logic.Impulse;
+import core.logic.Impulsys;
 
 /**
  * DeviceWindow v4.0 (Multi-Device with Drag & Drop)
@@ -41,6 +43,8 @@ class DeviceWindow {
      */
     private var _deviceCards:Array<DeviceCard>;
     
+	private var _impulseCallback:Impulse -> Void;
+	
     /**
      * Callback для получения списка всех Assembly в схеме.
      */
@@ -94,7 +98,24 @@ class DeviceWindow {
         }
         card.dispose();
     }
-    
+
+	private function onAtomDeleted(impulse:Impulse):Void {
+		if (impulse == null || impulse.data == null) return;
+		var deletedId:String = impulse.data.id;
+		
+		// Найти и удалить карточку с этим атомом
+		var toRemove:Array<DeviceCard> = [];
+		for (card in _deviceCards) {
+			if (card.assemblyId == deletedId) {
+				toRemove.push(card);
+			}
+		}
+		
+		for (card in toRemove) {
+			removeDevice(card);
+		}
+	}
+
     /**
      * Найти свободную позицию для новой карточки.
      */
@@ -147,6 +168,8 @@ class DeviceWindow {
     }
 
     private function create():Void {
+		_impulseCallback = onAtomDeleted;
+		Impulsys.subscribeToImpulse("ATOM_DELETED", _impulseCallback);
         var config = {
             title: "Device",
             width: 420,
@@ -415,7 +438,10 @@ class DeviceWindow {
      * Закрыть окно.
      */
     public function close():Void {
-        if (_window != null && _window.stage != null) {
+        
+		Impulsys.removeImpulse("ATOM_DELETED", _impulseCallback);
+		
+		if (_window != null && _window.stage != null) {
             _window.stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
             _window.stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
             _window.stage.removeEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
@@ -461,7 +487,12 @@ class DeviceCard extends Sprite {
     private var _dragStartY:Float = 0;
     private var _mouseStartX:Float = 0;
     private var _mouseStartY:Float = 0;
-    
+
+	public var assemblyId(get, never):String;
+	private function get_assemblyId():String {
+		return _assembly != null ? _assembly.id : "";
+	}
+
     public function new(asm:Assembly, deviceWindow:DeviceWindow) {
         super();
         
