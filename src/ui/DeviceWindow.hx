@@ -16,7 +16,7 @@ import core.logic.Impulse;
 import core.logic.Impulsys;
 
 /**
- * DeviceWindow v4.1 (State Save/Load Support)
+ * DeviceWindow v4.2 (Editor Restore Button)
  */
 class DeviceWindow {
 
@@ -32,6 +32,9 @@ class DeviceWindow {
 
     public var onGetAssemblyList:Void -> Array<{id:String, name:String, assembly:Assembly}>;
     public var onAssemblySelected:Assembly -> Void;
+    
+    // ИСПРАВЛЕНО: Объявление переменной callback для восстановления редактора
+    public var onShowEditor:Void -> Void;
 
     private var _titleLabel:TextField;
 
@@ -68,10 +71,6 @@ class DeviceWindow {
         card.dispose();
     }
 
-    /**
-     * Получить список всех карточек устройств.
-     * Используется в Main.hx для сохранения позиций.
-     */
     public function getDeviceCards():Array<DeviceCard> {
         return _deviceCards;
     }
@@ -173,6 +172,29 @@ class DeviceWindow {
         _titleLabel.mouseEnabled = false;
         _header.addChild(_titleLabel);
 
+        // Кнопка восстановления редактора [E]
+        var editorBtn = new Sprite();
+        editorBtn.graphics.beginFill(0x005500);
+        editorBtn.graphics.drawRect(0, 0, 30, 30);
+        editorBtn.graphics.endFill();
+        editorBtn.x = 330;
+
+        var eText = new TextField();
+        eText.text = "E";
+        eText.width = 30;
+        eText.height = 30;
+        eText.selectable = false;
+        eText.mouseEnabled = false;
+        eText.defaultTextFormat = new TextFormat("_sans", 12, 0xFFFFFF, true, null, null, null, null, "center");
+        editorBtn.addChild(eText);
+
+        editorBtn.buttonMode = true;
+        editorBtn.addEventListener(MouseEvent.CLICK, function(e:MouseEvent) {
+            if (onShowEditor != null) onShowEditor();
+        });
+        _header.addChild(editorBtn);
+
+        // Кнопка очистки [C]
         var clearBtn = new Sprite();
         clearBtn.graphics.beginFill(0x555500);
         clearBtn.graphics.drawRect(0, 0, 30, 30);
@@ -192,6 +214,7 @@ class DeviceWindow {
         clearBtn.addEventListener(MouseEvent.CLICK, function(e) { clearDevices(); });
         _header.addChild(clearBtn);
 
+        // Кнопка закрытия [X]
         var closeBtn = new Sprite();
         closeBtn.graphics.beginFill(0xAA0000);
         closeBtn.graphics.drawRect(0, 0, 30, 30);
@@ -411,7 +434,6 @@ class DeviceWindow {
  */
 class DeviceCard extends Sprite {
 
-    // ИСПРАВЛЕНО: public property
     public var assembly(default, null):Assembly;
     
     private var _deviceWindow:DeviceWindow;
@@ -427,14 +449,14 @@ class DeviceCard extends Sprite {
 
     public function new(asm:Assembly, deviceWindow:DeviceWindow) {
         super();
-        this.assembly = asm; // ИСПРАВЛЕНО: присвоение
+        this.assembly = asm;
         _deviceWindow = deviceWindow;
         buildCard();
     }
 
     private function buildCard():Void {
         try {
-            _deviceView = DeviceWidgetFactory.create(assembly); // ИСПРАВЛЕНО: использование assembly
+            _deviceView = DeviceWidgetFactory.create(assembly);
         } catch (e:Dynamic) {
             _deviceView = null;
         }
@@ -454,7 +476,6 @@ class DeviceCard extends Sprite {
 
         _titleLabel = new TextField();
         _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 10, 0xFFFFFF);
-        // ИСПРАВЛЕНО: использование assembly
         _titleLabel.text = " " + (assembly.blueprint != null ? assembly.blueprint.name : "Device");
         _titleLabel.width = _deviceView.width;
         _titleLabel.height = 20;
@@ -503,7 +524,6 @@ class DeviceCard extends Sprite {
 
         var txt = new TextField();
         txt.defaultTextFormat = new TextFormat("_sans", 10, 0xFFFFFF);
-        // ИСПРАВЛЕНО: использование assembly
         txt.text = assembly.blueprint != null ? assembly.blueprint.name : "?";
         txt.width = 80;
         txt.height = 50;
@@ -555,7 +575,7 @@ class DeviceCard extends Sprite {
             _deviceView.dispose();
             _deviceView = null;
         }
-        assembly = null; // ИСПРАВЛЕНО: использование assembly
+        assembly = null;
         _deviceWindow = null;
         _titleBar = null;
         _titleLabel = null;

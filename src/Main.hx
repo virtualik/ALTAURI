@@ -55,7 +55,9 @@ import js.Browser;
 #end
 
 class Main extends Sprite {
-
+	
+	private var _appInitialized:Bool = false; // Флаг, что приложение уже запущено
+	
     // Paths
     private var _documentsPath:String;
     private var _libraryPath:String;
@@ -168,6 +170,29 @@ class Main extends Sprite {
     private function init(e:Event = null):Void {
         removeEventListener(Event.ADDED_TO_STAGE, init);
 
+        // Если мы уже инициализировались (это повторное открытие окна)
+        if (_appInitialized) {
+            log("Restoring Editor Window...");
+            
+            // Восстанавливаем связи со Stage
+            stage.color = _theme.APP_BG_COLOR;
+            stage.addEventListener(Event.RESIZE, onResize);
+            stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
+            
+            // OpenFL специфично: нужно заново добавить слушители закрытия окна
+            #if sys
+            // Важно: stage.window теперь УЖЕ новое окно, поэтому подписываемся на него
+            openfl.Lib.current.stage.window.onClose.add(saveOnExit);
+            #end
+            
+            // Обновляем размеры UI
+            onResize(null);
+            updateButtonStates();
+            return;
+        }
+
+        _appInitialized = true;
+
         stage.color = _theme.APP_BG_COLOR;
 
         DriverManager.getInstance();
@@ -176,20 +201,62 @@ class Main extends Sprite {
         addEventListener(Event.ENTER_FRAME, onMainLoop);
         buildUI();
         stage.addEventListener(Event.RESIZE, onResize);
-
+        
         #if sys
-        openfl.Lib.current.stage.window.onClose.add(saveOnExit);
+        openfl.Lib.current.stage.window.onClose.add(onMainWindowClose);
         #end
 
         loadSelfrun();
     }
 
-    private function saveOnExit():Void {
+    // Обработчик закрытия ГЛАВНОГО окна
+    private function onMainWindowClose():Void {
+        log("Main window close requested...");
+        
+        // Сохраняемся перед закрытием
+        saveOnExit();
+        
+        // Если DeviceWindow открыто, мы НЕ вызываем System.exit(0)
+        // Приложение остается живым, просто Main sprite теряет Stage.
+        // OpenFL удалит Main со сцены.
+        if (_deviceWindow != null && _deviceWindow.isOpen) {
+            log("Device window is active. Hiding editor instead of exit.");
+            // Ничего не делаем, позволяем окну закрыться. 
+            // Main будет "висеть" в памяти, пока DeviceWindow держит ссылки (через колбеки).
+            // Когда DeviceWindow нажмет E, мы создадим новое окно.
+        } else {
+            log("Exiting application.");
+            System.exit(0);
+        }
+    }
+
+	private function saveOnExit():Void {
         log("Auto-saving Selfrun on exit...");
         saveSelfrun();
     }
 
-   private function loadSelfrun():Void {
+	// Метод для восстановления окна редактора
+    private function restoreEditorWindow():Void {
+        log("Restoring main editor...");
+        
+        // Создаем конфигурацию нового окна
+        var config = {
+            title: "ALTAIR Editor",
+            width: stage != null ? stage.stageWidth : 1024,
+            height: stage != null ? stage.stageHeight : 600,
+            parameters: { background: 0x111111 }
+        };
+
+        // Создаем новое окно
+        var newWindow = Lib.application.createWindow(config);
+        
+        // Переносим Main (this) на новую сцену
+        newWindow.stage.addChild(this);
+        
+        // init() сработает снова из-за ADDED_TO_STAGE, но мы используем флаг _appInitialized
+    }
+
+	private function loadSelfrun():Void {
         var rootAssembly:Assembly = null;
 
         #if sys
@@ -1361,11 +1428,11 @@ class Main extends Sprite {
             log("Opening Device Window...");
 
             _deviceWindow = new DeviceWindow();
+            
+            // НОВОЕ: Привязываем функцию восстановления редактора
+            _deviceWindow.onShowEditor = restoreEditorWindow;
 
-            // Callback для получения списка всех Assembly
             _deviceWindow.onGetAssemblyList = getAllAssembliesRecursive;
-
-            // Callback при добавлении Assembly
             _deviceWindow.onAssemblySelected = function(asm:Assembly) {
                 log("Device added: " + asm.blueprint.name);
             };
@@ -1377,6 +1444,7 @@ class Main extends Sprite {
             _deviceWindow = null;
         }
     }
+
 
     /**
      * Рекурсивно получить все Assembly на всех уровнях вложенности.
