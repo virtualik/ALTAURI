@@ -11,8 +11,8 @@ import core.types.ContactType;
 import core.logic.Impulsys;
 
 /**
- * DELETE WIRES COMMAND
- * Supports Undo/Redo for wire deletion.
+ * DELETE WIRES COMMAND v1.1
+ * Fixed: ID resolution for loaded assemblies.
  */
 class DeleteWiresCommand extends Command {
 
@@ -20,31 +20,26 @@ class DeleteWiresCommand extends Command {
     private var _assembly:Assembly;
     private var _wireIds:Array<String>;
 
-    // Snapshot for undo
     private var _deletedConnections:Array<ConnectionDef>;
 
     public function new(blueprint:Blueprint, assembly:Assembly, wireIds:Array<String>) {
         super();
         _blueprint = blueprint;
         _assembly = assembly;
-        _wireIds = wireIds.copy(); // Копируем массив, чтобы ссылка не изменилась извне
+        _wireIds = wireIds.copy();
         _deletedConnections = [];
     }
 
     override private function executeInternal():Void {
-        // Очищаем снапшот на случай повторного выполнения (Redo)
         _deletedConnections = [];
 
         for (id in _wireIds) {
             var conn = findLinkById(id);
             if (conn != null) {
-                // 1. Сохраняем в снапшот
                 _deletedConnections.push(conn);
-
-                // 2. Удаляем из модели (Blueprint)
                 _blueprint.internalConnections.remove(conn);
 
-                // 3. Разрываем физическую связь
+                // Исправленная логика разрешения контактов
                 var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
                 var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
 
@@ -60,10 +55,8 @@ class DeleteWiresCommand extends Command {
 
     override public function undo():Void {
         for (conn in _deletedConnections) {
-            // 1. Возвращаем в модель
             _blueprint.internalConnections.push(conn);
 
-            // 2. Восстанавливаем физическую связь
             var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
             var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
 
@@ -84,15 +77,24 @@ class DeleteWiresCommand extends Command {
         return null;
     }
 
-    // Вспомогательный метод для поиска контактов (аналогичный ConnectCommand)
+    // ИСПРАВЛЕННЫЙ МЕТОД
     private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact {
         if (atomId == "SELF") {
             var port:ConductorPort = _assembly.ports.get(contactName);
             if (port == null) return null;
             return port.internal;
         } else {
-            var obj = _assembly.internalAtoms.get(atomId);
+            // ИСПРАВЛЕНИЕ: Сначала пытаемся найти Runtime ID через карту шаблонов
+            var realAtomId = _assembly.idMap.get(atomId);
+            
+            // Если в карте нет, значит это уже Runtime ID (новосозданный атом)
+            if (realAtomId == null) {
+                realAtomId = atomId;
+            }
+
+            var obj = _assembly.internalAtoms.get(realAtomId);
             if (obj == null) return null;
+            
             var atom:Atom = cast obj;
             return (type == INPUT) ? atom.getInput(contactName) : atom.getOutput(contactName);
         }

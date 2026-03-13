@@ -189,7 +189,7 @@ class Main extends Sprite {
         saveSelfrun();
     }
 
-    private function loadSelfrun():Void {
+   private function loadSelfrun():Void {
         var rootAssembly:Assembly = null;
 
         #if sys
@@ -212,6 +212,13 @@ class Main extends Sprite {
 
                 pushEditor(rootAssembly, true);
                 _currentEditor.setViewState(viewState);
+                
+                // --- RESTORE DEVICE WINDOW ---
+                if (json.deviceWindow != null && json.deviceWindow.isOpen) {
+                    restoreDeviceWindow(rootAssembly, json.deviceWindow.devices);
+                }
+                // ------------------------------
+
                 log("Selfrun loaded.");
 
             } catch (err:Dynamic) {
@@ -236,7 +243,116 @@ class Main extends Sprite {
         pushEditor(rootAssembly, true);
     }
 
-    private function parseBlueprintFromJson(rawBp:Dynamic):Blueprint {
+/**
+     * Восстановление окна устройств по сохраненным путям.
+     */
+    private function restoreDeviceWindow(rootAssembly:Assembly, devicesData:Array<Dynamic>):Void {
+        if (devicesData == null || devicesData.length == 0) return;
+
+        log("Restoring Device Window...");
+        onToggleView(); // Открываем окно
+        
+        if (_deviceWindow == null) return;
+
+        for (data in devicesData) {
+            var path:Array<String> = data.path;
+            var x:Float = data.x;
+            var y:Float = data.y;
+
+            // Проходим по пути от корня
+            var asm = resolveDevicePath(rootAssembly, path);
+            
+            if (asm != null) {
+                _deviceWindow.addDevice(asm, x, y);
+            } else {
+                trace('WARN: Could not resolve device path: $path');
+            }
+        }
+    }
+
+    /**
+     * Рекурсивный поиск пути от контейнера до целевой сборки.
+     * Возвращает массив Template ID.
+     */
+    private function findDevicePath(container:Assembly, target:Assembly):Array<String> {
+        if (container == null || target == null) return null;
+
+        // Проверяем прямых потомков
+        for (runtimeId in container.internalAtoms.keys()) {
+            var atom = container.internalAtoms.get(runtimeId);
+            
+            if (atom == target) {
+                // Найдено! Возвращаем его Template ID
+                var templateId = container.getTemplateId(runtimeId);
+                return [templateId];
+            }
+
+            // Если это сборка, ищем внутри
+            if (Std.isOfType(atom, Assembly)) {
+                var subPath = findDevicePath(cast(atom, Assembly), target);
+                if (subPath != null) {
+                    // Добавляем текущий ID в начало пути
+                    var templateId = container.getTemplateId(runtimeId);
+                    subPath.insert(0, templateId);
+                    return subPath;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Разрешение (поиск) сборки по пути из Template ID.
+     */
+    private function resolveDevicePath(root:Assembly, path:Array<String>):Assembly {
+        var current:Assembly = root;
+
+        // Проходим по всем элементам пути, кроме последнего (чтобы добраться до контейнера цели)
+        // На самом деле, путь содержит ID самой цели в конце.
+        // ["ParentID", "ChildID"] -> ParentID это сборка, ChildID это искомая сборка внутри.
+        
+        for (i in 0...path.length) {
+            var templateId = path[i];
+            
+            // Находим Runtime ID по Template ID
+            // idMap: <TemplateID, RuntimeID>
+            var runtimeId:String = null;
+            
+            if (current.idMap != null) {
+                for (tid => rid in current.idMap) {
+                    if (tid == templateId) {
+                        runtimeId = rid;
+                        break;
+                    }
+                }
+            }
+            
+            // Если не нашли в карте, возможно это ID созданного во время сессии атома (Runtime ID)
+            if (runtimeId == null && current.internalAtoms.exists(templateId)) {
+                runtimeId = templateId;
+            }
+
+            if (runtimeId == null) return null; // Путь оборвался
+
+            var next = current.internalAtoms.get(runtimeId);
+
+            // Если это последний элемент пути
+            if (i == path.length - 1) {
+                if (Std.isOfType(next, Assembly)) return cast(next, Assembly);
+                else return null; // Цель найдена, но это не Assembly
+            } else {
+                // Это промежуточный элемент, спускаемся глубже
+                if (Std.isOfType(next, Assembly)) {
+                    current = cast(next, Assembly);
+                } else {
+                    return null; // Путь идет через не-сборку
+                }
+            }
+        }
+        return null;
+    }
+
+	private function parseBlueprintFromJson(rawBp:Dynamic):Blueprint {
         var pins:Array<core.data.Blueprint.PinDef> = [];
         if (rawBp.pins != null) {
             for (p in (cast(rawBp.pins, Array<Dynamic>))) {
@@ -810,7 +926,7 @@ class Main extends Sprite {
         #end
     }
 
-    private function saveSelfrun():Void {
+   private function saveSelfrun():Void {
         #if sys
         if (_editorStack.length == 0) return;
 
@@ -845,8 +961,29 @@ class Main extends Sprite {
         var bp = rootAssembly.blueprint;
         var viewState = rootEditor.getViewState();
 
+        // --- SAVE DEVICE WINDOW STATE (Recursive) ---
+        var deviceWindowData:Array<Dynamic> = [];
+        if (_deviceWindow != null && _deviceWindow.isOpen) {
+            var cards = _deviceWindow.getDeviceCards();
+            for (card in cards) {
+                // Ищем полный путь от корня до устройства
+                var path = findDevicePath(rootAssembly, card.assembly);
+                
+                if (path != null && path.length > 0) {
+                    deviceWindowData.push({
+                        path: path, // Сохраняем массив ID: ["AssemblyID", "ButtonID"]
+                        x: card.x,
+                        y: card.y
+                    });
+                } else {
+                    trace('WARN: Could not find path for device: ${card.assembly.name}');
+                }
+            }
+        }
+        // --------------------------------------------
+
         var data:Dynamic = {
-            version: "1.1",
+            version: "1.2",
             blueprint: {
                 id: bp.id,
                 name: bp.name,
@@ -855,7 +992,11 @@ class Main extends Sprite {
                 internalAtoms: atomsToSave,
                 internalConnections: connsToSave
             },
-            editor: viewState
+            editor: viewState,
+            deviceWindow: {
+                isOpen: (_deviceWindow != null && _deviceWindow.isOpen),
+                devices: deviceWindowData
+            }
         };
 
         try {
@@ -896,17 +1037,27 @@ class Main extends Sprite {
             });
         }
 
-        var data:Dynamic = {
-            version: "1.0",
-            blueprint: {
-                id: bp.id,
-                name: bp.name,
-                category: bp.category,
-                pins: bp.pins,
-                internalAtoms: atomsToSave,
-                internalConnections: connsToSave
-            }
-        };
+		var pinsData:Array<Dynamic> = [];
+		for (pin in bp.pins) {
+			pinsData.push({
+				name: pin.name,
+				type: Std.string(pin.type), // Явное приведение к строке "INPUT" / "OUTPUT"
+				defaultValue: pin.defaultValue,
+				dataType: pin.dataType
+			});
+		}
+
+		var data:Dynamic = {
+			version: "1.0",
+			blueprint: {
+				id: bp.id,
+				name: bp.name,
+				category: bp.category,
+				pins: pinsData, // Используем подготовленный массив
+				internalAtoms: atomsToSave,
+				internalConnections: connsToSave
+			}
+		};
 
         var path = _libraryPath + "/" + bp.id + ".atom";
 

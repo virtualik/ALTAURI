@@ -211,15 +211,23 @@ class EditorActionHandler {
 
     private function findConnectionToInput(atomId:String, contactName:String):ConnectionDef {
         if (_blueprint.internalConnections == null) return null;
+
+        var targetTemplateId = _assembly.getTemplateId(atomId);
+
         for (conn in _blueprint.internalConnections) {
-            if (conn.to.atomId == atomId && conn.to.contactName == contactName) {
-                return conn;
+            if (conn.to.contactName == contactName) {
+                // Проверяем совпадение по Template ID (загруженные соединения)
+                // ИЛИ по Runtime ID (созданные в сессии соединения)
+                if (conn.to.atomId == targetTemplateId || conn.to.atomId == atomId) {
+                    return conn;
+                }
             }
         }
         return null;
     }
 
     private function getWireID(link:ConnectionDef):String {
+        // Важно: здесь используем ID из самой связи (Template ID), так как link берется из blueprint
         return '${link.from.atomId}_${link.from.contactName}->${link.to.atomId}_${link.to.contactName}';
     }
 

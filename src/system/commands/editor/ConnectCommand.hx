@@ -84,26 +84,28 @@ class ConnectCommand extends Command {
         }
     }
 
-    private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact {
-        if (atomId == "SELF") {
-            var port:ConductorPort = _assembly.ports.get(contactName);
-            if (port == null) return null;
-            
-            // Для внутренней схемы Assembly:
-            // Input порт сборки -> internal является ВЫХОДОМ (источник).
-            // Output порт сборки -> internal является ВХОДОМ (приемник).
-            // Поэтому всегда возвращаем internal, так как он соответствует правильному направлению внутри.
-            return port.internal;
-        } else {
-            var obj = _assembly.internalAtoms.get(atomId);
-            if (obj == null) return null;
+	private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact {
+		if (atomId == "SELF") {
+			var port:ConductorPort = _assembly.ports.get(contactName);
+			if (port == null) return null;
+			return port.internal;
+		} else {
+			var obj = _assembly.internalAtoms.get(atomId);
+			
+			// ИСПРАВЛЕНИЕ: Если не нашли напрямую, пробуем через карту ID
+			if (obj == null) {
+				var realAtomId = _assembly.idMap.get(atomId);
+				if (realAtomId != null) {
+					obj = _assembly.internalAtoms.get(realAtomId);
+				}
+			}
+			
+			if (obj == null) return null;
 
-            var atom:Atom = cast obj;
-            if (atom.getInputs() == null) return null;
-
-            return (type == INPUT) ? atom.getInput(contactName) : atom.getOutput(contactName);
-        }
-    }
+			var atom:Atom = cast obj;
+			return (type == INPUT) ? atom.getInput(contactName) : atom.getOutput(contactName);
+		}
+	}
 
     override public function getDescription():String return 'Connect $_fromId -> $_toId';
 }

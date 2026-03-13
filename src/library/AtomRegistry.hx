@@ -164,16 +164,28 @@ class AtomRegistry {
         #end
     }
 
-    private static function _parseContactType(val:Dynamic):ContactType {
-        if (Std.isOfType(val, ContactType)) return val;
-        if (Std.isOfType(val, String)) {
-            switch(Std.string(val)) {
-                case "INPUT": return INPUT;
-                case "OUTPUT": return OUTPUT;
-                case "BIDIRECTIONAL": return BIDIRECTIONAL;
-                default: return UNDEFINED;
-            }
-        }
-        return UNDEFINED;
-    }
+	private static function _parseContactType(val:Dynamic):ContactType {
+		if (Std.isOfType(val, ContactType)) return val;
+		
+		if (Std.isOfType(val, String)) {
+			switch(Std.string(val)) {
+				case "INPUT": return INPUT;
+				case "OUTPUT": return OUTPUT;
+				case "BIDIRECTIONAL": return BIDIRECTIONAL;
+				default: return UNDEFINED;
+			}
+		}
+
+		// ИСПРАВЛЕНИЕ: Добавлена обработка числовых индексов
+		if (Std.isOfType(val, Int) || Std.isOfType(val, Float)) {
+			switch(Std.int(val)) {
+				case 0: return INPUT;
+				case 1: return OUTPUT;
+				case 2: return BIDIRECTIONAL;
+				default: return UNDEFINED;
+			}
+		}
+
+		return UNDEFINED;
+	}
 }
