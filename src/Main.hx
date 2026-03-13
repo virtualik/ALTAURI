@@ -1015,52 +1015,58 @@ class Main extends Sprite {
         _menu.show(e.stageX, e.stageY);
     }
 
-    private function onNodeRightClick(impulse:Impulse):Void {
-        if (impulse == null || impulse.data == null) return;
+	private function onNodeRightClick(impulse:Impulse):Void {
+		if (impulse == null || impulse.data == null) return;
 
-        var view:NodeView = impulse.data.view;
-        _contextTargetId = impulse.data.id;
+		var view:NodeView = impulse.data.view;
+		_contextTargetId = impulse.data.id;
 
-        if (!_currentEditor.isSelected(_contextTargetId)) {
-            _currentEditor.deselectAll();
-            _currentEditor.selectNode(_contextTargetId, view);
-        }
+		if (!_currentEditor.isSelected(_contextTargetId)) {
+			_currentEditor.deselectAll();
+			_currentEditor.selectNode(_contextTargetId, view);
+		}
 
-        resetContextMenu();
+		resetContextMenu();
 
-        var nodeCount = _currentEditor.getSelectedNodeCount();
-        var wireCount = _currentEditor.getSelectedWireIds().length;
+		var nodeCount = _currentEditor.getSelectedNodeCount();
+		var wireCount = _currentEditor.getSelectedWireIds().length;
 
-        if (nodeCount > 0) {
-            if (wireCount > 0) {
-                _menu.addItem("Delete Selected (" + nodeCount + " nodes, " + wireCount + " wires)", "DELETE_ALL_SELECTED", {});
-                _menu.addItem("——————", "SEP");
-            }
+		if (nodeCount > 0) {
+			// --- DELETE OPTIONS ---
+			if (wireCount > 0) {
+				_menu.addItem("Delete Selected (" + nodeCount + " nodes, " + wireCount + " wires)", "DELETE_ALL_SELECTED", {});
+				_menu.addItem("——————", "SEP");
+			}
 
-            var typeName = "Nodes";
-            var allAssemblies = true;
-            var allAtoms = true;
+			var typeName = "Nodes";
+			var allAssemblies = true;
+			var allAtoms = true;
 
-            for (id in _currentEditor.getSelectedNodeIds()) {
-                var atom = _currentAssembly.internalAtoms.get(id);
-                if (atom != null) {
-                    if (Std.isOfType(atom, Assembly)) allAtoms = false;
-                    else allAssemblies = false;
-                }
-            }
+			for (id in _currentEditor.getSelectedNodeIds()) {
+				var atom = _currentAssembly.internalAtoms.get(id);
+				if (atom != null) {
+					if (Std.isOfType(atom, Assembly)) allAtoms = false;
+					else allAssemblies = false;
+				}
+			}
 
-            if (allAssemblies) typeName = "Assemblies";
-            else if (allAtoms) typeName = "Atoms";
-            else typeName = "Nodes";
+			if (allAssemblies) typeName = "Assemblies";
+			else if (allAtoms) typeName = "Atoms";
+			else typeName = "Nodes";
 
-            if (nodeCount == 1) typeName = typeName.substr(0, typeName.length - 1);
+			if (nodeCount == 1) typeName = typeName.substr(0, typeName.length - 1);
 
-            _menu.addItem("Delete Selected " + typeName + " (" + nodeCount + ")", "DELETE_SELECTED_ATOMS", {});
-        }
+			_menu.addItem("Delete Selected " + typeName + " (" + nodeCount + ")", "DELETE_SELECTED_ATOMS", {});
 
-        _menu.show(stage.mouseX, stage.mouseY);
-    }
+			// --- GROUP OPTION (NEW!) ---
+			if (nodeCount >= 2 && _settingsPanel.allowAssembly) {
+				_menu.addItem("——————", "SEP");
+				_menu.addItem("Group Selected Atoms (" + nodeCount + ")", "GROUP_ATOMS", {});
+			}
+		}
 
+		_menu.show(stage.mouseX, stage.mouseY);
+	}
     private function onPortRightClick(impulse:Impulse):Void {
         if (impulse == null || impulse.data == null) return;
         resetContextMenu();

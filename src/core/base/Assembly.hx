@@ -11,12 +11,12 @@ import core.view.DeviceWidgetFactory;
 import utils.UID;
 
 /**
- * ASSEMBLY v4.5 (DeviceView Support)
+ * ASSEMBLY v4.7 (Cache Sync)
  * Универсальный базовый класс для ВСЕХ узлов.
  *
- * v4.5 Changes:
- * - Added createDeviceView() override
- * - Added deviceType field support
+ * v4.7 Changes:
+ * - FIXED: Syncs _inputCache size when inputs are added dynamically.
+ * - Ensures _inputs/_outputs arrays are updated in updateFromBlueprint.
  */
 class Assembly extends Atom {
 
@@ -103,12 +103,15 @@ class Assembly extends Atom {
             targetPinNames.set(pin.name, true);
         }
 
+        // 1. Remove obsolete ports
         for (name in currentPortNames) {
             if (!targetPinNames.exists(name)) {
                 var port = ports.get(name);
                 if (port != null) {
                     if (port.type == INPUT) {
                         _inputs.remove(port.external);
+                        // Sync cache size (optional in Haxe, but good for consistency)
+                        if (_inputCache.length > _inputs.length) _inputCache.pop();
                     } else {
                         _outputs.remove(port.external);
                     }
@@ -118,6 +121,7 @@ class Assembly extends Atom {
             }
         }
 
+        // 2. Add new ports
         for (pin in newBp.pins) {
             var port = ports.get(pin.name);
 
@@ -132,8 +136,14 @@ class Assembly extends Atom {
 
                     if (pin.type == INPUT) {
                         _inputs.push(newPort.external);
+                        newPort.external.owner = this;
+                        // IMPORTANT: Ensure _inputCache matches inputs count
+                        while (_inputCache.length < _inputs.length) {
+                            _inputCache.push(null);
+                        }
                     } else {
                         _outputs.push(newPort.external);
+                        newPort.external.owner = this;
                     }
                 }
             }
@@ -244,8 +254,14 @@ class Assembly extends Atom {
 
         if (type == INPUT) {
             _inputs.push(port.external);
+            port.external.owner = this;
+            // Sync cache
+            while (_inputCache.length < _inputs.length) {
+                _inputCache.push(null);
+            }
         } else {
             _outputs.push(port.external);
+            port.external.owner = this;
         }
 
         return port;
@@ -268,6 +284,8 @@ class Assembly extends Atom {
 
         if (port.type == INPUT) {
             _inputs.remove(port.external);
+            // Sync cache
+            if (_inputCache.length > _inputs.length) _inputCache.pop();
         } else {
             _outputs.remove(port.external);
         }

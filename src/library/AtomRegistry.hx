@@ -6,6 +6,7 @@ import core.types.ContactType;
 /**
  * Atom Registry v2.0
  * Stores and manages blueprints for all atom types.
+ * Supports both native atoms and user-created assemblies.
  */
 class AtomRegistry {
 
@@ -43,19 +44,38 @@ class AtomRegistry {
         _blueprints.set(id, bp);
     }
 
+    /**
+     * Remove a blueprint from registry.
+     * Used by GroupAtomsCommand.undo() to unregister created assemblies.
+     * 
+     * @param id Blueprint ID to remove
+     * @return true if removed, false if not found
+     */
     public static function remove(id:String):Bool {
         if (_blueprints.exists(id)) {
             _blueprints.remove(id);
             trace('AtomRegistry: Removed $id');
             return true;
         }
+        trace('AtomRegistry: $id not found for removal');
         return false;
+    }
+
+    /**
+     * Check if a blueprint exists.
+     */
+    public static function exists(id:String):Bool {
+        return _blueprints.exists(id);
     }
 
     public static function scanFolder(path:String):Void {
         #if sys
         if (!sys.FileSystem.exists(path)) {
-            try { sys.FileSystem.createDirectory(path); } catch(e:Dynamic) { trace("Error creating library dir: " + e); }
+            try { 
+                sys.FileSystem.createDirectory(path); 
+            } catch(e:Dynamic) { 
+                trace("Error creating library dir: " + e); 
+            }
             return;
         }
         trace("Scanning library folder: " + path);
@@ -92,7 +112,7 @@ class AtomRegistry {
                 }
             }
 
-            var conns = [];
+            var conns:Array<core.data.ConnectionDef> = [];
             if (rawBp.internalConnections != null) {
                 for(c in (cast(rawBp.internalConnections, Array<Dynamic>))) {
                     conns.push({
@@ -102,7 +122,7 @@ class AtomRegistry {
                 }
             }
 
-            var atoms = [];
+            var atoms:Array<core.data.AtomDef> = [];
             if (rawBp.internalAtoms != null) {
                 for(a in (cast(rawBp.internalAtoms, Array<Dynamic>))) {
                     atoms.push({
@@ -124,12 +144,12 @@ class AtomRegistry {
                 Std.string(rawBp.category)
             );
             
-            // Загружаем deviceType из JSON
+            // Load deviceType from JSON
             if (rawBp.deviceType != null) {
                 bp.deviceType = Std.string(rawBp.deviceType);
             }
             
-            // Пользовательские сборки не являются native
+            // User assemblies are not native
             bp.isNative = false;
 
             registerBlueprint(bp.id, bp);

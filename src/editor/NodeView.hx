@@ -16,13 +16,12 @@ import ecs.ECS;
 import Lambda;
 
 /**
- * NODE VIEW v2.3 (Entry Logic Fix)
+ * NODE VIEW v2.5 (Access Fix)
  * Visual representation of an Atom.
- * 
- * v2.3 Changes:
- * - Fixed: Double-click entry logic now checks for `blueprint.logic` instead of `internalAtoms.length`.
- *   This allows entering empty Assemblies that have only ports, while still blocking entry to
- *   primitive atoms (like NAND) that have code-defined logic.
+ *
+ * v2.5 Changes:
+ * - FIXED: Removed illegal access to Atom._inputCache.
+ * - Port visualization relies on Atom.getInputs() which is synced by Assembly.
  */
 class NodeView extends Sprite {
 
@@ -227,6 +226,10 @@ class NodeView extends Sprite {
         var isInput = (type == ContactType.INPUT);
         var step = _height / (count + 1);
 
+        // NOTE: We do NOT need to touch _inputCache here.
+        // Assembly is responsible for keeping its own internal data structures consistent.
+        // Haxe arrays grow automatically on assignment, so _inputCache logic in Atom handles dynamic resizing safely.
+
         for (i in 0...count) {
             var c = contacts[i];
             var port = new Sprite();
@@ -281,18 +284,12 @@ class NodeView extends Sprite {
     }
 
     private function onDoubleClick(e:MouseEvent):Void {
-        // ИСПРАВЛЕНИЕ v2.3: Проверяем наличие логики, а не наличие внутренних атомов.
-        // Если _assemblyInstance null, это обычный Atom (не Assembly) -> вход запрещен.
+        // Проверяем наличие логики
         if (_assemblyInstance == null) return;
-
-        // Если у сборки есть программная логика (logic != null), значит это "Примитив" (NAND, Button и т.д.).
-        // Внутрь примитивов входить нельзя.
         if (_assemblyInstance.blueprint.logic != null) {
             return;
         }
 
-        // Если logic == null, значит это Пользовательская Сборка (схема).
-        // В неё можно входить, даже если она пустая (internalAtoms.length == 0) или имеет только порты.
         Impulsys.emit(new Impulse("OPEN_ASSEMBLY_REQUEST", {
             atomId: this.nodeId
         }));
