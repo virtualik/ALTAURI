@@ -55,9 +55,9 @@ import js.Browser;
 #end
 
 class Main extends Sprite {
-	
-	private var _appInitialized:Bool = false; // Флаг, что приложение уже запущено
-	
+    
+    private var _appInitialized:Bool = false; // Флаг, что приложение уже запущено
+    
     // Paths
     private var _documentsPath:String;
     private var _libraryPath:String;
@@ -169,7 +169,7 @@ class Main extends Sprite {
 
     private function init(e:Event = null):Void {
         removeEventListener(Event.ADDED_TO_STAGE, init);
-
+        openfl.Lib.current.stage.window.visible = true;
         // Если мы уже инициализировались (это повторное открытие окна)
         if (_appInitialized) {
             log("Restoring Editor Window...");
@@ -230,12 +230,12 @@ class Main extends Sprite {
         }
     }
 
-	private function saveOnExit():Void {
+    private function saveOnExit():Void {
         log("Auto-saving Selfrun on exit...");
         saveSelfrun();
     }
 
-	// Метод для восстановления окна редактора
+    // Метод для восстановления окна редактора
     private function restoreEditorWindow():Void {
         log("Restoring main editor...");
         
@@ -256,7 +256,7 @@ class Main extends Sprite {
         // init() сработает снова из-за ADDED_TO_STAGE, но мы используем флаг _appInitialized
     }
 
-	private function loadSelfrun():Void {
+    private function loadSelfrun():Void {
         var rootAssembly:Assembly = null;
 
         #if sys
@@ -327,10 +327,10 @@ class Main extends Sprite {
             var y:Float = data.y;
 
             // Проходим по пути от корня
-            var asm = resolveDevicePath(rootAssembly, path);
+            var atom = resolveDevicePath(rootAssembly, path);
             
-            if (asm != null) {
-                _deviceWindow.addDevice(asm, x, y);
+            if (atom != null) {
+                _deviceWindow.addDevice(atom, x, y);
             } else {
                 trace('WARN: Could not resolve device path: $path');
             }
@@ -338,10 +338,10 @@ class Main extends Sprite {
     }
 
     /**
-     * Рекурсивный поиск пути от контейнера до целевой сборки.
+     * Рекурсивный поиск пути от контейнера до целевого атома.
      * Возвращает массив Template ID.
      */
-    private function findDevicePath(container:Assembly, target:Assembly):Array<String> {
+    private function findDevicePath(container:Assembly, target:Atom):Array<String> {
         if (container == null || target == null) return null;
 
         // Проверяем прямых потомков
@@ -349,7 +349,7 @@ class Main extends Sprite {
             var atom = container.internalAtoms.get(runtimeId);
             
             if (atom == target) {
-                // Найдено! Возвращаем его Template ID
+                // Найдено! Возвращаем его Template ID (или Runtime ID, если это созданный атом)
                 var templateId = container.getTemplateId(runtimeId);
                 return [templateId];
             }
@@ -369,15 +369,12 @@ class Main extends Sprite {
     }
 
     /**
-     * Разрешение (поиск) сборки по пути из Template ID.
+     * Разрешение (поиск) атома по пути из Template ID.
      */
-    private function resolveDevicePath(root:Assembly, path:Array<String>):Assembly {
+    private function resolveDevicePath(root:Assembly, path:Array<String>):Atom {
         var current:Assembly = root;
 
-        // Проходим по всем элементам пути, кроме последнего (чтобы добраться до контейнера цели)
-        // На самом деле, путь содержит ID самой цели в конце.
-        // ["ParentID", "ChildID"] -> ParentID это сборка, ChildID это искомая сборка внутри.
-        
+        // Проходим по всем элементам пути
         for (i in 0...path.length) {
             var templateId = path[i];
             
@@ -405,8 +402,7 @@ class Main extends Sprite {
 
             // Если это последний элемент пути
             if (i == path.length - 1) {
-                if (Std.isOfType(next, Assembly)) return cast(next, Assembly);
-                else return null; // Цель найдена, но это не Assembly
+                return next; // Возвращаем Atom
             } else {
                 // Это промежуточный элемент, спускаемся глубже
                 if (Std.isOfType(next, Assembly)) {
@@ -419,7 +415,7 @@ class Main extends Sprite {
         return null;
     }
 
-	private function parseBlueprintFromJson(rawBp:Dynamic):Blueprint {
+    private function parseBlueprintFromJson(rawBp:Dynamic):Blueprint {
         var pins:Array<core.data.Blueprint.PinDef> = [];
         if (rawBp.pins != null) {
             for (p in (cast(rawBp.pins, Array<Dynamic>))) {
@@ -1034,7 +1030,7 @@ class Main extends Sprite {
             var cards = _deviceWindow.getDeviceCards();
             for (card in cards) {
                 // Ищем полный путь от корня до устройства
-                var path = findDevicePath(rootAssembly, card.assembly);
+                var path = findDevicePath(rootAssembly, card.atom);
                 
                 if (path != null && path.length > 0) {
                     deviceWindowData.push({
@@ -1043,7 +1039,7 @@ class Main extends Sprite {
                         y: card.y
                     });
                 } else {
-                    trace('WARN: Could not find path for device: ${card.assembly.name}');
+                    trace('WARN: Could not find path for device: ${card.atom.name}');
                 }
             }
         }
@@ -1104,27 +1100,27 @@ class Main extends Sprite {
             });
         }
 
-		var pinsData:Array<Dynamic> = [];
-		for (pin in bp.pins) {
-			pinsData.push({
-				name: pin.name,
-				type: Std.string(pin.type), // Явное приведение к строке "INPUT" / "OUTPUT"
-				defaultValue: pin.defaultValue,
-				dataType: pin.dataType
-			});
-		}
+        var pinsData:Array<Dynamic> = [];
+        for (pin in bp.pins) {
+            pinsData.push({
+                name: pin.name,
+                type: Std.string(pin.type), // Явное приведение к строке "INPUT" / "OUTPUT"
+                defaultValue: pin.defaultValue,
+                dataType: pin.dataType
+            });
+        }
 
-		var data:Dynamic = {
-			version: "1.0",
-			blueprint: {
-				id: bp.id,
-				name: bp.name,
-				category: bp.category,
-				pins: pinsData, // Используем подготовленный массив
-				internalAtoms: atomsToSave,
-				internalConnections: connsToSave
-			}
-		};
+        var data:Dynamic = {
+            version: "1.0",
+            blueprint: {
+                id: bp.id,
+                name: bp.name,
+                category: bp.category,
+                pins: pinsData, // Используем подготовленный массив
+                internalAtoms: atomsToSave,
+                internalConnections: connsToSave
+            }
+        };
 
         var path = _libraryPath + "/" + bp.id + ".atom";
 
@@ -1233,58 +1229,58 @@ class Main extends Sprite {
         _menu.show(e.stageX, e.stageY);
     }
 
-	private function onNodeRightClick(impulse:Impulse):Void {
-		if (impulse == null || impulse.data == null) return;
+    private function onNodeRightClick(impulse:Impulse):Void {
+        if (impulse == null || impulse.data == null) return;
 
-		var view:NodeView = impulse.data.view;
-		_contextTargetId = impulse.data.id;
+        var view:NodeView = impulse.data.view;
+        _contextTargetId = impulse.data.id;
 
-		if (!_currentEditor.isSelected(_contextTargetId)) {
-			_currentEditor.deselectAll();
-			_currentEditor.selectNode(_contextTargetId, view);
-		}
+        if (!_currentEditor.isSelected(_contextTargetId)) {
+            _currentEditor.deselectAll();
+            _currentEditor.selectNode(_contextTargetId, view);
+        }
 
-		resetContextMenu();
+        resetContextMenu();
 
-		var nodeCount = _currentEditor.getSelectedNodeCount();
-		var wireCount = _currentEditor.getSelectedWireIds().length;
+        var nodeCount = _currentEditor.getSelectedNodeCount();
+        var wireCount = _currentEditor.getSelectedWireIds().length;
 
-		if (nodeCount > 0) {
-			// --- DELETE OPTIONS ---
-			if (wireCount > 0) {
-				_menu.addItem("Delete Selected (" + nodeCount + " nodes, " + wireCount + " wires)", "DELETE_ALL_SELECTED", {});
-				_menu.addItem("——————", "SEP");
-			}
+        if (nodeCount > 0) {
+            // --- DELETE OPTIONS ---
+            if (wireCount > 0) {
+                _menu.addItem("Delete Selected (" + nodeCount + " nodes, " + wireCount + " wires)", "DELETE_ALL_SELECTED", {});
+                _menu.addItem("——————", "SEP");
+            }
 
-			var typeName = "Nodes";
-			var allAssemblies = true;
-			var allAtoms = true;
+            var typeName = "Nodes";
+            var allAssemblies = true;
+            var allAtoms = true;
 
-			for (id in _currentEditor.getSelectedNodeIds()) {
-				var atom = _currentAssembly.internalAtoms.get(id);
-				if (atom != null) {
-					if (Std.isOfType(atom, Assembly)) allAtoms = false;
-					else allAssemblies = false;
-				}
-			}
+            for (id in _currentEditor.getSelectedNodeIds()) {
+                var atom = _currentAssembly.internalAtoms.get(id);
+                if (atom != null) {
+                    if (Std.isOfType(atom, Assembly)) allAtoms = false;
+                    else allAssemblies = false;
+                }
+            }
 
-			if (allAssemblies) typeName = "Assemblies";
-			else if (allAtoms) typeName = "Atoms";
-			else typeName = "Nodes";
+            if (allAssemblies) typeName = "Assemblies";
+            else if (allAtoms) typeName = "Atoms";
+            else typeName = "Nodes";
 
-			if (nodeCount == 1) typeName = typeName.substr(0, typeName.length - 1);
+            if (nodeCount == 1) typeName = typeName.substr(0, typeName.length - 1);
 
-			_menu.addItem("Delete Selected " + typeName + " (" + nodeCount + ")", "DELETE_SELECTED_ATOMS", {});
+            _menu.addItem("Delete Selected " + typeName + " (" + nodeCount + ")", "DELETE_SELECTED_ATOMS", {});
 
-			// --- GROUP OPTION (NEW!) ---
-			if (nodeCount >= 2 && _settingsPanel.allowAssembly) {
-				_menu.addItem("——————", "SEP");
-				_menu.addItem("Group Selected Atoms (" + nodeCount + ")", "GROUP_ATOMS", {});
-			}
-		}
+            // --- GROUP OPTION (NEW!) ---
+            if (nodeCount >= 2 && _settingsPanel.allowAssembly) {
+                _menu.addItem("——————", "SEP");
+                _menu.addItem("Group Selected Atoms (" + nodeCount + ")", "GROUP_ATOMS", {});
+            }
+        }
 
-		_menu.show(stage.mouseX, stage.mouseY);
-	}
+        _menu.show(stage.mouseX, stage.mouseY);
+    }
     private function onPortRightClick(impulse:Impulse):Void {
         if (impulse == null || impulse.data == null) return;
         resetContextMenu();
@@ -1432,9 +1428,9 @@ class Main extends Sprite {
             // НОВОЕ: Привязываем функцию восстановления редактора
             _deviceWindow.onShowEditor = restoreEditorWindow;
 
-            _deviceWindow.onGetAssemblyList = getAllAssembliesRecursive;
-            _deviceWindow.onAssemblySelected = function(asm:Assembly) {
-                log("Device added: " + asm.blueprint.name);
+            _deviceWindow.onGetAssemblyList = getAllDevicesRecursive;
+            _deviceWindow.onAssemblySelected = function(atom:Atom) {
+                log("Device added: " + atom.name);
             };
 
             log("Device Window opened.");
@@ -1447,15 +1443,15 @@ class Main extends Sprite {
 
 
     /**
-     * Рекурсивно получить все Assembly на всех уровнях вложенности.
+     * Рекурсивно получить все Atom (и Assembly) на всех уровнях вложенности.
      */
-    private function getAllAssembliesRecursive():Array<{id:String, name:String, assembly:Assembly}> {
-        var result:Array<{id:String, name:String, assembly:Assembly}> = [];
+    private function getAllDevicesRecursive():Array<{id:String, name:String, atom:Atom}> {
+        var result:Array<{id:String, name:String, atom:Atom}> = [];
 
         // Проходим по всем уровням стека редакторов
         for (entry in _editorStack) {
             if (entry.assembly != null) {
-                collectAssembliesFromAssembly(entry.assembly, result);
+                collectDevicesRecursive(entry.assembly, result);
             }
         }
 
@@ -1463,24 +1459,27 @@ class Main extends Sprite {
     }
 
     /**
-     * Рекурсивно собрать все Assembly из данной Assembly.
+     * Рекурсивно собрать все Atom из данной Assembly.
      */
-    private function collectAssembliesFromAssembly(asm:Assembly, result:Array<{id:String, name:String, assembly:Assembly}>):Void {
-        if (asm == null) return;
-
-        // Добавляем саму сборку
-        result.push({
-            id: asm.id,
-            name: asm.blueprint != null ? asm.blueprint.name : asm.name,
-            assembly: asm
-        });
+    private function collectDevicesRecursive(asm:Assembly, result:Array<{id:String, name:String, atom:Atom}>):Void {
+        if (asm == null || asm.internalAtoms == null) return;
 
         // Рекурсивно обходим внутренние атомы
-        if (asm.internalAtoms != null) {
-            for (id in asm.internalAtoms.keys()) {
-                var obj = asm.internalAtoms.get(id);
+        for (id in asm.internalAtoms.keys()) {
+            var obj = asm.internalAtoms.get(id);
+            if (Std.isOfType(obj, Atom)) {
+                var atom:Atom = cast(obj, Atom);
+                
+                // Добавляем в список
+                result.push({
+                    id: id,
+                    name: atom.name,
+                    atom: atom
+                });
+
+                // Если это Assembly, идем глубже
                 if (Std.isOfType(obj, Assembly)) {
-                    collectAssembliesFromAssembly(cast(obj, Assembly), result);
+                    collectDevicesRecursive(cast(obj, Assembly), result);
                 }
             }
         }

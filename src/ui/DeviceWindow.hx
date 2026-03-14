@@ -16,7 +16,8 @@ import core.logic.Impulse;
 import core.logic.Impulsys;
 
 /**
- * DeviceWindow v4.2 (Editor Restore Button)
+ * DeviceWindow v5.0 (Atom Support)
+ * Теперь поддерживает любые Atom (не только Assembly).
  */
 class DeviceWindow {
 
@@ -30,10 +31,9 @@ class DeviceWindow {
 
     private var _impulseCallback:Impulse -> Void;
 
-    public var onGetAssemblyList:Void -> Array<{id:String, name:String, assembly:Assembly}>;
-    public var onAssemblySelected:Assembly -> Void;
+    public var onGetAssemblyList:Void -> Array<{id:String, name:String, atom:Atom}>;
+    public var onAssemblySelected:Atom -> Void;
     
-    // ИСПРАВЛЕНО: Объявление переменной callback для восстановления редактора
     public var onShowEditor:Void -> Void;
 
     private var _titleLabel:TextField;
@@ -43,11 +43,11 @@ class DeviceWindow {
         create();
     }
 
-    public function addDevice(asm:Assembly, ?x:Float = null, ?y:Float = null):Void {
-        if (asm == null) return;
+    public function addDevice(atom:Atom, ?x:Float = null, ?y:Float = null):Void {
+        if (atom == null) return;
         if (deviceCanvas == null) return;
 
-        var card = new DeviceCard(asm, this);
+        var card = new DeviceCard(atom, this);
         _deviceCards.push(card);
         deviceCanvas.addChild(card);
 
@@ -81,7 +81,7 @@ class DeviceWindow {
 
         var toRemove:Array<DeviceCard> = [];
         for (card in _deviceCards) {
-            if (card.assembly != null && card.assembly.id == deletedId) {
+            if (card.atom != null && card.atom.id == deletedId) {
                 toRemove.push(card);
             }
         }
@@ -190,7 +190,7 @@ class DeviceWindow {
 
         editorBtn.buttonMode = true;
         editorBtn.addEventListener(MouseEvent.CLICK, function(e:MouseEvent) {
-            if (onShowEditor != null) onShowEditor();
+            if (onShowEditor != null) openfl.Lib.current.stage.window.visible = true;
         });
         _header.addChild(editorBtn);
 
@@ -273,12 +273,14 @@ class DeviceWindow {
             _contextMenu.removeChildAt(0);
         }
 
-        var assemblies:Array<{id:String, name:String, assembly:Assembly}> = [];
+        var devices:Array<{id:String, name:String, atom:Atom}> = [];
         if (onGetAssemblyList != null) {
-            assemblies = onGetAssemblyList();
+            devices = onGetAssemblyList();
         }
-
-        assemblies = [for (a in assemblies) if (a.id != "selfrun" && a.assembly.blueprint.id != "selfrun") a];
+        
+        // Filter selfrun
+        devices = [for (d in devices) if (d.id != "selfrun") d];
+        // Если нужно исключить root assembly из меню, можно добавить: && (atom is Assembly ? bp.id != "selfrun" : true)
 
         var yPos = 0;
 
@@ -295,14 +297,14 @@ class DeviceWindow {
         _contextMenu.addChild(sep);
         yPos += 8;
 
-        if (assemblies.length == 0) {
+        if (devices.length == 0) {
             var emptyItem = createMenuItem("(No devices available)", null, true);
             emptyItem.y = yPos;
             _contextMenu.addChild(emptyItem);
             yPos += 26;
         } else {
-            for (item in assemblies) {
-                var menuItem = createMenuItem(item.name, item.assembly, false);
+            for (item in devices) {
+                var menuItem = createMenuItem(item.name, item.atom, false);
                 menuItem.y = yPos;
                 _contextMenu.addChild(menuItem);
                 yPos += 26;
@@ -327,7 +329,7 @@ class DeviceWindow {
         _contextMenu.visible = false;
     }
 
-    private function createMenuItem(label:String, assembly:Assembly, disabled:Bool):Sprite {
+    private function createMenuItem(label:String, atom:Atom, disabled:Bool):Sprite {
         var item = new Sprite();
         item.graphics.beginFill(disabled ? 0x333344 : 0x444455);
         item.graphics.drawRect(0, 0, 180, 24);
@@ -335,7 +337,7 @@ class DeviceWindow {
 
         var txt = new TextField();
         txt.defaultTextFormat = new TextFormat("_typewriter", 11, disabled ? 0x777788 : 0xFFFFFF);
-        txt.text = (disabled || assembly == null) ? label : "+ " + label;
+        txt.text = (disabled || atom == null) ? label : "+ " + label;
         txt.width = 170;
         txt.height = 24;
         txt.x = 8;
@@ -343,15 +345,15 @@ class DeviceWindow {
         txt.mouseEnabled = false;
         item.addChild(txt);
 
-        if (!disabled && assembly != null) {
+        if (!disabled && atom != null) {
             item.buttonMode = true;
 
-            final capturedAssembly = assembly;
+            final capturedAtom = atom;
 
             item.addEventListener(MouseEvent.CLICK, function(e:MouseEvent) {
-                addDevice(capturedAssembly);
+                addDevice(capturedAtom);
                 if (onAssemblySelected != null) {
-                    onAssemblySelected(capturedAssembly);
+                    onAssemblySelected(capturedAtom);
                 }
                 hideContextMenu();
             });
@@ -430,11 +432,11 @@ class DeviceWindow {
 }
 
 /**
- * DeviceCard v1.1
+ * DeviceCard v2.0 (Atom Support)
  */
 class DeviceCard extends Sprite {
 
-    public var assembly(default, null):Assembly;
+    public var atom(default, null):Atom;
     
     private var _deviceWindow:DeviceWindow;
     private var _deviceView:DeviceView;
@@ -447,16 +449,16 @@ class DeviceCard extends Sprite {
     private var _mouseStartX:Float = 0;
     private var _mouseStartY:Float = 0;
 
-    public function new(asm:Assembly, deviceWindow:DeviceWindow) {
+    public function new(atom:Atom, deviceWindow:DeviceWindow) {
         super();
-        this.assembly = asm;
+        this.atom = atom;
         _deviceWindow = deviceWindow;
         buildCard();
     }
 
     private function buildCard():Void {
         try {
-            _deviceView = DeviceWidgetFactory.create(assembly);
+            _deviceView = DeviceWidgetFactory.create(atom);
         } catch (e:Dynamic) {
             _deviceView = null;
         }
@@ -476,7 +478,7 @@ class DeviceCard extends Sprite {
 
         _titleLabel = new TextField();
         _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 10, 0xFFFFFF);
-        _titleLabel.text = " " + (assembly.blueprint != null ? assembly.blueprint.name : "Device");
+        _titleLabel.text = " " + (atom != null ? atom.name : "Device");
         _titleLabel.width = _deviceView.width;
         _titleLabel.height = 20;
         _titleLabel.selectable = false;
@@ -524,7 +526,7 @@ class DeviceCard extends Sprite {
 
         var txt = new TextField();
         txt.defaultTextFormat = new TextFormat("_sans", 10, 0xFFFFFF);
-        txt.text = assembly.blueprint != null ? assembly.blueprint.name : "?";
+        txt.text = atom != null ? atom.name : "?";
         txt.width = 80;
         txt.height = 50;
         txt.selectable = false;
@@ -575,7 +577,7 @@ class DeviceCard extends Sprite {
             _deviceView.dispose();
             _deviceView = null;
         }
-        assembly = null;
+        atom = null;
         _deviceWindow = null;
         _titleBar = null;
         _titleLabel = null;

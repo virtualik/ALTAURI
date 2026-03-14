@@ -19,7 +19,7 @@
     <class path="C:\HaxeToolkit\haxe\lib\openfl\9,3,3\src" />
     <class path="C:\HaxeToolkit\haxe\lib\lime\8,1,1\src" />
     <class path="src" />
-    <class path="bin\windows\haxe" />
+    <class path="bin\hl\haxe" />
   </classpaths>
   <!-- Build options -->
   <build>

@@ -9,6 +9,9 @@ import core.types.ContactType;
 import core.view.DeviceView;
 import core.view.DeviceWidgetFactory;
 import utils.UID;
+import library.AtomRegistry;
+import system.managers.DriverManager;
+
 
 /**
  * ASSEMBLY v4.7 (Cache Sync)
@@ -175,6 +178,16 @@ class Assembly extends Atom {
             var instance = AssemblyFactory.createAtom(atomDef.typeId, newInstanceID);
             if (instance != null) {
                 internalAtoms.set(newInstanceID, instance);
+                
+                // Регистрируем активные драйвера
+                // Нужно проверить, является ли сам instance активным
+                // Но так как Assembly оборачивает всё, нам нужно заглянуть внутрь логики или использовать каст
+                // Проще всего: если blueprint типа SignalGen -> регистрируем
+                
+                var bpDef = AtomRegistry.get(atomDef.typeId);
+                if (bpDef != null && bpDef.isActive) {
+                    DriverManager.getInstance().register(instance);
+                }
             }
         }
     }

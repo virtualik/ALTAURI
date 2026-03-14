@@ -1,32 +1,32 @@
 package editor;
 
-import ui.WireType;
+//import ui.WireType;
 import ui.WireType.WireType as WireTypeEnum;
 import openfl.display.Sprite;
-import openfl.display.Graphics;
+//import openfl.display.Graphics;
 import openfl.events.Event;
 import openfl.events.MouseEvent;
 import openfl.geom.Point;
 import openfl.geom.Rectangle;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
-import openfl.text.TextFormatAlign;
+//import openfl.text.TextFormatAlign;
 import core.base.Assembly;
 import core.base.Atom;
 import core.base.Contact;
 import core.logic.Impulsys;
 import core.logic.Impulse;
-import system.managers.UndoManager;
-import system.commands.base.MacroCommand;
-import system.commands.editor.MoveNodeCommand;
-import system.commands.editor.ConnectCommand;
-import system.commands.editor.DeleteAtomCommand;
-import system.commands.editor.CreateAtomCommand;
+//import system.managers.UndoManager;
+//import system.commands.base.MacroCommand;
+//import system.commands.editor.MoveNodeCommand;
+//import system.commands.editor.ConnectCommand;
+//import system.commands.editor.DeleteAtomCommand;
+//import system.commands.editor.CreateAtomCommand;
 import core.data.Blueprint.ConnectionDef;
 import core.data.Blueprint.ConnectionPoint;
 import ecs.ECS;
 import library.AtomRegistry;
-import utils.UID;
+//import utils.UID;
 
 /**
  * NodeEditor v3.0 (Refactored)
@@ -34,8 +34,8 @@ import utils.UID;
  * and Actions/Undo to EditorActionHandler.
  */
 class NodeEditor extends Sprite {
-
-    // ========================================================================
+	
+	// ========================================================================
     // CORE REFERENCES
     // ========================================================================
 
@@ -104,6 +104,9 @@ class NodeEditor extends Sprite {
     private var _edgePorts:Map<String, Sprite> = new Map();
     private var _fileNameField:TextField;
     private var _viewportMask:Sprite;
+	private var _zoomDebounceTimer:haxe.Timer = null;
+	private var _pendingZoom:Bool = false;
+    
 
     // ========================================================================
     // SETTINGS
@@ -113,7 +116,8 @@ class NodeEditor extends Sprite {
     private var _allowAssembly:Bool = true;
     private var _forcedWidth:Float = 0;
     private var _forcedHeight:Float = 0;
-
+	private var _lastVisibilityUpdate:Float = 0;
+	private var _zoomRebuildTimer:haxe.Timer = null;
     // ========================================================================
     // CALLBACKS
     // ========================================================================
@@ -362,10 +366,14 @@ class NodeEditor extends Sprite {
     }
 
     private function updateVisibility():Void {
-        var w = _forcedWidth > 0 ? _forcedWidth : (stage != null ? stage.stageWidth : 1024);
-        var h = _forcedHeight > 0 ? _forcedHeight : (stage != null ? stage.stageHeight : 600);
-        _viewport.updateVisibility(_nodes.iterator(), w, h);
-    }
+		var now = haxe.Timer.stamp();
+		if (now - _lastVisibilityUpdate < 0.1) return; // Не чаще 10 раз в секунду
+		_lastVisibilityUpdate = now;
+		
+		var w = _forcedWidth > 0 ? _forcedWidth : (stage != null ? stage.stageWidth : 1024);
+		var h = _forcedHeight > 0 ? _forcedHeight : (stage != null ? stage.stageHeight : 600);
+		_viewport.updateVisibility(_nodes.iterator(), w, h);
+	}
 
     // ========================================================================
     // NODE MANAGEMENT
@@ -733,11 +741,20 @@ class NodeEditor extends Sprite {
         }
     }
 
-    private function onMouseWheel(e:MouseEvent):Void {
-        _viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
-        _wireRenderer.rebuildAll();
-        updateVisibility();
-    }
+	private function onMouseWheel(e:MouseEvent):Void {
+		_viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
+		
+		// Отменяем предыдущий таймер если есть
+		if (_zoomRebuildTimer != null) {
+			_zoomRebuildTimer.stop();
+		}
+		
+		// Планируем rebuild через 80ms после последнего скролла
+		_zoomRebuildTimer = haxe.Timer.delay(() -> {
+			_wireRenderer.rebuildAll();
+			updateVisibility();
+		}, 1);
+	}
 
     // ========================================================================
     // DELETE (Delegated)

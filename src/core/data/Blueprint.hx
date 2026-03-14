@@ -47,8 +47,10 @@ class Blueprint {
     public var internalConnections(default, null):Array<ConnectionDef>;
 
     public var logic(default, null):Array<Dynamic> -> Array<Dynamic>;
-
-    public function new(
+	
+	public var isActive:Bool = false; // Флаг активности
+    
+	public function new(
         id:String,
         name:String,
         pins:Array<PinDef>,

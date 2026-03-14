@@ -16,9 +16,13 @@ class AtomRegistry {
     public static var customLibraryPath:String = "";
 
     private static function reg(id:String, name:String, pins:Array<core.data.Blueprint.PinDef>, ?logic, ?deviceType:String = null, ?isNative:Bool = true) {
-        var bp = new Blueprint(id, name, pins, logic);
+        var bp = new Blueprint(id, name, pins, null);
         bp.deviceType = deviceType;
         bp.isNative = isNative;
+        
+        // Хак для регистрации активных атомов
+        if (id == "SignalGen") bp.isActive = true; 
+        
         _blueprints.set(id, bp);
     }
 
@@ -32,8 +36,20 @@ class AtomRegistry {
         // Native Atoms Registration
         reg("Button", "Push Button", [{name: "out", type: OUTPUT, dataType: "bool"}], null, "button");
         reg("LED", "LED Indicator", [{name: "in", type: INPUT, dataType: "bool"}], null, "led");
+		
+		// 1. Регистрируем Генератор (Active Driver)
+        reg("SignalGen", "Signal Generator", [
+            {name: "freq", type: INPUT, defaultValue: 440.0, dataType: "float"}, 
+            {name: "out", type: OUTPUT, dataType: "array"}
+        ], null, "panel"); // deviceType "panel" чтобы просто отображался как нода
 
-        _initialized = true;
+        // 2. Регистрируем Осциллограф (Passive Display)
+        // deviceType "oscilloscope" заставит DeviceWidgetFactory создать OscilloscopeWidget
+        reg("Oscilloscope", "Oscilloscope", [
+            {name: "in", type: INPUT, dataType: "array"}
+        ], null, "oscilloscope");
+		
+		_initialized = true;
     }
 
     public static function get(id:String):Blueprint {

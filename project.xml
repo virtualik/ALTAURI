@@ -8,7 +8,13 @@
 	<!-- output -->
 	<app main="Main" file="ALTAURI" path="bin" />
 	<window allow-high-dpi="true" />
-	<window borderless="false" hardware="false" vsync="false" allow-shaders="true" width="1024" height="800" fps="999" />
+	<window  visible="false"
+			 borderless="false"
+			 hardware="false"
+			 vsync="false"
+			 allow-shaders="false"
+			 width="1024" height="800"
+			 fps="1000" />
 
 	<!-- classpath, haxe libs -->
 	<source path="src" />
