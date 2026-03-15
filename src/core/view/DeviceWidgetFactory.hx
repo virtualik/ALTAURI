@@ -3,9 +3,10 @@ package core.view;
 import core.base.Atom;
 import core.base.Assembly;
 import core.data.Blueprint;
+import core.view.TextInputWidget;
 
 /**
- * DEVICE WIDGET FACTORY v1.1
+ * DEVICE WIDGET FACTORY v1.2
  * Фабрика для создания DeviceView по типу или Blueprint.
  */
 class DeviceWidgetFactory {
@@ -66,8 +67,11 @@ class DeviceWidgetFactory {
                 new PanelWidget(asm);
 
             case "oscilloscope", "scope":
-                // ИСПРАВЛЕНО: Ищем первый контакт, если имя не задано
                 new OscilloscopeWidget(asm, getContactName(bp, "in"));
+
+            case "textinput":
+                // ИСПРАВЛЕНО: Передаем asm (он же Atom), TextInputWidget сам найдет нужные контакты
+                new TextInputWidget(asm);
 
             default:
                 createByClassName(deviceType, asm);
@@ -88,9 +92,13 @@ class DeviceWidgetFactory {
 
             case "button", "push button":
                 new ButtonWidget(atom, "out");
-                
+
             case "oscilloscope":
                 new OscilloscopeWidget(atom, "in");
+            
+            // ИСПРАВЛЕНО: Добавлен кейс для нативного TextInputAtom
+            case "textinput":
+                new TextInputWidget(atom);
 
             default:
                 // Универсальный виджет - текстовое отображение
@@ -120,17 +128,14 @@ class DeviceWidgetFactory {
 
     /**
      * Получить имя контакта из Blueprint.
-     * Ищет любой контакт, приоритет -- заданному defaultName, иначе первый попавшийся.
      */
     private static function getContactName(bp:Blueprint, defaultName:String):String {
         if (bp == null || bp.pins == null) return defaultName;
 
-        // Сначала ищем точное совпадение с defaultName
         for (pin in bp.pins) {
             if (pin.name == defaultName) return pin.name;
         }
 
-        // Если не нашли, возвращаем имя первого пина
         for (pin in bp.pins) {
             if (pin.name != null) return pin.name;
         }

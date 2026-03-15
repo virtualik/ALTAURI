@@ -20,8 +20,8 @@ import system.managers.DriverManager;
 import editor.NodeEditor;
 import editor.NodeView;
 import editor.EditorTheme;
+import editor.ContextMenuManager;
 import ui.TextInputPopup;
-import ui.ContextMenu;
 import ui.PropertiesWindow;
 import ui.ButtonComponent;
 import ui.SettingsPanel;
@@ -55,9 +55,9 @@ import js.Browser;
 #end
 
 class Main extends Sprite {
-    
-    private var _appInitialized:Bool = false; // Флаг, что приложение уже запущено
-    
+
+    private var _appInitialized:Bool = false;
+
     // Paths
     private var _documentsPath:String;
     private var _libraryPath:String;
@@ -77,8 +77,9 @@ class Main extends Sprite {
     private var _currentAssembly:Assembly;
     private var _currentEditor:NodeEditor;
 
-    private var _menu:ContextMenu;
-    private var _fileMenu:ContextMenu;
+    // Context Menu Manager
+    private var _contextManager:ContextMenuManager;
+    
     private var _propertiesWindow:PropertiesWindow;
     private var _settingsPanel:SettingsPanel;
 
@@ -88,7 +89,6 @@ class Main extends Sprite {
 
     private var _debugField:TextField;
     private var _hideTimer:haxe.Timer;
-    private var _contextTargetId:String = null;
 
     // Buttons
     private var _btnBack:ButtonComponent;
@@ -103,13 +103,9 @@ class Main extends Sprite {
     private var _nameField:TextField;
 
     private var _lastTime:Int = 0;
-
-    private var _cbPortRightClick:Impulse -> Void;
     private var _theme:EditorTheme;
 
-    // ========================================
     // DeviceWindow
-    // ========================================
     private var _deviceWindow:DeviceWindow;
     private var _customSprite:Sprite;
 
@@ -153,11 +149,11 @@ class Main extends Sprite {
             _documentsPath = Sys.getCwd();
         }
 
-        var altairRoot = _documentsPath + "/ALTAURI";
-        _libraryPath = altairRoot + "/Library";
-        _selfrunPath = altairRoot + "/Selfrun.atom";
+        var altauriRoot = _documentsPath + "/ALTAURI";
+        _libraryPath = altauriRoot + "/Library";
+        _selfrunPath = altauriRoot + "/Selfrun.atom";
 
-        if (!FileSystem.exists(altairRoot)) FileSystem.createDirectory(altairRoot);
+        if (!FileSystem.exists(altauriRoot)) FileSystem.createDirectory(altauriRoot);
         if (!FileSystem.exists(_libraryPath)) FileSystem.createDirectory(_libraryPath);
 
         AtomRegistry.customLibraryPath = _libraryPath;
@@ -170,29 +166,21 @@ class Main extends Sprite {
     private function init(e:Event = null):Void {
         removeEventListener(Event.ADDED_TO_STAGE, init);
         openfl.Lib.current.stage.window.visible = true;
-        // Если мы уже инициализировались (это повторное открытие окна)
+        
         if (_appInitialized) {
             log("Restoring Editor Window...");
-            
-            // Восстанавливаем связи со Stage
             stage.color = _theme.APP_BG_COLOR;
             stage.addEventListener(Event.RESIZE, onResize);
             stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
-            
-            // OpenFL специфично: нужно заново добавить слушители закрытия окна
             #if sys
-            // Важно: stage.window теперь УЖЕ новое окно, поэтому подписываемся на него
             openfl.Lib.current.stage.window.onClose.add(saveOnExit);
             #end
-            
-            // Обновляем размеры UI
             onResize(null);
             updateButtonStates();
             return;
         }
 
         _appInitialized = true;
-
         stage.color = _theme.APP_BG_COLOR;
 
         DriverManager.getInstance();
@@ -201,7 +189,7 @@ class Main extends Sprite {
         addEventListener(Event.ENTER_FRAME, onMainLoop);
         buildUI();
         stage.addEventListener(Event.RESIZE, onResize);
-        
+
         #if sys
         openfl.Lib.current.stage.window.onClose.add(onMainWindowClose);
         #end
@@ -209,51 +197,44 @@ class Main extends Sprite {
         loadSelfrun();
     }
 
-    // Обработчик закрытия ГЛАВНОГО окна
     private function onMainWindowClose():Void {
         log("Main window close requested...");
-        
-        // Сохраняемся перед закрытием
         saveOnExit();
-        
-        // Если DeviceWindow открыто, мы НЕ вызываем System.exit(0)
-        // Приложение остается живым, просто Main sprite теряет Stage.
-        // OpenFL удалит Main со сцены.
         if (_deviceWindow != null && _deviceWindow.isOpen) {
             log("Device window is active. Hiding editor instead of exit.");
-            // Ничего не делаем, позволяем окну закрыться. 
-            // Main будет "висеть" в памяти, пока DeviceWindow держит ссылки (через колбеки).
-            // Когда DeviceWindow нажмет E, мы создадим новое окно.
         } else {
             log("Exiting application.");
             System.exit(0);
         }
     }
 
-    private function saveOnExit():Void {
-        log("Auto-saving Selfrun on exit...");
+	private function saveOnExit():Void {
+        log("Auto-saving on exit...");
+        
+        // 1. Сохраняем основную сессию (Selfrun)
         saveSelfrun();
+
+        // 2. Сохраняем все остальные открытые вкладки (если они есть)
+        // Проходим по всему стеку редакторов
+        if (_editorStack.length > 1) {
+            for (i in 1..._editorStack.length) {
+                var entry = _editorStack[i];
+                // Сохраняем сборку в библиотеку
+                saveAssemblyToLibrary(entry.assembly);
+            }
+        }
     }
 
-    // Метод для восстановления окна редактора
     private function restoreEditorWindow():Void {
         log("Restoring main editor...");
-        
-        // Создаем конфигурацию нового окна
         var config = {
-            title: "ALTAIR Editor",
+            title: "ALTAURI Editor",
             width: stage != null ? stage.stageWidth : 1024,
             height: stage != null ? stage.stageHeight : 600,
             parameters: { background: 0x111111 }
         };
-
-        // Создаем новое окно
         var newWindow = Lib.application.createWindow(config);
-        
-        // Переносим Main (this) на новую сцену
         newWindow.stage.addChild(this);
-        
-        // init() сработает снова из-за ADDED_TO_STAGE, но мы используем флаг _appInitialized
     }
 
     private function loadSelfrun():Void {
@@ -279,13 +260,10 @@ class Main extends Sprite {
 
                 pushEditor(rootAssembly, true);
                 _currentEditor.setViewState(viewState);
-                
-                // --- RESTORE DEVICE WINDOW ---
+
                 if (json.deviceWindow != null && json.deviceWindow.isOpen) {
                     restoreDeviceWindow(rootAssembly, json.deviceWindow.devices);
                 }
-                // ------------------------------
-
                 log("Selfrun loaded.");
 
             } catch (err:Dynamic) {
@@ -310,55 +288,34 @@ class Main extends Sprite {
         pushEditor(rootAssembly, true);
     }
 
-/**
-     * Восстановление окна устройств по сохраненным путям.
-     */
     private function restoreDeviceWindow(rootAssembly:Assembly, devicesData:Array<Dynamic>):Void {
         if (devicesData == null || devicesData.length == 0) return;
-
         log("Restoring Device Window...");
-        onToggleView(); // Открываем окно
-        
+        onToggleView();
         if (_deviceWindow == null) return;
 
         for (data in devicesData) {
             var path:Array<String> = data.path;
             var x:Float = data.x;
             var y:Float = data.y;
-
-            // Проходим по пути от корня
             var atom = resolveDevicePath(rootAssembly, path);
-            
             if (atom != null) {
                 _deviceWindow.addDevice(atom, x, y);
-            } else {
-                trace('WARN: Could not resolve device path: $path');
             }
         }
     }
 
-    /**
-     * Рекурсивный поиск пути от контейнера до целевого атома.
-     * Возвращает массив Template ID.
-     */
     private function findDevicePath(container:Assembly, target:Atom):Array<String> {
         if (container == null || target == null) return null;
-
-        // Проверяем прямых потомков
         for (runtimeId in container.internalAtoms.keys()) {
             var atom = container.internalAtoms.get(runtimeId);
-            
             if (atom == target) {
-                // Найдено! Возвращаем его Template ID (или Runtime ID, если это созданный атом)
                 var templateId = container.getTemplateId(runtimeId);
                 return [templateId];
             }
-
-            // Если это сборка, ищем внутри
             if (Std.isOfType(atom, Assembly)) {
                 var subPath = findDevicePath(cast(atom, Assembly), target);
                 if (subPath != null) {
-                    // Добавляем текущий ID в начало пути
                     var templateId = container.getTemplateId(runtimeId);
                     subPath.insert(0, templateId);
                     return subPath;
@@ -368,48 +325,25 @@ class Main extends Sprite {
         return null;
     }
 
-    /**
-     * Разрешение (поиск) атома по пути из Template ID.
-     */
     private function resolveDevicePath(root:Assembly, path:Array<String>):Atom {
         var current:Assembly = root;
-
-        // Проходим по всем элементам пути
         for (i in 0...path.length) {
             var templateId = path[i];
-            
-            // Находим Runtime ID по Template ID
-            // idMap: <TemplateID, RuntimeID>
             var runtimeId:String = null;
-            
             if (current.idMap != null) {
                 for (tid => rid in current.idMap) {
-                    if (tid == templateId) {
-                        runtimeId = rid;
-                        break;
-                    }
+                    if (tid == templateId) { runtimeId = rid; break; }
                 }
             }
-            
-            // Если не нашли в карте, возможно это ID созданного во время сессии атома (Runtime ID)
             if (runtimeId == null && current.internalAtoms.exists(templateId)) {
                 runtimeId = templateId;
             }
-
-            if (runtimeId == null) return null; // Путь оборвался
-
+            if (runtimeId == null) return null;
             var next = current.internalAtoms.get(runtimeId);
-
-            // Если это последний элемент пути
-            if (i == path.length - 1) {
-                return next; // Возвращаем Atom
-            } else {
-                // Это промежуточный элемент, спускаемся глубже
-                if (Std.isOfType(next, Assembly)) {
-                    current = cast(next, Assembly);
-                } else {
-                    return null; // Путь идет через не-сборку
-                }
+            if (i == path.length - 1) return next;
+            else {
+                if (Std.isOfType(next, Assembly)) current = cast(next, Assembly);
+                else return null;
             }
         }
         return null;
@@ -445,7 +379,8 @@ class Main extends Sprite {
                     instanceId: Std.string(a.instanceId),
                     typeId: Std.string(a.typeId),
                     x: a.x,
-                    y: a.y
+                    y: a.y,
+                    values: a.values
                 });
             }
         }
@@ -485,18 +420,14 @@ class Main extends Sprite {
     private function pushEditor(assembly:Assembly, isRoot:Bool = false):Void {
         if (!isRoot && _editorStack.length > 0) {
             var top = _editorStack[_editorStack.length - 1];
-
             var blocker = new Sprite();
             blocker.graphics.beginFill(0x808080, 0.6);
             blocker.graphics.drawRect(0, 0, stage.stageWidth, stage.stageHeight);
             blocker.graphics.endFill();
             blocker.addEventListener(MouseEvent.CLICK, function(e) { e.stopPropagation(); });
-
             _editorLayer.addChild(blocker);
-
             top.editor.mouseEnabled = false;
             top.editor.mouseChildren = false;
-
             top.blocker = blocker;
         }
 
@@ -517,6 +448,11 @@ class Main extends Sprite {
 
         _currentEditor = editor;
         _currentAssembly = assembly;
+
+        // UPDATE MANAGER CONTEXT
+        if (_contextManager != null) {
+            _contextManager.setContext(_currentEditor, _currentAssembly);
+        }
 
         updateNavigationUI();
         updateButtonStates();
@@ -551,16 +487,12 @@ class Main extends Sprite {
             log("Cannot close root assembly.");
             return;
         }
-
         var isUnsaved = !isAssemblyFileExists(_currentAssembly.blueprint.id);
-
         if (isUnsaved) {
             _popup.show("Save New Assembly", _currentAssembly.blueprint.name, function(name:String) {
                 if (name != null && name.length > 0) {
                     saveNewNamedAssembly(name);
                     performPopEditor(true);
-                } else {
-                    log("Save cancelled.");
                 }
             });
         } else {
@@ -574,79 +506,49 @@ class Main extends Sprite {
             log("Cannot delete root assembly.");
             return;
         }
-
         var bp = _currentAssembly.blueprint;
         var isSaved = isAssemblyFileExists(bp.id);
-
         var title = "Confirm Erase";
-        var message = "";
-
-        if (isSaved) {
-            message = "Assembly '" + bp.name + "' will be erased from Library. Continue?";
-        } else {
-            message = "Assembly '" + bp.name + "' is not saved and will be discarded. Continue?";
-        }
+        var message = isSaved 
+            ? "Assembly '" + bp.name + "' will be erased from Library. Continue?"
+            : "Assembly '" + bp.name + "' is not saved and will be discarded. Continue?";
 
         _popup.showConfirm(title, message, function(confirmed:Bool) {
-            if (confirmed) {
-                deleteCurrentAssemblyConfirmed(isSaved);
-            } else {
-                log("Erase cancelled.");
-            }
+            if (confirmed) deleteCurrentAssemblyConfirmed(isSaved);
         });
     }
 
     private function deleteCurrentAssemblyConfirmed(isSaved:Bool):Void {
         var bp = _currentAssembly.blueprint;
         var deletedId = bp.id;
-
         AtomRegistry.remove(deletedId);
-
         if (isSaved) {
             #if sys
             var path = _libraryPath + "/" + bp.id + ".atom";
             if (FileSystem.exists(path)) {
-                try {
-                    FileSystem.deleteFile(path);
-                    log("Deleted assembly file: " + path);
-                } catch (e:Dynamic) {
-                    log("Error deleting file: " + e);
-                }
+                try { FileSystem.deleteFile(path); } catch (e:Dynamic) { log("Error deleting file: " + e); }
             }
             #end
         }
-
         performPopEditor(false);
-
-        for (entry in _editorStack) {
-            recursiveRemoveInstances(entry.assembly, deletedId);
-        }
-
+        for (entry in _editorStack) recursiveRemoveInstances(entry.assembly, deletedId);
         cleanRegistryDanglingReferences(deletedId);
     }
 
     private function recursiveRemoveInstances(parent:Assembly, deletedId:String):Void {
         if (parent == null || parent.internalAtoms == null) return;
-
         var idsToRemove:Array<String> = [];
-
         for (id in parent.internalAtoms.keys()) {
             var atom = parent.internalAtoms.get(id);
             if (atom != null && Std.isOfType(atom, Assembly)) {
                 var asm = cast(atom, Assembly);
-                if (asm.blueprint != null && asm.blueprint.id == deletedId) {
-                    idsToRemove.push(id);
-                } else {
-                    recursiveRemoveInstances(asm, deletedId);
-                }
+                if (asm.blueprint != null && asm.blueprint.id == deletedId) idsToRemove.push(id);
+                else recursiveRemoveInstances(asm, deletedId);
             }
         }
-
         if (idsToRemove.length > 0) {
             var macrocom = new MacroCommand();
-            for (id in idsToRemove) {
-                macrocom.addCommand(new DeleteAtomCommand(parent.blueprint, parent, id));
-            }
+            for (id in idsToRemove) macrocom.addCommand(new DeleteAtomCommand(parent.blueprint, parent, id));
             macrocom.execute();
         }
     }
@@ -657,53 +559,28 @@ class Main extends Sprite {
         for (bpId in allIds) {
             var bp = AtomRegistry.get(bpId);
             if (bp == null || bp.internalAtoms == null) continue;
-
             var changed = false;
             var atomsToKeep = [];
-
             for (atomDef in bp.internalAtoms) {
-                if (atomDef.typeId == deletedId) {
-                    changed = true;
-                } else {
-                    atomsToKeep.push(atomDef);
-                }
+                if (atomDef.typeId == deletedId) changed = true;
+                else atomsToKeep.push(atomDef);
             }
-
             if (changed) {
-                var targetAtoms = bp.internalAtoms;
-                targetAtoms.resize(0);
+                var targetAtoms = bp.internalAtoms; targetAtoms.resize(0);
                 for (a in atomsToKeep) targetAtoms.push(a);
-
                 var connsToKeep = [];
                 if (bp.internalConnections != null) {
                     for (conn in bp.internalConnections) {
-                        var fromValid = false;
-                        var toValid = false;
-
+                        var fromValid = false; var toValid = false;
                         if (conn.from.atomId == "SELF") fromValid = true;
-                        else {
-                            for (a in atomsToKeep) {
-                                if (a.instanceId == conn.from.atomId) { fromValid = true; break; }
-                            }
-                        }
-
+                        else { for (a in atomsToKeep) if (a.instanceId == conn.from.atomId) { fromValid = true; break; } }
                         if (conn.to.atomId == "SELF") toValid = true;
-                        else {
-                            for (a in atomsToKeep) {
-                                if (a.instanceId == conn.to.atomId) { toValid = true; break; }
-                            }
-                        }
-
-                        if (fromValid && toValid) {
-                            connsToKeep.push(conn);
-                        }
+                        else { for (a in atomsToKeep) if (a.instanceId == conn.to.atomId) { toValid = true; break; } }
+                        if (fromValid && toValid) connsToKeep.push(conn);
                     }
-
-                    var targetConns = bp.internalConnections;
-                    targetConns.resize(0);
+                    var targetConns = bp.internalConnections; targetConns.resize(0);
                     for (c in connsToKeep) targetConns.push(c);
                 }
-
                 saveBlueprintToDisk(bp);
             }
         }
@@ -713,67 +590,32 @@ class Main extends Sprite {
     private function saveBlueprintToDisk(bp:Blueprint):Void {
         #if sys
         var atomsToSave:Array<Dynamic> = [];
-        for (atomDef in bp.internalAtoms) {
-            atomsToSave.push({
-                instanceId: atomDef.instanceId,
-                typeId: atomDef.typeId,
-                x: atomDef.x,
-                y: atomDef.y
-            });
-        }
-
+        for (atomDef in bp.internalAtoms) atomsToSave.push({ instanceId: atomDef.instanceId, typeId: atomDef.typeId, x: atomDef.x, y: atomDef.y });
         var connsToSave:Array<Dynamic> = [];
-        for (conn in bp.internalConnections) {
-            connsToSave.push({
-                from: { atomId: conn.from.atomId, contactName: conn.from.contactName },
-                to: { atomId: conn.to.atomId, contactName: conn.to.contactName }
-            });
-        }
-
-        var data:Dynamic = {
-            version: "1.0",
-            blueprint: {
-                id: bp.id,
-                name: bp.name,
-                category: bp.category,
-                pins: bp.pins,
-                internalAtoms: atomsToSave,
-                internalConnections: connsToSave
-            }
-        };
-
+        for (conn in bp.internalConnections) connsToSave.push({ from: { atomId: conn.from.atomId, contactName: conn.from.contactName }, to: { atomId: conn.to.atomId, contactName: conn.to.contactName } });
+        var data:Dynamic = { version: "1.0", blueprint: { id: bp.id, name: bp.name, category: bp.category, pins: bp.pins, internalAtoms: atomsToSave, internalConnections: connsToSave } };
         var path = _libraryPath + "/" + bp.id + ".atom";
-        try {
-            File.saveContent(path, haxe.Json.stringify(data, null, "  "));
-        } catch(e:Dynamic) { trace("Error saving blueprint: " + e); }
+        try { File.saveContent(path, haxe.Json.stringify(data, null, "  ")); } catch(e:Dynamic) { trace("Error saving blueprint: " + e); }
         #end
     }
 
     private function performPopEditor(isUpdate:Bool):Void {
         var current = _editorStack.pop();
         var editedId = current.assembly.blueprint.id;
-
         current.editor.dispose();
         _editorLayer.removeChild(current.container);
-
         var prev = _editorStack[_editorStack.length - 1];
-
-        if (prev.blocker != null) {
-            _editorLayer.removeChild(prev.blocker);
-            prev.blocker = null;
-        }
-
+        if (prev.blocker != null) { _editorLayer.removeChild(prev.blocker); prev.blocker = null; }
         prev.editor.mouseEnabled = true;
         prev.editor.mouseChildren = true;
-
         _currentEditor = prev.editor;
         _currentAssembly = prev.assembly;
-
-        if (isUpdate) {
-            updateInstancesOf(editedId);
-        }
-
+        if (isUpdate) updateInstancesOf(editedId);
         _currentEditor.refreshAssemblyViews();
+        
+        // UPDATE MANAGER CONTEXT
+        if (_contextManager != null) _contextManager.setContext(_currentEditor, _currentAssembly);
+        
         updateNavigationUI();
         updateButtonStates();
         log("Returned to: " + _currentAssembly.blueprint.name);
@@ -782,37 +624,25 @@ class Main extends Sprite {
     private function updateInstancesOf(typeId:String):Void {
         var newBp = AtomRegistry.get(typeId);
         if (newBp == null) return;
-
         for (id in _currentAssembly.internalAtoms.keys()) {
             var atom = _currentAssembly.internalAtoms.get(id);
             if (Std.isOfType(atom, Assembly)) {
                 var asm = cast(atom, Assembly);
-                if (asm.blueprint.id == typeId) {
-                    asm.updateFromBlueprint(newBp);
-                }
+                if (asm.blueprint.id == typeId) asm.updateFromBlueprint(newBp);
             }
         }
     }
 
     private function isAssemblyFileExists(id:String):Bool {
-        #if sys
-        return FileSystem.exists(_libraryPath + "/" + id + ".atom");
-        #else
-        return true;
-        #end
+        #if sys return FileSystem.exists(_libraryPath + "/" + id + ".atom"); #else return true; #end
     }
 
     private function saveNewNamedAssembly(name:String):Void {
         var safeName = StringTools.replace(name, " ", "_");
-        if (safeName.length == 0) {
-            log("Error: Invalid assembly name.");
-            return;
-        }
-
+        if (safeName.length == 0) { log("Error: Invalid assembly name."); return; }
         var bp = _currentAssembly.blueprint;
         bp.id = safeName;
         bp.name = name;
-
         saveAssemblyToLibrary(_currentAssembly);
     }
 
@@ -820,7 +650,6 @@ class Main extends Sprite {
         var now = Lib.getTimer();
         var dt = (now - _lastTime) / 1000.0;
         _lastTime = now;
-
         DriverManager.getInstance().update(dt);
         SignalQueue.getInstance().process();
     }
@@ -835,7 +664,6 @@ class Main extends Sprite {
         }
         _hideTimer = haxe.Timer.delay(function() { fadeOutLog(); }, 5000);
     }
-
     private function fadeOutLog() { if (_debugField != null) _debugField.visible = false; }
 
     private function setupDebugLog() {
@@ -854,10 +682,8 @@ class Main extends Sprite {
     private function setupLayers():Void {
         _editorLayer = new Sprite();
         addChild(_editorLayer);
-
         _uiLayer = new Sprite();
         addChild(_uiLayer);
-
         _settingsLayer = new Sprite();
         _settingsLayer.mouseEnabled = false;
         addChild(_settingsLayer);
@@ -927,19 +753,31 @@ class Main extends Sprite {
         _settingsPanel.onSettingsChanged = onSettingsChanged;
         _settingsLayer.addChild(_settingsPanel);
 
-        stage.addEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
+        // === CONTEXT MENU MANAGER INIT ===
+        _contextManager = new ContextMenuManager(_settingsPanel);
+        _uiLayer.addChild(_contextManager.getView());
+        // ==================================
+
         stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
 
-        _cbPortRightClick = onPortRightClick;
-
-        Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION", onMenuAction);
-        Impulsys.subscribeToImpulse("CLOSE_CONTEXT_MENU", onCloseContextMenu);
+        // Subscriptions
         Impulsys.subscribeToImpulse("ATOM_PROPERTIES_REQUEST", onPropertiesRequest);
-        Impulsys.subscribeToImpulse("NODE_RIGHT_CLICKED", onNodeRightClick);
         Impulsys.subscribeToImpulse("OPEN_ASSEMBLY_REQUEST", onOpenAssemblyRequest);
-        Impulsys.subscribeToImpulse("WIRE_RIGHT_CLICKED", onWireRightClick);
-        Impulsys.subscribeToImpulse("PORT_RIGHT_CLICKED", _cbPortRightClick);
         Impulsys.subscribeToImpulse("REQUEST_NEW_ASSEMBLY_CONTEXT", onRequestNewContext);
+        Impulsys.subscribeToImpulse("VALUE_COMMITTED", onValueCommitted);
+    }
+    
+    // --- ADDED METHOD ---
+    private function onNewAssembly():Void {
+        if (!_settingsPanel.allowAssembly) { log("Assembly disabled"); return; }
+        var cmd = new CreateNewAssemblyCommand();
+        UndoManager.getInstance().executeAndStore(cmd);
+    }
+    // --------------------
+
+    private function onValueCommitted(impulse:Impulse):Void {
+        saveCurrentContext();
+        log("Data saved.");
     }
 
     private function onResize(e:Event):Void {
@@ -962,7 +800,6 @@ class Main extends Sprite {
             var margin = 12;
             var w = stage.stageWidth - margin * 2;
             var h = stage.stageHeight - margin * 2;
-
             var container = _editorStack[_editorStack.length - 1].container;
             drawContainerFrame(container);
             _currentEditor.setSize(w, h);
@@ -976,15 +813,20 @@ class Main extends Sprite {
         _btnNew.visible = _settingsPanel.allowAssembly;
     }
 
-    private function saveCurrentContext():Void {
+private function saveCurrentContext():Void {
         #if sys
         var isRoot = (_editorStack.length == 1);
         if (isRoot) {
             log("Saving Selfrun...");
             saveSelfrun();
         } else {
+            // Если это не корень, сохраняем текущую сборку в библиотеку
             log("Saving Assembly to Library...");
             saveAssemblyToLibrary(_currentAssembly);
+            
+            // ВАЖНО: Также сохраняем саму сессию (selfrun), чтобы сохранить ссылки на эту сборку, если она используется
+            // Но здесь это может быть избыточно, если мы просто редактируем отдельный файл.
+            // Обычно достаточно сохранить сам файл сборки.
         }
         #end
     }
@@ -999,11 +841,23 @@ class Main extends Sprite {
 
         var atomsToSave:Array<Dynamic> = [];
         for (atomDef in rootAssembly.blueprint.internalAtoms) {
+
+            var runtimeId = rootAssembly.idMap.get(atomDef.instanceId);
+            if (runtimeId == null) runtimeId = atomDef.instanceId;
+
+            var atomInstance:Atom = cast rootAssembly.internalAtoms.get(runtimeId);
+
+            var values:Dynamic = null;
+            if (atomInstance != null) {
+                values = atomInstance.getPersistentState();
+            }
+
             atomsToSave.push({
                 instanceId: atomDef.instanceId,
                 typeId: atomDef.typeId,
                 x: atomDef.x,
-                y: atomDef.y
+                y: atomDef.y,
+                values: values
             });
         }
 
@@ -1024,29 +878,23 @@ class Main extends Sprite {
         var bp = rootAssembly.blueprint;
         var viewState = rootEditor.getViewState();
 
-        // --- SAVE DEVICE WINDOW STATE (Recursive) ---
         var deviceWindowData:Array<Dynamic> = [];
         if (_deviceWindow != null && _deviceWindow.isOpen) {
             var cards = _deviceWindow.getDeviceCards();
             for (card in cards) {
-                // Ищем полный путь от корня до устройства
                 var path = findDevicePath(rootAssembly, card.atom);
-                
                 if (path != null && path.length > 0) {
                     deviceWindowData.push({
-                        path: path, // Сохраняем массив ID: ["AssemblyID", "ButtonID"]
+                        path: path,
                         x: card.x,
                         y: card.y
                     });
-                } else {
-                    trace('WARN: Could not find path for device: ${card.atom.name}');
                 }
             }
         }
-        // --------------------------------------------
 
         var data:Dynamic = {
-            version: "1.2",
+            version: "1.3",
             blueprint: {
                 id: bp.id,
                 name: bp.name,
@@ -1078,52 +926,27 @@ class Main extends Sprite {
 
         var atomsToSave:Array<Dynamic> = [];
         for (atomDef in bp.internalAtoms) {
-            atomsToSave.push({
-                instanceId: atomDef.instanceId,
-                typeId: atomDef.typeId,
-                x: atomDef.x,
-                y: atomDef.y
-            });
+            var runtimeId = asm.idMap.get(atomDef.instanceId);
+            if (runtimeId == null) runtimeId = atomDef.instanceId;
+            var atomInstance:Atom = cast asm.internalAtoms.get(runtimeId);
+            var values:Dynamic = null;
+            if (atomInstance != null) values = atomInstance.getPersistentState();
+            atomsToSave.push({ instanceId: atomDef.instanceId, typeId: atomDef.typeId, x: atomDef.x, y: atomDef.y, values: values });
         }
 
         var connsToSave:Array<Dynamic> = [];
         for (conn in bp.internalConnections) {
-            var fromId = conn.from.atomId;
-            var toId = conn.to.atomId;
-
+            var fromId = conn.from.atomId; var toId = conn.to.atomId;
             if (fromId != "SELF") fromId = asm.getTemplateId(fromId);
             if (toId != "SELF") toId = asm.getTemplateId(toId);
-
-            connsToSave.push({
-                from: { atomId: fromId, contactName: conn.from.contactName },
-                to: { atomId: toId, contactName: conn.to.contactName }
-            });
+            connsToSave.push({ from: { atomId: fromId, contactName: conn.from.contactName }, to: { atomId: toId, contactName: conn.to.contactName } });
         }
 
         var pinsData:Array<Dynamic> = [];
-        for (pin in bp.pins) {
-            pinsData.push({
-                name: pin.name,
-                type: Std.string(pin.type), // Явное приведение к строке "INPUT" / "OUTPUT"
-                defaultValue: pin.defaultValue,
-                dataType: pin.dataType
-            });
-        }
+        for (pin in bp.pins) pinsData.push({ name: pin.name, type: Std.string(pin.type), defaultValue: pin.defaultValue, dataType: pin.dataType });
 
-        var data:Dynamic = {
-            version: "1.0",
-            blueprint: {
-                id: bp.id,
-                name: bp.name,
-                category: bp.category,
-                pins: pinsData, // Используем подготовленный массив
-                internalAtoms: atomsToSave,
-                internalConnections: connsToSave
-            }
-        };
-
+        var data:Dynamic = { version: "1.1", blueprint: { id: bp.id, name: bp.name, category: bp.category, pins: pinsData, internalAtoms: atomsToSave, internalConnections: connsToSave } };
         var path = _libraryPath + "/" + bp.id + ".atom";
-
         try {
             File.saveContent(path, haxe.Json.stringify(data, null, "  "));
             log("Saved: " + bp.id + " to Library");
@@ -1150,26 +973,16 @@ class Main extends Sprite {
 
     private function onOpenAssemblyRequest(impulse:Impulse):Void {
         if (!_settingsPanel.allowAssembly) { log("Assembly editing disabled"); return; }
-
         var id = impulse.data.atomId;
         var obj = _currentAssembly.internalAtoms.get(id);
-
         if (Std.isOfType(obj, Assembly)) {
             var targetAsm = cast(obj, Assembly);
-            
-            // Проверка на native сборку
-            if (targetAsm.blueprint != null && targetAsm.blueprint.isNative) {
-                log("Cannot edit native atom: " + targetAsm.blueprint.name);
-                return;
-            }
-            
+            if (targetAsm.blueprint != null && targetAsm.blueprint.isNative) { log("Cannot edit native atom: " + targetAsm.blueprint.name); return; }
             _currentEditor.deselectAll();
             _propertiesWindow.close();
             pushEditor(targetAsm);
             log("Opened: " + targetAsm.blueprint.name);
-        } else {
-            log("Cannot enter: not an Assembly or not found.");
-        }
+        } else { log("Cannot enter: not an Assembly or not found."); }
     }
 
     private function onRequestNewContext(impulse:Impulse):Void {
@@ -1206,233 +1019,18 @@ class Main extends Sprite {
 
     private function updateNavigationUI():Void {
         var path = "";
-        for (i in 0..._editorStack.length) {
-            path += " / " + _editorStack[i].assembly.blueprint.name;
-        }
+        for (i in 0..._editorStack.length) path += " / " + _editorStack[i].assembly.blueprint.name;
         _pathField.text = path;
-
-        if (_currentAssembly != null) {
-            _nameField.text = _currentAssembly.blueprint.name;
-        }
+        if (_currentAssembly != null) _nameField.text = _currentAssembly.blueprint.name;
     }
-
-    private function resetContextMenu():Void {
-        if (_menu == null) { _menu = new ContextMenu(); _uiLayer.addChild(_menu); }
-        _uiLayer.removeChild(_menu);
-        _menu = new ContextMenu();
-        _uiLayer.addChild(_menu);
-    }
-
-    private function onRightClick(e:MouseEvent):Void {
-        resetContextMenu();
-        buildAtomMenu();
-        _menu.show(e.stageX, e.stageY);
-    }
-
-    private function onNodeRightClick(impulse:Impulse):Void {
-        if (impulse == null || impulse.data == null) return;
-
-        var view:NodeView = impulse.data.view;
-        _contextTargetId = impulse.data.id;
-
-        if (!_currentEditor.isSelected(_contextTargetId)) {
-            _currentEditor.deselectAll();
-            _currentEditor.selectNode(_contextTargetId, view);
-        }
-
-        resetContextMenu();
-
-        var nodeCount = _currentEditor.getSelectedNodeCount();
-        var wireCount = _currentEditor.getSelectedWireIds().length;
-
-        if (nodeCount > 0) {
-            // --- DELETE OPTIONS ---
-            if (wireCount > 0) {
-                _menu.addItem("Delete Selected (" + nodeCount + " nodes, " + wireCount + " wires)", "DELETE_ALL_SELECTED", {});
-                _menu.addItem("——————", "SEP");
-            }
-
-            var typeName = "Nodes";
-            var allAssemblies = true;
-            var allAtoms = true;
-
-            for (id in _currentEditor.getSelectedNodeIds()) {
-                var atom = _currentAssembly.internalAtoms.get(id);
-                if (atom != null) {
-                    if (Std.isOfType(atom, Assembly)) allAtoms = false;
-                    else allAssemblies = false;
-                }
-            }
-
-            if (allAssemblies) typeName = "Assemblies";
-            else if (allAtoms) typeName = "Atoms";
-            else typeName = "Nodes";
-
-            if (nodeCount == 1) typeName = typeName.substr(0, typeName.length - 1);
-
-            _menu.addItem("Delete Selected " + typeName + " (" + nodeCount + ")", "DELETE_SELECTED_ATOMS", {});
-
-            // --- GROUP OPTION (NEW!) ---
-            if (nodeCount >= 2 && _settingsPanel.allowAssembly) {
-                _menu.addItem("——————", "SEP");
-                _menu.addItem("Group Selected Atoms (" + nodeCount + ")", "GROUP_ATOMS", {});
-            }
-        }
-
-        _menu.show(stage.mouseX, stage.mouseY);
-    }
-    private function onPortRightClick(impulse:Impulse):Void {
-        if (impulse == null || impulse.data == null) return;
-        resetContextMenu();
-        _menu.addItem('Delete Port "${impulse.data.portName}"', "REMOVE_PORT", {name: impulse.data.portName});
-        _menu.show(impulse.data.x, impulse.data.y);
-    }
-
-    private function onWireRightClick(impulse:Impulse):Void {
-        if (impulse == null || impulse.data == null) return;
-        resetContextMenu();
-
-        var wireCount:Int = Std.int(impulse.data.ids.length);
-        var nodeCount = _currentEditor.getSelectedNodeCount();
-
-        if (nodeCount > 0) {
-            _menu.addItem("Delete Selected (" + nodeCount + " nodes, " + wireCount + " wires)", "DELETE_ALL_SELECTED", {});
-            _menu.addItem("——————", "SEP");
-        }
-
-        var label = (wireCount > 1) ? "Delete Selected Wires ("+wireCount+")" : "Delete Wire";
-        _menu.addItem(label, "DELETE_WIRES", {ids: impulse.data.ids});
-
-        _menu.show(stage.mouseX, stage.mouseY);
-    }
-
-    private function buildAtomMenu():Void {
-        var ids = AtomRegistry.getAllIds();
-        ids.sort(function(a, b) return Reflect.compare(a, b));
-
-        var currentBpId:String = (_currentAssembly != null && _currentAssembly.blueprint != null) ? _currentAssembly.blueprint.id : null;
-
-        for (id in ids) {
-            if (id == currentBpId) continue;
-
-            var bp = AtomRegistry.get(id);
-            if (bp != null) _menu.addItem("Add " + bp.name, "ADD_ATOM", {typeId: id});
-        }
-        _menu.addItem("——————", "SEP");
-        _menu.addItem("Add Input Port", "ADD_PORT", {type: INPUT});
-        _menu.addItem("Add Output Port", "ADD_PORT", {type: OUTPUT});
-    }
-
-    private function onMenuAction(impulse:Impulse):Void {
-        if (_menu != null) _menu.hide();
-        if (_fileMenu != null) _fileMenu.hide();
-        if (impulse == null || impulse.data == null || impulse.data.action == null) return;
-
-        var action:String = Std.string(impulse.data.action);
-        var data = impulse.data.data;
-        var x = impulse.data.x;
-        var y = impulse.data.y;
-
-        switch (action) {
-            case "DELETE_ALL_SELECTED":
-                var macrocom = new MacroCommand();
-                var nodeIds = _currentEditor.getSelectedNodeIds();
-                for (id in nodeIds) macrocom.addCommand(new DeleteAtomCommand(_currentAssembly.blueprint, _currentAssembly, id));
-                var wireIds = _currentEditor.getSelectedWireIds();
-                if (wireIds.length > 0) macrocom.addCommand(new DeleteWiresCommand(_currentAssembly.blueprint, _currentAssembly, wireIds));
-                UndoManager.getInstance().executeAndStore(macrocom);
-                _currentEditor.deselectAll();
-                updateSettingsStats();
-                return;
-
-            case "DELETE_SELECTED_ATOMS":
-                _currentEditor.deleteSelectedNodes();
-                updateSettingsStats();
-                _contextTargetId = null;
-                return;
-
-            case "DELETE_ATOM":
-                if (_currentEditor.getSelectedNodeCount() > 0) {
-                    _currentEditor.deleteSelectedNodes();
-                    updateSettingsStats();
-                }
-                _contextTargetId = null;
-                return;
-
-            case "DELETE_WIRES":
-                var cmd = new DeleteWiresCommand(_currentAssembly.blueprint, _currentAssembly, data.ids);
-                UndoManager.getInstance().executeAndStore(cmd);
-                return;
-
-            case "GROUP_ATOMS":
-                if (_settingsPanel.allowAssembly) groupSelectedToAssembly();
-                else log("Assembly disabled");
-                return;
-
-            case "ADD_PORT":
-                if (data != null && data.type != null) {
-                    var cmd = new AddPortCommand(_currentAssembly, data.type);
-                    UndoManager.getInstance().executeAndStore(cmd);
-                }
-                return;
-
-            case "REMOVE_PORT":
-                if (data != null && data.name != null) {
-                    var cmd = new RemovePortCommand(_currentAssembly, data.name);
-                    UndoManager.getInstance().executeAndStore(cmd);
-                }
-                return;
-        }
-
-        if (action == "ADD_ATOM") {
-            if (data != null && data.typeId != null) {
-                _currentEditor.createAtom(data.typeId, x, y);
-                updateSettingsStats();
-            }
-        }
-    }
-
-    private function onCloseContextMenu(i:Impulse):Void {
-        if (_menu != null) _menu.hide();
-        if (_fileMenu != null) _fileMenu.hide();
-    }
-
-    private function groupSelectedToAssembly():Void {
-        var selectedIds = _currentEditor.getSelectedNodeIds();
-        if (selectedIds.length < 1) { log("Select atoms to group."); return; }
-
-        log("Grouping " + selectedIds.length + " atoms...");
-        var cmd = new GroupAtomsCommand(_currentAssembly.blueprint, _currentAssembly, selectedIds);
-        cmd.execute();
-        _currentEditor.deselectAll();
-        log("Grouping complete.");
-        updateSettingsStats();
-    }
-
-    private function onNewAssembly():Void {
-        if (!_settingsPanel.allowAssembly) { log("Assembly disabled"); return; }
-        var cmd = new CreateNewAssemblyCommand();
-        UndoManager.getInstance().executeAndStore(cmd);
-    }
-
-    // ========================================
-    // DeviceWindow
-    // ========================================
 
     private function onToggleView():Void {
         if (_deviceWindow == null || !_deviceWindow.isOpen) {
             log("Opening Device Window...");
-
             _deviceWindow = new DeviceWindow();
-            
-            // НОВОЕ: Привязываем функцию восстановления редактора
             _deviceWindow.onShowEditor = restoreEditorWindow;
-
             _deviceWindow.onGetAssemblyList = getAllDevicesRecursive;
-            _deviceWindow.onAssemblySelected = function(atom:Atom) {
-                log("Device added: " + atom.name);
-            };
-
+            _deviceWindow.onAssemblySelected = function(atom:Atom) { log("Device added: " + atom.name); };
             log("Device Window opened.");
         } else {
             log("Closing Device Window...");
@@ -1441,46 +1039,20 @@ class Main extends Sprite {
         }
     }
 
-
-    /**
-     * Рекурсивно получить все Atom (и Assembly) на всех уровнях вложенности.
-     */
     private function getAllDevicesRecursive():Array<{id:String, name:String, atom:Atom}> {
         var result:Array<{id:String, name:String, atom:Atom}> = [];
-
-        // Проходим по всем уровням стека редакторов
-        for (entry in _editorStack) {
-            if (entry.assembly != null) {
-                collectDevicesRecursive(entry.assembly, result);
-            }
-        }
-
+        for (entry in _editorStack) { if (entry.assembly != null) collectDevicesRecursive(entry.assembly, result); }
         return result;
     }
 
-    /**
-     * Рекурсивно собрать все Atom из данной Assembly.
-     */
     private function collectDevicesRecursive(asm:Assembly, result:Array<{id:String, name:String, atom:Atom}>):Void {
         if (asm == null || asm.internalAtoms == null) return;
-
-        // Рекурсивно обходим внутренние атомы
         for (id in asm.internalAtoms.keys()) {
             var obj = asm.internalAtoms.get(id);
             if (Std.isOfType(obj, Atom)) {
                 var atom:Atom = cast(obj, Atom);
-                
-                // Добавляем в список
-                result.push({
-                    id: id,
-                    name: atom.name,
-                    atom: atom
-                });
-
-                // Если это Assembly, идем глубже
-                if (Std.isOfType(obj, Assembly)) {
-                    collectDevicesRecursive(cast(obj, Assembly), result);
-                }
+                result.push({ id: id, name: atom.name, atom: atom });
+                if (Std.isOfType(obj, Assembly)) collectDevicesRecursive(cast(obj, Assembly), result);
             }
         }
     }
@@ -1505,22 +1077,18 @@ class Main extends Sprite {
     private function hardReset():Void {
         log("SYSTEM: Hard Reset...");
         clearStack();
-
-        if (_deviceWindow != null) {
-            _deviceWindow.close();
-            _deviceWindow = null;
-            _customSprite = null;
-        }
-
+        if (_deviceWindow != null) { _deviceWindow.close(); _deviceWindow = null; _customSprite = null; }
         Impulsys.clear();
-        Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION", onMenuAction);
-        Impulsys.subscribeToImpulse("CLOSE_CONTEXT_MENU", onCloseContextMenu);
+        // Re-subscribe Main's specific events
         Impulsys.subscribeToImpulse("ATOM_PROPERTIES_REQUEST", onPropertiesRequest);
-        Impulsys.subscribeToImpulse("NODE_RIGHT_CLICKED", onNodeRightClick);
         Impulsys.subscribeToImpulse("OPEN_ASSEMBLY_REQUEST", onOpenAssemblyRequest);
-        Impulsys.subscribeToImpulse("WIRE_RIGHT_CLICKED", onWireRightClick);
-        Impulsys.subscribeToImpulse("PORT_RIGHT_CLICKED", _cbPortRightClick);
         Impulsys.subscribeToImpulse("REQUEST_NEW_ASSEMBLY_CONTEXT", onRequestNewContext);
+        Impulsys.subscribeToImpulse("VALUE_COMMITTED", onValueCommitted);
+        
+        // Re-init Context Manager
+        if (_contextManager != null) _uiLayer.removeChild(_contextManager.getView());
+        _contextManager = new ContextMenuManager(_settingsPanel);
+        _uiLayer.addChild(_contextManager.getView());
 
         DriverManager.getInstance().dispose();
         SignalQueue.getInstance().clear();
@@ -1530,51 +1098,28 @@ class Main extends Sprite {
 
     private function onKeyDown(e:KeyboardEvent):Void {
         if (_popup.visible) return;
-
-        if (e.keyCode == Keyboard.S && !e.ctrlKey) {
-            saveCurrentContext();
-            return;
-        }
-
+        if (e.keyCode == Keyboard.S && !e.ctrlKey) { saveCurrentContext(); return; }
         if (e.ctrlKey && e.keyCode == Keyboard.C) { if (_currentEditor != null) _currentEditor.copySelection(); return; }
         if (e.ctrlKey && e.keyCode == Keyboard.X) { if (_currentEditor != null) _currentEditor.cutSelection(); return; }
         if (e.ctrlKey && e.keyCode == Keyboard.V) { if (_currentEditor != null) _currentEditor.pasteSelection(); return; }
         if (e.ctrlKey && e.keyCode == Keyboard.A) { if (_currentEditor != null) _currentEditor.selectAll(); return; }
-
         if (e.keyCode == Keyboard.ESCAPE) {
             if (_settingsPanel.visible) { _settingsPanel.visible = false; return; }
-            if (_menu != null) _menu.hide();
-            if (_fileMenu != null) _fileMenu.hide();
             if (_editorStack.length > 1) onBackClicked();
             return;
         }
-
         if (e.ctrlKey && e.keyCode == Keyboard.Z) { UndoManager.getInstance().undo(); return; }
         if (e.ctrlKey && e.keyCode == Keyboard.Y) { UndoManager.getInstance().redo(); return; }
         if (e.keyCode == Keyboard.R) { onResetClick(); return; }
-
-        if (e.keyCode == Keyboard.D || e.keyCode == Keyboard.DELETE) {
-            deleteSelectedOnCanvas();
-            return;
-        }
-
-        if (e.keyCode == Keyboard.E) {
-            if (_editorStack.length > 1) onDeleteCurrentAssembly();
-            else log("Cannot erase root assembly.");
-            return;
-        }
-
-        if (e.keyCode == Keyboard.BACKSPACE) {
-            if (_editorStack.length > 1) onBackClicked();
-            return;
-        }
+        if (e.keyCode == Keyboard.D || e.keyCode == Keyboard.DELETE) { deleteSelectedOnCanvas(); return; }
+        if (e.keyCode == Keyboard.E) { if (_editorStack.length > 1) onDeleteCurrentAssembly(); else log("Cannot erase root assembly."); return; }
+        if (e.keyCode == Keyboard.BACKSPACE) { if (_editorStack.length > 1) onBackClicked(); return; }
     }
 
     private function deleteSelectedOnCanvas():Void {
         if (_currentEditor == null) return;
         var nodeCount = _currentEditor.getSelectedNodeCount();
         var wireIds = _currentEditor.getSelectedWireIds();
-
         if (nodeCount > 0) {
             _currentEditor.deleteSelectedNodes();
             updateSettingsStats();
@@ -1582,15 +1127,13 @@ class Main extends Sprite {
             var cmd = new DeleteWiresCommand(_currentAssembly.blueprint, _currentAssembly, wireIds);
             UndoManager.getInstance().executeAndStore(cmd);
         }
-        _contextTargetId = null;
     }
 
     private function onPropertiesRequest(impulse:Impulse):Void {
         if (impulse == null || impulse.data == null) return;
         var target = impulse.data.atom;
         var view = impulse.data.view;
-        var posX = view.x + 100;
-        var posY = view.y;
+        var posX = view.x + 100; var posY = view.y;
         if (posX > stage.stageWidth - 320) posX = stage.stageWidth - 320;
         if (posY > stage.stageHeight - 200) posY = stage.stageHeight - 200;
         _propertiesWindow.show(target, posX, posY);

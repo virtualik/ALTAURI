@@ -6,14 +6,11 @@ import system.managers.Driver;
 import system.managers.DriverManager;
 
 /**
- * ATOM BASE CLASS v5.0 (DeviceView Support)
+ * ATOM BASE CLASS v5.1 (State Serialization Support)
  * Fundamental unit of logic.
  *
- * v5.0 Changes:
- * - Added createDeviceView() for DeviceWindow
- * - Added onContactChanged() for Contact notification
- * - Added getInputs()/getOutputs() returning arrays
- * - Added getInput()/getOutput() by name
+ * v5.1 Changes:
+ * - Added getPersistentState() / restoreState() for saving atom data.
  */
 class Atom implements IDisposable implements Driver {
 
@@ -98,6 +95,26 @@ class Atom implements IDisposable implements Driver {
                 if (_outputs[i] != null) _outputs[i].value = results[i];
             }
         }
+    }
+
+    // =========================================================================
+    // STATE SERIALIZATION (NEW)
+    // =========================================================================
+
+    /**
+     * Export current state for saving.
+     * Override in subclasses that hold data (TextInput, Slider, etc.)
+     */
+    public function getPersistentState():Dynamic {
+        return null;
+    }
+
+    /**
+     * Restore state from saved data.
+     * Called after construction when loading a schematic.
+     */
+    public function restoreState(state:Dynamic):Void {
+        // Default: do nothing
     }
 
     // =========================================================================

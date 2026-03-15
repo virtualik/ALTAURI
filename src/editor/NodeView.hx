@@ -6,22 +6,24 @@ import openfl.text.TextFormat;
 import openfl.text.TextFormatAlign;
 import openfl.events.MouseEvent;
 import openfl.geom.Point;
+import openfl.geom.Rectangle;
 import core.base.Atom;
 import core.base.Assembly;
 import core.base.Contact;
 import core.types.ContactType;
 import core.logic.Impulsys;
 import core.logic.Impulse;
+import core.view.DeviceView;
+import core.view.DeviceWidgetFactory;
 import ecs.ECS;
 import Lambda;
 
 /**
- * NODE VIEW v2.5 (Access Fix)
+ * NODE VIEW v2.9 (Extra Small Scope)
  * Visual representation of an Atom.
  *
- * v2.5 Changes:
- * - FIXED: Removed illegal access to Atom._inputCache.
- * - Port visualization relies on Atom.getInputs() which is synced by Assembly.
+ * v2.9 Changes:
+ * - TWEAK: Oscilloscope scale reduced by another 2x (now 0.125).
  */
 class NodeView extends Sprite {
 
@@ -44,10 +46,12 @@ class NodeView extends Sprite {
     private var _dragStartY:Float = 0;
 
     private var _settingsBtn:Sprite;
+    
+    // Device Preview Storage
+    private var _devicePreview:DeviceView;
 
     public var selected(default, set):Bool = false;
 
-    // Theme Reference
     private var _theme:EditorTheme;
 
     private var _ecsMode:Bool = true;
@@ -77,7 +81,8 @@ class NodeView extends Sprite {
         }
 
         var maxPorts = Std.int(Math.max(inputCount, outputCount));
-        return Math.max(40, 30 + maxPorts * 20);
+        var minVisualHeight = 50; 
+        return Math.max(minVisualHeight, Math.max(40, 30 + maxPorts * 20));
     }
 
     public function new(atom:Atom, nodeId:String) {
@@ -85,7 +90,6 @@ class NodeView extends Sprite {
         this.atom = atom;
         this.nodeId = nodeId;
 
-        // Get Theme Instance
         _theme = EditorTheme.getInstance();
 
         if (Std.isOfType(atom, Assembly)) {
@@ -95,7 +99,6 @@ class NodeView extends Sprite {
         inputPorts = new Map();
         outputPorts = new Map();
 
-        // Create handlers for later removal
         _mouseDownHandler = onMouseDown;
         _rightMouseDownHandler = onRightMouseDown;
         _doubleClickHandler = onDoubleClick;
@@ -112,7 +115,6 @@ class NodeView extends Sprite {
         this.doubleClickEnabled = true;
         addEventListener(MouseEvent.DOUBLE_CLICK, _doubleClickHandler);
 
-        // Register with ECS
         ECS.register(nodeId, this, this.x, this.y);
     }
 
@@ -130,7 +132,7 @@ class NodeView extends Sprite {
 
         graphics.clear();
 
-        // Use Theme Colors
+        // Background
         graphics.beginFill(_theme.NODE_BG_COLOR);
 
         if (selected) {
@@ -142,6 +144,7 @@ class NodeView extends Sprite {
         graphics.drawRoundRect(0, 0, _width, _height, 10, 10);
         graphics.endFill();
 
+        // Title
         var title = new TextField();
         var displayName = "Unknown";
 
@@ -151,16 +154,16 @@ class NodeView extends Sprite {
 
         title.text = displayName;
         title.width = _width - 20;
-        title.height = _height;
+        title.height = 20;
         title.selectable = false;
         title.mouseEnabled = false;
 
-        // Use Theme Text Color
         var fmt = new TextFormat("_typewriter", 10, _theme.NODE_TEXT_COLOR);
         fmt.align = TextFormatAlign.CENTER;
         title.defaultTextFormat = fmt;
         addChild(title);
 
+        // Settings Button
         _settingsBtn = new Sprite();
         _settingsBtn.graphics.beginFill(_theme.NODE_SETTINGS_BTN_COLOR, 0.8);
         _settingsBtn.graphics.drawCircle(_width - 10, _height / 2, 6);
@@ -174,6 +177,77 @@ class NodeView extends Sprite {
         _settingsBtn.mouseEnabled = true;
         _settingsBtn.addEventListener(MouseEvent.CLICK, _settingsClickHandler);
         addChild(_settingsBtn);
+
+        // =====================================================================
+        // DEVICE PREVIEW EMBEDDING
+        // =====================================================================
+        
+        if (_devicePreview != null) {
+            _devicePreview.dispose();
+            if (contains(_devicePreview)) removeChild(_devicePreview);
+            _devicePreview = null;
+        }
+
+        // Only show preview for "Native" atoms (not Assemblies)
+        if (!Std.isOfType(atom, Assembly)) {
+            try {
+                _devicePreview = DeviceWidgetFactory.create(atom);
+                
+                if (_devicePreview != null) {
+                    // Scaling Strategy
+                    var scaleFactor:Float = 0.6; // Default scale
+                    var type = atom.type.toLowerCase();
+
+                    switch (type) {
+                        case "oscilloscope":
+                            scaleFactor = 0.125; // v2.9: Reduced by 2x again (was 0.25)
+                        
+                        case "button":
+                            scaleFactor = 0.6;
+							
+						case "textinput":
+                            scaleFactor = 0.6;
+                        
+                        default:
+                            scaleFactor = 0.6;
+                    }
+                    
+                    _devicePreview.scaleX = scaleFactor;
+                    _devicePreview.scaleY = scaleFactor;
+                    
+                    // Smart Centering using Bounds
+                    // This fixes the issue where LED (drawn at 0,0) appeared top-left
+                    var bounds:Rectangle = _devicePreview.getBounds(_devicePreview);
+                    
+                    // Calculate center offset
+                    // Position is: NodeCenter - (BoundsCenter * Scale)
+                    // BoundsCenter = bounds.x + bounds.width/2
+                    var cx:Float = bounds.x + bounds.width / 2;
+                    var cy:Float = bounds.y + bounds.height / 2;
+
+                    _devicePreview.x = (_width / 2) - (cx * scaleFactor);
+                    _devicePreview.y = (_height / 2) - (cy * scaleFactor) + 5; // +5 slight vertical offset
+                    
+                    // Determine interactivity
+                    var isInteractive:Bool = (type == "button" || type == "toggle" || type == "switch" || type == "textinput");
+                    
+                    _devicePreview.mouseEnabled = isInteractive;
+                    _devicePreview.mouseChildren = isInteractive;
+                    
+                    if (isInteractive) {
+                        _devicePreview.buttonMode = true;
+                        _devicePreview.useHandCursor = true;
+                    }
+                    
+                    addChild(_devicePreview);
+                    _devicePreview.activate();
+                }
+            } catch (e:Dynamic) {
+                trace('Error creating device preview: $e');
+            }
+        }
+        
+        // =====================================================================
 
         var ins:Array<Contact> = [];
         var outs:Array<Contact> = [];
@@ -204,6 +278,7 @@ class NodeView extends Sprite {
 
         inputPorts = new Map();
         outputPorts = new Map();
+        _devicePreview = null;
 
         draw();
 
@@ -226,15 +301,10 @@ class NodeView extends Sprite {
         var isInput = (type == ContactType.INPUT);
         var step = _height / (count + 1);
 
-        // NOTE: We do NOT need to touch _inputCache here.
-        // Assembly is responsible for keeping its own internal data structures consistent.
-        // Haxe arrays grow automatically on assignment, so _inputCache logic in Atom handles dynamic resizing safely.
-
         for (i in 0...count) {
             var c = contacts[i];
             var port = new Sprite();
 
-            // Use Theme Port Color
             port.graphics.beginFill(_theme.PORT_COLOR_DEFAULT);
             port.graphics.drawCircle(0, 0, 5);
             port.graphics.endFill();
@@ -284,7 +354,6 @@ class NodeView extends Sprite {
     }
 
     private function onDoubleClick(e:MouseEvent):Void {
-        // Проверяем наличие логики
         if (_assemblyInstance == null) return;
         if (_assemblyInstance.blueprint.logic != null) {
             return;
@@ -310,6 +379,10 @@ class NodeView extends Sprite {
         var targetSprite:Dynamic = e.target;
         if (Std.isOfType(targetSprite, Sprite)) {
              var s:Sprite = targetSprite;
+             if (_devicePreview != null && _devicePreview.mouseEnabled && _devicePreview.contains(s)) {
+                 return; 
+             }
+             
              if (inputPorts.exists(s.name) || outputPorts.exists(s.name) || s == _settingsBtn) {
                  return;
              }
@@ -439,6 +512,11 @@ class NodeView extends Sprite {
             }
             outputPorts.clear();
             outputPorts = null;
+        }
+
+        if (_devicePreview != null) {
+            _devicePreview.dispose();
+            _devicePreview = null;
         }
 
         graphics.clear();

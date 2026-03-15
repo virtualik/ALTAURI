@@ -623,7 +623,7 @@ class GroupAtomsCommand extends Command {
         return str;
     }
 
-    private function saveNewAssembly(bp:Blueprint):Void {
+   private function saveNewAssembly(bp:Blueprint):Void {
         #if sys
         var atomsData:Array<Dynamic> = [];
         for (atomDef in bp.internalAtoms) {
@@ -665,7 +665,20 @@ class GroupAtomsCommand extends Command {
             }
         };
 
-        var path = "library/" + bp.id + ".atom";
+        // === ИСПРАВЛЕНИЕ ПУТИ ===
+        // Используем путь из реестра, если он задан, иначе дефолтный
+        var libPath = (library.AtomRegistry.customLibraryPath != null && library.AtomRegistry.customLibraryPath.length > 0) 
+            ? library.AtomRegistry.customLibraryPath 
+            : "library";
+        
+        // Убедимся, что папка существует
+        if (!sys.FileSystem.exists(libPath)) {
+            try { sys.FileSystem.createDirectory(libPath); } catch(e:Dynamic) {}
+        }
+
+        var path = libPath + "/" + bp.id + ".atom";
+        // =======================
+
         try {
             sys.io.File.saveContent(path, haxe.Json.stringify(data, null, "  "));
             trace('GroupAtomsCommand: Saved $path');
@@ -677,7 +690,13 @@ class GroupAtomsCommand extends Command {
 
     private function deleteAssemblyFile(typeId:String):Void {
         #if sys
-        var path = "library/" + typeId + ".atom";
+        // === ИСПРАВЛЕНИЕ ПУТИ ===
+        var libPath = (library.AtomRegistry.customLibraryPath != null && library.AtomRegistry.customLibraryPath.length > 0) 
+            ? library.AtomRegistry.customLibraryPath 
+            : "library";
+        var path = libPath + "/" + typeId + ".atom";
+        // =======================
+
         if (sys.FileSystem.exists(path)) {
             try {
                 sys.FileSystem.deleteFile(path);

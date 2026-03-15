@@ -49,6 +49,8 @@ class AtomRegistry {
             {name: "in", type: INPUT, dataType: "array"}
         ], null, "oscilloscope");
 		
+		reg("TextInput", "Text Input", [{name: "set", type: INPUT, dataType: "string"}, {name: "out", type: OUTPUT, dataType: "string"}], null, "textinput");
+
 		_initialized = true;
     }
 

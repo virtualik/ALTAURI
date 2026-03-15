@@ -15,7 +15,8 @@ typedef AtomDef = {
     instanceId: String,
     typeId: String,
     ?x: Float,
-    ?y: Float
+    ?y: Float,
+    ?values: Dynamic // <--- НОВОЕ: Хранит состояние атома (например, {value: "Some Text"})
 }
 
 typedef ConnectionPoint = {
@@ -47,10 +48,10 @@ class Blueprint {
     public var internalConnections(default, null):Array<ConnectionDef>;
 
     public var logic(default, null):Array<Dynamic> -> Array<Dynamic>;
-	
-	public var isActive:Bool = false; // Флаг активности
     
-	public function new(
+    public var isActive:Bool = false; // Флаг активности
+    
+    public function new(
         id:String,
         name:String,
         pins:Array<PinDef>,

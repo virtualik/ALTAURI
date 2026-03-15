@@ -1,7 +1,7 @@
 package core.base;
 
 import library.AtomRegistry;
-import core.data.Blueprint;
+import library.electro.TextInputAtom;
 import utils.UID;
 
 // Импорты нативных классов
@@ -54,6 +54,7 @@ class AssemblyFactory {
             case "LED": return new LedAtom(id);
             case "Relay": return new RelayAtom(id);
             case "Oscilloscope": return new OscilloscopeAtom(id);
+			case "TextInput": return new TextInputAtom(id);
         }
 
         // Если это не нативный атом, создаем Assembly (составную сборку)

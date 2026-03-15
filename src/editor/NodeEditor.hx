@@ -29,13 +29,14 @@ import library.AtomRegistry;
 //import utils.UID;
 
 /**
- * NodeEditor v3.0 (Refactored)
+ * NodeEditor v3.1 (ContextMenu Refactor)
  * Main editor coordinator. Delegates Pan/Zoom to ViewportManager
  * and Actions/Undo to EditorActionHandler.
+ * Emits CANVAS_RIGHT_CLICKED for ContextMenuManager.
  */
 class NodeEditor extends Sprite {
-	
-	// ========================================================================
+    
+    // ========================================================================
     // CORE REFERENCES
     // ========================================================================
 
@@ -79,9 +80,7 @@ class NodeEditor extends Sprite {
     // NODE DRAG
     // ========================================================================
 
-    private var _dragStartPositions:Map<String, {x:Float, y:Float}>; // Changed type slightly to match logic need
-                    // Actually we need start pos relative to view for command
-                    // Let's keep Map<String, {x:Float, y:Float}> for start positions
+    private var _dragStartPositions:Map<String, {x:Float, y:Float}>;
     private var _draggingNode:NodeView = null;
 
     // ========================================================================
@@ -104,8 +103,8 @@ class NodeEditor extends Sprite {
     private var _edgePorts:Map<String, Sprite> = new Map();
     private var _fileNameField:TextField;
     private var _viewportMask:Sprite;
-	private var _zoomDebounceTimer:haxe.Timer = null;
-	private var _pendingZoom:Bool = false;
+    private var _zoomDebounceTimer:haxe.Timer = null;
+    private var _pendingZoom:Bool = false;
     
 
     // ========================================================================
@@ -116,8 +115,9 @@ class NodeEditor extends Sprite {
     private var _allowAssembly:Bool = true;
     private var _forcedWidth:Float = 0;
     private var _forcedHeight:Float = 0;
-	private var _lastVisibilityUpdate:Float = 0;
-	private var _zoomRebuildTimer:haxe.Timer = null;
+    private var _lastVisibilityUpdate:Float = 0;
+    private var _zoomRebuildTimer:haxe.Timer = null;
+    
     // ========================================================================
     // CALLBACKS
     // ========================================================================
@@ -159,6 +159,7 @@ class NodeEditor extends Sprite {
         _canvas.mask = _viewportMask;
 
         _bgHitArea.addEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
+        _bgHitArea.addEventListener(MouseEvent.RIGHT_CLICK, onCanvasRightClick); // <--- NEW: Context Menu Trigger
 
         // Lasso
         _lasso = new Sprite();
@@ -366,14 +367,14 @@ class NodeEditor extends Sprite {
     }
 
     private function updateVisibility():Void {
-		var now = haxe.Timer.stamp();
-		if (now - _lastVisibilityUpdate < 0.1) return; // Не чаще 10 раз в секунду
-		_lastVisibilityUpdate = now;
-		
-		var w = _forcedWidth > 0 ? _forcedWidth : (stage != null ? stage.stageWidth : 1024);
-		var h = _forcedHeight > 0 ? _forcedHeight : (stage != null ? stage.stageHeight : 600);
-		_viewport.updateVisibility(_nodes.iterator(), w, h);
-	}
+        var now = haxe.Timer.stamp();
+        if (now - _lastVisibilityUpdate < 0.1) return; // Не чаще 10 раз в секунду
+        _lastVisibilityUpdate = now;
+        
+        var w = _forcedWidth > 0 ? _forcedWidth : (stage != null ? stage.stageWidth : 1024);
+        var h = _forcedHeight > 0 ? _forcedHeight : (stage != null ? stage.stageHeight : 600);
+        _viewport.updateVisibility(_nodes.iterator(), w, h);
+    }
 
     // ========================================================================
     // NODE MANAGEMENT
@@ -525,6 +526,18 @@ class NodeEditor extends Sprite {
             }
         }
         _lasso.graphics.clear();
+    }
+    
+    // ========================================================================
+    // CANVAS CONTEXT MENU (NEW)
+    // ========================================================================
+
+    private function onCanvasRightClick(e:MouseEvent):Void {
+        e.stopPropagation();
+        Impulsys.emit(new Impulse("CANVAS_RIGHT_CLICKED", {
+            x: e.stageX,
+            y: e.stageY
+        }));
     }
 
     // ========================================================================
@@ -741,20 +754,20 @@ class NodeEditor extends Sprite {
         }
     }
 
-	private function onMouseWheel(e:MouseEvent):Void {
-		_viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
-		
-		// Отменяем предыдущий таймер если есть
-		if (_zoomRebuildTimer != null) {
-			_zoomRebuildTimer.stop();
-		}
-		
-		// Планируем rebuild через 80ms после последнего скролла
-		_zoomRebuildTimer = haxe.Timer.delay(() -> {
-			_wireRenderer.rebuildAll();
-			updateVisibility();
-		}, 1);
-	}
+    private function onMouseWheel(e:MouseEvent):Void {
+        _viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
+        
+        // Отменяем предыдущий таймер если есть
+        if (_zoomRebuildTimer != null) {
+            _zoomRebuildTimer.stop();
+        }
+        
+        // Планируем rebuild через 80ms после последнего скролла
+        _zoomRebuildTimer = haxe.Timer.delay(() -> {
+            _wireRenderer.rebuildAll();
+            updateVisibility();
+        }, 1);
+    }
 
     // ========================================================================
     // DELETE (Delegated)
@@ -923,6 +936,7 @@ class NodeEditor extends Sprite {
         Impulsys.removeImpulse("NODE_CLICKED", onNodeClicked);
 
         _bgHitArea.removeEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
+        _bgHitArea.removeEventListener(MouseEvent.RIGHT_CLICK, onCanvasRightClick); // Cleanup
 
         _wireRenderer.dispose();
 

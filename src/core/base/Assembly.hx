@@ -14,12 +14,11 @@ import system.managers.DriverManager;
 
 
 /**
- * ASSEMBLY v4.7 (Cache Sync)
+ * ASSEMBLY v4.8 (State Serialization)
  * Универсальный базовый класс для ВСЕХ узлов.
  *
- * v4.7 Changes:
- * - FIXED: Syncs _inputCache size when inputs are added dynamically.
- * - Ensures _inputs/_outputs arrays are updated in updateFromBlueprint.
+ * v4.8 Changes:
+ * - Restores atom state from Blueprint.values after creation.
  */
 class Assembly extends Atom {
 
@@ -178,12 +177,14 @@ class Assembly extends Atom {
             var instance = AssemblyFactory.createAtom(atomDef.typeId, newInstanceID);
             if (instance != null) {
                 internalAtoms.set(newInstanceID, instance);
-                
+
+                // --- НОВОЕ: Восстановление состояния ---
+                if (atomDef.values != null) {
+                    instance.restoreState(atomDef.values);
+                }
+                // --------------------------------------
+
                 // Регистрируем активные драйвера
-                // Нужно проверить, является ли сам instance активным
-                // Но так как Assembly оборачивает всё, нам нужно заглянуть внутрь логики или использовать каст
-                // Проще всего: если blueprint типа SignalGen -> регистрируем
-                
                 var bpDef = AtomRegistry.get(atomDef.typeId);
                 if (bpDef != null && bpDef.isActive) {
                     DriverManager.getInstance().register(instance);
