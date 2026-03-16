@@ -19,9 +19,22 @@ class ContextMenu extends Sprite {
         graphics.endFill();
     }
 
+    // === НОВЫЙ МЕТОД ===
+    public function clear():Void {
+        // Удаляем визуальные элементы
+        while (numChildren > 0) {
+            removeChildAt(0);
+        }
+        // Очищаем массив данных!
+        _items = [];
+        // Очищаем графику
+        graphics.clear();
+    }
+    // ====================
+
     public function addItem(label:String, action:String, ?data:Dynamic):Void {
         var item = new ContextMenuItem(label, action, data);
-        item.y = _items.length * 25;
+        item.y = _items.length * 25; // Теперь _items.length будет корректным
         addChild(item);
         _items.push(item);
 

@@ -80,7 +80,7 @@ class Main extends Sprite {
 
     // Context Menu Manager
     private var _contextManager:ContextMenuManager;
-    
+
     private var _propertiesWindow:PropertiesWindow;
     private var _settingsPanel:SettingsPanel;
 
@@ -109,6 +109,9 @@ class Main extends Sprite {
     // DeviceWindow
     private var _deviceWindow:DeviceWindow;
     private var _customSprite:Sprite;
+    
+    // Кэш состояния окна устройств
+    private var _cachedDeviceWindowState:Array<{path:Array<String>, x:Float, y:Float}> = null;
 
     public function new() {
         super();
@@ -135,9 +138,6 @@ class Main extends Sprite {
 
         if (stage != null) init();
         else addEventListener(Event.ADDED_TO_STAGE, init);
-		
-		haxe.Timer.delay(function() { trace("--- ЗАПУСК ТЕСТОВОГО ОКНА ---");
-		new ui.DeviceWindow2(); }, 2000); // Откроется через 2 секунды после старта приложения
     }
 
     private function setupPaths():Void {
@@ -170,11 +170,10 @@ class Main extends Sprite {
     private function init(e:Event = null):Void {
         removeEventListener(Event.ADDED_TO_STAGE, init);
         openfl.Lib.current.stage.window.visible = true;
-        
+
         if (_appInitialized) {
             log("Restoring Editor Window...");
             Lib.current.stage.color = _theme.APP_BG_COLOR;
-			Lib.current.stage.opaqueBackground = _theme.OPAQUE_BACKGROUND_COLOR;
             stage.addEventListener(Event.RESIZE, onResize);
             stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
             #if sys
@@ -213,18 +212,13 @@ class Main extends Sprite {
         }
     }
 
-	private function saveOnExit():Void {
+    private function saveOnExit():Void {
         log("Auto-saving on exit...");
-        
-        // 1. Сохраняем основную сессию (Selfrun)
         saveSelfrun();
 
-        // 2. Сохраняем все остальные открытые вкладки (если они есть)
-        // Проходим по всему стеку редакторов
         if (_editorStack.length > 1) {
             for (i in 1..._editorStack.length) {
                 var entry = _editorStack[i];
-                // Сохраняем сборку в библиотеку
                 saveAssemblyToLibrary(entry.assembly);
             }
         }
@@ -266,8 +260,28 @@ class Main extends Sprite {
                 pushEditor(rootAssembly, true);
                 _currentEditor.setViewState(viewState);
 
-                if (json.deviceWindow != null && json.deviceWindow.isOpen) {
-                    restoreDeviceWindow(rootAssembly, json.deviceWindow.devices);
+                // Загрузка состояния DeviceWindow
+                if (json.deviceWindow != null && json.deviceWindow.devices != null) {
+                    // ПАРСИНГ JSON В ТИПИЗИРОВАННЫЙ МАССИВ (Fix for error)
+                    _cachedDeviceWindowState = [];
+                    var devs:Array<Dynamic> = json.deviceWindow.devices;
+                    for (d in devs) {
+                        var p:Array<String> = [];
+                        if (d.path != null) {
+                            for (s in cast(d.path, Array<Dynamic>)) {
+                                p.push(Std.string(s));
+                            }
+                        }
+                        _cachedDeviceWindowState.push({
+                            path: p,
+                            x: d.x,
+                            y: d.y
+                        });
+                    }
+
+                    if (json.deviceWindow.isOpen) {
+                        restoreDeviceWindow(rootAssembly);
+                    }
                 }
                 log("Selfrun loaded.");
 
@@ -293,21 +307,8 @@ class Main extends Sprite {
         pushEditor(rootAssembly, true);
     }
 
-    private function restoreDeviceWindow(rootAssembly:Assembly, devicesData:Array<Dynamic>):Void {
-        if (devicesData == null || devicesData.length == 0) return;
-        log("Restoring Device Window...");
+    private function restoreDeviceWindow(rootAssembly:Assembly):Void {
         onToggleView();
-        if (_deviceWindow == null) return;
-
-        for (data in devicesData) {
-            var path:Array<String> = data.path;
-            var x:Float = data.x;
-            var y:Float = data.y;
-            var atom = resolveDevicePath(rootAssembly, path);
-            if (atom != null) {
-                _deviceWindow.addDevice(atom, x, y);
-            }
-        }
     }
 
     private function findDevicePath(container:Assembly, target:Atom):Array<String> {
@@ -454,7 +455,6 @@ class Main extends Sprite {
         _currentEditor = editor;
         _currentAssembly = assembly;
 
-        // UPDATE MANAGER CONTEXT
         if (_contextManager != null) {
             _contextManager.setContext(_currentEditor, _currentAssembly);
         }
@@ -514,7 +514,7 @@ class Main extends Sprite {
         var bp = _currentAssembly.blueprint;
         var isSaved = isAssemblyFileExists(bp.id);
         var title = "Confirm Erase";
-        var message = isSaved 
+        var message = isSaved
             ? "Assembly '" + bp.name + "' will be erased from Library. Continue?"
             : "Assembly '" + bp.name + "' is not saved and will be discarded. Continue?";
 
@@ -617,10 +617,9 @@ class Main extends Sprite {
         _currentAssembly = prev.assembly;
         if (isUpdate) updateInstancesOf(editedId);
         _currentEditor.refreshAssemblyViews();
-        
-        // UPDATE MANAGER CONTEXT
+
         if (_contextManager != null) _contextManager.setContext(_currentEditor, _currentAssembly);
-        
+
         updateNavigationUI();
         updateButtonStates();
         log("Returned to: " + _currentAssembly.blueprint.name);
@@ -758,27 +757,22 @@ class Main extends Sprite {
         _settingsPanel.onSettingsChanged = onSettingsChanged;
         _settingsLayer.addChild(_settingsPanel);
 
-        // === CONTEXT MENU MANAGER INIT ===
         _contextManager = new ContextMenuManager(_settingsPanel);
         _uiLayer.addChild(_contextManager.getView());
-        // ==================================
 
         stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
 
-        // Subscriptions
         Impulsys.subscribeToImpulse("ATOM_PROPERTIES_REQUEST", onPropertiesRequest);
         Impulsys.subscribeToImpulse("OPEN_ASSEMBLY_REQUEST", onOpenAssemblyRequest);
         Impulsys.subscribeToImpulse("REQUEST_NEW_ASSEMBLY_CONTEXT", onRequestNewContext);
         Impulsys.subscribeToImpulse("VALUE_COMMITTED", onValueCommitted);
     }
-    
-    // --- ADDED METHOD ---
+
     private function onNewAssembly():Void {
         if (!_settingsPanel.allowAssembly) { log("Assembly disabled"); return; }
         var cmd = new CreateNewAssemblyCommand();
         UndoManager.getInstance().executeAndStore(cmd);
     }
-    // --------------------
 
     private function onValueCommitted(impulse:Impulse):Void {
         saveCurrentContext();
@@ -818,20 +812,15 @@ class Main extends Sprite {
         _btnNew.visible = _settingsPanel.allowAssembly;
     }
 
-private function saveCurrentContext():Void {
+    private function saveCurrentContext():Void {
         #if sys
         var isRoot = (_editorStack.length == 1);
         if (isRoot) {
             log("Saving Selfrun...");
             saveSelfrun();
         } else {
-            // Если это не корень, сохраняем текущую сборку в библиотеку
             log("Saving Assembly to Library...");
             saveAssemblyToLibrary(_currentAssembly);
-            
-            // ВАЖНО: Также сохраняем саму сессию (selfrun), чтобы сохранить ссылки на эту сборку, если она используется
-            // Но здесь это может быть избыточно, если мы просто редактируем отдельный файл.
-            // Обычно достаточно сохранить сам файл сборки.
         }
         #end
     }
@@ -883,7 +872,9 @@ private function saveCurrentContext():Void {
         var bp = rootAssembly.blueprint;
         var viewState = rootEditor.getViewState();
 
-        var deviceWindowData:Array<Dynamic> = [];
+        // Исправлено: Явная типизация массива для сохранения
+        var deviceWindowData:Array<{path:Array<String>, x:Float, y:Float}> = [];
+        
         if (_deviceWindow != null && _deviceWindow.isOpen) {
             var cards = _deviceWindow.getDeviceCards();
             for (card in cards) {
@@ -896,6 +887,9 @@ private function saveCurrentContext():Void {
                     });
                 }
             }
+            _cachedDeviceWindowState = deviceWindowData;
+        } else if (_cachedDeviceWindowState != null) {
+            deviceWindowData = _cachedDeviceWindowState;
         }
 
         var data:Dynamic = {
@@ -1030,20 +1024,42 @@ private function saveCurrentContext():Void {
     }
 
     private function onToggleView():Void {
-        if (_deviceWindow == null || !_deviceWindow.isOpen) {
+        if (_deviceWindow != null && _deviceWindow.isOpen) {
+            var rootAssembly:Assembly = _editorStack[0].assembly;
+            _cachedDeviceWindowState = [];
+            
+            var cards = _deviceWindow.getDeviceCards();
+            for (card in cards) {
+                var path = findDevicePath(rootAssembly, card.atom);
+                if (path != null && path.length > 0) {
+                    _cachedDeviceWindowState.push({
+                        path: path, 
+                        x: card.x, 
+                        y: card.y
+                    });
+                }
+            }
+            
+            log("Closing Device Window (state cached).");
+            _deviceWindow.close();
+            _deviceWindow = null;
+        } else {
             log("Opening Device Window...");
             _deviceWindow = new DeviceWindow();
             _deviceWindow.onShowEditor = restoreEditorWindow;
             _deviceWindow.onGetAssemblyList = getAllDevicesRecursive;
             _deviceWindow.onAssemblySelected = function(atom:Atom) { log("Device added: " + atom.name); };
-            log("Device Window opened.");
-			
-		//	var testWin = new DeviceWindow2();
-		//	trace("Попытка открыть тестовое окно...");
-        } else {
-            log("Closing Device Window...");
-            _deviceWindow.close();
-            _deviceWindow = null;
+
+            if (_cachedDeviceWindowState != null && _cachedDeviceWindowState.length > 0) {
+                var rootAssembly:Assembly = _editorStack[0].assembly;
+                for (item in _cachedDeviceWindowState) {
+                    var atom = resolveDevicePath(rootAssembly, item.path);
+                    if (atom != null) {
+                        _deviceWindow.addDevice(atom, item.x, item.y);
+                    }
+                }
+                log("Restored " + _cachedDeviceWindowState.length + " devices from cache.");
+            }
         }
     }
 
@@ -1086,14 +1102,14 @@ private function saveCurrentContext():Void {
         log("SYSTEM: Hard Reset...");
         clearStack();
         if (_deviceWindow != null) { _deviceWindow.close(); _deviceWindow = null; _customSprite = null; }
+        _cachedDeviceWindowState = null;
+        
         Impulsys.clear();
-        // Re-subscribe Main's specific events
         Impulsys.subscribeToImpulse("ATOM_PROPERTIES_REQUEST", onPropertiesRequest);
         Impulsys.subscribeToImpulse("OPEN_ASSEMBLY_REQUEST", onOpenAssemblyRequest);
         Impulsys.subscribeToImpulse("REQUEST_NEW_ASSEMBLY_CONTEXT", onRequestNewContext);
         Impulsys.subscribeToImpulse("VALUE_COMMITTED", onValueCommitted);
-        
-        // Re-init Context Manager
+
         if (_contextManager != null) _uiLayer.removeChild(_contextManager.getView());
         _contextManager = new ContextMenuManager(_settingsPanel);
         _uiLayer.addChild(_contextManager.getView());

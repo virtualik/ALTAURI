@@ -229,14 +229,8 @@ class ContextMenuManager {
 
     private function resetMenu():Void {
         _menu.hide();
-        // Очистка меню (т.к. ui.ContextMenu простой, чистим вручную)
-        while (_menu.numChildren > 0) _menu.removeChildAt(0);
-        _menu.graphics.clear();
-        // Базовый фон
-        _menu.graphics.lineStyle(1, 0x888888);
-        _menu.graphics.beginFill(0xEEEEEE);
-        _menu.graphics.drawRoundRect(0, 0, 150, 10, 5);
-        _menu.graphics.endFill();
+        // Очистка меню
+        _menu.clear();
     }
 
     private function buildAtomMenu(x:Float, y:Float):Void {
