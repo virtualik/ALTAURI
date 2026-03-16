@@ -3,12 +3,14 @@ package ui;
 import openfl.display.Window;
 import openfl.display.Sprite;
 import openfl.Lib;
-import openfl.events.Event;
-import openfl.events.MouseEvent;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
 import openfl.text.TextFormatAlign;
-import core.base.Assembly;
+import openfl.display.StageScaleMode;
+import openfl.display.StageAlign;
+import openfl.text.TextFieldAutoSize;
+import openfl.events.MouseEvent;
+import openfl.events.Event;
 import core.base.Atom;
 import core.view.DeviceView;
 import core.view.DeviceWidgetFactory;
@@ -16,32 +18,173 @@ import core.logic.Impulse;
 import core.logic.Impulsys;
 
 /**
- * DeviceWindow v5.0 (Atom Support)
- * Теперь поддерживает любые Atom (не только Assembly).
+ * DeviceWindow v7.0 (Stable Merge)
+ * Объединяет рабочий способ создания окна из DeviceWindow2
+ * и полный функционал (контекстное меню, устройства) из DeviceWindow.
  */
 class DeviceWindow {
-
     private var _window:Window;
+    private var _container:Sprite; // Главный контейнер (аналог _rootContainer)
+    
+    // Элементы UI
     private var _header:Sprite;
     private var _contextMenu:Sprite;
     private var _menuVisible:Bool = false;
-
     public var deviceCanvas(default, null):Sprite;
-    private var _deviceCards:Array<DeviceCard>;
+    private var _titleLabel:TextField;
 
+    // Логика устройств
+    private var _deviceCards:Array<DeviceCard>;
     private var _impulseCallback:Impulse -> Void;
 
+    // Коллбеки
     public var onGetAssemblyList:Void -> Array<{id:String, name:String, atom:Atom}>;
     public var onAssemblySelected:Atom -> Void;
-    
     public var onShowEditor:Void -> Void;
 
-    private var _titleLabel:TextField;
+    private static inline var BG_COLOR:Int = 0x1a1a24;
 
     public function new() {
         _deviceCards = [];
         create();
     }
+
+    private function create():Void {
+        // === ТОЧНО ТАКОЙ ЖЕ КОНФИГ И СОЗДАНИЕ КАК В DEVICEWINDOW2 ===
+        var config = {
+            title: "Device Window",
+            width: 420,
+            height: 320,
+            resizable: true,
+            context: {
+                background: BG_COLOR,
+                antialiasing: 2,
+                hardware: false // Сохраняем рабочий параметр из вашего примера
+            }
+        };
+
+        _window = Lib.application.createWindow(config);
+
+        if (_window != null && _window.stage != null) {
+            var stage = _window.stage;
+            stage.scaleMode = StageScaleMode.NO_SCALE;
+            stage.align = StageAlign.TOP_LEFT;
+            
+            // Устанавливаем цвет сцены для надежности
+            stage.color = BG_COLOR;
+            stage.opaqueBackground = BG_COLOR;
+
+            _container = new Sprite();
+            stage.addChild(_container);
+
+            // === ДОБАВЛЯЕМ ПОЛНОЦЕННУЮ ЛОГИКУ UI ===
+            
+            // 1. Инициализация импульсов
+            _impulseCallback = onAtomDeleted;
+            Impulsys.subscribeToImpulse("ATOM_DELETED", _impulseCallback);
+
+            // 2. Создаем элементы интерфейса
+            createHeader();
+            createDeviceCanvas();
+            createContextMenu();
+
+            // 3. События мыши
+            stage.addEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
+            stage.addEventListener(MouseEvent.CLICK, onStageClick);
+
+            // Принудительно обновить окно (как в вашем примере)
+            stage.invalidate();
+        } else {
+            trace("Ошибка: окно или stage не созданы");
+        }
+    }
+
+    // =========================================================================
+    // UI CREATION (Взято из оригинального DeviceWindow)
+    // =========================================================================
+
+    private function createHeader():Void {
+        _header = new Sprite();
+        _header.graphics.beginFill(0x2a2a34);
+        _header.graphics.drawRect(0, 0, 420, 30);
+        _header.graphics.endFill();
+
+        _titleLabel = new TextField();
+        _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 12, 0xFFFFFF, true);
+        _titleLabel.text = "  Device (Right-Click to Add)";
+        _titleLabel.width = 300;
+        _titleLabel.height = 30;
+        _titleLabel.selectable = false;
+        _titleLabel.mouseEnabled = false;
+        _header.addChild(_titleLabel);
+
+        // Кнопка [E] - Показать редактор
+        var editorBtn = createHeaderButton("E", 0x005500, function(_) {
+            if (onShowEditor != null) {
+                var mainWin = Lib.current.stage.window;
+                if (mainWin != null) mainWin.visible = true;
+            }
+        });
+        editorBtn.x = 330;
+        _header.addChild(editorBtn);
+
+        // Кнопка [C] - Очистить
+        var clearBtn = createHeaderButton("C", 0x555500, function(_) clearDevices());
+        clearBtn.x = 360;
+        _header.addChild(clearBtn);
+
+        // Кнопка [X] - Закрыть
+        var closeBtn = createHeaderButton("X", 0xAA0000, function(_) close());
+        closeBtn.x = 390;
+        _header.addChild(closeBtn);
+
+        _header.addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
+        _header.buttonMode = true;
+
+        _container.addChild(_header);
+    }
+
+    private function createHeaderButton(label:String, color:Int, onClick:MouseEvent->Void):Sprite {
+        var btn = new Sprite();
+        btn.graphics.beginFill(color);
+        btn.graphics.drawRect(0, 0, 30, 30);
+        btn.graphics.endFill();
+
+        var txt = new TextField();
+        txt.text = label;
+        txt.width = 30;
+        txt.height = 30;
+        txt.selectable = false;
+        txt.mouseEnabled = false;
+        txt.defaultTextFormat = new TextFormat("_sans", 12, 0xFFFFFF, true, null, null, null, null, "center");
+        btn.addChild(txt);
+
+        btn.buttonMode = true;
+        btn.addEventListener(MouseEvent.CLICK, onClick);
+        return btn;
+    }
+
+    private function createDeviceCanvas():Void {
+        deviceCanvas = new Sprite();
+        deviceCanvas.y = 30;
+
+        // Фон канваса
+        deviceCanvas.graphics.beginFill(BG_COLOR);
+        deviceCanvas.graphics.drawRect(0, 0, 420, 290);
+        deviceCanvas.graphics.endFill();
+
+        _container.addChild(deviceCanvas);
+    }
+
+    private function createContextMenu():Void {
+        _contextMenu = new Sprite();
+        _contextMenu.visible = false;
+        _container.addChild(_contextMenu);
+    }
+
+    // =========================================================================
+    // DEVICE LOGIC (Взято из оригинального DeviceWindow)
+    // =========================================================================
 
     public function addDevice(atom:Atom, ?x:Float = null, ?y:Float = null):Void {
         if (atom == null) return;
@@ -63,7 +206,6 @@ class DeviceWindow {
 
     public function removeDevice(card:DeviceCard):Void {
         if (card == null) return;
-
         _deviceCards.remove(card);
         if (deviceCanvas != null && deviceCanvas.contains(card)) {
             deviceCanvas.removeChild(card);
@@ -78,14 +220,12 @@ class DeviceWindow {
     private function onAtomDeleted(impulse:Impulse):Void {
         if (impulse == null || impulse.data == null) return;
         var deletedId:String = impulse.data.id;
-
         var toRemove:Array<DeviceCard> = [];
         for (card in _deviceCards) {
             if (card.atom != null && card.atom.id == deletedId) {
                 toRemove.push(card);
             }
         }
-
         for (card in toRemove) {
             removeDevice(card);
         }
@@ -96,17 +236,11 @@ class DeviceWindow {
         var startY = 10;
         var stepX = 120;
         var stepY = 100;
-        var maxX = 380;
-        var maxY = 240;
-
         for (y in 0...3) {
             for (x in 0...4) {
                 var px = startX + x * stepX;
                 var py = startY + y * stepY;
-
-                if (isPositionFree(px, py)) {
-                    return {x: px, y: py};
-                }
+                if (isPositionFree(px, py)) return {x: px, y: py};
             }
         }
         return {x: startX + Math.random() * 200, y: startY + Math.random() * 150};
@@ -114,9 +248,7 @@ class DeviceWindow {
 
     private function isPositionFree(x:Float, y:Float):Bool {
         for (card in _deviceCards) {
-            if (Math.abs(card.x - x) < 100 && Math.abs(card.y - y) < 80) {
-                return false;
-            }
+            if (Math.abs(card.x - x) < 100 && Math.abs(card.y - y) < 80) return false;
         }
         return true;
     }
@@ -131,131 +263,9 @@ class DeviceWindow {
         }
     }
 
-    private function create():Void {
-        _impulseCallback = onAtomDeleted;
-        Impulsys.subscribeToImpulse("ATOM_DELETED", _impulseCallback);
-        var config = {
-            title: "Device",
-            width: 420,
-            height: 320,
-            borderless: true,
-            alwaysOnTop: true,
-            parameters: {
-                background: 0x1a1a24
-            }
-        };
-
-        _window = Lib.application.createWindow(config);
-
-        if (_window != null && _window.stage != null) {
-            createHeader();
-            createDeviceCanvas();
-            createContextMenu();
-
-            _window.stage.addEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
-            _window.stage.addEventListener(MouseEvent.CLICK, onStageClick);
-        }
-    }
-
-    private function createHeader():Void {
-        _header = new Sprite();
-        _header.graphics.beginFill(0x2a2a34);
-        _header.graphics.drawRect(0, 0, 420, 30);
-        _header.graphics.endFill();
-
-        _titleLabel = new TextField();
-        _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 12, 0xFFFFFF, true);
-        _titleLabel.text = "  Device (Right-Click to Add)";
-        _titleLabel.width = 300;
-        _titleLabel.height = 30;
-        _titleLabel.selectable = false;
-        _titleLabel.mouseEnabled = false;
-        _header.addChild(_titleLabel);
-
-        // Кнопка восстановления редактора [E]
-        var editorBtn = new Sprite();
-        editorBtn.graphics.beginFill(0x005500);
-        editorBtn.graphics.drawRect(0, 0, 30, 30);
-        editorBtn.graphics.endFill();
-        editorBtn.x = 330;
-
-        var eText = new TextField();
-        eText.text = "E";
-        eText.width = 30;
-        eText.height = 30;
-        eText.selectable = false;
-        eText.mouseEnabled = false;
-        eText.defaultTextFormat = new TextFormat("_sans", 12, 0xFFFFFF, true, null, null, null, null, "center");
-        editorBtn.addChild(eText);
-
-        editorBtn.buttonMode = true;
-        editorBtn.addEventListener(MouseEvent.CLICK, function(e:MouseEvent) {
-            if (onShowEditor != null) openfl.Lib.current.stage.window.visible = true;
-        });
-        _header.addChild(editorBtn);
-
-        // Кнопка очистки [C]
-        var clearBtn = new Sprite();
-        clearBtn.graphics.beginFill(0x555500);
-        clearBtn.graphics.drawRect(0, 0, 30, 30);
-        clearBtn.graphics.endFill();
-        clearBtn.x = 360;
-
-        var cText = new TextField();
-        cText.text = "C";
-        cText.width = 30;
-        cText.height = 30;
-        cText.selectable = false;
-        cText.mouseEnabled = false;
-        cText.defaultTextFormat = new TextFormat("_sans", 12, 0xFFFFFF, true, null, null, null, null, "center");
-        clearBtn.addChild(cText);
-
-        clearBtn.buttonMode = true;
-        clearBtn.addEventListener(MouseEvent.CLICK, function(e) { clearDevices(); });
-        _header.addChild(clearBtn);
-
-        // Кнопка закрытия [X]
-        var closeBtn = new Sprite();
-        closeBtn.graphics.beginFill(0xAA0000);
-        closeBtn.graphics.drawRect(0, 0, 30, 30);
-        closeBtn.graphics.endFill();
-        closeBtn.x = 390;
-
-        var xText = new TextField();
-        xText.text = "X";
-        xText.width = 30;
-        xText.height = 30;
-        xText.selectable = false;
-        xText.mouseEnabled = false;
-        xText.defaultTextFormat = new TextFormat("_sans", 14, 0xFFFFFF, true, null, null, null, null, "center");
-        closeBtn.addChild(xText);
-
-        closeBtn.buttonMode = true;
-        closeBtn.addEventListener(MouseEvent.CLICK, function(e) { close(); });
-        _header.addChild(closeBtn);
-
-        _header.addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
-        _header.buttonMode = true;
-
-        _window.stage.addChild(_header);
-    }
-
-    private function createDeviceCanvas():Void {
-        deviceCanvas = new Sprite();
-        deviceCanvas.y = 30;
-
-        deviceCanvas.graphics.beginFill(0x222233);
-        deviceCanvas.graphics.drawRect(0, 0, 420, 290);
-        deviceCanvas.graphics.endFill();
-
-        _window.stage.addChild(deviceCanvas);
-    }
-
-    private function createContextMenu():Void {
-        _contextMenu = new Sprite();
-        _contextMenu.visible = false;
-        _window.stage.addChild(_contextMenu);
-    }
+    // =========================================================================
+    // CONTEXT MENU LOGIC (Взято из оригинального DeviceWindow)
+    // =========================================================================
 
     private function onRightClick(e:MouseEvent):Void {
         e.stopPropagation();
@@ -263,27 +273,16 @@ class DeviceWindow {
     }
 
     private function onStageClick(e:MouseEvent):Void {
-        if (_menuVisible) {
-            hideContextMenu();
-        }
+        if (_menuVisible) hideContextMenu();
     }
 
     private function showContextMenu(x:Float, y:Float):Void {
-        while (_contextMenu.numChildren > 0) {
-            _contextMenu.removeChildAt(0);
-        }
+        while (_contextMenu.numChildren > 0) _contextMenu.removeChildAt(0);
 
-        var devices:Array<{id:String, name:String, atom:Atom}> = [];
-        if (onGetAssemblyList != null) {
-            devices = onGetAssemblyList();
-        }
-        
-        // Filter selfrun
+        var devices = (onGetAssemblyList != null) ? onGetAssemblyList() : [];
         devices = [for (d in devices) if (d.id != "selfrun") d];
-        // Если нужно исключить root assembly из меню, можно добавить: && (atom is Assembly ? bp.id != "selfrun" : true)
 
         var yPos = 0;
-
         var headerItem = createMenuItem("Add Device:", null, true);
         headerItem.y = yPos;
         _contextMenu.addChild(headerItem);
@@ -347,14 +346,10 @@ class DeviceWindow {
 
         if (!disabled && atom != null) {
             item.buttonMode = true;
-
             final capturedAtom = atom;
-
             item.addEventListener(MouseEvent.CLICK, function(e:MouseEvent) {
                 addDevice(capturedAtom);
-                if (onAssemblySelected != null) {
-                    onAssemblySelected(capturedAtom);
-                }
+                if (onAssemblySelected != null) onAssemblySelected(capturedAtom);
                 hideContextMenu();
             });
             item.addEventListener(MouseEvent.MOUSE_OVER, function(e:MouseEvent) {
@@ -370,9 +365,12 @@ class DeviceWindow {
                 item.graphics.endFill();
             });
         }
-
         return item;
     }
+
+    // =========================================================================
+    // DRAG LOGIC
+    // =========================================================================
 
     private var _dragging:Bool = false;
     private var _dragOffsetX:Float = 0;
@@ -382,18 +380,14 @@ class DeviceWindow {
         _dragging = true;
         _dragOffsetX = e.localX;
         _dragOffsetY = e.localY;
-
         _window.stage.addEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
         _window.stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUp);
     }
 
     private function onMouseMove(e:MouseEvent):Void {
         if (_dragging && _window != null) {
-            var newX = _window.x + (e.stageX - _dragOffsetX);
-            var newY = _window.y + (e.stageY - _dragOffsetY);
-
-            _window.x = Std.int(newX);
-            _window.y = Std.int(newY);
+            _window.x = Std.int(_window.x + (e.stageX - _dragOffsetX));
+            _window.y = Std.int(_window.y + (e.stageY - _dragOffsetY));
         }
     }
 
@@ -405,20 +399,22 @@ class DeviceWindow {
         }
     }
 
+    // =========================================================================
+    // CLOSE
+    // =========================================================================
+
     public function close():Void {
         Impulsys.removeImpulse("ATOM_DELETED", _impulseCallback);
-
         if (_window != null && _window.stage != null) {
             _window.stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
             _window.stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
             _window.stage.removeEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
             _window.stage.removeEventListener(MouseEvent.CLICK, onStageClick);
         }
-
         clearDevices();
         deviceCanvas = null;
         _contextMenu = null;
-
+        _container = null;
         if (_window != null) {
             _window.close();
             _window = null;
@@ -431,18 +427,16 @@ class DeviceWindow {
     }
 }
 
-/**
- * DeviceCard v2.0 (Atom Support)
- */
-class DeviceCard extends Sprite {
+// =========================================================================
+// DEVICE CARD (Без изменений)
+// =========================================================================
 
+class DeviceCard extends Sprite {
     public var atom(default, null):Atom;
-    
     private var _deviceWindow:DeviceWindow;
     private var _deviceView:DeviceView;
     private var _titleBar:Sprite;
     private var _titleLabel:TextField;
-
     private var _cardDragging:Bool = false;
     private var _dragStartX:Float = 0;
     private var _dragStartY:Float = 0;
@@ -491,7 +485,6 @@ class DeviceCard extends Sprite {
         closeBtn.graphics.endFill();
         closeBtn.x = _deviceView.width + 2;
         closeBtn.y = 2;
-
         var xText = new TextField();
         xText.text = "x";
         xText.width = 16;
@@ -500,7 +493,6 @@ class DeviceCard extends Sprite {
         xText.mouseEnabled = false;
         xText.defaultTextFormat = new TextFormat("_sans", 10, 0xFFFFFF, false, null, null, null, null, "center");
         closeBtn.addChild(xText);
-
         closeBtn.buttonMode = true;
         closeBtn.addEventListener(MouseEvent.CLICK, onCloseClick);
         _titleBar.addChild(closeBtn);
@@ -523,7 +515,6 @@ class DeviceCard extends Sprite {
         graphics.beginFill(0x333344);
         graphics.drawRoundRect(0, 0, 80, 50, 4, 4);
         graphics.endFill();
-
         var txt = new TextField();
         txt.defaultTextFormat = new TextFormat("_sans", 10, 0xFFFFFF);
         txt.text = atom != null ? atom.name : "?";
@@ -545,9 +536,7 @@ class DeviceCard extends Sprite {
         _dragStartY = this.y;
         _mouseStartX = e.stageX;
         _mouseStartY = e.stageY;
-
         if (parent != null) parent.addChild(this);
-
         if (stage != null) {
             stage.addEventListener(MouseEvent.MOUSE_MOVE, onCardMouseMove);
             stage.addEventListener(MouseEvent.MOUSE_UP, onCardMouseUp);
@@ -556,10 +545,8 @@ class DeviceCard extends Sprite {
 
     private function onCardMouseMove(e:MouseEvent):Void {
         if (!_cardDragging) return;
-        var dx = e.stageX - _mouseStartX;
-        var dy = e.stageY - _mouseStartY;
-        this.x = _dragStartX + dx;
-        this.y = _dragStartY + dy;
+        this.x = _dragStartX + (e.stageX - _mouseStartX);
+        this.y = _dragStartY + (e.stageY - _mouseStartY);
     }
 
     private function onCardMouseUp(e:MouseEvent):Void {

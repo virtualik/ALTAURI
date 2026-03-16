@@ -25,7 +25,7 @@ class ViewportManager {
     private var _canvasStartY:Float = 0;
     
     // Zoom Settings
-    private var _zoomMin:Float = 1.7;
+    private var _zoomMin:Float = 0.7;
     private var _zoomMax:Float = 3.0;
     
     // FIX: Lazy activation system
@@ -76,8 +76,8 @@ class ViewportManager {
     // ZOOM (WITH LAZY ACTIVATION)
     // ========================================================================
     public function handleZoom(delta:Int, stageX:Float, stageY:Float, container:Sprite):Void {
-        var zoomFactor:Float = 1.2;
-        if (delta < 0) zoomFactor = 1 / 1.2;
+        var zoomFactor:Float = 1.1;
+        if (delta < 0) zoomFactor = 1 / 1.1;
         
         var mouseLocal:Point = _canvas.globalToLocal(new Point(stageX, stageY));
         var oldScale:Float = _canvas.scaleX;

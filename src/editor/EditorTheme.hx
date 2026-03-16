@@ -86,8 +86,9 @@ class EditorTheme {
     // =========================================================================
 
     // Main application background
-    public var APP_BG_COLOR:Int = 0x111111;
-
+    public var APP_BG_COLOR:Int = 0x1a1a24;
+	public var OPAQUE_BACKGROUND_COLOR:Int = 0x1a1a24;
+	
     // Container frame border color
     public var FRAME_BORDER_COLOR:Int = 0x00AAFF;
     

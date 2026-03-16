@@ -27,6 +27,7 @@ import ui.ButtonComponent;
 import ui.SettingsPanel;
 import ui.WireType;
 import ui.DeviceWindow;
+import ui.DeviceWindow2;
 import system.io.ProjectIO;
 import system.commands.editor.GroupAtomsCommand;
 import system.commands.editor.CreateNewAssemblyCommand;
@@ -134,6 +135,9 @@ class Main extends Sprite {
 
         if (stage != null) init();
         else addEventListener(Event.ADDED_TO_STAGE, init);
+		
+		haxe.Timer.delay(function() { trace("--- ЗАПУСК ТЕСТОВОГО ОКНА ---");
+		new ui.DeviceWindow2(); }, 2000); // Откроется через 2 секунды после старта приложения
     }
 
     private function setupPaths():Void {
@@ -169,7 +173,8 @@ class Main extends Sprite {
         
         if (_appInitialized) {
             log("Restoring Editor Window...");
-            stage.color = _theme.APP_BG_COLOR;
+            Lib.current.stage.color = _theme.APP_BG_COLOR;
+			Lib.current.stage.opaqueBackground = _theme.OPAQUE_BACKGROUND_COLOR;
             stage.addEventListener(Event.RESIZE, onResize);
             stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
             #if sys
@@ -1032,6 +1037,9 @@ private function saveCurrentContext():Void {
             _deviceWindow.onGetAssemblyList = getAllDevicesRecursive;
             _deviceWindow.onAssemblySelected = function(atom:Atom) { log("Device added: " + atom.name); };
             log("Device Window opened.");
+			
+		//	var testWin = new DeviceWindow2();
+		//	trace("Попытка открыть тестовое окно...");
         } else {
             log("Closing Device Window...");
             _deviceWindow.close();
