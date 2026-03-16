@@ -19,11 +19,12 @@ import ecs.ECS;
 import Lambda;
 
 /**
- * NODE VIEW v2.9 (Extra Small Scope)
+ * NODE VIEW v3.1 (EditorState Integration)
  * Visual representation of an Atom.
  *
- * v2.9 Changes:
- * - TWEAK: Oscilloscope scale reduced by another 2x (now 0.125).
+ * v3.1 Changes:
+ * - Integrated EditorState.isZooming() check in set_visible()
+ * - Prevents DeviceView activation during zoom operations
  */
 class NodeView extends Sprite {
 
@@ -127,6 +128,35 @@ class NodeView extends Sprite {
         return v;
     }
 
+    // =========================================================================
+    // VISIBILITY LIFECYCLE (WITH ZOOM CHECK)
+    // =========================================================================
+    override private function set_visible(value:Bool):Bool {
+        if (super.visible != value) {
+            super.visible = value;
+            
+            // Если есть встроенный виджет, синхронизируем его активность
+            if (_devicePreview != null) {
+                // FIX: Проверка глобального состояния зума
+                if (EditorState.isZooming()) {
+                    // Во время зума НЕ активируем DeviceView - отложим до конца зума
+                    return value;
+                }
+                
+                if (value) {
+                    if (!_devicePreview.isActive) {
+                        _devicePreview.activate();
+                    }
+                } else {
+                    if (_devicePreview.isActive) {
+                        _devicePreview.deactivate();
+                    }
+                }
+            }
+        }
+        return value;
+    }
+
     private function draw():Void {
         _height = calculateHeight();
 
@@ -181,31 +211,32 @@ class NodeView extends Sprite {
         // =====================================================================
         // DEVICE PREVIEW EMBEDDING
         // =====================================================================
-        
+
+        // Удаляем старый превью корректно
         if (_devicePreview != null) {
             _devicePreview.dispose();
             if (contains(_devicePreview)) removeChild(_devicePreview);
             _devicePreview = null;
         }
 
-        // Only show preview for "Native" atoms (not Assemblies)
+        // Создаем новое только для нативных атомов
         if (!Std.isOfType(atom, Assembly)) {
             try {
                 _devicePreview = DeviceWidgetFactory.create(atom);
-                
+
                 if (_devicePreview != null) {
                     // Scaling Strategy
-                    var scaleFactor:Float = 0.6; // Default scale
+                    var scaleFactor:Float = 0.6;
                     var type = atom.type.toLowerCase();
 
                     switch (type) {
                         case "oscilloscope":
-                            scaleFactor = 0.125; // v2.9: Reduced by 2x again (was 0.25)
+                            scaleFactor = 0.125;
                         
                         case "button":
                             scaleFactor = 0.6;
-							
-						case "textinput":
+                        
+                        case "textinput":
                             scaleFactor = 0.6;
                         
                         default:
@@ -216,17 +247,12 @@ class NodeView extends Sprite {
                     _devicePreview.scaleY = scaleFactor;
                     
                     // Smart Centering using Bounds
-                    // This fixes the issue where LED (drawn at 0,0) appeared top-left
                     var bounds:Rectangle = _devicePreview.getBounds(_devicePreview);
-                    
-                    // Calculate center offset
-                    // Position is: NodeCenter - (BoundsCenter * Scale)
-                    // BoundsCenter = bounds.x + bounds.width/2
                     var cx:Float = bounds.x + bounds.width / 2;
                     var cy:Float = bounds.y + bounds.height / 2;
 
                     _devicePreview.x = (_width / 2) - (cx * scaleFactor);
-                    _devicePreview.y = (_height / 2) - (cy * scaleFactor) + 5; // +5 slight vertical offset
+                    _devicePreview.y = (_height / 2) - (cy * scaleFactor) + 5;
                     
                     // Determine interactivity
                     var isInteractive:Bool = (type == "button" || type == "toggle" || type == "switch" || type == "textinput");
@@ -239,8 +265,13 @@ class NodeView extends Sprite {
                         _devicePreview.useHandCursor = true;
                     }
                     
+                    // Добавляем на сцену
                     addChild(_devicePreview);
-                    _devicePreview.activate();
+                    
+                    // Активируем только если нода сейчас видима И нет зума
+                    if (this.visible && !EditorState.isZooming()) {
+                        _devicePreview.activate();
+                    }
                 }
             } catch (e:Dynamic) {
                 trace('Error creating device preview: $e');
@@ -271,6 +302,7 @@ class NodeView extends Sprite {
         var wasSelected = selected;
         var prevX = this.x;
         var prevY = this.y;
+        var wasVisible = this.visible;
 
         while (numChildren > 0) {
             removeChildAt(0);
@@ -289,6 +321,7 @@ class NodeView extends Sprite {
         this.x = prevX;
         this.y = prevY;
         selected = wasSelected;
+        this.visible = wasVisible;
 
         ECS.updatePosition(nodeId, this.x, this.y);
         ECS.setSelected(nodeId, wasSelected);
@@ -303,6 +336,8 @@ class NodeView extends Sprite {
 
         for (i in 0...count) {
             var c = contacts[i];
+            if (c == null) continue;
+            
             var port = new Sprite();
 
             port.graphics.beginFill(_theme.PORT_COLOR_DEFAULT);

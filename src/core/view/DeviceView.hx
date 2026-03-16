@@ -6,11 +6,8 @@ import core.base.Assembly;
 import core.base.Contact;
 
 /**
- * DEVICE VIEW BASE v1.1
- * Базовый класс для всех представлений устройств.
- *
- * v1.1 Fix: Immediately calls onContactChanged with current value upon subscription.
- * This prevents the widget from being blank when recreated (e.g., on node selection).
+ * DEVICE VIEW BASE v1.2 (Leak Fix)
+ * Fixed: Prevents duplicate subscriptions on multiple activate() calls.
  */
 class DeviceView extends Sprite {
 
@@ -31,12 +28,18 @@ class DeviceView extends Sprite {
     }
 
     public function activate():Void {
+        // FIX: Защита от двойной активации
+        if (isActive) return;
+        
         isActive = true;
         subscribeToContacts();
         onActivate();
     }
 
     public function deactivate():Void {
+        // FIX: Проверка состояния
+        if (!isActive) return;
+        
         isActive = false;
         unsubscribeFromContacts();
         onDeactivate();
@@ -46,6 +49,11 @@ class DeviceView extends Sprite {
     private function onDeactivate():Void { }
 
     private function subscribeToContacts():Void {
+        // FIX: Гарантируем, что старых подписок нет перед созданием новых
+        if (_contactCallbacks.length > 0) {
+            unsubscribeFromContacts();
+        }
+
         if (atom == null) return;
 
         var inputs = atom.getInputs();
@@ -55,9 +63,7 @@ class DeviceView extends Sprite {
                     var cb = function(v:Dynamic) { onContactChanged(c, v); };
                     c.subscribe(cb);
                     _contactCallbacks.push({contact: c, callback: cb});
-                    
-                    // ИСПРАВЛЕНИЕ: Мгновенно вызываем обновление с текущим значением
-                    // Это нужно, чтобы при пересоздании виджета (redraw) он сразу отобразил данные
+
                     if (c.value != null) {
                         onContactChanged(c, c.value);
                     }
@@ -72,8 +78,7 @@ class DeviceView extends Sprite {
                     var cb = function(v:Dynamic) { onContactChanged(c, v); };
                     c.subscribe(cb);
                     _contactCallbacks.push({contact: c, callback: cb});
-                    
-                    // ИСПРАВЛЕНИЕ: То же самое для выходов
+
                     if (c.value != null) {
                         onContactChanged(c, c.value);
                     }
@@ -88,7 +93,8 @@ class DeviceView extends Sprite {
                 item.contact.unsubscribe(item.callback);
             }
         }
-        _contactCallbacks = [];
+        // FIX: Явная очистка массива
+        _contactCallbacks.resize(0);
     }
 
     private function onContactChanged(contact:Contact, newValue:Dynamic):Void {
@@ -114,7 +120,7 @@ class DeviceView extends Sprite {
     }
 
     public function dispose():Void {
-        deactivate();
+        deactivate(); // Гарантирует отписку
         atom = null;
         assembly = null;
 

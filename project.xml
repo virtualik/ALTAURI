@@ -14,7 +14,7 @@
 			 vsync="false"
 			 allow-shaders="false"
 			 width="1024" height="800"
-			 fps="1000" />
+			 fps="120" />
 
 	<!-- classpath, haxe libs -->
 	<source path="src" />

@@ -8,9 +8,13 @@ import core.base.Atom;
 import core.base.Contact;
 
 /**
- * OSCILLOSCOPE WIDGET v2.0
+ * OSCILLOSCOPE WIDGET v2.1 (Performance Optimize)
  * Визуализирует массив сэмплов (Array<Float>).
  * Рисует сетку и волну.
+ *
+ * v2.1 Changes:
+ * - Throttling: Max 30 FPS update rate.
+ * - Hash check: Skip redraw if data hasn't changed.
  */
 class OscilloscopeWidget extends DeviceView {
 
@@ -25,6 +29,11 @@ class OscilloscopeWidget extends DeviceView {
     public var colorLine:Int = 0x00FF00; // Зеленый фосфор
     public var colorBg:Int = 0x0a0a12;   // Темный фон
     public var colorGrid:Int = 0x1a2a1a; // Тусклая сетка
+
+    // PERFORMANCE OPTIMIZATION
+    private var _lastUpdateTime:Float = 0;
+    private var _lastSampleHash:Int = 0;
+    private static inline var UPDATE_INTERVAL:Float = 1.0 / 30.0; // 30 FPS max
 
     public function new(atom:Atom, contactName:String = "samples") {
         super(atom);
@@ -103,10 +112,20 @@ class OscilloscopeWidget extends DeviceView {
     // Этот метод вызывается автоматически при изменении данных в контакте
     override private function onContactChanged(contact:Contact, newValue:Dynamic):Void {
         if (contact == _contact) {
-            // Проверяем, что пришли данные типа Массив
             if (Std.isOfType(newValue, Array)) {
-                // Вызываем рисовалку, передавая массив
-                drawWave(cast newValue);
+                // PERFORMANCE: Throttle updates
+                var now = haxe.Timer.stamp();
+                if (now - _lastUpdateTime < UPDATE_INTERVAL) return;
+                
+                // PERFORMANCE: Check data change
+                var arr:Array<Float> = cast newValue;
+                var hash = arr.length > 0 ? Std.int(arr[0] * 1000) : 0; // Простой хэш
+                if (hash == _lastSampleHash && arr.length > 0) return; // Данные те же
+                
+                _lastUpdateTime = now;
+                _lastSampleHash = hash;
+                
+                drawWave(arr);
             }
         }
     }

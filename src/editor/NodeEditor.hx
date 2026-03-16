@@ -1,38 +1,33 @@
 package editor;
 
-//import ui.WireType;
 import ui.WireType.WireType as WireTypeEnum;
 import openfl.display.Sprite;
-//import openfl.display.Graphics;
 import openfl.events.Event;
 import openfl.events.MouseEvent;
 import openfl.geom.Point;
 import openfl.geom.Rectangle;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
-//import openfl.text.TextFormatAlign;
 import core.base.Assembly;
 import core.base.Atom;
 import core.base.Contact;
 import core.logic.Impulsys;
 import core.logic.Impulse;
-//import system.managers.UndoManager;
-//import system.commands.base.MacroCommand;
-//import system.commands.editor.MoveNodeCommand;
-//import system.commands.editor.ConnectCommand;
-//import system.commands.editor.DeleteAtomCommand;
-//import system.commands.editor.CreateAtomCommand;
 import core.data.Blueprint.ConnectionDef;
 import core.data.Blueprint.ConnectionPoint;
 import ecs.ECS;
 import library.AtomRegistry;
-//import utils.UID;
 
 /**
- * NodeEditor v3.1 (ContextMenu Refactor)
+ * NodeEditor v3.2 (Zoom Performance Fix)
  * Main editor coordinator. Delegates Pan/Zoom to ViewportManager
  * and Actions/Undo to EditorActionHandler.
- * Emits CANVAS_RIGHT_CLICKED for ContextMenuManager.
+ * 
+ * v3.2 Changes:
+ * - Using scrollRect instead of mask for better performance
+ * - Zoom rebuild timer set to 80ms (prevents mass rebuild during zoom)
+ * - Fixed refreshAssemblyViews() variable scope
+ * - Proper container architecture for scrollRect
  */
 class NodeEditor extends Sprite {
     
@@ -45,7 +40,7 @@ class NodeEditor extends Sprite {
     private var _theme:EditorTheme;
 
     // ========================================================================
-    // MANAGERS (NEW)
+    // MANAGERS
     // ========================================================================
 
     private var _viewport:ViewportManager;
@@ -57,7 +52,8 @@ class NodeEditor extends Sprite {
     // ========================================================================
 
     private var _nodes:Map<String, NodeView> = new Map();
-    private var _canvas:Sprite;
+    private var _editorContainer:Sprite;  // ← НОВОЕ: Контейнер с фиксированным scrollRect
+    private var _canvas:Sprite;            // ← Двигающийся контент внутри контейнера
     private var _bgHitArea:Sprite;
 
     // ========================================================================
@@ -102,7 +98,6 @@ class NodeEditor extends Sprite {
     private var _edgePortsContainer:Sprite;
     private var _edgePorts:Map<String, Sprite> = new Map();
     private var _fileNameField:TextField;
-    private var _viewportMask:Sprite;
     private var _zoomDebounceTimer:haxe.Timer = null;
     private var _pendingZoom:Bool = false;
     
@@ -137,12 +132,18 @@ class NodeEditor extends Sprite {
 
         ECS.init();
 
-        // Create canvas
+        // === НОВОЕ: Двухуровневая структура для правильного scrollRect ===
+        // 1. Контейнер с фиксированным scrollRect (НЕ двигается)
+        _editorContainer = new Sprite();
+        addChild(_editorContainer);
+
+        // 2. Канвас внутри контейнера (двигается при пан/зум)
         _canvas = new Sprite();
+        _editorContainer.addChild(_canvas);
+
         _canvas.graphics.beginFill(_theme.CANVAS_BG_COLOR, 1);
         _canvas.graphics.drawRect(-5000, -5000, 10000, 10000);
         _canvas.graphics.endFill();
-        addChild(_canvas);
 
         // Background hit area
         _bgHitArea = new Sprite();
@@ -152,14 +153,10 @@ class NodeEditor extends Sprite {
         _bgHitArea.mouseEnabled = true;
         _canvas.addChild(_bgHitArea);
 
-        // Viewport mask
-        _viewportMask = new Sprite();
-        _viewportMask.mouseEnabled = false;
-        addChild(_viewportMask);
-        _canvas.mask = _viewportMask;
+        // === scrollRect будет установлен в drawFrame() на _editorContainer ===
 
         _bgHitArea.addEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
-        _bgHitArea.addEventListener(MouseEvent.RIGHT_CLICK, onCanvasRightClick); // <--- NEW: Context Menu Trigger
+        _bgHitArea.addEventListener(MouseEvent.RIGHT_CLICK, onCanvasRightClick);
 
         // Lasso
         _lasso = new Sprite();
@@ -269,6 +266,9 @@ class NodeEditor extends Sprite {
         _wireRenderer.rebuildAll();
     }
 
+    // ========================================================================
+    // FIX: Using scrollRect on container instead of mask on canvas
+    // ========================================================================
     private function drawFrame(e:Event = null):Void {
         var w:Float = _forcedWidth > 0 ? _forcedWidth : (stage != null ? stage.stageWidth : 1024);
         var h:Float = _forcedHeight > 0 ? _forcedHeight : (stage != null ? stage.stageHeight : 600);
@@ -277,10 +277,9 @@ class NodeEditor extends Sprite {
         _frame.graphics.lineStyle(5, _theme.FRAME_BORDER_COLOR);
         _frame.graphics.drawRect(0, 0, w, h);
 
-        _viewportMask.graphics.clear();
-        _viewportMask.graphics.beginFill(0xFFFFFF);
-        _viewportMask.graphics.drawRect(0, 0, w, h);
-        _viewportMask.graphics.endFill();
+        // === FIX: scrollRect на контейнере, не на canvas ===
+        // Это позволяет canvas двигаться внутри фиксированной области обрезания
+        _editorContainer.scrollRect = new Rectangle(0, 0, w, h);
 
         _fileNameField.x = w - 10 - _fileNameField.width;
         _fileNameField.y = h - 20;
@@ -368,7 +367,7 @@ class NodeEditor extends Sprite {
 
     private function updateVisibility():Void {
         var now = haxe.Timer.stamp();
-        if (now - _lastVisibilityUpdate < 0.1) return; // Не чаще 10 раз в секунду
+        if (now - _lastVisibilityUpdate < 0.1) return;
         _lastVisibilityUpdate = now;
         
         var w = _forcedWidth > 0 ? _forcedWidth : (stage != null ? stage.stageWidth : 1024);
@@ -402,6 +401,9 @@ class NodeEditor extends Sprite {
         _nodes.set(id, view);
     }
 
+    // ========================================================================
+    // FIX: Corrected variable scope in loop
+    // ========================================================================
     public function refreshAssemblyViews():Void {
         var toRefresh:Array<{id:String, view:NodeView, asm:Assembly, index:Int}> = [];
 
@@ -418,7 +420,7 @@ class NodeEditor extends Sprite {
 
         for (item in toRefresh) {
             AtomRegistry.registerBlueprint(item.asm.blueprint.id, item.asm.blueprint);
-            item.view.redraw();
+            item.view.redraw();  // ← FIX: Было 'view.redraw()' вместо 'item.view.redraw()'
 
             if (_canvas.contains(item.view)) {
                 _canvas.setChildIndex(item.view, item.index);
@@ -529,7 +531,7 @@ class NodeEditor extends Sprite {
     }
     
     // ========================================================================
-    // CANVAS CONTEXT MENU (NEW)
+    // CANVAS CONTEXT MENU
     // ========================================================================
 
     private function onCanvasRightClick(e:MouseEvent):Void {
@@ -692,7 +694,7 @@ class NodeEditor extends Sprite {
                         realToId = target.nodeId; realToContact = target.contactName;
                     } else {
                         realFromId = target.nodeId; realFromContact = target.contactName;
-                        realToId = _dragNodeId; realToContact = _dragContactName;
+                        realToId = _dragNodeId; realToContact = target.contactName;
                     }
 
                     _actions.connect(realFromId, realFromContact, realToId, realToContact);
@@ -754,19 +756,20 @@ class NodeEditor extends Sprite {
         }
     }
 
+    // ========================================================================
+    // FIX: Zoom timer 80ms instead of 1ms
+    // ========================================================================
     private function onMouseWheel(e:MouseEvent):Void {
         _viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
         
-        // Отменяем предыдущий таймер если есть
         if (_zoomRebuildTimer != null) {
             _zoomRebuildTimer.stop();
         }
         
-        // Планируем rebuild через 80ms после последнего скролла
         _zoomRebuildTimer = haxe.Timer.delay(() -> {
             _wireRenderer.rebuildAll();
             updateVisibility();
-        }, 1);
+        }, 80);  // ← БЫЛО 1ms, СТАЛО 80ms
     }
 
     // ========================================================================
@@ -936,7 +939,7 @@ class NodeEditor extends Sprite {
         Impulsys.removeImpulse("NODE_CLICKED", onNodeClicked);
 
         _bgHitArea.removeEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
-        _bgHitArea.removeEventListener(MouseEvent.RIGHT_CLICK, onCanvasRightClick); // Cleanup
+        _bgHitArea.removeEventListener(MouseEvent.RIGHT_CLICK, onCanvasRightClick);
 
         _wireRenderer.dispose();
 

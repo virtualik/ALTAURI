@@ -3,8 +3,12 @@ package core.logic;
 import core.types.Priority;
 
 /**
- * SIGNAL QUEUE v2.2 (Static Access)
+ * SIGNAL QUEUE v2.3 (Stability Fix)
  * Priority-based Task Scheduler.
+ *
+ * v2.3 Changes:
+ * - Increased iteration limit to handle complex signal chains.
+ * - Safer queue clearing on overflow.
  */
 class SignalQueue {
 
@@ -17,7 +21,9 @@ class SignalQueue {
 
     // Protection against "Zombie Loops"
     private var _currentIteration:Int = 0;
-    public var maxIterationsPerFrame:Int = 10000;
+    
+    // УВЕЛИЧЕННЫЙ ЛИМИТ: Позволяет обрабатывать больше сигналов за кадр
+    public var maxIterationsPerFrame:Int = 25000; 
 
     public static function getInstance():SignalQueue {
         if (_instance == null) _instance = new SignalQueue();
