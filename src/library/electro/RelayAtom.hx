@@ -4,15 +4,29 @@ import core.base.Atom;
 import core.base.Contact;
 import core.types.ContactType;
 
+/**
+ * RELAY ATOM v1.1 (State Serialization)
+ * Реле - пропускает сигнал только когда управление активно.
+ * 
+ * v1.1 Changes:
+ * - Added getPersistentState() for saving last output state
+ * - Added restoreState() for restoring relay state on load
+ */
 class RelayAtom extends Atom {
-    
+
+    // Кэшированные значения для быстрого доступа
+    private var _signalValue:Dynamic = null;
+    private var _controlValue:Bool = false;
+
     public function new(id:String) {
         super(
             [
                 new Contact(null, INPUT, "signal"),   // Что передаем
                 new Contact(false, INPUT, "control")  // Открываем (True) или Закрываем (False)
             ],
-            [new Contact(null, OUTPUT, "out")],
+            [
+                new Contact(null, OUTPUT, "out")
+            ],
             null,
             id,
             "Relay"
@@ -21,20 +35,79 @@ class RelayAtom extends Atom {
 
     // Логика реле
     override function onContactChanged(c:Contact):Void {
+        // Обновляем кэшированные значения
+        if (_inputs != null && _inputs.length >= 2) {
+            _signalValue = _inputs[0].value;
+            _controlValue = _inputs[1].value == true;
+        }
+        
         // Если изменился сигнал или управление - пересчитываем
         super.onContactChanged(c);
     }
 
     override function _calculate():Void {
+        if (_inputs == null || _inputs.length < 2) return;
+        
         var signal = _inputs[0].value;
         var control = _inputs[1].value;
 
         if (control == true) {
             // Если управление активно, пропускаем сигнал
-            _outputs[0].value = signal; 
+            _outputs[0].value = signal;
         } else {
-            // Если закрыто, можно слать null или false (зависит от логики схемы)
-            _outputs[0].value = null; 
+            // Если закрыто, передаем null
+            _outputs[0].value = null;
         }
+    }
+
+    // =========================================================================
+    // STATE SERIALIZATION v1.1
+    // =========================================================================
+
+    /**
+     * Save relay state for persistence.
+     * Returns the last output value so the relay can restore its state.
+     */
+    override public function getPersistentState():Dynamic {
+        var outputValue:Dynamic = null;
+        if (_outputs != null && _outputs.length > 0) {
+            outputValue = _outputs[0].value;
+        }
+        
+        return { 
+            lastOutput: outputValue,
+            controlState: _controlValue
+        };
+    }
+
+    /**
+     * Restore relay state from saved data.
+     * Called when loading a project to restore the relay's output state.
+     */
+    override public function restoreState(state:Dynamic):Void {
+        if (state != null) {
+            // Restore the output value if it was saved
+            if (state.lastOutput != null && _outputs != null && _outputs.length > 0) {
+                _outputs[0].value = state.lastOutput;
+            }
+            // Restore control state for internal tracking
+            if (state.controlState != null) {
+                _controlValue = state.controlState;
+            }
+        }
+    }
+
+    /**
+     * Check if relay is currently open (passing signal).
+     */
+    public function isOpen():Bool {
+        return _controlValue;
+    }
+
+    /**
+     * Get the last signal value that was passed through.
+     */
+    public function getLastSignal():Dynamic {
+        return _signalValue;
     }
 }

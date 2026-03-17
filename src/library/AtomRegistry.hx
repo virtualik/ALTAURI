@@ -4,9 +4,12 @@ import core.data.Blueprint;
 import core.types.ContactType;
 
 /**
- * Atom Registry v2.0
+ * Atom Registry v2.1 (State Persistence)
  * Stores and manages blueprints for all atom types.
  * Supports both native atoms and user-created assemblies.
+ *
+ * v2.1 Changes:
+ * - Added support for saving state values in blueprint definitions
  */
 class AtomRegistry {
 
@@ -19,10 +22,10 @@ class AtomRegistry {
         var bp = new Blueprint(id, name, pins, null);
         bp.deviceType = deviceType;
         bp.isNative = isNative;
-        
+
         // Хак для регистрации активных атомов
-        if (id == "SignalGen") bp.isActive = true; 
-        
+        if (id == "SignalGen") bp.isActive = true;
+
         _blueprints.set(id, bp);
     }
 
@@ -36,22 +39,33 @@ class AtomRegistry {
         // Native Atoms Registration
         reg("Button", "Push Button", [{name: "out", type: OUTPUT, dataType: "bool"}], null, "button");
         reg("LED", "LED Indicator", [{name: "in", type: INPUT, dataType: "bool"}], null, "led");
-		
-		// 1. Регистрируем Генератор (Active Driver)
-        reg("SignalGen", "Signal Generator", [
-            {name: "freq", type: INPUT, defaultValue: 440.0, dataType: "float"}, 
-            {name: "out", type: OUTPUT, dataType: "array"}
-        ], null, "panel"); // deviceType "panel" чтобы просто отображался как нода
+        reg("Toggle", "Toggle Switch", [{name: "out", type: OUTPUT, dataType: "bool"}], null, "toggle");
 
-        // 2. Регистрируем Осциллограф (Passive Display)
-        // deviceType "oscilloscope" заставит DeviceWidgetFactory создать OscilloscopeWidget
+        // Signal Generator (Active Driver)
+        reg("SignalGen", "Signal Generator", [
+            {name: "freq", type: INPUT, defaultValue: 440.0, dataType: "float"},
+            {name: "out", type: OUTPUT, dataType: "array"}
+        ], null, "panel");
+
+        // Oscilloscope (Passive Display)
         reg("Oscilloscope", "Oscilloscope", [
             {name: "in", type: INPUT, dataType: "array"}
         ], null, "oscilloscope");
-		
-		reg("TextInput", "Text Input", [{name: "set", type: INPUT, dataType: "string"}, {name: "out", type: OUTPUT, dataType: "string"}], null, "textinput");
 
-		_initialized = true;
+        // Text Input (Stateful)
+        reg("TextInput", "Text Input", [
+            {name: "set", type: INPUT, dataType: "string"}, 
+            {name: "out", type: OUTPUT, dataType: "string"}
+        ], null, "textinput");
+
+        // Relay
+        reg("Relay", "Relay", [
+            {name: "signal", type: INPUT, dataType: "any"},
+            {name: "control", type: INPUT, dataType: "bool"},
+            {name: "out", type: OUTPUT, dataType: "any"}
+        ], null, "relay");
+
+        _initialized = true;
     }
 
     public static function get(id:String):Blueprint {
@@ -64,8 +78,8 @@ class AtomRegistry {
 
     /**
      * Remove a blueprint from registry.
-     * Used by GroupAtomsCommand.undo() to unregister created assemblies.
-     * 
+     * Used when deleting an assembly.
+     *
      * @param id Blueprint ID to remove
      * @return true if removed, false if not found
      */
@@ -89,10 +103,10 @@ class AtomRegistry {
     public static function scanFolder(path:String):Void {
         #if sys
         if (!sys.FileSystem.exists(path)) {
-            try { 
-                sys.FileSystem.createDirectory(path); 
-            } catch(e:Dynamic) { 
-                trace("Error creating library dir: " + e); 
+            try {
+                sys.FileSystem.createDirectory(path);
+            } catch(e:Dynamic) {
+                trace("Error creating library dir: " + e);
             }
             return;
         }
@@ -147,7 +161,8 @@ class AtomRegistry {
                         instanceId: Std.string(a.instanceId),
                         typeId: Std.string(a.typeId),
                         x: a.x,
-                        y: a.y
+                        y: a.y,
+                        values: a.values  // v2.1: Preserve state values
                     });
                 }
             }
@@ -161,12 +176,12 @@ class AtomRegistry {
                 conns,
                 Std.string(rawBp.category)
             );
-            
+
             // Load deviceType from JSON
             if (rawBp.deviceType != null) {
                 bp.deviceType = Std.string(rawBp.deviceType);
             }
-            
+
             // User assemblies are not native
             bp.isNative = false;
 
@@ -182,28 +197,28 @@ class AtomRegistry {
         #end
     }
 
-	private static function _parseContactType(val:Dynamic):ContactType {
-		if (Std.isOfType(val, ContactType)) return val;
-		
-		if (Std.isOfType(val, String)) {
-			switch(Std.string(val)) {
-				case "INPUT": return INPUT;
-				case "OUTPUT": return OUTPUT;
-				case "BIDIRECTIONAL": return BIDIRECTIONAL;
-				default: return UNDEFINED;
-			}
-		}
+    private static function _parseContactType(val:Dynamic):ContactType {
+        if (Std.isOfType(val, ContactType)) return val;
 
-		// ИСПРАВЛЕНИЕ: Добавлена обработка числовых индексов
-		if (Std.isOfType(val, Int) || Std.isOfType(val, Float)) {
-			switch(Std.int(val)) {
-				case 0: return INPUT;
-				case 1: return OUTPUT;
-				case 2: return BIDIRECTIONAL;
-				default: return UNDEFINED;
-			}
-		}
+        if (Std.isOfType(val, String)) {
+            switch(Std.string(val)) {
+                case "INPUT": return INPUT;
+                case "OUTPUT": return OUTPUT;
+                case "BIDIRECTIONAL": return BIDIRECTIONAL;
+                default: return UNDEFINED;
+            }
+        }
 
-		return UNDEFINED;
-	}
+        // ИСПРАВЛЕНИЕ: Добавлена обработка числовых индексов
+        if (Std.isOfType(val, Int) || Std.isOfType(val, Float)) {
+            switch(Std.int(val)) {
+                case 0: return INPUT;
+                case 1: return OUTPUT;
+                case 2: return BIDIRECTIONAL;
+                default: return UNDEFINED;
+            }
+        }
+
+        return UNDEFINED;
+    }
 }

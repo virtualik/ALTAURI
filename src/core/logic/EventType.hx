@@ -1,8 +1,11 @@
 package core.logic;
 
 /**
- * EVENT TYPE v1.0
+ * EVENT TYPE v1.2 (Device Window Events)
  * Типобезопасный перечень всех событий системы (Impulse types).
+ *
+ * v1.2 Changes:
+ * - Added DEVICE_WINDOW_CHANGED for saving window position/size after interaction
  */
 abstract EventType(String) from String to String {
     public inline function new(s:String) this = s;
@@ -13,6 +16,7 @@ abstract EventType(String) from String to String {
     public static var REDRAW_WIRES(default, never) = new EventType("REDRAW_WIRES");
     public static var ASSEMBLY_PORTS_CHANGED(default, never) = new EventType("ASSEMBLY_PORTS_CHANGED");
     public static var VALUE_COMMITTED(default, never) = new EventType("VALUE_COMMITTED");
+    public static var DEVICE_WINDOW_CHANGED(default, never) = new EventType("DEVICE_WINDOW_CHANGED"); // NEW
 
     // === INTERACTION (Mouse/Click) ===
     public static var PORT_DRAG_START(default, never) = new EventType("PORT_DRAG_START");

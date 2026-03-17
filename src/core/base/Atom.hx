@@ -5,8 +5,13 @@ import system.managers.DriverManager;
 import system.managers.Driver;
 
 /**
- * ATOM BASE CLASS v5.2 (Clean Core)
+ * ATOM BASE CLASS v5.3 (State Serialization)
  * Fundamental unit of logic. Independent of rendering engine.
+ *
+ * v5.3 Changes:
+ * - Added getPersistentState() for saving atom state
+ * - Added restoreState() for restoring atom state on load
+ * - Default implementations return null (no state to save)
  */
 class Atom implements IDisposable implements Driver {
 
@@ -94,11 +99,38 @@ class Atom implements IDisposable implements Driver {
     }
 
     // =========================================================================
-    // STATE SERIALIZATION
+    // STATE SERIALIZATION v5.3
     // =========================================================================
 
-    public function getPersistentState():Dynamic { return null; }
-    public function restoreState(state:Dynamic):Void { }
+    /**
+     * Get persistent state for saving.
+     * Override in subclasses to save atom-specific data.
+     * 
+     * Default implementation returns null (no state to save).
+     * 
+     * Example implementations:
+     * - ButtonAtom: { state: _state }
+     * - SignalGeneratorAtom: { frequency: _frequency, phase: _phase }
+     * - TextInputAtom: { value: _outputs[0].value }
+     * 
+     * @return Dynamic object containing state data, or null if no state
+     */
+    public function getPersistentState():Dynamic { 
+        return null; 
+    }
+
+    /**
+     * Restore state from saved data.
+     * Override in subclasses to restore atom-specific data.
+     * 
+     * Called when loading a project to restore the atom's state.
+     * The state parameter contains the data returned by getPersistentState().
+     * 
+     * @param state The saved state data
+     */
+    public function restoreState(state:Dynamic):Void { 
+        // Default: do nothing
+    }
 
     // =========================================================================
     // GETTERS

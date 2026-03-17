@@ -10,14 +10,17 @@ import openfl.ui.Keyboard;
 import core.base.Atom;
 import core.base.Contact;
 import core.logic.Impulsys;
-import core.logic.EventType; // <--- IMPORT
+import core.logic.EventType;
 
 /**
- * TEXT INPUT WIDGET v1.1
+ * TEXT INPUT WIDGET v1.2 (Value Committed Event)
  * Виджет для ввода текста или чисел.
  * - При потере фокуса или Enter отправляет значение в атом.
  * - Масштабируется при встраивании в ноду.
- * v1.1: Added Impulse on value commit.
+ * 
+ * v1.2 Changes:
+ * - Emits VALUE_COMMITTED impulse on Enter key
+ * - This triggers automatic save in Main.hx
  */
 class TextInputWidget extends DeviceView {
 
@@ -83,7 +86,7 @@ class TextInputWidget extends DeviceView {
             // Убираем фокус, чтобы подтвердить ввод
             if (stage != null) stage.focus = null;
 
-            // --- НОВОЕ: Сигнал на сохранение ---
+            // v1.2: Сигнал на сохранение проекта
             Impulsys.quickEmit(EventType.VALUE_COMMITTED);
         }
     }

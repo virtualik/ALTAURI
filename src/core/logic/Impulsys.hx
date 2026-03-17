@@ -1,17 +1,20 @@
 package core.logic;
 
+import core.logic.EventType;
+
 /**
- * IMPULSYS v1.2 (Memory Optimization)
+ * IMPULSYS v1.3 (Memory Optimization)
  * Статическая шина событий (Event Bus).
  *
- * v1.2 Changes:
+ * v1.3 Changes:
  * - removeImpulse now removes empty arrays from the bus
  * - Added getListenerCount() for debugging
+ * - Proper cleanup on clear()
  */
 class Impulsys {
 
     private static var _bus:Map<EventType, Array<Impulse -> Void>> = new Map();
-    
+
     // Счётчик для отладки
     private static var _totalListeners:Int = 0;
 
@@ -20,7 +23,7 @@ class Impulsys {
             _bus.set(type, []);
         }
         var list = _bus.get(type);
-        
+
         // Защита от дублирования
         if (list.indexOf(callback) == -1) {
             list.push(callback);
@@ -29,32 +32,31 @@ class Impulsys {
     }
 
     /**
-     * v1.2: Удаляет callback и очищает пустые массивы.
+     * v1.3: Удаляет callback и очищает пустые массивы.
      */
     public static function removeImpulse(type:EventType, callback:Impulse -> Void):Void {
         if (!_bus.exists(type)) return;
-        
+
         var list = _bus.get(type);
         var removed = list.remove(callback);
-        
+
         if (removed) {
             _totalListeners--;
         }
-        
-        // === FIX: Удалять пустые массивы из Map ===
+
+        // FIX: Удалять пустые массивы из Map
         if (list.length == 0) {
             _bus.remove(type);
         }
-        // =========================================
     }
 
     public static function emit(impulse:Impulse):Void {
         if (!_bus.exists(impulse.type)) return;
-        
+
         // Копируем список для защиты от модификации во время итерации
         var list = _bus.get(impulse.type);
         var callbacks = list.copy();
-        
+
         for (cb in callbacks) {
             if (cb != null) {
                 try {
@@ -85,10 +87,9 @@ class Impulsys {
         _bus = new Map();
         _totalListeners = 0;
     }
-    
+
     /**
      * Получить количество слушателей для типа события.
-     * Полезно для отладки утечек памяти.
      */
     public static function getListenerCount(?type:EventType):Int {
         if (type != null) {
@@ -97,15 +98,14 @@ class Impulsys {
         }
         return _totalListeners;
     }
-    
+
     /**
      * Получить все типы событий, имеющие слушателей.
-     * Полезно для отладки.
      */
     public static function getActiveEventTypes():Array<EventType> {
         return [for (type in _bus.keys()) type];
     }
-    
+
     /**
      * Отладочный вывод состояния шины.
      */

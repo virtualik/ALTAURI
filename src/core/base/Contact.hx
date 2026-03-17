@@ -5,13 +5,13 @@ import core.types.Priority;
 import core.types.ContactType;
 
 /**
- * CONTACT v4.3 (Double-Dispose Protection)
+ * CONTACT v4.4 (State Serialization)
  * Eliminates recursive data transfer.
  * Uses SignalQueue to schedule updates.
  *
- * v4.3 Changes:
- * - Added guard against double-dispose (isDisposed check at start)
- * - Fixed potential memory leak in callbackTargets
+ * v4.4 Changes:
+ * - Added getValue() and setValue() for cleaner state access
+ * - Added getValueType() for type detection
  */
 class Contact {
 
@@ -113,6 +113,36 @@ class Contact {
     }
 
     /**
+     * Get value as specific type.
+     * Useful for state serialization.
+     */
+    public function getValue():Dynamic {
+        return _value;
+    }
+
+    /**
+     * Set value without triggering propagation.
+     * Used during state restoration.
+     */
+    public function setValueSilent(newValue:Dynamic):Void {
+        _value = newValue;
+    }
+
+    /**
+     * Determine the type of the current value.
+     * Returns: "null", "bool", "float", "int", "string", "array", "object"
+     */
+    public function getValueType():String {
+        if (_value == null) return "null";
+        if (Std.isOfType(_value, Bool)) return "bool";
+        if (Std.isOfType(_value, Int)) return "int";
+        if (Std.isOfType(_value, Float)) return "float";
+        if (Std.isOfType(_value, String)) return "string";
+        if (Std.isOfType(_value, Array)) return "array";
+        return "object";
+    }
+
+    /**
      * Scheduled signal propagation.
      * Called iteratively from SignalQueue.
      */
@@ -151,13 +181,11 @@ class Contact {
 
     /**
      * Properly dispose the contact.
-     * v4.3: Added guard against double-dispose.
      */
     public function dispose():Void {
-        // === FIX: Guard against double-dispose ===
+        // Guard against double-dispose
         if (isDisposed) return;
-        // =========================================
-        
+
         isDisposed = true;
         _isScheduled = false;
 

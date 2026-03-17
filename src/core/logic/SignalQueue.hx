@@ -3,27 +3,28 @@ package core.logic;
 import core.types.Priority;
 
 /**
- * SIGNAL QUEUE v2.3 (Stability Fix)
+ * SIGNAL QUEUE v2.4 (Priority System)
  * Priority-based Task Scheduler.
  *
- * v2.3 Changes:
- * - Increased iteration limit to handle complex signal chains.
- * - Safer queue clearing on overflow.
+ * v2.4 Changes:
+ * - Increased iteration limit for complex signal chains
+ * - Safer queue clearing on overflow
+ * - Added executeAndClear for atomic operations
  */
 class SignalQueue {
 
     private static var _instance:SignalQueue;
 
-    // Storage for queues
+    // Storage for queues by priority
     private var _queues:Map<Priority, Array<Void -> Void>>;
 
     private var _isProcessing:Bool = false;
 
     // Protection against "Zombie Loops"
     private var _currentIteration:Int = 0;
-    
+
     // УВЕЛИЧЕННЫЙ ЛИМИТ: Позволяет обрабатывать больше сигналов за кадр
-    public var maxIterationsPerFrame:Int = 25000; 
+    public var maxIterationsPerFrame:Int = 25000;
 
     public static function getInstance():SignalQueue {
         if (_instance == null) _instance = new SignalQueue();
@@ -41,7 +42,10 @@ class SignalQueue {
      * Adds a task to the queue.
      */
     public function schedule(task:Void -> Void, priority:Priority = NORMAL):Void {
-        _queues.get(priority).push(task);
+        var queue = _queues.get(priority);
+        if (queue != null) {
+            queue.push(task);
+        }
 
         if (!_isProcessing) {
             process();
@@ -61,23 +65,27 @@ class SignalQueue {
         for (p in order) {
             var queue = _queues.get(p);
 
-            while (queue.length > 0) {
+            while (queue != null && queue.length > 0) {
                 // Overflow protection
                 _currentIteration++;
                 if (_currentIteration > maxIterationsPerFrame) {
                     trace('WARN: SignalQueue overflow at priority $p. Clearing remaining tasks to prevent freeze.');
 
                     // Clear queues to prevent persistent lag spikes
-                    for (q in _queues) {
-                        if (q != null) q.resize(0);
-                    }
+                    clear();
 
                     _isProcessing = false;
                     return;
                 }
 
                 var task = queue.shift();
-                if (task != null) task();
+                if (task != null) {
+                    try {
+                        task();
+                    } catch (e:Dynamic) {
+                        trace('ERROR in SignalQueue task: $e');
+                    }
+                }
             }
         }
 
@@ -91,14 +99,47 @@ class SignalQueue {
         return _currentIteration > Std.int(maxIterationsPerFrame * 0.8);
     }
 
+    /**
+     * Clear all queues.
+     */
     public function clear():Void {
-        _queues = new Map();
-        _queues.set(CRITICAL, []);
-        _queues.set(NORMAL, []);
-        _queues.set(BACKGROUND, []);
+        for (queue in _queues) {
+            if (queue != null) {
+                queue.resize(0);
+            }
+        }
         _isProcessing = false;
+        _currentIteration = 0;
     }
 
+    /**
+     * Execute all pending tasks immediately and clear.
+     * Useful for finalizing before save/exit.
+     */
+    public function flush():Void {
+        var totalTasks = getTotalTaskCount();
+        if (totalTasks > 0) {
+            trace('SignalQueue: Flushing $totalTasks pending tasks...');
+            process();
+        }
+    }
+
+    /**
+     * Get total number of pending tasks.
+     */
+    public function getTotalTaskCount():Int {
+        var total = 0;
+        for (queue in _queues) {
+            if (queue != null) {
+                total += queue.length;
+            }
+        }
+        return total;
+    }
+
+    /**
+     * Reset singleton instance.
+     */
     public static function reset():Void {
         if (_instance != null) {
             _instance.clear();

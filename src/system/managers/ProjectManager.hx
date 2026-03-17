@@ -9,7 +9,7 @@ import library.AtomRegistry;
 import utils.UID;
 
 // !!! ВАЖНО: using вместо import для методов .replace и .endsWith !!!
-using StringTools; 
+using StringTools;
 
 #if sys
 import sys.FileSystem;
@@ -17,9 +17,12 @@ import sys.io.File;
 #end
 
 /**
- * PROJECT MANAGER v1.0
+ * PROJECT MANAGER v2.2 (Window Position Persistence)
  * Отвечает за файловую систему, пути и сохранение/загрузку проектов.
  * Выносит всю IO логику из Main.
+ *
+ * v2.2 Changes:
+ * - Added windowX/windowY to saved data and return types
  */
 class ProjectManager {
 
@@ -45,8 +48,8 @@ class ProjectManager {
         if (home == null) home = Sys.getEnv("USERPROFILE");
 
         if (home != null) {
-            home = home.replace("\\", "/"); // Теперь это сработает
-            if (!home.endsWith("/")) home += "/"; // И это тоже
+            home = home.replace("\\", "/");
+            if (!home.endsWith("/")) home += "/";
             documentsPath = home + "Documents";
         } else {
             documentsPath = Sys.getCwd();
@@ -60,7 +63,7 @@ class ProjectManager {
         if (!FileSystem.exists(libraryPath)) FileSystem.createDirectory(libraryPath);
 
         AtomRegistry.customLibraryPath = libraryPath;
-        
+
         // Сканируем библиотеку
         AtomRegistry.scanFolder(libraryPath);
         #else
@@ -71,12 +74,17 @@ class ProjectManager {
 
     /**
      * Сохранить корневой проект (Selfrun).
+     * v2.2: Added windowX, windowY
      */
     public function saveSelfrun(
-        rootAssembly:Assembly, 
-        viewState:{x:Float, y:Float, zoom:Float}, 
-        deviceWindowData:Array<{path:Array<String>, x:Float, y:Float}>,
-        isDeviceWindowOpen:Bool
+        rootAssembly:Assembly,
+        viewState:{x:Float, y:Float, zoom:Float},
+        deviceWindowData:Array<{path:Array<String>, x:Float, y:Float, ?width:Float, ?height:Float}>,
+        isDeviceWindowOpen:Bool,
+        ?windowWidth:Float = 420,
+        ?windowHeight:Float = 320,
+        ?windowX:Float = 100,
+        ?windowY:Float = 100
     ):Void {
         #if sys
         if (rootAssembly == null) return;
@@ -116,9 +124,24 @@ class ProjectManager {
         }
 
         var bp = rootAssembly.blueprint;
-        
+
+        var devicesToSave:Array<Dynamic> = [];
+        if (deviceWindowData != null) {
+            for (d in deviceWindowData) {
+                var w:Float = (d.width != null) ? d.width : 100.0;
+                var h:Float = (d.height != null) ? d.height : 80.0;
+                devicesToSave.push({
+                    path: d.path,
+                    x: d.x,
+                    y: d.y,
+                    width: w,
+                    height: h
+                });
+            }
+        }
+
         var data:Dynamic = {
-            version: "1.3",
+            version: "2.2",
             blueprint: {
                 id: bp.id,
                 name: bp.name,
@@ -130,13 +153,17 @@ class ProjectManager {
             editor: viewState,
             deviceWindow: {
                 isOpen: isDeviceWindowOpen,
-                devices: deviceWindowData
+                x: windowX,
+                y: windowY,
+                width: windowWidth,
+                height: windowHeight,
+                devices: devicesToSave
             }
         };
 
         try {
             File.saveContent(selfrunPath, haxe.Json.stringify(data, null, "  "));
-            trace("ProjectManager: Selfrun saved.");
+            trace("ProjectManager: Selfrun saved (v2.2 with window pos).");
         } catch(e:Dynamic) {
             trace("Error saving Selfrun: " + e);
         }
@@ -147,8 +174,24 @@ class ProjectManager {
 
     /**
      * Загрузить данные Selfrun.
+     * v2.2: Returns window X, Y
      */
-    public function loadSelfrun():{blueprint:Blueprint, view:{x:Float, y:Float, zoom:Float}, devices:Array<Dynamic>, isOpen:Bool} {
+    public function loadSelfrun():{
+        blueprint:Blueprint,
+        view:{x:Float, y:Float, zoom:Float},
+        devices:Array<{
+            path:Array<String>,
+            x:Float,
+            y:Float,
+            ?width:Float,
+            ?height:Float
+        }>,
+        isOpen:Bool,
+        windowX:Float,
+        windowY:Float,
+        windowWidth:Float,
+        windowHeight:Float
+    } {
         #if sys
         if (!FileSystem.exists(selfrunPath)) return null;
 
@@ -164,17 +207,57 @@ class ProjectManager {
                 viewState.y = _safeFloat(json.editor.y);
                 viewState.zoom = _safeFloat(json.editor.zoom);
             }
-            
-            var devices:Array<Dynamic> = [];
+
+            var devices:Array<{
+                path:Array<String>,
+                x:Float,
+                y:Float,
+                ?width:Float,
+                ?height:Float
+            }> = [];
             var isOpen = false;
+            var windowX = 100.0;
+            var windowY = 100.0;
+            var windowWidth = 420.0;
+            var windowHeight = 320.0;
+
             if (json.deviceWindow != null) {
                 isOpen = json.deviceWindow.isOpen;
+
+                windowX = _safeFloat(json.deviceWindow.x, 100);
+                windowY = _safeFloat(json.deviceWindow.y, 100);
+                windowWidth = _safeFloat(json.deviceWindow.width, 420);
+                windowHeight = _safeFloat(json.deviceWindow.height, 320);
+
                 if (json.deviceWindow.devices != null) {
-                    devices = json.deviceWindow.devices;
+                    for (d in cast(json.deviceWindow.devices, Array<Dynamic>)) {
+                        var path:Array<String> = [];
+                        if (d.path != null) {
+                            for (s in cast(d.path, Array<Dynamic>)) {
+                                path.push(Std.string(s));
+                            }
+                        }
+                        devices.push({
+                            path: path,
+                            x: _safeFloat(d.x, 0),
+                            y: _safeFloat(d.y, 0),
+                            width: _safeFloat(d.width, 100),
+                            height: _safeFloat(d.height, 80)
+                        });
+                    }
                 }
             }
 
-            return {blueprint: bp, view: viewState, devices: devices, isOpen: isOpen};
+            return {
+                blueprint: bp,
+                view: viewState,
+                devices: devices,
+                isOpen: isOpen,
+                windowX: windowX,
+                windowY: windowY,
+                windowWidth: windowWidth,
+                windowHeight: windowHeight
+            };
         } catch(err:Dynamic) {
             trace('Error parsing Selfrun: $err');
             return null;

@@ -2,30 +2,35 @@ package core.base;
 
 import library.AtomRegistry;
 import library.electro.TextInputAtom;
-import utils.UID;
-
-// Импорты нативных классов
+import library.electro.ButtonAtom;
+import library.electro.LedAtom;
+import library.electro.RelayAtom;
+import library.electro.OscilloscopeAtom;
 import library.drivers.SignalGeneratorAtom;
 import library.drivers.FPSMonitorAtom;
 import library.drivers.FrameTimeAtom;
 import library.drivers.AudioInputAtom;
 import library.logic.NandAtom;
-import library.electro.ButtonAtom;
-import library.electro.LedAtom;
-import library.electro.RelayAtom;
-import library.electro.OscilloscopeAtom;
+import utils.UID;
 
 /**
- * ASSEMBLY FACTORY v4.1 (Native Class Support)
+ * ASSEMBLY FACTORY v4.2 (State Restoration)
  * Создает правильные экземпляры классов для нативных атомов.
+ *
+ * v4.2 Changes:
+ * - Passes state values to Assembly constructor for restoration
  */
 class AssemblyFactory {
 
     /**
      * Creates an Atom or Assembly instance.
      * If forcedId is null, generates a new UUID.
+     *
+     * @param typeId Blueprint ID
+     * @param forcedId Optional specific instance ID
+     * @param initialState Optional state to restore after creation
      */
-    public static function createAtom(typeId:String, ?forcedId:String):Atom {
+    public static function createAtom(typeId:String, ?forcedId:String, ?initialState:Dynamic):Atom {
         var bp = AtomRegistry.get(typeId);
         var id:String = (forcedId != null) ? forcedId : UID.generate();
 
@@ -34,31 +39,37 @@ class AssemblyFactory {
             return null;
         }
 
-        // === ВАЖНОЕ ИСПРАВЛЕНИЕ: Проверка типа для создания нужного класса ===
-        // Мы проверяем ID чертежа и возвращаем соответствующий Java-класс (Haxe класс).
-        // Assembly создается только для пользовательских сборок (где logic == null и есть internalAtoms)
-        // или если это "пустая" нативная сборка.
-        
+        var atom:Atom = null;
+
+        // === NATIVE ATOMS ===
         switch (typeId) {
             // Active Drivers
-            case "SignalGen": return new SignalGeneratorAtom(id);
-            case "FPSMonitor": return new FPSMonitorAtom(id);
-            case "FrameTime": return new FrameTimeAtom(id);
-            case "AudioIn": return new AudioInputAtom(id);
-            
+            case "SignalGen": atom = new SignalGeneratorAtom(id);
+            case "FPSMonitor": atom = new FPSMonitorAtom(id);
+            case "FrameTime": atom = new FrameTimeAtom(id);
+            case "AudioIn": atom = new AudioInputAtom(id);
+
             // Logic
-            case "NAND": return new NandAtom(id);
-            
+            case "NAND": atom = new NandAtom(id);
+
             // Electro
-            case "Button": return new ButtonAtom(id);
-            case "LED": return new LedAtom(id);
-            case "Relay": return new RelayAtom(id);
-            case "Oscilloscope": return new OscilloscopeAtom(id);
-			case "TextInput": return new TextInputAtom(id);
+            case "Button": atom = new ButtonAtom(id);
+            case "LED": atom = new LedAtom(id);
+            case "Relay": atom = new RelayAtom(id);
+            case "Oscilloscope": atom = new OscilloscopeAtom(id);
+            case "TextInput": atom = new TextInputAtom(id);
+
+            // Default: create Assembly for composite
+            default:
+                atom = new Assembly(id, bp);
         }
 
-        // Если это не нативный атом, создаем Assembly (составную сборку)
-        return new Assembly(id, bp);
+        // v4.2: Restore state if provided
+        if (atom != null && initialState != null) {
+            atom.restoreState(initialState);
+        }
+
+        return atom;
     }
 
     public static function createAssembly(typeId:String):Assembly {
@@ -66,22 +77,22 @@ class AssemblyFactory {
         if (Std.isOfType(atom, Assembly)) {
             return cast atom;
         } else {
-            // Если это нативный атом, а не сборка, можно обернуть его или вернуть null/ошибку
             trace('WARN: $typeId is a native Atom, not an Assembly.');
-            return null; 
+            return null;
         }
     }
 
+    /**
+     * Check if a type is a composite (user-created assembly).
+     */
     public static function isComposite(typeId:String):Bool {
         var bp = AtomRegistry.get(typeId);
         if (bp == null) return false;
-        
-        // Если есть зарегистрированный нативный класс, это не композит (с точки зрения редактора)
-        // Или если logic задан, это нативный функционал.
-        // Но для вашего редактора "Composite" означает "можно открыть внутрь".
-        // Сигнал генератор нельзя открыть внутрь.
+
+        // Native atoms with logic are not composites
         if (bp.logic != null) return false;
-        
+
+        // Composites have internal atoms
         return (bp.internalAtoms != null && bp.internalAtoms.length > 0);
     }
 }

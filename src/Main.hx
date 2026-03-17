@@ -45,11 +45,11 @@ import library.AtomRegistry;
 using StringTools;
 
 /**
- * Main v1.1 (Memory Leak Fix)
- * 
- * v1.1 Changes:
- * - Added dispose() call for ContextMenuManager in hardReset()
- * - Proper cleanup of DeviceWindow
+ * Main v2.3 (Window Auto-Save)
+ *
+ * v2.3 Changes:
+ * - Fixed DeviceWindow creation to pass cached Width and Height
+ * - Added listener for DEVICE_WINDOW_CHANGED with 300ms debounce to auto-save position/size
  */
 class Main extends Sprite {
 
@@ -84,10 +84,25 @@ class Main extends Sprite {
     private var _lastTime:Int = 0;
     private var _theme:EditorTheme;
     private var _deviceWindow:DeviceWindow;
-    private var _cachedDeviceWindowState:Array<{path:Array<String>, x:Float, y:Float}> = null;
-    private var _hideTimer:haxe.Timer;
+
+    // v2.2: Cache for window position
+    private var _cachedDeviceWindowState:Array<{
+        path:Array<String>,
+        x:Float,
+        y:Float,
+        ?width:Float,
+        ?height:Float
+    }> = null;
+
+    private var _cachedWindowWidth:Float = 420;
+    private var _cachedWindowHeight:Float = 320;
+    private var _cachedWindowX:Float = 100;
+    private var _cachedWindowY:Float = 100;
     
-    // --- Disposed flag ---
+    // v2.3: Debounce timer for window saving
+    private var _windowSaveTimer:haxe.Timer = null;
+
+    private var _hideTimer:haxe.Timer;
     private var _isDisposed:Bool = false;
 
     public function new() {
@@ -138,7 +153,7 @@ class Main extends Sprite {
     }
 
     // =============================================================================================
-    // LOADING
+    // LOADING v2.2
     // =============================================================================================
 
     private function loadProject():Void {
@@ -150,12 +165,23 @@ class Main extends Sprite {
 
             _cachedDeviceWindowState = [];
             if (data.devices != null) {
-                for (d in (cast(data.devices, Array<Dynamic>))) {
-                    var p:Array<String> = [];
-                    if (d.path != null) for(s in cast(d.path, Array<Dynamic>)) p.push(Std.string(s));
-                    _cachedDeviceWindowState.push({path: p, x: d.x, y: d.y});
+                for (d in data.devices) {
+                    var w:Float = (d.width != null) ? d.width : 100.0;
+                    var h:Float = (d.height != null) ? d.height : 80.0;
+                    _cachedDeviceWindowState.push({
+                        path: d.path,
+                        x: d.x,
+                        y: d.y,
+                        width: w,
+                        height: h
+                    });
                 }
             }
+
+            _cachedWindowWidth = data.windowWidth;
+            _cachedWindowHeight = data.windowHeight;
+            _cachedWindowX = data.windowX;
+            _cachedWindowY = data.windowY;
 
             _editorContext.push(rootAssembly, true);
             _editorContext.currentEditor.setViewState(data.view);
@@ -163,7 +189,7 @@ class Main extends Sprite {
             if (data.isOpen) {
                 restoreDeviceWindow(rootAssembly);
             }
-            log("Project loaded.");
+            log("Project loaded (v2.2 with window pos).");
         } else {
             createEmptyProject();
         }
@@ -183,23 +209,44 @@ class Main extends Sprite {
     }
 
     // =============================================================================================
-    // SAVING
+    // SAVING v2.2
     // =============================================================================================
 
-    private function saveCurrentContext():Void {
+ private function saveCurrentContext():Void {
         var isRoot = (_editorContext.getStackLength() == 1);
 
         if (isRoot) {
             log("Saving Root...");
+
+            // Обновляем кэш размеров и позиции перед сохранением
+            if (_deviceWindow != null && _deviceWindow.isOpen) {
+                _cachedDeviceWindowState = extractDeviceWindowData();
+                _cachedWindowWidth = _deviceWindow.windowWidth;
+                _cachedWindowHeight = _deviceWindow.windowHeight;
+                _cachedWindowX = _deviceWindow.windowX;
+                _cachedWindowY = _deviceWindow.windowY;
+            }
+
             var viewState = _editorContext.currentEditor.getViewState();
-            var devicesData = extractDeviceWindowData();
-            _projectManager.saveSelfrun(_editorContext.currentAssembly, viewState, devicesData, (_deviceWindow != null && _deviceWindow.isOpen));
+            var devicesData = _cachedDeviceWindowState != null ? _cachedDeviceWindowState : [];
+            var isWindowOpen = (_deviceWindow != null && _deviceWindow.isOpen);
+
+            // ИСПРАВЛЕНИЕ: Передаем кэшированные размеры и позицию в ProjectManager
+            _projectManager.saveSelfrun(
+                _editorContext.currentAssembly,
+                viewState,
+                devicesData,
+                isWindowOpen,
+                _cachedWindowWidth,
+                _cachedWindowHeight,
+                _cachedWindowX,
+                _cachedWindowY
+            );
         } else {
             log("Saving Assembly to Library...");
             _projectManager.saveAssemblyToLibrary(_editorContext.currentAssembly);
         }
     }
-
     private function saveOnExit():Void {
         log("Auto-saving on exit...");
         saveCurrentContext();
@@ -294,13 +341,20 @@ class Main extends Sprite {
 
     private function onToggleView():Void {
         if (_deviceWindow != null && _deviceWindow.isOpen) {
+            // Closing: cache position
             _cachedDeviceWindowState = extractDeviceWindowData();
-            log("Closing Device Window (state cached).");
+            _cachedWindowWidth = _deviceWindow.windowWidth;
+            _cachedWindowHeight = _deviceWindow.windowHeight;
+            _cachedWindowX = _deviceWindow.windowX;
+            _cachedWindowY = _deviceWindow.windowY;
+
+            log("Closing Device Window (cached at " + _cachedWindowX + ", " + _cachedWindowY + ").");
             _deviceWindow.close();
             _deviceWindow = null;
         } else {
             log("Opening Device Window...");
-            _deviceWindow = new DeviceWindow();
+            // v2.3 FIX: Pass cached Width and Height to constructor
+            _deviceWindow = new DeviceWindow(_cachedWindowX, _cachedWindowY, _cachedWindowWidth, _cachedWindowHeight);
             _deviceWindow.onShowEditor = restoreEditorWindow;
             _deviceWindow.onGetAssemblyList = getAllDevicesRecursive;
             _deviceWindow.onAssemblySelected = function(atom:Atom) { log("Device added: " + atom.name); };
@@ -316,6 +370,18 @@ class Main extends Sprite {
                 log("Restored " + _cachedDeviceWindowState.length + " devices from cache.");
             }
         }
+    }
+    
+    // v2.3: Auto-save with 300ms debounce
+    private function onDeviceWindowChanged(impulse:Impulse):Void {
+        if (_windowSaveTimer != null) {
+            _windowSaveTimer.stop();
+        }
+        _windowSaveTimer = haxe.Timer.delay(() -> {
+            saveCurrentContext();
+            _windowSaveTimer = null;
+            log("Device window state auto-saved.");
+        }, 300);
     }
 
     // =============================================================================================
@@ -438,6 +504,7 @@ class Main extends Sprite {
         Impulsys.subscribeToImpulse(EventType.OPEN_ASSEMBLY_REQUEST, onOpenAssemblyRequest);
         Impulsys.subscribeToImpulse(EventType.REQUEST_NEW_ASSEMBLY_CONTEXT, onRequestNewContext);
         Impulsys.subscribeToImpulse(EventType.VALUE_COMMITTED, onValueCommitted);
+        Impulsys.subscribeToImpulse(EventType.DEVICE_WINDOW_CHANGED, onDeviceWindowChanged); // v2.3
     }
 
     private function onSettingsChanged():Void {
@@ -518,6 +585,13 @@ class Main extends Sprite {
     }
 
     private function onValueCommitted(impulse:Impulse):Void {
+        if (_deviceWindow != null && _deviceWindow.isOpen) {
+            _cachedDeviceWindowState = extractDeviceWindowData();
+            _cachedWindowWidth = _deviceWindow.windowWidth;
+            _cachedWindowHeight = _deviceWindow.windowHeight;
+            _cachedWindowX = _deviceWindow.windowX;
+            _cachedWindowY = _deviceWindow.windowY;
+        }
         saveCurrentContext();
         log("Data saved.");
     }
@@ -547,32 +621,31 @@ class Main extends Sprite {
     private function hardReset():Void {
         log("SYSTEM: Hard Reset...");
         _editorContext.clear();
-        
-        // === FIX: Proper cleanup of DeviceWindow ===
+
         if (_deviceWindow != null) {
             _deviceWindow.close();
             _deviceWindow = null;
         }
-        // ===========================================
-        
-        _cachedDeviceWindowState = null;
 
-        // === FIX: Proper dispose of ContextMenuManager ===
+        _cachedDeviceWindowState = null;
+        _cachedWindowWidth = 420;
+        _cachedWindowHeight = 320;
+        _cachedWindowX = 100;
+        _cachedWindowY = 100;
+
         if (_contextManager != null) {
             _contextManager.dispose();
             _uiLayer.removeChild(_contextManager.getView());
         }
-        // ================================================
 
         Impulsys.clear();
 
-        // Re-subscribe to Main's events
         Impulsys.subscribeToImpulse(EventType.ATOM_PROPERTIES_REQUEST, onPropertiesRequest);
         Impulsys.subscribeToImpulse(EventType.OPEN_ASSEMBLY_REQUEST, onOpenAssemblyRequest);
         Impulsys.subscribeToImpulse(EventType.REQUEST_NEW_ASSEMBLY_CONTEXT, onRequestNewContext);
         Impulsys.subscribeToImpulse(EventType.VALUE_COMMITTED, onValueCommitted);
+        Impulsys.subscribeToImpulse(EventType.DEVICE_WINDOW_CHANGED, onDeviceWindowChanged);
 
-        // Create new ContextMenuManager
         _contextManager = new ContextMenuManager(_settingsPanel);
         _uiLayer.addChild(_contextManager.getView());
 
@@ -659,7 +732,7 @@ class Main extends Sprite {
         #if sys return sys.FileSystem.exists(_projectManager.libraryPath + "/" + id + ".atom"); #else return true; #end
     }
 
-    // --- Device Window Helpers ---
+    // --- Device Window Helpers v2.2 ---
 
     private function getAllDevicesRecursive():Array<{id:String, name:String, atom:Atom}> {
         var result:Array<{id:String, name:String, atom:Atom}> = [];
@@ -681,14 +754,20 @@ class Main extends Sprite {
         }
     }
 
-    private function extractDeviceWindowData():Array<{path:Array<String>, x:Float, y:Float}> {
+    private function extractDeviceWindowData():Array<{path:Array<String>, x:Float, y:Float, ?width:Float, ?height:Float}> {
         if (_deviceWindow != null && _deviceWindow.isOpen) {
             var cards = _deviceWindow.getDeviceCards();
             var data = [];
             for (card in cards) {
                 var path = findDevicePath(_editorContext.currentAssembly, card.atom);
                 if (path != null && path.length > 0) {
-                    data.push({path: path, x: card.x, y: card.y});
+                    data.push({
+                        path: path,
+                        x: card.x,
+                        y: card.y,
+                        width: card.cardWidth,
+                        height: card.cardHeight
+                    });
                 }
             }
             return data;

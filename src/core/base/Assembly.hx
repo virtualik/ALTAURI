@@ -11,9 +11,14 @@ import library.AtomRegistry;
 import system.managers.DriverManager;
 
 /**
- * ASSEMBLY v4.9 (Clean Core)
+ * ASSEMBLY v5.0 (State Serialization)
  * Universal base class for ALL nodes.
  * Completely decoupled from View (OpenFL/Sprite).
+ *
+ * v5.0 Changes:
+ * - Added getPersistentState() to collect state from all internal atoms
+ * - Added restoreState() to restore internal atom states
+ * - Recursive state collection for nested assemblies
  */
 class Assembly extends Atom {
 
@@ -170,7 +175,7 @@ class Assembly extends Atom {
             if (instance != null) {
                 internalAtoms.set(newInstanceID, instance);
 
-                // Restore state
+                // v5.0: Restore state from atomDef.values
                 if (atomDef.values != null) {
                     instance.restoreState(atomDef.values);
                 }
@@ -295,6 +300,59 @@ class Assembly extends Atom {
 
         port.dispose();
         ports.remove(name);
+    }
+
+    // =========================================================================
+    // STATE SERIALIZATION v5.0
+    // =========================================================================
+
+    /**
+     * Collect state from all internal atoms.
+     * Returns a map of Runtime ID -> atom state.
+     */
+    override public function getPersistentState():Dynamic {
+        var states:Dynamic = {};
+
+        if (internalAtoms != null) {
+            for (runtimeId in internalAtoms.keys()) {
+                var atom:Atom = cast internalAtoms.get(runtimeId);
+                if (atom != null) {
+                    var state = atom.getPersistentState();
+                    if (state != null) {
+                        Reflect.setField(states, runtimeId, state);
+                    }
+                }
+            }
+        }
+
+        // Only return if we have any states
+        var hasStates = false;
+        for (field in Reflect.fields(states)) {
+            hasStates = true;
+            break;
+        }
+
+        return hasStates ? states : null;
+    }
+
+    /**
+     * Restore state to internal atoms.
+     * Expects a map of Runtime ID -> atom state.
+     */
+    override public function restoreState(state:Dynamic):Void {
+        if (state == null) return;
+
+        if (internalAtoms != null) {
+            for (runtimeId in internalAtoms.keys()) {
+                if (Reflect.hasField(state, runtimeId)) {
+                    var atom:Atom = cast internalAtoms.get(runtimeId);
+                    if (atom != null) {
+                        var atomState = Reflect.field(state, runtimeId);
+                        atom.restoreState(atomState);
+                    }
+                }
+            }
+        }
     }
 
     // =========================================================================
