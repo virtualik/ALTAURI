@@ -6,19 +6,14 @@ import core.data.Blueprint.ConnectionPoint;
 import core.base.Contact;
 import core.base.IDisposable;
 import core.types.ContactType;
-import core.view.DeviceView;
-import core.view.DeviceWidgetFactory;
 import utils.UID;
 import library.AtomRegistry;
 import system.managers.DriverManager;
 
-
 /**
- * ASSEMBLY v4.8 (State Serialization)
- * Универсальный базовый класс для ВСЕХ узлов.
- *
- * v4.8 Changes:
- * - Restores atom state from Blueprint.values after creation.
+ * ASSEMBLY v4.9 (Clean Core)
+ * Universal base class for ALL nodes.
+ * Completely decoupled from View (OpenFL/Sprite).
  */
 class Assembly extends Atom {
 
@@ -33,10 +28,9 @@ class Assembly extends Atom {
     public var inputs(get, null):Map<String, Contact>;
     public var outputs(get, null):Map<String, Contact>;
 
-    // Карта для трансляции ID из Blueprint в реальные InstanceID
+    // Map: Template ID -> Runtime ID
     private var _idMap:Map<String, String>;
 
-    // Публичный геттер для доступа из Main при сохранении
     public var idMap(get, never):Map<String, String>;
     private function get_idMap():Map<String, String> return _idMap;
 
@@ -112,7 +106,6 @@ class Assembly extends Atom {
                 if (port != null) {
                     if (port.type == INPUT) {
                         _inputs.remove(port.external);
-                        // Sync cache size (optional in Haxe, but good for consistency)
                         if (_inputCache.length > _inputs.length) _inputCache.pop();
                     } else {
                         _outputs.remove(port.external);
@@ -139,7 +132,6 @@ class Assembly extends Atom {
                     if (pin.type == INPUT) {
                         _inputs.push(newPort.external);
                         newPort.external.owner = this;
-                        // IMPORTANT: Ensure _inputCache matches inputs count
                         while (_inputCache.length < _inputs.length) {
                             _inputCache.push(null);
                         }
@@ -178,13 +170,12 @@ class Assembly extends Atom {
             if (instance != null) {
                 internalAtoms.set(newInstanceID, instance);
 
-                // --- НОВОЕ: Восстановление состояния ---
+                // Restore state
                 if (atomDef.values != null) {
                     instance.restoreState(atomDef.values);
                 }
-                // --------------------------------------
 
-                // Регистрируем активные драйвера
+                // Register active drivers
                 var bpDef = AtomRegistry.get(atomDef.typeId);
                 if (bpDef != null && bpDef.isActive) {
                     DriverManager.getInstance().register(instance);
@@ -269,7 +260,6 @@ class Assembly extends Atom {
         if (type == INPUT) {
             _inputs.push(port.external);
             port.external.owner = this;
-            // Sync cache
             while (_inputCache.length < _inputs.length) {
                 _inputCache.push(null);
             }
@@ -298,7 +288,6 @@ class Assembly extends Atom {
 
         if (port.type == INPUT) {
             _inputs.remove(port.external);
-            // Sync cache
             if (_inputCache.length > _inputs.length) _inputCache.pop();
         } else {
             _outputs.remove(port.external);
@@ -306,18 +295,6 @@ class Assembly extends Atom {
 
         port.dispose();
         ports.remove(name);
-    }
-
-    // =========================================================================
-    // DEVICE VIEW
-    // =========================================================================
-
-    /**
-     * Create DeviceView for this Assembly.
-     * Uses DeviceWidgetFactory to create appropriate widget based on blueprint.deviceType.
-     */
-    override public function createDeviceView():DeviceView {
-        return DeviceWidgetFactory.create(this);
     }
 
     // =========================================================================

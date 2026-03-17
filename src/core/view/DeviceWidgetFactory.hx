@@ -6,8 +6,9 @@ import core.data.Blueprint;
 import core.view.TextInputWidget;
 
 /**
- * DEVICE WIDGET FACTORY v1.2
+ * DEVICE WIDGET FACTORY v1.3 (Clean Architecture)
  * Фабрика для создания DeviceView по типу или Blueprint.
+ * Полностью отделена от логики Atom.
  */
 class DeviceWidgetFactory {
 
@@ -24,12 +25,9 @@ class DeviceWidgetFactory {
                 return createForAssembly(asm);
             }
 
-            // 2. Для обычных атомов проверяем их собственный метод создания
-            var view = atom.createDeviceView();
-            if (view != null) return view;
-
-            // 3. Fallback - определяем по типу атома
+            // 2. Определяем по типу атома (Native Atoms)
             return createByAtomType(atom);
+
         } catch (e:Dynamic) {
             trace('Error creating DeviceView: $e');
             return null;
@@ -46,7 +44,6 @@ class DeviceWidgetFactory {
         var deviceType:String = bp.deviceType;
 
         if (deviceType == null || deviceType == "") {
-            // Нет типа устройства - используем PanelWidget
             return new PanelWidget(asm);
         }
 
@@ -70,7 +67,6 @@ class DeviceWidgetFactory {
                 new OscilloscopeWidget(asm, getContactName(bp, "in"));
 
             case "textinput":
-                // ИСПРАВЛЕНО: Передаем asm (он же Atom), TextInputWidget сам найдет нужные контакты
                 new TextInputWidget(asm);
 
             default:
@@ -95,8 +91,7 @@ class DeviceWidgetFactory {
 
             case "oscilloscope":
                 new OscilloscopeWidget(atom, "in");
-            
-            // ИСПРАВЛЕНО: Добавлен кейс для нативного TextInputAtom
+
             case "textinput":
                 new TextInputWidget(atom);
 
@@ -126,9 +121,6 @@ class DeviceWidgetFactory {
         return new TextWidget(atom);
     }
 
-    /**
-     * Получить имя контакта из Blueprint.
-     */
     private static function getContactName(bp:Blueprint, defaultName:String):String {
         if (bp == null || bp.pins == null) return defaultName;
 

@@ -1,16 +1,12 @@
 package core.base;
 
 import core.types.ContactType;
-import core.view.DeviceView;
-import system.managers.Driver;
 import system.managers.DriverManager;
+import system.managers.Driver;
 
 /**
- * ATOM BASE CLASS v5.1 (State Serialization Support)
- * Fundamental unit of logic.
- *
- * v5.1 Changes:
- * - Added getPersistentState() / restoreState() for saving atom data.
+ * ATOM BASE CLASS v5.2 (Clean Core)
+ * Fundamental unit of logic. Independent of rendering engine.
  */
 class Atom implements IDisposable implements Driver {
 
@@ -18,6 +14,7 @@ class Atom implements IDisposable implements Driver {
     public var type(default, null):String;
     public var name(default, null):String;
 
+    // В Haxe private = protected (доступен в подклассах)
     private var _inputs:Array<Contact>;
     private var _outputs:Array<Contact>;
     private var _process:Array<Dynamic> -> Array<Dynamic>;
@@ -71,7 +68,6 @@ class Atom implements IDisposable implements Driver {
 
     /**
      * Called by Contact when its value changes.
-     * Contact calls this directly instead of using closures.
      */
     public function onContactChanged(c:Contact):Void {
         if (_isScheduled || _isDisposed) return;
@@ -98,24 +94,11 @@ class Atom implements IDisposable implements Driver {
     }
 
     // =========================================================================
-    // STATE SERIALIZATION (NEW)
+    // STATE SERIALIZATION
     // =========================================================================
 
-    /**
-     * Export current state for saving.
-     * Override in subclasses that hold data (TextInput, Slider, etc.)
-     */
-    public function getPersistentState():Dynamic {
-        return null;
-    }
-
-    /**
-     * Restore state from saved data.
-     * Called after construction when loading a schematic.
-     */
-    public function restoreState(state:Dynamic):Void {
-        // Default: do nothing
-    }
+    public function getPersistentState():Dynamic { return null; }
+    public function restoreState(state:Dynamic):Void { }
 
     // =========================================================================
     // GETTERS
@@ -141,21 +124,6 @@ class Atom implements IDisposable implements Driver {
     }
 
     // =========================================================================
-    // DEVICE VIEW FACTORY
-    // =========================================================================
-
-    /**
-     * Create a DeviceView for this Atom.
-     * Override in subclasses to provide custom device representations.
-     * 
-     * @return DeviceView instance or null if this atom has no device representation
-     */
-    public function createDeviceView():DeviceView {
-        // Default: no device view
-        return null;
-    }
-
-    // =========================================================================
     // DISPOSE
     // =========================================================================
 
@@ -171,7 +139,7 @@ class Atom implements IDisposable implements Driver {
                 if (c != null) c.dispose();
             }
         }
-        
+
         if (_outputs != null) {
             for (c in _outputs) {
                 if (c != null) c.dispose();
