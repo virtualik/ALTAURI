@@ -5,13 +5,13 @@ import core.types.Priority;
 import core.types.ContactType;
 
 /**
- * CONTACT v4.2 (DeviceView Support)
+ * CONTACT v4.3 (Double-Dispose Protection)
  * Eliminates recursive data transfer.
  * Uses SignalQueue to schedule updates.
  *
- * v4.2 Changes:
- * - Added public subscribe/unsubscribe methods for DeviceView
- * - Added isDisposed property check
+ * v4.3 Changes:
+ * - Added guard against double-dispose (isDisposed check at start)
+ * - Fixed potential memory leak in callbackTargets
  */
 class Contact {
 
@@ -151,14 +151,20 @@ class Contact {
 
     /**
      * Properly dispose the contact.
+     * v4.3: Added guard against double-dispose.
      */
     public function dispose():Void {
+        // === FIX: Guard against double-dispose ===
+        if (isDisposed) return;
+        // =========================================
+        
         isDisposed = true;
         _isScheduled = false;
 
+        // Unlink from all targets (bidirectional cleanup)
         if (linkedTargets != null) {
             for (target in linkedTargets) {
-                if (target != null) {
+                if (target != null && !target.isDisposed) {
                     target.unlink(this);
                 }
             }
@@ -166,6 +172,7 @@ class Contact {
             linkedTargets = null;
         }
 
+        // Clear all callbacks
         if (callbackTargets != null) {
             callbackTargets.resize(0);
             callbackTargets = null;

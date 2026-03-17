@@ -12,13 +12,17 @@ import core.data.Blueprint.ConnectionDef;
 import core.data.Blueprint.ConnectionPoint;
 import core.logic.Impulsys;
 import core.logic.Impulse;
-import core.logic.EventType; // <--- IMPORT
+import core.logic.EventType;
 import ui.WireType;
 import ui.WireType.WireType as WireTypeEnum;
 
 /**
- * WireRenderer
+ * WireRenderer v1.2 (Memory Leak Fix)
  * Отвечает за визуализацию всех проводов (связей) в NodeEditor.
+ *
+ * v1.2 Changes:
+ * - Clear selection callback in dispose()
+ * - Null checks for all external references
  */
 class WireRenderer {
 
@@ -42,6 +46,9 @@ class WireRenderer {
 
     // === Selection callback ===
     private var _onWireSelectionChanged:Array<String> -> Void;
+    
+    // === Disposed flag ===
+    private var _isDisposed:Bool = false;
 
     public var wireType(get, set):WireTypeEnum;
     public var container(get, never):Sprite;
@@ -89,34 +96,24 @@ class WireRenderer {
     // ACTIVE WIRES (during drag)
     // ========================================================================
 
-    /**
-     * ИСПРАВЛЕНО: Находит и добавляет в активный список все провода,
-     * подсоединенные к указанным узлам.
-     * @param nodeIds Массив Runtime ID узлов.
-     */
     public function setActiveWiresForNodes(nodeIds:Array<String>):Void {
+        if (_isDisposed) return;
         clearActiveWires();
 
         if (_blueprint.internalConnections == null) return;
 
-        // Для быстрого поиска создаем сет ID узлов, которые двигаются
         var movingSet = new Map<String, Bool>();
         for (id in nodeIds) movingSet.set(id, true);
 
         for (link in _blueprint.internalConnections) {
-            // Определяем Runtime ID для концов провода
             var fromRuntime = _assembly.idMap.get(link.from.atomId);
             if (fromRuntime == null) fromRuntime = link.from.atomId;
 
             var toRuntime = _assembly.idMap.get(link.to.atomId);
             if (toRuntime == null) toRuntime = link.to.atomId;
 
-            // Если хотя бы один конец провода присоединен к двигающемуся узлу
             var isFromMoving = movingSet.exists(fromRuntime);
             var isToMoving = movingSet.exists(toRuntime);
-
-            // Также проверяем SELF порты, если двигается граница сборки (редко, но возможно)
-            // Но в данном контексте мы двигаем именно внутренние атомы.
 
             if (isFromMoving || isToMoving) {
                 var id = getWireIDStatic(link);
@@ -129,6 +126,7 @@ class WireRenderer {
     }
 
     public function addActiveWire(sprite:Sprite):Void {
+        if (_isDisposed) return;
         if (_activeWires.indexOf(sprite) == -1) {
             _activeWires.push(sprite);
         }
@@ -139,14 +137,13 @@ class WireRenderer {
     }
 
     public function updateActiveWires():Void {
-        if (_activeWires.length == 0) return;
+        if (_isDisposed || _activeWires.length == 0) return;
         var selectedIds = _getSelectedWireIds();
 
         for (link in _blueprint.internalConnections) {
             var id = getWireIDStatic(link);
             var entry = _wireSprites.get(id);
 
-            // Обновляем только те, что в списке активных
             if (entry != null && _activeWires.indexOf(entry.sprite) != -1) {
                 var isSelected = selectedIds.indexOf(id) != -1;
                 var thickness = isSelected ? 4 : _theme.WIRE_THICKNESS;
@@ -161,6 +158,8 @@ class WireRenderer {
     // ========================================================================
 
     public function rebuildAll():Void {
+        if (_isDisposed) return;
+        
         var activeWireIds = new Map<String, Bool>();
 
         if (_blueprint.internalConnections != null) {
@@ -213,7 +212,7 @@ class WireRenderer {
     }
 
     public function updateEdgeWires():Void {
-        if (_blueprint.internalConnections == null) return;
+        if (_isDisposed || _blueprint.internalConnections == null) return;
 
         for (link in _blueprint.internalConnections) {
             if (link.from.atomId == "SELF" || link.to.atomId == "SELF") {
@@ -231,6 +230,8 @@ class WireRenderer {
     // ========================================================================
 
     public function drawGhostWire(startX:Float, startY:Float, endX:Float, endY:Float, isInput:Bool):Void {
+        if (_isDisposed || _ghostWire == null) return;
+        
         var g = _ghostWire.graphics;
         g.clear();
 
@@ -247,7 +248,9 @@ class WireRenderer {
     }
 
     public function clearGhostWire():Void {
-        _ghostWire.graphics.clear();
+        if (_ghostWire != null) {
+            _ghostWire.graphics.clear();
+        }
     }
 
     // ========================================================================
@@ -270,7 +273,7 @@ class WireRenderer {
     }
 
     public function getWireCount():Int {
-        return (_blueprint.internalConnections == null) ? 0 : _blueprint.internalConnections.length;
+        return (_blueprint == null || _blueprint.internalConnections == null) ? 0 : _blueprint.internalConnections.length;
     }
 
     // ========================================================================
@@ -329,6 +332,8 @@ class WireRenderer {
     }
 
     private function handleWireClick(wireId:String, ctrlKey:Bool):Void {
+        if (_isDisposed) return;
+        
         var selectedIds = _getSelectedWireIds();
 
         if (!ctrlKey) {
@@ -346,6 +351,8 @@ class WireRenderer {
     }
 
     private function handleWireRightClick(wireId:String):Void {
+        if (_isDisposed) return;
+        
         var selectedIds = _getSelectedWireIds();
         if (selectedIds.indexOf(wireId) == -1) {
             selectedIds = [wireId];
@@ -471,7 +478,7 @@ class WireRenderer {
     }
 
     public function findLinkById(id:String):ConnectionDef {
-        if (_blueprint.internalConnections == null) return null;
+        if (_blueprint == null || _blueprint.internalConnections == null) return null;
         for (link in _blueprint.internalConnections) {
             if (getWireIDStatic(link) == id) return link;
         }
@@ -479,22 +486,34 @@ class WireRenderer {
     }
 
     // ========================================================================
-    // DISPOSAL
+    // DISPOSAL v1.2
     // ========================================================================
 
     public function dispose():Void {
+        if (_isDisposed) return;
+        _isDisposed = true;
+
         clearAll();
+        
+        // === FIX: Очистка callback ===
+        _onWireSelectionChanged = null;
+        // =============================
+
         if (_container != null && _container.parent != null) {
             _container.parent.removeChild(_container);
         }
         if (_ghostWire != null && _ghostWire.parent != null) {
             _ghostWire.parent.removeChild(_ghostWire);
         }
+        
         _container = null;
         _ghostWire = null;
         _blueprint = null;
         _assembly = null;
         _canvas = null;
+        _getNodeView = null;
+        _getEdgePort = null;
+        _getSelectedWireIds = null;
     }
 }
 

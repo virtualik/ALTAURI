@@ -18,14 +18,18 @@ import core.logic.Impulse;
 import core.logic.Impulsys;
 
 /**
- * DeviceWindow v7.0 (Stable Merge)
+ * DeviceWindow v7.1 (Memory Leak Fix)
  * Объединяет рабочий способ создания окна из DeviceWindow2
  * и полный функционал (контекстное меню, устройства) из DeviceWindow.
+ *
+ * v7.1 Changes:
+ * - Fixed: Unsubscribe from Impulsys when window creation fails
+ * - Fixed: Proper cleanup in dispose() method
  */
 class DeviceWindow {
     private var _window:Window;
     private var _container:Sprite; // Главный контейнер (аналог _rootContainer)
-    
+
     // Элементы UI
     private var _header:Sprite;
     private var _contextMenu:Sprite;
@@ -41,6 +45,9 @@ class DeviceWindow {
     public var onGetAssemblyList:Void -> Array<{id:String, name:String, atom:Atom}>;
     public var onAssemblySelected:Atom -> Void;
     public var onShowEditor:Void -> Void;
+    
+    // Флаг для защиты от повторного dispose
+    private var _isDisposed:Bool = false;
 
     private static inline var BG_COLOR:Int = 0x1a1a24;
 
@@ -50,7 +57,6 @@ class DeviceWindow {
     }
 
     private function create():Void {
-        // === ТОЧНО ТАКОЙ ЖЕ КОНФИГ И СОЗДАНИЕ КАК В DEVICEWINDOW2 ===
         var config = {
             title: "Device Window",
             width: 420,
@@ -59,7 +65,7 @@ class DeviceWindow {
             context: {
                 background: BG_COLOR,
                 antialiasing: 2,
-                hardware: false // Сохраняем рабочий параметр из вашего примера
+                hardware: false
             }
         };
 
@@ -69,38 +75,41 @@ class DeviceWindow {
             var stage = _window.stage;
             stage.scaleMode = StageScaleMode.NO_SCALE;
             stage.align = StageAlign.TOP_LEFT;
-            
-            // Устанавливаем цвет сцены для надежности
+
             stage.color = BG_COLOR;
             stage.opaqueBackground = BG_COLOR;
 
             _container = new Sprite();
             stage.addChild(_container);
 
-            // === ДОБАВЛЯЕМ ПОЛНОЦЕННУЮ ЛОГИКУ UI ===
-            
-            // 1. Инициализация импульсов
+            // Инициализация импульсов
             _impulseCallback = onAtomDeleted;
             Impulsys.subscribeToImpulse("ATOM_DELETED", _impulseCallback);
 
-            // 2. Создаем элементы интерфейса
+            // Создаем элементы интерфейса
             createHeader();
             createDeviceCanvas();
             createContextMenu();
 
-            // 3. События мыши
+            // События мыши
             stage.addEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
             stage.addEventListener(MouseEvent.CLICK, onStageClick);
 
-            // Принудительно обновить окно (как в вашем примере)
             stage.invalidate();
         } else {
             trace("Ошибка: окно или stage не созданы");
+            
+            // === FIX: Отписка при ошибке создания окна ===
+            if (_impulseCallback != null) {
+                Impulsys.removeImpulse("ATOM_DELETED", _impulseCallback);
+                _impulseCallback = null;
+            }
+            // ============================================
         }
     }
 
     // =========================================================================
-    // UI CREATION (Взято из оригинального DeviceWindow)
+    // UI CREATION
     // =========================================================================
 
     private function createHeader():Void {
@@ -168,7 +177,6 @@ class DeviceWindow {
         deviceCanvas = new Sprite();
         deviceCanvas.y = 30;
 
-        // Фон канваса
         deviceCanvas.graphics.beginFill(BG_COLOR);
         deviceCanvas.graphics.drawRect(0, 0, 420, 290);
         deviceCanvas.graphics.endFill();
@@ -183,10 +191,11 @@ class DeviceWindow {
     }
 
     // =========================================================================
-    // DEVICE LOGIC (Взято из оригинального DeviceWindow)
+    // DEVICE LOGIC
     // =========================================================================
 
     public function addDevice(atom:Atom, ?x:Float = null, ?y:Float = null):Void {
+        if (_isDisposed) return;
         if (atom == null) return;
         if (deviceCanvas == null) return;
 
@@ -205,6 +214,7 @@ class DeviceWindow {
     }
 
     public function removeDevice(card:DeviceCard):Void {
+        if (_isDisposed) return;
         if (card == null) return;
         _deviceCards.remove(card);
         if (deviceCanvas != null && deviceCanvas.contains(card)) {
@@ -218,6 +228,7 @@ class DeviceWindow {
     }
 
     private function onAtomDeleted(impulse:Impulse):Void {
+        if (_isDisposed) return;
         if (impulse == null || impulse.data == null) return;
         var deletedId:String = impulse.data.id;
         var toRemove:Array<DeviceCard> = [];
@@ -254,6 +265,7 @@ class DeviceWindow {
     }
 
     public function clearDevices():Void {
+        if (_isDisposed) return;
         while (_deviceCards.length > 0) {
             var card = _deviceCards.pop();
             if (deviceCanvas != null && deviceCanvas.contains(card)) {
@@ -264,15 +276,17 @@ class DeviceWindow {
     }
 
     // =========================================================================
-    // CONTEXT MENU LOGIC (Взято из оригинального DeviceWindow)
+    // CONTEXT MENU LOGIC
     // =========================================================================
 
     private function onRightClick(e:MouseEvent):Void {
+        if (_isDisposed) return;
         e.stopPropagation();
         showContextMenu(e.stageX, e.stageY);
     }
 
     private function onStageClick(e:MouseEvent):Void {
+        if (_isDisposed) return;
         if (_menuVisible) hideContextMenu();
     }
 
@@ -377,6 +391,7 @@ class DeviceWindow {
     private var _dragOffsetY:Float = 0;
 
     private function onMouseDown(e:MouseEvent):Void {
+        if (_isDisposed) return;
         _dragging = true;
         _dragOffsetX = e.localX;
         _dragOffsetY = e.localY;
@@ -385,7 +400,8 @@ class DeviceWindow {
     }
 
     private function onMouseMove(e:MouseEvent):Void {
-        if (_dragging && _window != null) {
+        if (_isDisposed || !_dragging) return;
+        if (_window != null) {
             _window.x = Std.int(_window.x + (e.stageX - _dragOffsetX));
             _window.y = Std.int(_window.y + (e.stageY - _dragOffsetY));
         }
@@ -400,35 +416,51 @@ class DeviceWindow {
     }
 
     // =========================================================================
-    // CLOSE
+    // CLOSE & DISPOSE
     // =========================================================================
 
     public function close():Void {
-        Impulsys.removeImpulse("ATOM_DELETED", _impulseCallback);
+        if (_isDisposed) return;
+        _isDisposed = true;
+        
+        // Отписываемся от импульса
+        if (_impulseCallback != null) {
+            Impulsys.removeImpulse("ATOM_DELETED", _impulseCallback);
+            _impulseCallback = null;
+        }
+        
+        // Удаляем обработчики
         if (_window != null && _window.stage != null) {
             _window.stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
             _window.stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
             _window.stage.removeEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
             _window.stage.removeEventListener(MouseEvent.CLICK, onStageClick);
         }
+        
         clearDevices();
         deviceCanvas = null;
         _contextMenu = null;
         _container = null;
+        
         if (_window != null) {
             _window.close();
             _window = null;
         }
+        
+        // Очищаем коллбеки
+        onGetAssemblyList = null;
+        onAssemblySelected = null;
+        onShowEditor = null;
     }
 
     public var isOpen(get, never):Bool;
     private function get_isOpen():Bool {
-        return _window != null;
+        return _window != null && !_isDisposed;
     }
 }
 
 // =========================================================================
-// DEVICE CARD (Без изменений)
+// DEVICE CARD
 // =========================================================================
 
 class DeviceCard extends Sprite {
@@ -442,6 +474,7 @@ class DeviceCard extends Sprite {
     private var _dragStartY:Float = 0;
     private var _mouseStartX:Float = 0;
     private var _mouseStartY:Float = 0;
+    private var _isDisposed:Bool = false;
 
     public function new(atom:Atom, deviceWindow:DeviceWindow) {
         super();
@@ -527,10 +560,13 @@ class DeviceCard extends Sprite {
 
     private function onCloseClick(e:MouseEvent):Void {
         e.stopPropagation();
-        _deviceWindow.removeDevice(this);
+        if (_deviceWindow != null) {
+            _deviceWindow.removeDevice(this);
+        }
     }
 
     private function onCardMouseDown(e:MouseEvent):Void {
+        if (_isDisposed) return;
         _cardDragging = true;
         _dragStartX = this.x;
         _dragStartY = this.y;
@@ -544,7 +580,7 @@ class DeviceCard extends Sprite {
     }
 
     private function onCardMouseMove(e:MouseEvent):Void {
-        if (!_cardDragging) return;
+        if (!_cardDragging || _isDisposed) return;
         this.x = _dragStartX + (e.stageX - _mouseStartX);
         this.y = _dragStartY + (e.stageY - _mouseStartY);
     }
@@ -558,12 +594,24 @@ class DeviceCard extends Sprite {
     }
 
     public function dispose():Void {
-        if (_titleBar != null) _titleBar.removeEventListener(MouseEvent.MOUSE_DOWN, onCardMouseDown);
+        if (_isDisposed) return;
+        _isDisposed = true;
+        
+        if (_titleBar != null) {
+            _titleBar.removeEventListener(MouseEvent.MOUSE_DOWN, onCardMouseDown);
+        }
+        
+        if (stage != null) {
+            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onCardMouseMove);
+            stage.removeEventListener(MouseEvent.MOUSE_UP, onCardMouseUp);
+        }
+        
         if (_deviceView != null) {
             _deviceView.deactivate();
             _deviceView.dispose();
             _deviceView = null;
         }
+        
         atom = null;
         _deviceWindow = null;
         _titleBar = null;

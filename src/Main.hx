@@ -44,6 +44,13 @@ import library.AtomRegistry;
 
 using StringTools;
 
+/**
+ * Main v1.1 (Memory Leak Fix)
+ * 
+ * v1.1 Changes:
+ * - Added dispose() call for ContextMenuManager in hardReset()
+ * - Proper cleanup of DeviceWindow
+ */
 class Main extends Sprite {
 
     // --- UI Layers ---
@@ -79,6 +86,9 @@ class Main extends Sprite {
     private var _deviceWindow:DeviceWindow;
     private var _cachedDeviceWindowState:Array<{path:Array<String>, x:Float, y:Float}> = null;
     private var _hideTimer:haxe.Timer;
+    
+    // --- Disposed flag ---
+    private var _isDisposed:Bool = false;
 
     public function new() {
         super();
@@ -92,11 +102,9 @@ class Main extends Sprite {
 
         setupDebugLog();
 
-        // 1. Инициализация менеджеров данных
         _projectManager = ProjectManager.getInstance();
         _projectManager.init();
 
-        // Инициализация библиотек
         AtomRegistry.initialize();
 
         log("System initialized");
@@ -113,7 +121,6 @@ class Main extends Sprite {
         openfl.Lib.current.stage.window.visible = true;
         stage.color = _theme.APP_BG_COLOR;
 
-        // 2. Инициализация контекста редактора
         _editorContext = new EditorContext(_editorLayer);
 
         DriverManager.getInstance();
@@ -254,7 +261,7 @@ class Main extends Sprite {
             _projectManager.deleteAssemblyFile(deletedId);
         }
 
-        closeCurrentEditor(false); // Закрываем без обновления
+        closeCurrentEditor(false);
 
         cleanRegistryDanglingReferences(deletedId);
     }
@@ -427,12 +434,10 @@ class Main extends Sprite {
 
         stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
 
-        // === REPLACE START ===
         Impulsys.subscribeToImpulse(EventType.ATOM_PROPERTIES_REQUEST, onPropertiesRequest);
         Impulsys.subscribeToImpulse(EventType.OPEN_ASSEMBLY_REQUEST, onOpenAssemblyRequest);
         Impulsys.subscribeToImpulse(EventType.REQUEST_NEW_ASSEMBLY_CONTEXT, onRequestNewContext);
         Impulsys.subscribeToImpulse(EventType.VALUE_COMMITTED, onValueCommitted);
-        // === REPLACE END ===
     }
 
     private function onSettingsChanged():Void {
@@ -542,19 +547,32 @@ class Main extends Sprite {
     private function hardReset():Void {
         log("SYSTEM: Hard Reset...");
         _editorContext.clear();
-        if (_deviceWindow != null) { _deviceWindow.close(); _deviceWindow = null; }
+        
+        // === FIX: Proper cleanup of DeviceWindow ===
+        if (_deviceWindow != null) {
+            _deviceWindow.close();
+            _deviceWindow = null;
+        }
+        // ===========================================
+        
         _cachedDeviceWindowState = null;
 
+        // === FIX: Proper dispose of ContextMenuManager ===
+        if (_contextManager != null) {
+            _contextManager.dispose();
+            _uiLayer.removeChild(_contextManager.getView());
+        }
+        // ================================================
+
         Impulsys.clear();
-        
-        // === REPLACE START ===
+
+        // Re-subscribe to Main's events
         Impulsys.subscribeToImpulse(EventType.ATOM_PROPERTIES_REQUEST, onPropertiesRequest);
         Impulsys.subscribeToImpulse(EventType.OPEN_ASSEMBLY_REQUEST, onOpenAssemblyRequest);
         Impulsys.subscribeToImpulse(EventType.REQUEST_NEW_ASSEMBLY_CONTEXT, onRequestNewContext);
         Impulsys.subscribeToImpulse(EventType.VALUE_COMMITTED, onValueCommitted);
-        // === REPLACE END ===
 
-        if (_contextManager != null) _uiLayer.removeChild(_contextManager.getView());
+        // Create new ContextMenuManager
         _contextManager = new ContextMenuManager(_settingsPanel);
         _uiLayer.addChild(_contextManager.getView());
 

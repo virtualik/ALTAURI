@@ -4,7 +4,7 @@ import core.base.Assembly;
 import core.base.Atom;
 import core.logic.Impulsys;
 import core.logic.Impulse;
-import core.logic.EventType; // <--- IMPORT
+import core.logic.EventType;
 import core.types.ContactType;
 import library.AtomRegistry;
 import ui.ContextMenu;
@@ -18,9 +18,13 @@ import system.commands.editor.RemovePortCommand;
 import system.commands.editor.GroupAtomsCommand;
 
 /**
- * CONTEXT MENU MANAGER v1.0
+ * CONTEXT MENU MANAGER v1.1 (Memory Leak Fix)
  * Отвечает за создание и обработку контекстных меню редактора.
  * Слушает импульсы от NodeEditor и управляет UI меню.
+ *
+ * v1.1 Changes:
+ * - Added dispose() method for proper cleanup
+ * - Unsubscribes from all Impulsys events
  */
 class ContextMenuManager {
 
@@ -33,6 +37,9 @@ class ContextMenuManager {
 
     // Временное состояние для передачи данных в action
     private var _contextTargetId:String = null;
+    
+    // Флаг для защиты от повторного dispose
+    private var _isDisposed:Bool = false;
 
     public function new(settingsPanel:SettingsPanel) {
         _settingsPanel = settingsPanel;
@@ -64,16 +71,50 @@ class ContextMenuManager {
     }
 
     // ========================================================================
+    // DISPOSE - v1.1新增
+    // ========================================================================
+    
+    /**
+     * Properly dispose the manager.
+     * Unsubscribes from all Impulsys events to prevent memory leaks.
+     */
+    public function dispose():Void {
+        if (_isDisposed) return;
+        _isDisposed = true;
+        
+        // Отписываемся от всех импульсов
+        Impulsys.removeImpulse(EventType.CONTEXT_MENU_ACTION, onMenuAction);
+        Impulsys.removeImpulse(EventType.CLOSE_CONTEXT_MENU, onCloseContextMenu);
+        Impulsys.removeImpulse(EventType.NODE_RIGHT_CLICKED, onNodeRightClick);
+        Impulsys.removeImpulse(EventType.WIRE_RIGHT_CLICKED, onWireRightClick);
+        Impulsys.removeImpulse(EventType.PORT_RIGHT_CLICKED, onPortRightClick);
+        Impulsys.removeImpulse(EventType.CANVAS_RIGHT_CLICKED, onCanvasRightClick);
+        
+        // Очищаем ссылки
+        if (_menu != null) {
+            _menu.hide();
+            _menu = null;
+        }
+        _editor = null;
+        _assembly = null;
+        _settingsPanel = null;
+        _contextTargetId = null;
+    }
+
+    // ========================================================================
     // HANDLERS: Triggered by Impulsys
     // ========================================================================
 
     private function onCanvasRightClick(impulse:Impulse):Void {
+        if (_isDisposed) return;
+        
         resetMenu();
         buildAtomMenu(impulse.data.x, impulse.data.y);
         _menu.show(impulse.data.x, impulse.data.y);
     }
 
     private function onNodeRightClick(impulse:Impulse):Void {
+        if (_isDisposed) return;
         if (impulse == null || impulse.data == null) return;
 
         var view:NodeView = impulse.data.view;
@@ -127,6 +168,7 @@ class ContextMenuManager {
     }
 
     private function onWireRightClick(impulse:Impulse):Void {
+        if (_isDisposed) return;
         if (impulse == null || impulse.data == null) return;
         resetMenu();
 
@@ -145,6 +187,7 @@ class ContextMenuManager {
     }
 
     private function onPortRightClick(impulse:Impulse):Void {
+        if (_isDisposed) return;
         if (impulse == null || impulse.data == null) return;
         resetMenu();
         _menu.addItem('Delete Port "${impulse.data.portName}"', "REMOVE_PORT", {name: impulse.data.portName});
@@ -156,6 +199,8 @@ class ContextMenuManager {
     // ========================================================================
 
     private function onMenuAction(impulse:Impulse):Void {
+        if (_isDisposed) return;
+        
         _menu.hide();
         if (impulse == null || impulse.data == null || impulse.data.action == null) return;
 
@@ -221,6 +266,7 @@ class ContextMenuManager {
     }
 
     private function onCloseContextMenu(i:Impulse):Void {
+        if (_isDisposed) return;
         _menu.hide();
     }
 
