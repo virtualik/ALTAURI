@@ -5,13 +5,14 @@ import core.base.Assembly;
 import core.base.ConductorPort;
 import core.types.ContactType;
 import core.logic.Impulsys;
+import core.logic.EventType; // <--- IMPORT
 import core.data.Blueprint.ConnectionDef;
 
 /**
  * REMOVE PORT COMMAND v1.2
  * Removes a gateway port and its connections.
  * Supports Undo/Redo.
- * 
+ *
  * v1.2 Fix: Fixed reference comparison bug. Now stores the original ConnectionDef reference
  * instead of creating a copy, ensuring successful removal from the blueprint array.
  */
@@ -23,10 +24,10 @@ class RemovePortCommand extends Command {
     // Snapshot for Undo
     private var _portType:ContactType;
     private var _defaultValue:Dynamic;
-    
+
     // ИСПРАВЛЕНИЕ: Храним массив оригинальных ссылок на связи
-    private var _connectedWires:Array<ConnectionDef>; 
-    
+    private var _connectedWires:Array<ConnectionDef>;
+
     private var _portIndex:Int; // To restore visual order
 
     public function new(assembly:Assembly, portName:String) {
@@ -59,7 +60,7 @@ class RemovePortCommand extends Command {
         // 2. Snapshot Connections
         _connectedWires = [];
         var bp = _assembly.blueprint;
-        
+
         // ИСПРАВЛЕНИЕ: Собираем оригинальные ссылки на объекты conn
         for (conn in bp.internalConnections) {
             if (conn.from.atomId == "SELF" && conn.from.contactName == _portName) {
@@ -79,7 +80,7 @@ class RemovePortCommand extends Command {
         // 4. Remove Port
         _assembly.removePort(_portName);
 
-        Impulsys.quickEmit("ASSEMBLY_PORTS_CHANGED", { assemblyId: _assembly.id });
+        Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });
         complete();
     }
 
@@ -104,7 +105,7 @@ class RemovePortCommand extends Command {
             bp.internalConnections.push(conn);
         }
 
-        Impulsys.quickEmit("ASSEMBLY_PORTS_CHANGED", { assemblyId: _assembly.id });
+        Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });
     }
 
     override public function getDescription():String return 'Remove Port $_portName';

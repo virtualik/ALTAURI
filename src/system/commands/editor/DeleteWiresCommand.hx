@@ -9,6 +9,7 @@ import core.base.Contact;
 import core.base.ConductorPort;
 import core.types.ContactType;
 import core.logic.Impulsys;
+import core.logic.EventType; // <--- IMPORT
 
 /**
  * DELETE WIRES COMMAND v1.1
@@ -49,7 +50,7 @@ class DeleteWiresCommand extends Command {
             }
         }
 
-        Impulsys.quickEmit("REDRAW_WIRES");
+        Impulsys.quickEmit(EventType.REDRAW_WIRES);
         complete();
     }
 
@@ -65,7 +66,7 @@ class DeleteWiresCommand extends Command {
             }
         }
 
-        Impulsys.quickEmit("REDRAW_WIRES");
+        Impulsys.quickEmit(EventType.REDRAW_WIRES);
     }
 
     private function findLinkById(id:String):ConnectionDef {
@@ -86,7 +87,7 @@ class DeleteWiresCommand extends Command {
         } else {
             // ИСПРАВЛЕНИЕ: Сначала пытаемся найти Runtime ID через карту шаблонов
             var realAtomId = _assembly.idMap.get(atomId);
-            
+
             // Если в карте нет, значит это уже Runtime ID (новосозданный атом)
             if (realAtomId == null) {
                 realAtomId = atomId;
@@ -94,7 +95,7 @@ class DeleteWiresCommand extends Command {
 
             var obj = _assembly.internalAtoms.get(realAtomId);
             if (obj == null) return null;
-            
+
             var atom:Atom = cast obj;
             return (type == INPUT) ? atom.getInput(contactName) : atom.getOutput(contactName);
         }

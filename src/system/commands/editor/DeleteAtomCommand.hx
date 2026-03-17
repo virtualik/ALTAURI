@@ -12,6 +12,7 @@ import core.base.ConductorPort;
 import core.base.IDisposable;
 import core.types.ContactType;
 import core.logic.Impulsys;
+import core.logic.EventType; // <--- IMPORT
 import core.base.AssemblyFactory;
 import library.AtomRegistry;
 
@@ -59,7 +60,7 @@ class DeleteAtomCommand extends Command {
             _assembly.internalAtoms.remove(_atomId);
         }
 
-        Impulsys.quickEmit("ATOM_DELETED", {assemblyId: _assembly.id, id: _atomId});
+        Impulsys.quickEmit(EventType.ATOM_DELETED, {assemblyId: _assembly.id, id: _atomId});
         complete();
     }
 
@@ -75,7 +76,7 @@ class DeleteAtomCommand extends Command {
                 AtomRegistry.registerBlueprint(bp.id, bp);
             }
         }
-        
+
         var atom = AssemblyFactory.createAtom(_atomType, _atomId);
         if (atom == null) { trace('DeleteAtomCommand.undo: Failed to create $_atomType'); return; }
 
@@ -87,7 +88,7 @@ class DeleteAtomCommand extends Command {
             }
         }
 
-        Impulsys.quickEmit("ATOM_RESTORED", {
+        Impulsys.quickEmit(EventType.ATOM_RESTORED, {
             assemblyId: _assembly.id,
             id: _atomId,
             x: _posX,
@@ -105,7 +106,7 @@ class DeleteAtomCommand extends Command {
             var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
             if (cOut != null && cIn != null) cOut.link(cIn);
         }
-        Impulsys.quickEmit("REDRAW_WIRES");
+        Impulsys.quickEmit(EventType.REDRAW_WIRES);
     }
 
     private function saveSnapshot():Void {
@@ -133,7 +134,7 @@ class DeleteAtomCommand extends Command {
         }
 
         _connections = [];
-        
+
         // 2. При сохранении связей используем TEMPLATE ID
         for (conn in _blueprint.internalConnections) {
             // Проверяем связи, где участвует наш атом

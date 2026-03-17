@@ -8,6 +8,7 @@ import core.base.Contact;
 import core.base.ConductorPort;
 import core.types.ContactType;
 import core.logic.Impulsys;
+import core.logic.EventType; // <--- IMPORT
 
 /**
  * Command to connect two contacts.
@@ -63,7 +64,7 @@ class ConnectCommand extends Command {
             cOut.link(cIn);
         }
 
-        Impulsys.quickEmit("REDRAW_WIRES");
+        Impulsys.quickEmit(EventType.REDRAW_WIRES);
         complete();
     }
 
@@ -80,32 +81,32 @@ class ConnectCommand extends Command {
                 trace('ConnectCommand Undo: Contacts missing, skipping unlink.');
             }
 
-            Impulsys.quickEmit("REDRAW_WIRES");
+            Impulsys.quickEmit(EventType.REDRAW_WIRES);
         }
     }
 
-	private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact {
-		if (atomId == "SELF") {
-			var port:ConductorPort = _assembly.ports.get(contactName);
-			if (port == null) return null;
-			return port.internal;
-		} else {
-			var obj = _assembly.internalAtoms.get(atomId);
-			
-			// ИСПРАВЛЕНИЕ: Если не нашли напрямую, пробуем через карту ID
-			if (obj == null) {
-				var realAtomId = _assembly.idMap.get(atomId);
-				if (realAtomId != null) {
-					obj = _assembly.internalAtoms.get(realAtomId);
-				}
-			}
-			
-			if (obj == null) return null;
+    private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact {
+        if (atomId == "SELF") {
+            var port:ConductorPort = _assembly.ports.get(contactName);
+            if (port == null) return null;
+            return port.internal;
+        } else {
+            var obj = _assembly.internalAtoms.get(atomId);
 
-			var atom:Atom = cast obj;
-			return (type == INPUT) ? atom.getInput(contactName) : atom.getOutput(contactName);
-		}
-	}
+            // ИСПРАВЛЕНИЕ: Если не нашли напрямую, пробуем через карту ID
+            if (obj == null) {
+                var realAtomId = _assembly.idMap.get(atomId);
+                if (realAtomId != null) {
+                    obj = _assembly.internalAtoms.get(realAtomId);
+                }
+            }
+
+            if (obj == null) return null;
+
+            var atom:Atom = cast obj;
+            return (type == INPUT) ? atom.getInput(contactName) : atom.getOutput(contactName);
+        }
+    }
 
     override public function getDescription():String return 'Connect $_fromId -> $_toId';
 }

@@ -7,6 +7,7 @@ import core.base.Atom;
 import core.base.IDisposable;
 import core.base.AssemblyFactory;
 import core.logic.Impulsys;
+import core.logic.EventType; // <--- IMPORT
 
 class CreateAtomCommand extends Command {
 
@@ -54,14 +55,14 @@ class CreateAtomCommand extends Command {
 
         _assembly.internalAtoms.set(_instanceId, _atomInstance);
 
-        Impulsys.quickEmit("ATOM_RESTORED", {
-            assemblyId: _assembly.id, 
-            id: _instanceId, 
-            x: _posX, 
-            y: _posY, 
+        Impulsys.quickEmit(EventType.ATOM_RESTORED, {
+            assemblyId: _assembly.id,
+            id: _instanceId,
+            x: _posX,
+            y: _posY,
             atom: _atomInstance
         });
-        
+
         complete();
     }
 
@@ -78,7 +79,7 @@ class CreateAtomCommand extends Command {
 
         _atomInstance = null;
 
-        Impulsys.quickEmit("ATOM_DELETED", {assemblyId: _assembly.id, id: _instanceId});
+        Impulsys.quickEmit(EventType.ATOM_DELETED, {assemblyId: _assembly.id, id: _instanceId});
     }
 
     override public function getDescription():String return 'Create Atom $_typeId';

@@ -4,6 +4,7 @@ import system.commands.base.Command;
 import core.base.Assembly;
 import core.types.ContactType;
 import core.logic.Impulsys;
+import core.logic.EventType; // <--- IMPORT
 
 /**
  * ADD PORT COMMAND
@@ -27,60 +28,60 @@ class AddPortCommand extends Command {
 
     override private function executeInternal():Void {
         // Generate name if not provided
-		if (_name == null) {
-			var prefix = (_type == INPUT) ? "In_" : "Out_";
-			var count = 0;
-			
-			// Count existing ports of this type
-			for (p in _assembly.ports) {
-				if (p.type == _type) count++;
-			}
-			
-			var candidate = prefix + Std.string(count + 1);
+        if (_name == null) {
+            var prefix = (_type == INPUT) ? "In_" : "Out_";
+            var count = 0;
 
-			// ИСПРАВЛЕНИЕ: Проверять и в ports, и в blueprint.pins
-			while (_assembly.ports.exists(candidate) || isPinInBlueprint(candidate)) {
-				count++;
-				candidate = prefix + Std.string(count + 1);
-			}
-			_name = candidate;
-		}
+            // Count existing ports of this type
+            for (p in _assembly.ports) {
+                if (p.type == _type) count++;
+            }
+
+            var candidate = prefix + Std.string(count + 1);
+
+            // ИСПРАВЛЕНИЕ: Проверять и в ports, и в blueprint.pins
+            while (_assembly.ports.exists(candidate) || isPinInBlueprint(candidate)) {
+                count++;
+                candidate = prefix + Std.string(count + 1);
+            }
+            _name = candidate;
+        }
 
         var port = _assembly.addPort(_name, _type, _defaultValue);
 
         if (port != null) {
-            Impulsys.quickEmit("ASSEMBLY_PORTS_CHANGED", { assemblyId: _assembly.id });
+            Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });
         } else {
             trace("AddPortCommand failed: could not create port (limit reached?).");
         }
-        
+
         complete();
     }
 
-	private function isPinInBlueprint(name:String):Bool {
-		var bp = _assembly.blueprint;
-		if (bp == null || bp.pins == null) return false;
-		
-		for (pin in bp.pins) {
-			if (pin.name == name) return true;
-		}
-		return false;
-	}
+    private function isPinInBlueprint(name:String):Bool {
+        var bp = _assembly.blueprint;
+        if (bp == null || bp.pins == null) return false;
 
-	override public function undo():Void {
+        for (pin in bp.pins) {
+            if (pin.name == name) return true;
+        }
+        return false;
+    }
+
+    override public function undo():Void {
         if (_name != null) {
             // Before removing port, we should remove connected wires to keep Blueprint clean
             removeConnectedWires(_name);
-            
+
             _assembly.removePort(_name);
-            Impulsys.quickEmit("ASSEMBLY_PORTS_CHANGED", { assemblyId: _assembly.id });
+            Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });
         }
     }
 
     private function removeConnectedWires(portName:String):Void {
         var bp = _assembly.blueprint;
         var toRemove = [];
-        
+
         for (conn in bp.internalConnections) {
             if (conn.from.atomId == "SELF" && conn.from.contactName == portName) toRemove.push(conn);
             if (conn.to.atomId == "SELF" && conn.to.contactName == portName) toRemove.push(conn);

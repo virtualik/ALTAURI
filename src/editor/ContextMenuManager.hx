@@ -4,10 +4,11 @@ import core.base.Assembly;
 import core.base.Atom;
 import core.logic.Impulsys;
 import core.logic.Impulse;
+import core.logic.EventType; // <--- IMPORT
 import core.types.ContactType;
 import library.AtomRegistry;
 import ui.ContextMenu;
-import ui.SettingsPanel; // <--- ДОБАВЛЕН ИМПОРТ
+import ui.SettingsPanel;
 import system.managers.UndoManager;
 import system.commands.base.MacroCommand;
 import system.commands.editor.DeleteAtomCommand;
@@ -26,10 +27,10 @@ class ContextMenuManager {
     private var _menu:ContextMenu;
     private var _editor:NodeEditor;
     private var _assembly:Assembly;
-    
+
     // Ссылка на настройки (нужна для проверки allowAssembly)
-    private var _settingsPanel:SettingsPanel; 
-    
+    private var _settingsPanel:SettingsPanel;
+
     // Временное состояние для передачи данных в action
     private var _contextTargetId:String = null;
 
@@ -38,13 +39,13 @@ class ContextMenuManager {
         _menu = new ContextMenu();
 
         // Подписываемся на все нужные импульсы
-        Impulsys.subscribeToImpulse("CONTEXT_MENU_ACTION", onMenuAction);
-        Impulsys.subscribeToImpulse("CLOSE_CONTEXT_MENU", onCloseContextMenu);
-        
-        Impulsys.subscribeToImpulse("NODE_RIGHT_CLICKED", onNodeRightClick);
-        Impulsys.subscribeToImpulse("WIRE_RIGHT_CLICKED", onWireRightClick);
-        Impulsys.subscribeToImpulse("PORT_RIGHT_CLICKED", onPortRightClick);
-        Impulsys.subscribeToImpulse("CANVAS_RIGHT_CLICKED", onCanvasRightClick);
+        Impulsys.subscribeToImpulse(EventType.CONTEXT_MENU_ACTION, onMenuAction);
+        Impulsys.subscribeToImpulse(EventType.CLOSE_CONTEXT_MENU, onCloseContextMenu);
+
+        Impulsys.subscribeToImpulse(EventType.NODE_RIGHT_CLICKED, onNodeRightClick);
+        Impulsys.subscribeToImpulse(EventType.WIRE_RIGHT_CLICKED, onWireRightClick);
+        Impulsys.subscribeToImpulse(EventType.PORT_RIGHT_CLICKED, onPortRightClick);
+        Impulsys.subscribeToImpulse(EventType.CANVAS_RIGHT_CLICKED, onCanvasRightClick);
     }
 
     /**

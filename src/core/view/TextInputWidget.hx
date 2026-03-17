@@ -10,6 +10,7 @@ import openfl.ui.Keyboard;
 import core.base.Atom;
 import core.base.Contact;
 import core.logic.Impulsys;
+import core.logic.EventType; // <--- IMPORT
 
 /**
  * TEXT INPUT WIDGET v1.1
@@ -54,10 +55,10 @@ class TextInputWidget extends DeviceView {
         _inputField.background = false;
         _inputField.textColor = 0xFFFFFF;
         _inputField.mouseEnabled = true;
-        
+
         var fmt = new TextFormat("_sans", 12, 0xFFFFFF);
         _inputField.defaultTextFormat = fmt;
-        
+
         // Устанавливаем начальное значение
         if (_outputContact != null && _outputContact.value != null) {
             _inputField.text = Std.string(_outputContact.value);
@@ -81,9 +82,9 @@ class TextInputWidget extends DeviceView {
             pushValue();
             // Убираем фокус, чтобы подтвердить ввод
             if (stage != null) stage.focus = null;
-            
+
             // --- НОВОЕ: Сигнал на сохранение ---
-            Impulsys.quickEmit("VALUE_COMMITTED");
+            Impulsys.quickEmit(EventType.VALUE_COMMITTED);
         }
     }
 

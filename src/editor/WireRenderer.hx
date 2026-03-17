@@ -12,6 +12,7 @@ import core.data.Blueprint.ConnectionDef;
 import core.data.Blueprint.ConnectionPoint;
 import core.logic.Impulsys;
 import core.logic.Impulse;
+import core.logic.EventType; // <--- IMPORT
 import ui.WireType;
 import ui.WireType.WireType as WireTypeEnum;
 
@@ -89,7 +90,7 @@ class WireRenderer {
     // ========================================================================
 
     /**
-     * ИСПРАВЛЕНО: Находит и добавляет в активный список все провода, 
+     * ИСПРАВЛЕНО: Находит и добавляет в активный список все провода,
      * подсоединенные к указанным узлам.
      * @param nodeIds Массив Runtime ID узлов.
      */
@@ -352,7 +353,7 @@ class WireRenderer {
                 _onWireSelectionChanged(selectedIds);
             }
         }
-        Impulsys.emit(new Impulse("WIRE_RIGHT_CLICKED", { ids: selectedIds.copy() }));
+        Impulsys.emit(new Impulse(EventType.WIRE_RIGHT_CLICKED, { ids: selectedIds.copy() }));
     }
 
     // ========================================================================

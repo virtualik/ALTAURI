@@ -18,6 +18,7 @@ import core.data.Blueprint;
 import core.logic.SignalQueue;
 import core.logic.Impulsys;
 import core.logic.Impulse;
+import core.logic.EventType;
 import system.managers.UndoManager;
 import system.managers.DriverManager;
 import system.managers.ProjectManager;
@@ -90,14 +91,14 @@ class Main extends Sprite {
         #end
 
         setupDebugLog();
-        
+
         // 1. Инициализация менеджеров данных
         _projectManager = ProjectManager.getInstance();
         _projectManager.init();
 
         // Инициализация библиотек
         AtomRegistry.initialize();
-        
+
         log("System initialized");
         ECS.init();
 
@@ -139,7 +140,7 @@ class Main extends Sprite {
 
         if (data != null && data.blueprint != null) {
             rootAssembly = new Assembly("main_asm", data.blueprint);
-            
+
             _cachedDeviceWindowState = [];
             if (data.devices != null) {
                 for (d in (cast(data.devices, Array<Dynamic>))) {
@@ -159,7 +160,7 @@ class Main extends Sprite {
         } else {
             createEmptyProject();
         }
-        
+
         updateNavigationUI();
         updateButtonStates();
     }
@@ -180,7 +181,7 @@ class Main extends Sprite {
 
     private function saveCurrentContext():Void {
         var isRoot = (_editorContext.getStackLength() == 1);
-        
+
         if (isRoot) {
             log("Saving Root...");
             var viewState = _editorContext.currentEditor.getViewState();
@@ -252,7 +253,7 @@ class Main extends Sprite {
         if (isSaved) {
             _projectManager.deleteAssemblyFile(deletedId);
         }
-        
+
         closeCurrentEditor(false); // Закрываем без обновления
 
         cleanRegistryDanglingReferences(deletedId);
@@ -426,10 +427,12 @@ class Main extends Sprite {
 
         stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
 
-        Impulsys.subscribeToImpulse("ATOM_PROPERTIES_REQUEST", onPropertiesRequest);
-        Impulsys.subscribeToImpulse("OPEN_ASSEMBLY_REQUEST", onOpenAssemblyRequest);
-        Impulsys.subscribeToImpulse("REQUEST_NEW_ASSEMBLY_CONTEXT", onRequestNewContext);
-        Impulsys.subscribeToImpulse("VALUE_COMMITTED", onValueCommitted);
+        // === REPLACE START ===
+        Impulsys.subscribeToImpulse(EventType.ATOM_PROPERTIES_REQUEST, onPropertiesRequest);
+        Impulsys.subscribeToImpulse(EventType.OPEN_ASSEMBLY_REQUEST, onOpenAssemblyRequest);
+        Impulsys.subscribeToImpulse(EventType.REQUEST_NEW_ASSEMBLY_CONTEXT, onRequestNewContext);
+        Impulsys.subscribeToImpulse(EventType.VALUE_COMMITTED, onValueCommitted);
+        // === REPLACE END ===
     }
 
     private function onSettingsChanged():Void {
@@ -471,9 +474,9 @@ class Main extends Sprite {
     private function updateNavigationUI():Void {
         if (_editorContext.currentAssembly != null) {
             _nameField.text = _editorContext.currentAssembly.blueprint.name;
-            _pathField.text = "Depth: " + _editorContext.getStackLength(); 
+            _pathField.text = "Depth: " + _editorContext.getStackLength();
         }
-        
+
         if (_contextManager != null) {
             _contextManager.setContext(_editorContext.currentEditor, _editorContext.currentAssembly);
         }
@@ -543,10 +546,13 @@ class Main extends Sprite {
         _cachedDeviceWindowState = null;
 
         Impulsys.clear();
-        Impulsys.subscribeToImpulse("ATOM_PROPERTIES_REQUEST", onPropertiesRequest);
-        Impulsys.subscribeToImpulse("OPEN_ASSEMBLY_REQUEST", onOpenAssemblyRequest);
-        Impulsys.subscribeToImpulse("REQUEST_NEW_ASSEMBLY_CONTEXT", onRequestNewContext);
-        Impulsys.subscribeToImpulse("VALUE_COMMITTED", onValueCommitted);
+        
+        // === REPLACE START ===
+        Impulsys.subscribeToImpulse(EventType.ATOM_PROPERTIES_REQUEST, onPropertiesRequest);
+        Impulsys.subscribeToImpulse(EventType.OPEN_ASSEMBLY_REQUEST, onOpenAssemblyRequest);
+        Impulsys.subscribeToImpulse(EventType.REQUEST_NEW_ASSEMBLY_CONTEXT, onRequestNewContext);
+        Impulsys.subscribeToImpulse(EventType.VALUE_COMMITTED, onValueCommitted);
+        // === REPLACE END ===
 
         if (_contextManager != null) _uiLayer.removeChild(_contextManager.getView());
         _contextManager = new ContextMenuManager(_settingsPanel);
@@ -558,13 +564,11 @@ class Main extends Sprite {
         ECS.reset();
     }
 
-    // --- ДОБАВЛЕННЫЙ МЕТОД ---
     private function onMainWindowClose():Void {
         log("Main window close requested...");
         saveOnExit();
         if (_deviceWindow != null && _deviceWindow.isOpen) {
             log("Device window is active. Hiding editor instead of exit.");
-            // Можно добавить логику скрытия, если нужно
         } else {
             log("Exiting application.");
             System.exit(0);

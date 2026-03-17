@@ -13,25 +13,13 @@ import core.base.IDisposable;
 import core.base.AssemblyFactory;
 import core.logic.Impulsys;
 import core.logic.Impulse;
+import core.logic.EventType; // <--- IMPORT
 import core.types.ContactType;
 import library.AtomRegistry;
 
 /**
  * GROUP ATOMS COMMAND v2.0 (Full Undo/Redo Support)
  * Command to group selected atoms into a new Assembly.
- * 
- * v2.0 Changes:
- * - Added full undo/redo support via GroupAtomsSnapshot
- * - Safe iteration over blueprint collections (collect first, modify after)
- * - Circular reference protection with depth limit
- * - Proper cleanup of created resources
- * - Port limit checking (MAX_INPUT_PORTS, MAX_OUTPUT_PORTS)
- * 
- * DESIGN NOTES:
- * - Snapshot is captured DURING execute() (both before and after modifications)
- * - Undo completely reverses all changes
- * - Redo re-executes the grouping operation
- * - Physical connections (Contact.link) are handled separately from logical (Blueprint)
  */
 class GroupAtomsCommand extends Command {
 
@@ -344,14 +332,14 @@ class GroupAtomsCommand extends Command {
 
         // Emit delete events for grouped atoms
         for (nodeId in _selectedNodeIds) {
-            Impulsys.quickEmit("ATOM_DELETED", {
+            Impulsys.quickEmit(EventType.ATOM_DELETED, {
                 assemblyId: _assembly.id,
                 id: nodeId
             });
         }
 
         // Emit restore event for new assembly
-        Impulsys.quickEmit("ATOM_RESTORED", {
+        Impulsys.quickEmit(EventType.ATOM_RESTORED, {
             assemblyId: _assembly.id,
             id: newInstance.id,
             x: centerPos.x,
@@ -359,7 +347,7 @@ class GroupAtomsCommand extends Command {
             atom: newInstance
         });
 
-        Impulsys.quickEmit("REDRAW_WIRES");
+        Impulsys.quickEmit(EventType.REDRAW_WIRES);
 
         _isExecuted = true;
         trace('GroupAtomsCommand: Created $newTypeId with ${newPins.length} ports');
@@ -465,7 +453,7 @@ class GroupAtomsCommand extends Command {
         // =====================================================================
 
         // Emit delete for assembly
-        Impulsys.quickEmit("ATOM_DELETED", {
+        Impulsys.quickEmit(EventType.ATOM_DELETED, {
             assemblyId: _assembly.id,
             id: createdId
         });
@@ -473,7 +461,7 @@ class GroupAtomsCommand extends Command {
         // Emit restore for original atoms
         for (atomDef in _snapshot.getRemovedAtomDefs()) {
             var atom = _assembly.internalAtoms.get(atomDef.instanceId);
-            Impulsys.quickEmit("ATOM_RESTORED", {
+            Impulsys.quickEmit(EventType.ATOM_RESTORED, {
                 assemblyId: _assembly.id,
                 id: atomDef.instanceId,
                 x: atomDef.x,
@@ -482,7 +470,7 @@ class GroupAtomsCommand extends Command {
             });
         }
 
-        Impulsys.quickEmit("REDRAW_WIRES");
+        Impulsys.quickEmit(EventType.REDRAW_WIRES);
 
         _isUndone = true;
         trace('GroupAtomsCommand: Undo complete');
@@ -510,7 +498,7 @@ class GroupAtomsCommand extends Command {
             }
         }
 
-        Impulsys.quickEmit("REDRAW_WIRES");
+        Impulsys.quickEmit(EventType.REDRAW_WIRES);
     }
 
     // =========================================================================
@@ -665,19 +653,15 @@ class GroupAtomsCommand extends Command {
             }
         };
 
-        // === ИСПРАВЛЕНИЕ ПУТИ ===
-        // Используем путь из реестра, если он задан, иначе дефолтный
-        var libPath = (library.AtomRegistry.customLibraryPath != null && library.AtomRegistry.customLibraryPath.length > 0) 
-            ? library.AtomRegistry.customLibraryPath 
+        var libPath = (library.AtomRegistry.customLibraryPath != null && library.AtomRegistry.customLibraryPath.length > 0)
+            ? library.AtomRegistry.customLibraryPath
             : "library";
-        
-        // Убедимся, что папка существует
+
         if (!sys.FileSystem.exists(libPath)) {
             try { sys.FileSystem.createDirectory(libPath); } catch(e:Dynamic) {}
         }
 
         var path = libPath + "/" + bp.id + ".atom";
-        // =======================
 
         try {
             sys.io.File.saveContent(path, haxe.Json.stringify(data, null, "  "));
@@ -690,12 +674,10 @@ class GroupAtomsCommand extends Command {
 
     private function deleteAssemblyFile(typeId:String):Void {
         #if sys
-        // === ИСПРАВЛЕНИЕ ПУТИ ===
-        var libPath = (library.AtomRegistry.customLibraryPath != null && library.AtomRegistry.customLibraryPath.length > 0) 
-            ? library.AtomRegistry.customLibraryPath 
+        var libPath = (library.AtomRegistry.customLibraryPath != null && library.AtomRegistry.customLibraryPath.length > 0)
+            ? library.AtomRegistry.customLibraryPath
             : "library";
         var path = libPath + "/" + typeId + ".atom";
-        // =======================
 
         if (sys.FileSystem.exists(path)) {
             try {

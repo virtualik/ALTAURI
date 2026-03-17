@@ -1,14 +1,14 @@
 package core.logic;
 
 /**
- * IMPULSE v1.0
- * A data container for events traveling through the Impulsys bus.
+ * IMPULSE v1.1
+ * Контейнер данных для событий.
  */
 class Impulse {
-    public var type(default, null):String;
+    public var type(default, null):EventType;
     public var data(default, null):Dynamic;
 
-    public function new(type:String, data:Dynamic = null) {
+    public function new(type:EventType, data:Dynamic = null) {
         this.type = type;
         this.data = data;
     }
