@@ -88,13 +88,24 @@ class DeviceWidgetFactory {
 
             case "button", "push button":
                 new ButtonWidget(atom, "out");
-
+				
+			case "toggle", "switch":
+				new ToggleWidget(atom, "out");
+				
             case "oscilloscope":
                 new OscilloscopeWidget(atom, "in");
 
             case "textinput":
                 new TextInputWidget(atom);
-
+			
+            case "relay":
+                // Показываем выход "out". 
+                // Можно использовать LEDWidget для индикации (если сигнал булев или ненулевой)
+                // или TextWidget для отображения значения.
+                // Вариант 1 (Текстовое значение):
+                new TextWidget(atom, "out", false);
+				// Вариант 2 (Если реле используется как ключ для включения чего-то, можно LED):
+                //new LEDWidget(atom, "out");
             default:
                 // Универсальный виджет - текстовое отображение
                 new TextWidget(atom);

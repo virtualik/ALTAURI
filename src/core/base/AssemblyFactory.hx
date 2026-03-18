@@ -54,11 +54,12 @@ class AssemblyFactory {
 
             // Electro
             case "Button": atom = new ButtonAtom(id);
+			case "Toggle": atom = new library.electro.ToggleAtom(id);
             case "LED": atom = new LedAtom(id);
             case "Relay": atom = new RelayAtom(id);
             case "Oscilloscope": atom = new OscilloscopeAtom(id);
             case "TextInput": atom = new TextInputAtom(id);
-
+			
             // Default: create Assembly for composite
             default:
                 atom = new Assembly(id, bp);

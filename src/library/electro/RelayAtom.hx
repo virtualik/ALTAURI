@@ -5,12 +5,12 @@ import core.base.Contact;
 import core.types.ContactType;
 
 /**
- * RELAY ATOM v1.1 (State Serialization)
+ * RELAY ATOM v1.3 (Combined)
  * Реле - пропускает сигнал только когда управление активно.
  * 
- * v1.1 Changes:
- * - Added getPersistentState() for saving last output state
- * - Added restoreState() for restoring relay state on load
+ * Changes:
+ * - v1.2: Fix: Reset Schedule Flag inside _calculate.
+ * - v1.1: Added State Serialization (getPersistentState, restoreState).
  */
 class RelayAtom extends Atom {
 
@@ -46,8 +46,13 @@ class RelayAtom extends Atom {
     }
 
     override function _calculate():Void {
+        // === ВАЖНОЕ ИСПРАВЛЕНИЕ (из v1.2) ===
+        // Сбрасываем флаг планировщика, иначе этот метод больше никогда не вызовется
+        _isScheduled = false;
+        // ===================================
+
         if (_inputs == null || _inputs.length < 2) return;
-        
+
         var signal = _inputs[0].value;
         var control = _inputs[1].value;
 
@@ -61,7 +66,7 @@ class RelayAtom extends Atom {
     }
 
     // =========================================================================
-    // STATE SERIALIZATION v1.1
+    // STATE SERIALIZATION (из v1.1)
     // =========================================================================
 
     /**
