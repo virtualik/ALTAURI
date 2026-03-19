@@ -1,0 +1,150 @@
+{
+  "blueprint": {
+    "category": "General",
+    "id": "NOR_Gate",
+    "internalAtoms": [
+      {
+        "instanceId": "id_d830a41b",
+        "typeId": "NAND",
+        "values": null,
+        "x": 285,
+        "y": 282
+      },
+      {
+        "instanceId": "id_5e7acac5",
+        "typeId": "NAND",
+        "values": null,
+        "x": 298,
+        "y": 593
+      },
+      {
+        "instanceId": "id_adb5aa87",
+        "typeId": "NAND",
+        "values": null,
+        "x": 571,
+        "y": 428
+      },
+      {
+        "instanceId": "id_2ef146f0",
+        "typeId": "NAND",
+        "values": null,
+        "x": 879,
+        "y": 427
+      }
+    ],
+    "internalConnections": [
+      {
+        "from": {
+          "atomId": "id_adb5aa87",
+          "contactName": "Q"
+        },
+        "to": {
+          "atomId": "id_2ef146f0",
+          "contactName": "A"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_adb5aa87",
+          "contactName": "Q"
+        },
+        "to": {
+          "atomId": "id_2ef146f0",
+          "contactName": "B"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_2ef146f0",
+          "contactName": "Q"
+        },
+        "to": {
+          "atomId": "SELF",
+          "contactName": "Out_1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_d830a41b",
+          "contactName": "Q"
+        },
+        "to": {
+          "atomId": "id_adb5aa87",
+          "contactName": "A"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_5e7acac5",
+          "contactName": "Q"
+        },
+        "to": {
+          "atomId": "id_adb5aa87",
+          "contactName": "B"
+        }
+      },
+      {
+        "from": {
+          "atomId": "SELF",
+          "contactName": "In_1"
+        },
+        "to": {
+          "atomId": "id_d830a41b",
+          "contactName": "A"
+        }
+      },
+      {
+        "from": {
+          "atomId": "SELF",
+          "contactName": "In_1"
+        },
+        "to": {
+          "atomId": "id_d830a41b",
+          "contactName": "B"
+        }
+      },
+      {
+        "from": {
+          "atomId": "SELF",
+          "contactName": "In_2"
+        },
+        "to": {
+          "atomId": "id_5e7acac5",
+          "contactName": "A"
+        }
+      },
+      {
+        "from": {
+          "atomId": "SELF",
+          "contactName": "In_2"
+        },
+        "to": {
+          "atomId": "id_5e7acac5",
+          "contactName": "B"
+        }
+      }
+    ],
+    "name": "NOR Gate",
+    "pins": [
+      {
+        "dataType": "null",
+        "defaultValue": null,
+        "name": "In_1",
+        "type": "INPUT"
+      },
+      {
+        "dataType": "null",
+        "defaultValue": null,
+        "name": "Out_1",
+        "type": "OUTPUT"
+      },
+      {
+        "dataType": "null",
+        "defaultValue": null,
+        "name": "In_2",
+        "type": "INPUT"
+      }
+    ]
+  },
+  "version": "1.1"
+}

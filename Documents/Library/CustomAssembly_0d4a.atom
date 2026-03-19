@@ -1,0 +1,11 @@
+{
+  "blueprint": {
+    "category": "General",
+    "id": "CustomAssembly_0d4a",
+    "name": "Custom Assembly",
+    "pins": [],
+    "internalAtoms": [],
+    "internalConnections": []
+  },
+  "version": "1.1"
+}

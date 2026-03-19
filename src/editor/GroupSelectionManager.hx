@@ -5,7 +5,7 @@ package editor;
  * Чистый класс для управления списком выделенных ID.
  * Не зависит от графики (OpenFL), работает только с данными.
  */
-class SelectionManager {
+class GroupSelectionManager {
 
     private var _selectedNodes:Map<String, Bool>;
     private var _selectedWires:Array<String>;

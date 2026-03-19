@@ -1,85 +1,95 @@
 package core.view;
 
 import openfl.display.Sprite;
+import openfl.events.Event;
 import core.base.Atom;
 import core.base.Assembly;
 import core.base.Contact;
 
 /**
- * DEVICE VIEW BASE v1.2 (Leak Fix)
- * Fixed: Prevents duplicate subscriptions on multiple activate() calls.
+ * DEVICE VIEW BASE v1.4
+ * Base class for all device widgets.
+ * Provides contact subscription and lifecycle management.
  */
 class DeviceView extends Sprite {
-
+    
     public var atom(default, null):Atom;
     public var assembly(default, null):Assembly;
     public var isActive(default, null):Bool = false;
+    
     private var _contactCallbacks:Array<{contact:Contact, callback:Dynamic -> Void}>;
+    private var _isActivating:Bool = false;
+    public var isDisposed(default, null):Bool = false;
 
     public function new(atom:Atom) {
         super();
         this.atom = atom;
-
         if (Std.isOfType(atom, Assembly)) {
             this.assembly = cast(atom, Assembly);
         }
-
         _contactCallbacks = [];
     }
 
     public function activate():Void {
-        // FIX: Защита от двойной активации
-        if (isActive) return;
-        
+        if (isActive || _isActivating || isDisposed) return;
+        _isActivating = true;
+
         isActive = true;
         subscribeToContacts();
         onActivate();
+
+        _isActivating = false;
     }
 
     public function deactivate():Void {
-        // FIX: Проверка состояния
-        if (!isActive) return;
-        
+        if (!isActive || isDisposed) return;
         isActive = false;
         unsubscribeFromContacts();
         onDeactivate();
     }
 
-    private function onActivate():Void { }
-    private function onDeactivate():Void { }
+    private function onActivate():Void {}
+    private function onDeactivate():Void {}
 
     private function subscribeToContacts():Void {
-        // FIX: Гарантируем, что старых подписок нет перед созданием новых
+        if (isDisposed || atom == null) return;
+
+        // Clean existing subscriptions first
         if (_contactCallbacks.length > 0) {
             unsubscribeFromContacts();
         }
 
-        if (atom == null) return;
-
+        // Subscribe to inputs
         var inputs = atom.getInputs();
         if (inputs != null) {
             for (c in inputs) {
-                if (c != null) {
-                    var cb = function(v:Dynamic) { onContactChanged(c, v); };
+                if (c != null && !c.isDisposed) {
+                    var cb = function(v:Dynamic) {
+                        if (!isDisposed) onContactChanged(c, v);
+                    };
                     c.subscribe(cb);
                     _contactCallbacks.push({contact: c, callback: cb});
-
-                    if (c.value != null) {
+                    
+                    // Process initial value
+                    if (c.value != null && !isDisposed) {
                         onContactChanged(c, c.value);
                     }
                 }
             }
         }
 
+        // Subscribe to outputs
         var outputs = atom.getOutputs();
         if (outputs != null) {
             for (c in outputs) {
-                if (c != null) {
-                    var cb = function(v:Dynamic) { onContactChanged(c, v); };
+                if (c != null && !c.isDisposed) {
+                    var cb = function(v:Dynamic) {
+                        if (!isDisposed) onContactChanged(c, v);
+                    };
                     c.subscribe(cb);
                     _contactCallbacks.push({contact: c, callback: cb});
-
-                    if (c.value != null) {
+                    
+                    if (c.value != null && !isDisposed) {
                         onContactChanged(c, c.value);
                     }
                 }
@@ -93,41 +103,27 @@ class DeviceView extends Sprite {
                 item.contact.unsubscribe(item.callback);
             }
         }
-        // FIX: Явная очистка массива
         _contactCallbacks.resize(0);
     }
 
+    /**
+     * Override this method to handle contact value changes.
+     */
     private function onContactChanged(contact:Contact, newValue:Dynamic):Void {
         // Override me
     }
 
-    private function getInputValue(name:String):Dynamic {
-        if (atom == null) return null;
-        var c = atom.getInput(name);
-        return c != null ? c.value : null;
-    }
-
-    private function getOutputValue(name:String):Dynamic {
-        if (atom == null) return null;
-        var c = atom.getOutput(name);
-        return c != null ? c.value : null;
-    }
-
-    private function setInputValue(name:String, value:Dynamic):Void {
-        if (atom == null) return;
-        var c = atom.getInput(name);
-        if (c != null) c.value = value;
-    }
-
     public function dispose():Void {
-        deactivate(); // Гарантирует отписку
+        if (isDisposed) return;
+        isDisposed = true;
+
+        deactivate();
         atom = null;
         assembly = null;
 
         while (numChildren > 0) {
             removeChildAt(0);
         }
-
         graphics.clear();
     }
 }

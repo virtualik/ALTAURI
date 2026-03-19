@@ -1,0 +1,123 @@
+{
+  "blueprint": {
+    "category": "General",
+    "id": "OR_Gate",
+    "name": "OR Gate",
+    "pins": [
+      {
+        "dataType": null,
+        "defaultValue": null,
+        "name": "In_1",
+        "type": "INPUT"
+      },
+      {
+        "dataType": null,
+        "defaultValue": null,
+        "name": "In_2",
+        "type": "INPUT"
+      },
+      {
+        "dataType": null,
+        "defaultValue": null,
+        "name": "Out_1",
+        "type": "OUTPUT"
+      }
+    ],
+    "internalAtoms": [
+      {
+        "x": 393,
+        "y": 288,
+        "values": null,
+        "typeId": "NAND",
+        "instanceId": "id_ed6a0039"
+      },
+      {
+        "x": 396,
+        "y": 421,
+        "values": null,
+        "typeId": "NAND",
+        "instanceId": "id_8b66ca36"
+      },
+      {
+        "x": 622,
+        "y": 356,
+        "values": null,
+        "typeId": "NAND",
+        "instanceId": "id_c8f76f0e"
+      }
+    ],
+    "internalConnections": [
+      {
+        "to": {
+          "atomId": "id_ed6a0039",
+          "contactName": "A"
+        },
+        "from": {
+          "atomId": "SELF",
+          "contactName": "In_1"
+        }
+      },
+      {
+        "to": {
+          "atomId": "id_ed6a0039",
+          "contactName": "B"
+        },
+        "from": {
+          "atomId": "SELF",
+          "contactName": "In_1"
+        }
+      },
+      {
+        "to": {
+          "atomId": "id_8b66ca36",
+          "contactName": "A"
+        },
+        "from": {
+          "atomId": "SELF",
+          "contactName": "In_2"
+        }
+      },
+      {
+        "to": {
+          "atomId": "id_8b66ca36",
+          "contactName": "B"
+        },
+        "from": {
+          "atomId": "SELF",
+          "contactName": "In_2"
+        }
+      },
+      {
+        "to": {
+          "atomId": "id_c8f76f0e",
+          "contactName": "A"
+        },
+        "from": {
+          "atomId": "id_ed6a0039",
+          "contactName": "Q"
+        }
+      },
+      {
+        "to": {
+          "atomId": "id_c8f76f0e",
+          "contactName": "B"
+        },
+        "from": {
+          "atomId": "id_8b66ca36",
+          "contactName": "Q"
+        }
+      },
+      {
+        "to": {
+          "atomId": "SELF",
+          "contactName": "Out_1"
+        },
+        "from": {
+          "atomId": "id_c8f76f0e",
+          "contactName": "Q"
+        }
+      }
+    ]
+  },
+  "version": "1.1"
+}

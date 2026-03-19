@@ -41,7 +41,7 @@ class NodeEditor extends Sprite {
     private var _viewport:ViewportManager;
     private var _actions:EditorActionHandler;
     private var _wireRenderer:WireRenderer;
-    private var _selection:SelectionManager;
+    private var _selection:GroupSelectionManager;
 
     // ========================================================================
     // NODE MANAGEMENT
@@ -118,7 +118,7 @@ class NodeEditor extends Sprite {
         _theme = EditorTheme.getInstance();
 
         ECS.init();
-        _selection = new SelectionManager();
+        _selection = new GroupSelectionManager();
 
         // === Двухуровневая структура для scrollRect ===
         _editorContainer = new Sprite();

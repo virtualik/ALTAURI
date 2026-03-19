@@ -1,0 +1,377 @@
+{
+  "blueprint": {
+    "category": "General",
+    "id": "3_ToggleBT_exclusion",
+    "internalAtoms": [
+      {
+        "instanceId": "id_8a28962e",
+        "typeId": "Conductor",
+        "values": {
+          "inputCount": 2
+        },
+        "x": 457.979019402536,
+        "y": 412.81998736741
+      },
+      {
+        "instanceId": "id_784c3c1d",
+        "typeId": "Conductor",
+        "values": {
+          "inputCount": 2
+        },
+        "x": 461.843037250884,
+        "y": 591.46725555323
+      },
+      {
+        "instanceId": "id_8f8ec32d",
+        "typeId": "Conductor",
+        "values": {
+          "inputCount": 2
+        },
+        "x": 460.164391086513,
+        "y": 231.87438157939
+      },
+      {
+        "instanceId": "id_84724a2e",
+        "typeId": "LED",
+        "values": null,
+        "x": 660.906475887932,
+        "y": 500.8755238837
+      },
+      {
+        "instanceId": "id_7f03e2f3",
+        "typeId": "LED",
+        "values": null,
+        "x": 656.951243760906,
+        "y": 89.1734395366771
+      },
+      {
+        "instanceId": "id_ac4d02e4",
+        "typeId": "Toggle",
+        "values": {
+          "state": false
+        },
+        "x": 267.613035442782,
+        "y": 117.403579093627
+      },
+      {
+        "instanceId": "id_bca2556d",
+        "typeId": "Toggle",
+        "values": {
+          "state": false
+        },
+        "x": 266.133947815958,
+        "y": 315.29804021253
+      },
+      {
+        "instanceId": "id_74b8c95c",
+        "typeId": "LED",
+        "values": null,
+        "x": 659.843144773489,
+        "y": 294.39563128735
+      },
+      {
+        "instanceId": "id_da479085",
+        "typeId": "Toggle",
+        "values": {
+          "state": true
+        },
+        "x": 265.308566315891,
+        "y": 532.93566660007
+      }
+    ],
+    "internalConnections": [
+      {
+        "from": {
+          "atomId": "id_668088f5",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_fdfa3728",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_668088f5",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_dec23307",
+          "contactName": "in0"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_668088f5",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_53118591",
+          "contactName": "in0"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_f3dcad2e",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_028dac9d",
+          "contactName": "in0"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_f3dcad2e",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_53118591",
+          "contactName": "in1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_d7ac23a2",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_dec23307",
+          "contactName": "in1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_d7ac23a2",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_028dac9d",
+          "contactName": "in1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_f3dcad2e",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_18714748",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_d7ac23a2",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_a39ec581",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_028dac9d",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_668088f5",
+          "contactName": "rst"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_dec23307",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_f3dcad2e",
+          "contactName": "rst"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_53118591",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_d7ac23a2",
+          "contactName": "rst"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_ac4d02e4",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_7f03e2f3",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_ac4d02e4",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "SELF",
+          "contactName": "Out_1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_bca2556d",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_74b8c95c",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_bca2556d",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "SELF",
+          "contactName": "Out_2"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_da479085",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_84724a2e",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_da479085",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "SELF",
+          "contactName": "Out_3"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_8f8ec32d",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_ac4d02e4",
+          "contactName": "rst"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_8a28962e",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_bca2556d",
+          "contactName": "rst"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_784c3c1d",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_da479085",
+          "contactName": "rst"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_ac4d02e4",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_8a28962e",
+          "contactName": "in0"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_ac4d02e4",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_784c3c1d",
+          "contactName": "in0"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_bca2556d",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_8f8ec32d",
+          "contactName": "in0"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_bca2556d",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_784c3c1d",
+          "contactName": "in1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_da479085",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_8f8ec32d",
+          "contactName": "in1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_da479085",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_8a28962e",
+          "contactName": "in1"
+        }
+      }
+    ],
+    "name": "3 ToggleBT exclusion",
+    "pins": [
+      {
+        "dataType": "null",
+        "defaultValue": null,
+        "name": "Out_1",
+        "type": "OUTPUT"
+      },
+      {
+        "dataType": "null",
+        "defaultValue": null,
+        "name": "Out_2",
+        "type": "OUTPUT"
+      },
+      {
+        "dataType": "null",
+        "defaultValue": null,
+        "name": "Out_3",
+        "type": "OUTPUT"
+      }
+    ]
+  },
+  "version": "1.1"
+}

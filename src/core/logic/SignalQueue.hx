@@ -3,28 +3,27 @@ package core.logic;
 import core.types.Priority;
 
 /**
- * SIGNAL QUEUE v2.4 (Priority System)
- * Priority-based Task Scheduler.
+ * SIGNAL QUEUE v3.0 (Zero-Allocation Core)
+ * Priority-based Task Scheduler optimized for high-frequency signals.
  *
- * v2.4 Changes:
- * - Increased iteration limit for complex signal chains
- * - Safer queue clearing on overflow
- * - Added executeAndClear for atomic operations
+ * v3.0 Changes:
+ * - Implemented Double Buffering to eliminate Array.shift() (which caused O(N) copies and GC pressure).
+ * - Zero allocations during steady state operation (reuses arrays).
+ * - Massive performance boost for signal-heavy graphs.
  */
 class SignalQueue {
 
     private static var _instance:SignalQueue;
 
-    // Storage for queues by priority
-    private var _queues:Map<Priority, Array<Void -> Void>>;
+    // Два набора очередей: одна для записи (write), вторая для чтения/выполнения (read)
+    private var _queuesWrite:Map<Priority, Array<Void -> Void>>;
+    private var _queuesRead:Map<Priority, Array<Void -> Void>>;
 
     private var _isProcessing:Bool = false;
-
-    // Protection against "Zombie Loops"
     private var _currentIteration:Int = 0;
 
-    // УВЕЛИЧЕННЫЙ ЛИМИТ: Позволяет обрабатывать больше сигналов за кадр
-    public var maxIterationsPerFrame:Int = 25000;
+    // Увеличенный лимит для сложных схем
+    public var maxIterationsPerFrame:Int = 50000;
 
     public static function getInstance():SignalQueue {
         if (_instance == null) _instance = new SignalQueue();
@@ -32,17 +31,24 @@ class SignalQueue {
     }
 
     private function new() {
-        _queues = new Map();
-        _queues.set(CRITICAL, []);
-        _queues.set(NORMAL, []);
-        _queues.set(BACKGROUND, []);
+        _queuesWrite = new Map();
+        _queuesRead = new Map();
+
+        // Инициализация буферов
+        _queuesWrite.set(CRITICAL, []);
+        _queuesWrite.set(NORMAL, []);
+        _queuesWrite.set(BACKGROUND, []);
+
+        _queuesRead.set(CRITICAL, []);
+        _queuesRead.set(NORMAL, []);
+        _queuesRead.set(BACKGROUND, []);
     }
 
     /**
-     * Adds a task to the queue.
+     * Adds a task to the write buffer.
      */
     public function schedule(task:Void -> Void, priority:Priority = NORMAL):Void {
-        var queue = _queues.get(priority);
+        var queue = _queuesWrite.get(priority);
         if (queue != null) {
             queue.push(task);
         }
@@ -53,37 +59,49 @@ class SignalQueue {
     }
 
     /**
-     * Iterative processing.
+     * Iterative processing using Double Buffering.
      */
     public function process():Void {
         _isProcessing = true;
         _currentIteration = 0;
 
-        // Processing order: Critical -> Normal -> Background
+        // 1. Свапаем буферы: то, что писали - становится очередью на чтение.
+        // Пустой буфер чтения становится буфером записи для новых задач.
+        var temp = _queuesRead;
+        _queuesRead = _queuesWrite;
+        _queuesWrite = temp;
+
+        // 2. Очищаем буфер записи (в который теперь будем писать новые задачи)
+        // resize(0) быстрее, чем создание нового массива, так как сохраняет емкость
+        var clearQ = _queuesWrite.get(CRITICAL); if (clearQ != null) clearQ.resize(0);
+        clearQ = _queuesWrite.get(NORMAL); if (clearQ != null) clearQ.resize(0);
+        clearQ = _queuesWrite.get(BACKGROUND); if (clearQ != null) clearQ.resize(0);
+
+        // 3. Обрабатываем задачи из Read буфера
         var order:Array<Priority> = [CRITICAL, NORMAL, BACKGROUND];
 
         for (p in order) {
-            var queue = _queues.get(p);
+            var queue = _queuesRead.get(p);
 
-            while (queue != null && queue.length > 0) {
-                // Overflow protection
-                _currentIteration++;
-                if (_currentIteration > maxIterationsPerFrame) {
-                    trace('WARN: SignalQueue overflow at priority $p. Clearing remaining tasks to prevent freeze.');
+            if (queue != null && queue.length > 0) {
+                // Итерация по индексу - самая быстрая операция
+                for (i in 0...queue.length) {
+                    // Защита от бесконечного цикла
+                    _currentIteration++;
+                    if (_currentIteration > maxIterationsPerFrame) {
+                        trace('WARN: SignalQueue overflow at priority $p. Clearing.');
+                        clear();
+                        _isProcessing = false;
+                        return;
+                    }
 
-                    // Clear queues to prevent persistent lag spikes
-                    clear();
-
-                    _isProcessing = false;
-                    return;
-                }
-
-                var task = queue.shift();
-                if (task != null) {
-                    try {
-                        task();
-                    } catch (e:Dynamic) {
-                        trace('ERROR in SignalQueue task: $e');
+                    var task = queue[i];
+                    if (task != null) {
+                        try {
+                            task();
+                        } catch (e:Dynamic) {
+                            trace('ERROR in SignalQueue task: $e');
+                        }
                     }
                 }
             }
@@ -103,43 +121,29 @@ class SignalQueue {
      * Clear all queues.
      */
     public function clear():Void {
-        for (queue in _queues) {
-            if (queue != null) {
-                queue.resize(0);
-            }
-        }
+        for (q in _queuesWrite) if(q != null) q.resize(0);
+        for (q in _queuesRead) if(q != null) q.resize(0);
         _isProcessing = false;
         _currentIteration = 0;
     }
 
     /**
      * Execute all pending tasks immediately and clear.
-     * Useful for finalizing before save/exit.
      */
     public function flush():Void {
-        var totalTasks = getTotalTaskCount();
-        if (totalTasks > 0) {
-            trace('SignalQueue: Flushing $totalTasks pending tasks...');
-            process();
-        }
+        process();
     }
 
     /**
-     * Get total number of pending tasks.
+     * Get total number of pending tasks (approx).
      */
     public function getTotalTaskCount():Int {
         var total = 0;
-        for (queue in _queues) {
-            if (queue != null) {
-                total += queue.length;
-            }
-        }
+        for (q in _queuesWrite) if (q != null) total += q.length;
+        for (q in _queuesRead) if (q != null) total += q.length;
         return total;
     }
 
-    /**
-     * Reset singleton instance.
-     */
     public static function reset():Void {
         if (_instance != null) {
             _instance.clear();

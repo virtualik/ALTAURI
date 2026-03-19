@@ -1,0 +1,565 @@
+{
+  "blueprint": {
+    "category": "General",
+    "id": "selfrun",
+    "internalAtoms": [
+      {
+        "instanceId": "id_32e78a90",
+        "typeId": "UniversalGen",
+        "values": {
+          "frequency": 0.7,
+          "modeSaw": false,
+          "modeSine": true,
+          "modeSquare": false,
+          "phase": 0.146619999291972
+        },
+        "x": -592.822874389697,
+        "y": 1396.99765554271
+      },
+      {
+        "instanceId": "id_511cc68c",
+        "typeId": "TextInput",
+        "values": {
+          "value": 0.7
+        },
+        "x": -807.933180069217,
+        "y": 1492.10365103272
+      },
+      {
+        "instanceId": "id_bf320046",
+        "typeId": "Oscilloscope",
+        "values": null,
+        "x": -366.272844210919,
+        "y": 1394.3826387194
+      },
+      {
+        "instanceId": "id_df12498a",
+        "typeId": "NOR_Gate",
+        "values": null,
+        "x": -740.471581535563,
+        "y": 538.426067349408
+      },
+      {
+        "instanceId": "id_17849214",
+        "typeId": "NOR_Gate",
+        "values": null,
+        "x": -696.517998616923,
+        "y": 853.444401727563
+      },
+      {
+        "instanceId": "id_6599bab2",
+        "typeId": "NOR_Gate",
+        "values": null,
+        "x": -606.310776760996,
+        "y": 1157.06881933786
+      },
+      {
+        "instanceId": "id_5fbe0762",
+        "typeId": "AND_Gate",
+        "values": null,
+        "x": -672.871746336175,
+        "y": 406.066912817355
+      },
+      {
+        "instanceId": "id_6e84140b",
+        "typeId": "AND_Gate",
+        "values": null,
+        "x": -617.841975510286,
+        "y": 741.468271871747
+      },
+      {
+        "instanceId": "id_24a8d6fd",
+        "typeId": "AND_Gate",
+        "values": null,
+        "x": -520.086676685694,
+        "y": 1037.77341662129
+      },
+      {
+        "instanceId": "id_9093ac07",
+        "typeId": "Toggle",
+        "values": {
+          "state": true
+        },
+        "x": -1088.84912209382,
+        "y": 725.105462594651
+      },
+      {
+        "instanceId": "id_25123179",
+        "typeId": "Toggle",
+        "values": {
+          "state": false
+        },
+        "x": -1086.75147158572,
+        "y": 820.385695963656
+      },
+      {
+        "instanceId": "id_a3bd4d63",
+        "typeId": "Toggle",
+        "values": {
+          "state": false
+        },
+        "x": -1083.01778951896,
+        "y": 904.797518785041
+      },
+      {
+        "instanceId": "id_3d4ec4a3",
+        "typeId": "LED",
+        "values": null,
+        "x": -62.0707129902834,
+        "y": 916.21084364629
+      },
+      {
+        "instanceId": "id_6b79f36d",
+        "typeId": "LED",
+        "values": null,
+        "x": -59.9663005185553,
+        "y": 1080.01601146314
+      },
+      {
+        "instanceId": "id_c7f051b2",
+        "typeId": "LED",
+        "values": null,
+        "x": -50.1352424646723,
+        "y": 1250.32805803986
+      },
+      {
+        "instanceId": "id_0e738348",
+        "typeId": "NOT_Gate",
+        "values": null,
+        "x": -302.68213046369,
+        "y": 870.146381001178
+      },
+      {
+        "instanceId": "id_4e9a661d",
+        "typeId": "NOT_Gate",
+        "values": null,
+        "x": -298.079102177833,
+        "y": 1048.51372707815
+      },
+      {
+        "instanceId": "id_bfa1d24a",
+        "typeId": "NOT_Gate",
+        "values": null,
+        "x": -291.174559749047,
+        "y": 1223.42880194074
+      },
+      {
+        "instanceId": "id_202231b4",
+        "typeId": "3_ToggleBT_exclusion",
+        "values": {
+          "id_739c1377": {
+            "state": true
+          },
+          "id_d9b06170": {
+            "state": false
+          },
+          "id_3eabc8be": {
+            "inputCount": 2
+          },
+          "id_2243f8eb": {
+            "inputCount": 2
+          },
+          "id_542d6beb": {
+            "state": false
+          },
+          "id_f532acc5": {
+            "inputCount": 2
+          }
+        },
+        "x": -862.843755830736,
+        "y": 1340.49955407995
+      },
+      {
+        "instanceId": "id_36fb314a",
+        "typeId": "LED",
+        "values": null,
+        "x": 44.13706876453,
+        "y": 915.793154991549
+      },
+      {
+        "instanceId": "id_9d771e25",
+        "typeId": "LED",
+        "values": null,
+        "x": 46.1757051128105,
+        "y": 1080.92269920227
+      },
+      {
+        "instanceId": "id_16436925",
+        "typeId": "LED",
+        "values": null,
+        "x": 54.3302505059324,
+        "y": 1250.12951610955
+      }
+    ],
+    "internalConnections": [
+      {
+        "from": {
+          "atomId": "id_511cc68c",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_32e78a90",
+          "contactName": "freq"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_32e78a90",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_bf320046",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_df12498a",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_5fbe0762",
+          "contactName": "In_2"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_17849214",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_6e84140b",
+          "contactName": "In_2"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_6599bab2",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_24a8d6fd",
+          "contactName": "In_2"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_a3bd4d63",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_24a8d6fd",
+          "contactName": "In_1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_25123179",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_6e84140b",
+          "contactName": "In_1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_9093ac07",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_5fbe0762",
+          "contactName": "In_1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_25123179",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_df12498a",
+          "contactName": "In_1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_25123179",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_6599bab2",
+          "contactName": "In_2"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_a3bd4d63",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_17849214",
+          "contactName": "In_2"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_a3bd4d63",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_df12498a",
+          "contactName": "In_2"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_9093ac07",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_17849214",
+          "contactName": "In_1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_9093ac07",
+          "contactName": "out"
+        },
+        "to": {
+          "atomId": "id_6599bab2",
+          "contactName": "In_1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_5fbe0762",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_0e738348",
+          "contactName": "In_1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_0e738348",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_3d4ec4a3",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_6e84140b",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_4e9a661d",
+          "contactName": "In_1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_4e9a661d",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_6b79f36d",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_bfa1d24a",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_c7f051b2",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_24a8d6fd",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_bfa1d24a",
+          "contactName": "In_1"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_0e738348",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_9093ac07",
+          "contactName": "rst"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_4e9a661d",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_25123179",
+          "contactName": "rst"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_bfa1d24a",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_a3bd4d63",
+          "contactName": "rst"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_202231b4",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_32e78a90",
+          "contactName": "square"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_202231b4",
+          "contactName": "Out_2"
+        },
+        "to": {
+          "atomId": "id_32e78a90",
+          "contactName": "saw"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_202231b4",
+          "contactName": "Out_3"
+        },
+        "to": {
+          "atomId": "id_32e78a90",
+          "contactName": "sine"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_5fbe0762",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_36fb314a",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_6e84140b",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_9d771e25",
+          "contactName": "in"
+        }
+      },
+      {
+        "from": {
+          "atomId": "id_24a8d6fd",
+          "contactName": "Out_1"
+        },
+        "to": {
+          "atomId": "id_16436925",
+          "contactName": "in"
+        }
+      }
+    ],
+    "name": "Selfrun",
+    "pins": [
+      {
+        "dataType": "null",
+        "defaultValue": null,
+        "name": "IN",
+        "type": 0
+      },
+      {
+        "dataType": "null",
+        "defaultValue": null,
+        "name": "OUT",
+        "type": 1
+      }
+    ]
+  },
+  "deviceWindow": {
+    "devices": [
+      {
+        "height": 184,
+        "path": [
+          "id_bf320046"
+        ],
+        "width": 334,
+        "x": 68,
+        "y": 163
+      },
+      {
+        "height": 62,
+        "path": [
+          "id_511cc68c"
+        ],
+        "width": 152,
+        "x": 165,
+        "y": 77
+      },
+      {
+        "height": 86,
+        "path": [
+          "id_202231b4",
+          "id_bca2556d"
+        ],
+        "width": 112,
+        "x": 177,
+        "y": 356
+      },
+      {
+        "height": 86,
+        "path": [
+          "id_202231b4",
+          "id_da479085"
+        ],
+        "width": 112,
+        "x": 290,
+        "y": 356
+      },
+      {
+        "height": 86,
+        "path": [
+          "id_202231b4",
+          "id_ac4d02e4"
+        ],
+        "width": 112,
+        "x": 66,
+        "y": 356
+      }
+    ],
+    "height": 478,
+    "isOpen": true,
+    "width": 466,
+    "x": -918,
+    "y": 87
+  },
+  "editor": {
+    "x": 1001.72460555816,
+    "y": -244.705412285263,
+    "zoom": 0.7181761481075
+  },
+  "version": "2.2"
+}

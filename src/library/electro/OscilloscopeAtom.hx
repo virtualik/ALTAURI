@@ -1,28 +1,23 @@
 package library.electro;
-
 import core.base.Atom;
 import core.base.Contact;
-import core.types.ContactType;
 
 /**
- * OSCILLOSCOPE ATOM v1.0
- * Пассивный атом-дисплей.
- * Имеет вход для массива сэмплов.
- */
+* OSCILLOSCOPE ATOM v1.2 (Fixed Warnings)
+* Passive atom display.
+* Has input for sample array (Array<Float>).
+*/
 class OscilloscopeAtom extends Atom {
-
-    public function new(id:String) {
-        super(
-            [
-                // Вход для буфера сэмплов
-                new Contact(null, INPUT, "in")
-            ],
-            [], // Нет выходов
-            null,
-            id,
-            "Oscilloscope"
-        );
-    }
-    
-    // Логика не нужна, Contact сам уведомит View через подписку
+	public function new(id:String) {
+		super(
+			[
+				// Input for sample buffer - MUST be "in"
+				new Contact(null, INPUT, "in")
+			],
+			[], // No outputs
+			null,
+			id,
+			"Oscilloscope"
+		);
+	}
 }
