@@ -1,27 +1,42 @@
 package editor;
 
-import ui.WireType.WireType as WireTypeEnum;
 import openfl.display.Sprite;
 import openfl.events.Event;
 import openfl.events.MouseEvent;
 import openfl.geom.Point;
 import openfl.geom.Rectangle;
-import openfl.text.TextField;
-import openfl.text.TextFormat;
+import openfl.Lib;
 import core.base.Assembly;
 import core.base.Atom;
 import core.base.Contact;
+import core.base.ConductorPort;
+import core.data.Blueprint;
+import core.data.Blueprint.ConnectionDef;
+import core.data.Blueprint.ConnectionPoint;
 import core.logic.Impulsys;
 import core.logic.Impulse;
 import core.logic.EventType;
-import core.data.Blueprint.ConnectionDef;
-import core.data.Blueprint.ConnectionPoint;
-import ecs.ECS;
+import core.types.ContactType;
 import library.AtomRegistry;
+import editor.SelectionManager;
+import editor.EditorActionHandler;
+import editor.ViewportManager;
+import editor.WireRenderer;
+import editor.NodeView;
+import editor.EditorTheme;
+import core.view.DeviceViewRegistry;
+import system.managers.UndoManager;
+import system.commands.editor.DeleteWiresCommand;
+import system.commands.editor.DeleteAtomCommand;
+import system.commands.base.MacroCommand;
+import utils.UID;
+import ecs.ECS;
+
+using StringTools;
 
 /**
- * NodeEditor v3.4 (Wire Connection & Coordinate Fix)
- * Главный координатор редактора схем.
+ * NodeEditor v4.0 (Refactored: Selection Extracted)
+ * Координатор визуального редактирования.
  * 
  * ═══════════════════════════════════════════════════════════════════════════
  * АРХИТЕКТУРА:
@@ -29,13 +44,18 @@ import library.AtomRegistry;
  * 
  * NodeEditor управляет:
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │  1. VIEWPORT (Pan/Zoom) → ViewportManager                              │
- * │  2. ACTIONS (Undo/Redo) → EditorActionHandler                          │
- * │  3. SELECTION (Nodes/Wires) → GroupSelectionManager                    │
- * │  4. WIRES (Rendering) → WireRenderer                                   │
- * │  5. NODES (NodeView creation/disposal) → Direct management             │
- * │  6. EDGE PORTS (Assembly boundary ports) → Direct management           │
+ * │  1. VIEWPORT (Pan/Zoom) → ViewportManager                               │
+ * │  2. ACTIONS (Undo/Redo) → EditorActionHandler                           │
+ * │  3. SELECTION (Nodes/Wires) → GroupSelectionManager                     │
+ * │  4. WIRES (Rendering) → WireRenderer                                    │
+ * │  5. NODES (NodeView creation/disposal) → Direct management              │
+ * │  6. EDGE PORTS (Assembly boundary ports) → Direct management            │
  * └─────────────────────────────────────────────────────────────────────────┘
+ * 
+ * v4.0 Changes:
+ * - Removed Selection logic -> SelectionManager.
+ * - Removed Lasso logic -> SelectionManager.
+ * - Clearer separation of concerns.
  * 
  * v3.4 Changes:
  * - ✅ FIXED: createViewForAtom() передаёт id в конструктор NodeView
@@ -49,273 +69,165 @@ import library.AtomRegistry;
  * - Чистая архитектура с делегированием
  */
 class NodeEditor extends Sprite {
-    
-    // ========================================================================
-    // CORE REFERENCES
-    // ========================================================================
-    
-    /** Основная сборка, которую редактирует этот редактор */
+
+    // =========================================================================
+    // CORE
+    // =========================================================================
+
     private var _assembly:Assembly;
-    
-    /** Blueprint текущей сборки */
     private var _blueprint:core.data.Blueprint;
-    
-    /** Тема оформления редактора */
     private var _theme:EditorTheme;
-    
-    // ========================================================================
-    // MANAGERS (Delegated Responsibilities)
-    // ========================================================================
-    
-    /** Управление Pan/Zoom/Viewport */
+
+    // =========================================================================
+    // MANAGERS
+    // =========================================================================
+
     private var _viewport:ViewportManager;
-    
-    /** Обработка действий через Undo/Redo команды */
     private var _actions:EditorActionHandler;
-    
-    /** Рендеринг всех проводов (связей) */
     private var _wireRenderer:WireRenderer;
-    
-    /** Управление выделением (узлы и провода) */
-    private var _selection:GroupSelectionManager;
-    
-    // ========================================================================
+    private var _selection:SelectionManager;
+
+    // =========================================================================
     // NODE MANAGEMENT
-    // ========================================================================
-    
-    /** Карта: atom.id → NodeView */
+    // =========================================================================
+
     private var _nodes:Map<String, NodeView> = new Map();
-    
-    /** Контейнер для editorContainer (с scrollRect) */
     private var _editorContainer:Sprite;
-    
-    /** Холст, на котором рисуются узлы и провода */
     private var _canvas:Sprite;
-    
-    /** Невидимая область для перехвата кликов по фону */
     private var _bgHitArea:Sprite;
-    
-    // ========================================================================
-    // LASSO SELECTION
-    // ========================================================================
-    
-    /** Спрайт для отрисовки лассо */
-    private var _lasso:Sprite;
-    
-    /** Идёт ли сейчас выделение лассо */
-    private var _isLassoing:Bool = false;
-    
-    /** Начальная X позиция лассо */
-    private var _lassoStartX:Float = 0;
-    
-    /** Начальная Y позиция лассо */
-    private var _lassoStartY:Float = 0;
-    
-    // ========================================================================
-    // NODE DRAG
-    // ========================================================================
-    
-    /** Стартовые позиции перетаскиваемых узлов */
-    private var _dragStartPositions:Map<String, {x:Float, y:Float}>;
-    
-    /** Узел, который перетаскивают (главный) */
-    private var _draggingNode:NodeView = null;
-    
-    // ========================================================================
-    // PORT CONNECTION DRAG
-    // ========================================================================
-    
-    /** Идёт ли перетаскивание провода от порта */
+
+    // =========================================================================
+    // PORT DRAG
+    // =========================================================================
+
     private var _isDraggingPort:Bool = false;
-    
-    /** ID узла, от которого тянут провод */
     private var _dragNodeId:String;
-    
-    /** Имя контакта, от которого тянут провод */
     private var _dragContactName:String;
-    
-    /** Начальная X позиция перетаскивания порта */
     private var _dragStartX:Float = 0;
-    
-    /** Начальная Y позиция перетаскивания порта */
     private var _dragStartY:Float = 0;
-    
-    /** Является ли начальный порт входным (INPUT) */
     private var _dragStartIsInput:Bool = false;
-    
-    // ========================================================================
-    // EDGE PORTS (Assembly Boundary)
-    // ========================================================================
-    
-    /** Рамка вокруг редактора */
+
+    // =========================================================================
+    // NODE DRAG
+    // =========================================================================
+
+    private var _draggingNode:NodeView = null;
+    private var _dragStartPositions:Map<String, {x:Float, y:Float}>;
+
+    // =========================================================================
+    // EDGE PORTS
+    // =========================================================================
+
     private var _frame:Sprite;
-    
-    /** Контейнер для краевых портов сборки */
     private var _edgePortsContainer:Sprite;
-    
-    /** Карта: portName → Sprite (краевые порты) */
     private var _edgePorts:Map<String, Sprite> = new Map();
-    
-    /** Поле с именем файла/сборки */
-    private var _fileNameField:TextField;
-    
-    /** Таймер для debounce при зуме */
-    private var _zoomDebounceTimer:haxe.Timer = null;
-    
-    // ========================================================================
-    // SETTINGS
-    // ========================================================================
-    
-    /** Использовать ECS рендеринг */
-    private var _useEcsRender:Bool = true;
-    
-    /** Разрешено ли создание Assembly */
-    private var _allowAssembly:Bool = true;
-    
-    /** Принудительная ширина редактора */
+    private var _fileNameField:openfl.text.TextField;
     private var _forcedWidth:Float = 0;
-    
-    /** Принудительная высота редактора */
     private var _forcedHeight:Float = 0;
-    
-    /** Время последнего обновления видимости */
+
+    // =========================================================================
+    // VISIBILITY
+    // =========================================================================
+
     private var _lastVisibilityUpdate:Float = 0;
-    
-    /** Таймер для перерисовки после зума */
-    private var _zoomRebuildTimer:haxe.Timer = null;
-    
-    // ========================================================================
-    // CALLBACKS (Impulse Handlers)
-    // ========================================================================
-    
-    private var _cbRedraw:Impulse -> Void;
-    private var _cbPortsChanged:Impulse -> Void;
-    
-    // ========================================================================
+
+    // =========================================================================
     // CONSTRUCTOR
-    // ========================================================================
-    
+    // =========================================================================
+
     public function new(assembly:Assembly) {
         super();
-        
+
         this._assembly = assembly;
         this._blueprint = assembly.blueprint;
         _theme = EditorTheme.getInstance();
-        
-        // Инициализация ECS системы рендеринга
-        ECS.init();
-        
-        // Инициализация менеджера выделения
-        _selection = new GroupSelectionManager();
-        
-        // === Двухуровневая структура для scrollRect ===
-        // _editorContainer имеет scrollRect, _canvas внутри него перемещается
+
+        // Selection Manager
+        _selection = new SelectionManager();
+
+        // Layers
         _editorContainer = new Sprite();
         addChild(_editorContainer);
-        
+
         _canvas = new Sprite();
         _editorContainer.addChild(_canvas);
-        
-        // Фон холста
+
         _canvas.graphics.beginFill(_theme.CANVAS_BG_COLOR, 1);
         _canvas.graphics.drawRect(-5000, -5000, 10000, 10000);
         _canvas.graphics.endFill();
-        
-        // Невидимая область для кликов (чтобы клики проходили сквозь фон)
+
         _bgHitArea = new Sprite();
         _bgHitArea.graphics.beginFill(_theme.CANVAS_HIT_AREA_COLOR, _theme.CANVAS_HIT_AREA_ALPHA);
         _bgHitArea.graphics.drawRect(-5000, -5000, 10000, 10000);
         _bgHitArea.graphics.endFill();
         _bgHitArea.mouseEnabled = true;
         _canvas.addChild(_bgHitArea);
+
+        // Listeners
         _bgHitArea.addEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
         _bgHitArea.addEventListener(MouseEvent.RIGHT_CLICK, onCanvasRightClick);
-        
-        // Лассо для выделения
-        _lasso = new Sprite();
-        _lasso.mouseEnabled = false;
-        _canvas.addChild(_lasso);
-        
-        // Инициализация менеджеров
+
+        // Managers
         _viewport = new ViewportManager(_canvas);
         _actions = new EditorActionHandler(_assembly, _blueprint);
-        
-        // Инициализация WireRenderer
+
         _wireRenderer = new WireRenderer();
         _wireRenderer.configure(
-            _blueprint,
-            _assembly,
-            _canvas,
-            getNodeViewById,
-            getEdgePortById,
-            getSelectedWireIdsInternal
+            _blueprint, _assembly, _canvas,
+            getNodeViewById, getEdgePortById, 
+            function() return _selection.getSelectedWireIds()
         );
-        _wireRenderer.setSelectionCallback(onWireSelectionChanged);
-        
-        // Рамка редактора
+
+        // Frame
         _frame = new Sprite();
         _frame.mouseEnabled = false;
         addChild(_frame);
-        
-        // Контейнер краевых портов
+
         _edgePortsContainer = new Sprite();
         _edgePortsContainer.mouseEnabled = true;
         addChild(_edgePortsContainer);
-        
-        // Поле с именем сборки
-        _fileNameField = new TextField();
-        _fileNameField.defaultTextFormat = new TextFormat("_typewriter", 12, _theme.NODE_TEXT_COLOR);
+
+        _fileNameField = new openfl.text.TextField();
+        _fileNameField.defaultTextFormat = new openfl.text.TextFormat("_typewriter", 12, _theme.NODE_TEXT_COLOR);
         _fileNameField.text = _blueprint.name;
-        _fileNameField.autoSize = RIGHT;
-        _fileNameField.mouseEnabled = false;
+        _fileNameField.autoSize = LEFT;
+        _fileNameField.selectable = false;
         addChild(_fileNameField);
-        
-        // Подписка на события
+
         addEventListener(Event.ADDED_TO_STAGE, onAddedToStage_Frame);
-        
-        _cbRedraw = function(_) _wireRenderer.rebuildAll();
-        _cbPortsChanged = function(_) onPortsChanged();
-        
+
+        // Impulses
         Impulsys.subscribeToImpulse(EventType.PORT_DRAG_START, onPortDragStart);
         Impulsys.subscribeToImpulse(EventType.EDITOR_NODE_MOVED, onNodeMoved);
         Impulsys.subscribeToImpulse(EventType.NODE_DRAG_FINISHED, onNodeDragFinished);
         Impulsys.subscribeToImpulse(EventType.FORCE_UPDATE_NODE_POSITION, onForceUpdatePosition);
-        Impulsys.subscribeToImpulse(EventType.REDRAW_WIRES, _cbRedraw);
-        Impulsys.subscribeToImpulse(EventType.ASSEMBLY_PORTS_CHANGED, _cbPortsChanged);
+        Impulsys.subscribeToImpulse(EventType.REDRAW_WIRES, function(_) _wireRenderer.rebuildAll());
+        Impulsys.subscribeToImpulse(EventType.ASSEMBLY_PORTS_CHANGED, function(_) { drawFrame(); _wireRenderer.rebuildAll(); });
         Impulsys.subscribeToImpulse(EventType.ATOM_DELETED, onAtomDeleted);
         Impulsys.subscribeToImpulse(EventType.ATOM_RESTORED, onAtomRestored);
         Impulsys.subscribeToImpulse(EventType.NODE_CLICKED, onNodeClicked);
     }
-    
-    // ========================================================================
-    // WIRERENDERER ACCESSORS
-    // ========================================================================
-    
-    private function getNodeViewById(id:String):NodeView return _nodes.get(id);
-    private function getEdgePortById(name:String):Sprite return _edgePorts.get(name);
-    private function getSelectedWireIdsInternal():Array<String> return _selection.getWireIds();
-    private function onWireSelectionChanged(newSelection:Array<String>):Void _selection.setWires(newSelection);
-    
-    // ========================================================================
-    // INITIALIZATION
-    // ========================================================================
-    
+
+    // =========================================================================
+    // INIT
+    // =========================================================================
+
     private function onAddedToStage_Frame(e:Event):Void {
         removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage_Frame);
         stage.addEventListener(Event.RESIZE, onResize);
         initListeners();
         drawFrame();
         restoreExistingAtoms();
+        
+        _selection.setContext(_assembly, _canvas, getNodeViewById);
+        
         _wireRenderer.rebuildAll();
     }
-    
+
     private function onResize(e:Event):Void {
-        if (_forcedWidth == 0 && _forcedHeight == 0) {
-            drawFrame();
-            _wireRenderer.rebuildAll();
-        }
+        if (_forcedWidth == 0 && _forcedHeight == 0) drawFrame();
     }
-    
+
     private function initListeners():Void {
         stage.addEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
         stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUp);
@@ -323,46 +235,20 @@ class NodeEditor extends Sprite {
         stage.addEventListener(MouseEvent.MIDDLE_MOUSE_UP, onMiddleMouseUp);
         stage.addEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
     }
-    
-    // ========================================================================
-    // SIZE & FRAME
-    // ========================================================================
-    
-    public function setSize(w:Float, h:Float):Void {
-        _forcedWidth = w;
-        _forcedHeight = h;
-        drawFrame();
-    }
-    
-    private function onPortsChanged():Void {
-        drawFrame();
-        _wireRenderer.rebuildAll();
-    }
-    
-    /**
-     * Отрисовка рамки редактора и краевых портов сборки.
-     */
-    // =========================================================================
-    // SIZE & FRAME
-    // =========================================================================
 
     private function drawFrame(e:Event = null):Void {
         var w:Float = _forcedWidth > 0 ? _forcedWidth : (stage != null ? stage.stageWidth : 1024);
         var h:Float = _forcedHeight > 0 ? _forcedHeight : (stage != null ? stage.stageHeight : 600);
 
-        // Рамка
         _frame.graphics.clear();
         _frame.graphics.lineStyle(5, _theme.FRAME_BORDER_COLOR);
         _frame.graphics.drawRect(0, 0, w, h);
 
-        // ScrollRect для холста
         _editorContainer.scrollRect = new Rectangle(0, 0, w, h);
 
-        // Позиция поля с именем
         _fileNameField.x = w - 10 - _fileNameField.width;
         _fileNameField.y = h - 20;
 
-        // Очистка краевых портов
         _edgePortsContainer.removeChildren();
         _edgePorts = new Map();
 
@@ -372,16 +258,10 @@ class NodeEditor extends Sprite {
         var leftStep:Float = h / (leftPorts.length + 1);
         var rightStep:Float = h / (rightPorts.length + 1);
 
-        // === INPUT PORTS (слева) ===
         var leftIdx:Int = 0;
         for (p in leftPorts) {
-            var c:Contact = p.internal; // Берем ВНУТРЕННИЙ контакт
-            
-            // === FIX: Определяем тип по РЕАЛЬНОМУ контакту ===
-            // Для Input порта сборки, внутренний контакт - это OUTPUT (источник)
-            var isInput:Bool = (c.type == INPUT); 
-            var portView = createEdgePort(c, isInput, p.name);
-            
+            var c:Contact = p.internal;
+            var portView = createEdgePort(c, true, p.name);
             portView.x = 0;
             portView.y = leftStep * (leftIdx + 1);
             _edgePortsContainer.addChild(portView);
@@ -389,16 +269,10 @@ class NodeEditor extends Sprite {
             leftIdx++;
         }
 
-        // === OUTPUT PORTS (справа) ===
         var rightIdx:Int = 0;
         for (p in rightPorts) {
-            var c:Contact = p.internal; // Берем ВНУТРЕННИЙ контакт
-
-            // === FIX: Определяем тип по РЕАЛЬНОМУ контакту ===
-            // Для Output порта сборки, внутренний контакт - это INPUT (приемник)
-            var isInput:Bool = (c.type == INPUT);
-            var portView = createEdgePort(c, isInput, p.name);
-
+            var c:Contact = p.internal;
+            var portView = createEdgePort(c, false, p.name);
             portView.x = w;
             portView.y = rightStep * (rightIdx + 1);
             _edgePortsContainer.addChild(portView);
@@ -408,14 +282,7 @@ class NodeEditor extends Sprite {
 
         _wireRenderer.updateEdgeWires();
     }
-    
-    /**
-     * Создать спрайт краевого порта.
-     * 
-     * @param contact Контакт порта
-     * @param isInput true = INPUT порт (слева), false = OUTPUT порт (справа)
-     * @param portName Имя порта
-     */
+
     private function createEdgePort(contact:Contact, isInput:Bool, portName:String):Sprite {
         var s = new Sprite();
         s.graphics.beginFill(_theme.PORT_COLOR_DEFAULT);
@@ -424,58 +291,35 @@ class NodeEditor extends Sprite {
         s.buttonMode = true;
         s.useHandCursor = true;
         s.name = portName;
-        
-        // Начало перетаскивания провода от порта
+
         s.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent) {
             e.stopPropagation();
             var globalPos = s.localToGlobal(new Point(0, 0));
-            Impulsys.emit(new Impulse(EventType.PORT_DRAG_START, {
+            Impulsys.quickEmit(EventType.PORT_DRAG_START, {
                 nodeId: "SELF",
                 contactName: portName,
-                isInput: isInput,  // ← Передаём правильный тип порта
+                isInput: isInput,
                 startX: globalPos.x,
                 startY: globalPos.y
-            }));
+            });
         });
-        
-        // Контекстное меню порта
+
         s.addEventListener(MouseEvent.RIGHT_CLICK, function(e:MouseEvent) {
             e.stopPropagation();
-            Impulsys.emit(new Impulse(EventType.PORT_RIGHT_CLICKED, {
+            Impulsys.quickEmit(EventType.PORT_RIGHT_CLICKED, {
                 portName: portName,
                 x: e.stageX,
                 y: e.stageY
-            }));
+            });
         });
-        
+
         return s;
     }
-    
-    // ========================================================================
-    // VIEWPORT STATE (Delegated to ViewportManager)
-    // ========================================================================
-    
-    public function getViewState():{x:Float, y:Float, zoom:Float} return _viewport.getViewState();
-    
-    public function setViewState(state:{x:Float, y:Float, zoom:Float}):Void {
-        _viewport.setViewState(state);
-        updateVisibility();
-    }
-    
-    private function updateVisibility():Void {
-        var now = haxe.Timer.stamp();
-        if (now - _lastVisibilityUpdate < 0.1) return;
-        _lastVisibilityUpdate = now;
-        
-        var w = _forcedWidth > 0 ? _forcedWidth : (stage != null ? stage.stageWidth : 1024);
-        var h = _forcedHeight > 0 ? _forcedHeight : (stage != null ? stage.stageHeight : 600);
-        _viewport.updateVisibility(_nodes.iterator(), w, h);
-    }
-    
-    // ========================================================================
+
+    // =========================================================================
     // NODE MANAGEMENT
-    // ========================================================================
-    
+    // =========================================================================
+
     private function restoreExistingAtoms():Void {
         if (_blueprint.internalAtoms == null) return;
         for (atomDef in _blueprint.internalAtoms) {
@@ -487,236 +331,236 @@ class NodeEditor extends Sprite {
             }
         }
     }
-    
-    /**
-     * Создать NodeView для атома.
-     * 
-     * ═══════════════════════════════════════════════════════════════════════
-     * ИСПРАВЛЕНИЕ v3.4:
-     * ═══════════════════════════════════════════════════════════════════════
-     * NodeView конструктор теперь требует 2 параметра: (atom, id)
-     */
+
     private function createViewForAtom(atom:Atom, id:String, x:Float, y:Float):Void {
         if (_nodes.exists(id)) return;
-        
-        // ✅ ИСПРАВЛЕНО: передаём id вторым параметром
         var view:NodeView = new NodeView(atom, id);
         view.setPosition(x, y);
         _canvas.addChild(view);
         _nodes.set(id, view);
     }
-    
-    public function refreshAssemblyViews():Void {
-        var toRefresh:Array<{id:String, view:NodeView, asm:Assembly, index:Int}> = [];
-        for (nodeId in _nodes.keys()) {
-            var view = _nodes.get(nodeId);
-            var atom = _assembly.internalAtoms.get(nodeId);
-            if (atom != null && Std.isOfType(atom, Assembly)) {
-                var asm = cast(atom, Assembly);
-                var idx = _canvas.getChildIndex(view);
-                toRefresh.push({id: nodeId, view: view, asm: asm, index: idx});
-            }
-        }
-        for (item in toRefresh) {
-            AtomRegistry.registerBlueprint(item.asm.blueprint.id, item.asm.blueprint);
-            item.view.visible = !item.view.visible;
-            if (_canvas.contains(item.view)) _canvas.setChildIndex(item.view, item.index);
-        }
-        _wireRenderer.rebuildAll();
-        updateVisibility();
-    }
-    
+
     public function createAtom(typeId:String, posX:Float, posY:Float):Atom {
-        var bp = library.AtomRegistry.get(typeId);
+        var bp = AtomRegistry.get(typeId);
         if (bp == null) return null;
         var localPoint = _canvas.globalToLocal(new Point(posX, posY));
         _actions.createAtom(typeId, localPoint.x, localPoint.y);
         return null;
     }
-    
-    // ========================================================================
-    // SELECTION API (Delegated to GroupSelectionManager)
-    // ========================================================================
-    
-    public function deselectAll():Void {
-        for (id in _selection.getNodeIds()) {
-            var view = _nodes.get(id);
-            if (view != null) view.isSelected = false;
-            ECS.setSelected(id, false);
-        }
-        if (_selection.getWireCount() > 0) {
-            _wireRenderer.rebuildAll();
-        }
-        _selection.clear();
-    }
-    
-    public function selectAll():Void {
-        deselectAll();
-        for (id in _nodes.keys()) {
-            var view = _nodes.get(id);
-            if (view != null) {
-                view.isSelected = true;
-                _selection.addNode(id);
-                ECS.setSelected(id, true);
+
+    public function refreshAssemblyViews():Void {
+        for (view in _nodes) {
+            if (Std.isOfType(view.atom, Assembly)) {
+                view.redraw(); 
             }
         }
+        _wireRenderer.rebuildAll();
     }
-    
+
+    // =========================================================================
+    // SELECTION API (Delegation)
+    // =========================================================================
+
+    public function deselectAll():Void _selection.deselectAll();
+
+    public function selectAll():Void {
+        var allIds = [for (id in _nodes.keys()) id];
+        _selection.selectAll(allIds);
+    }
+
+    public function selectNode(id:String, view:NodeView):Void _selection.selectNode(id, view);
+
     public function isSelected(nodeId:String):Bool return _selection.hasNode(nodeId);
-    
-    public function selectNode(nodeId:String, view:NodeView):Void {
-        view.isSelected = true;
-        _selection.addNode(nodeId);
-        ECS.setSelected(nodeId, true);
+
+    public function getSelectedNodeIds():Array<String> return _selection.getSelectedNodeIds();
+    public function getSelectedNodeCount():Int return _selection.getSelectedNodeCount();
+    public function getSelectedWireIds():Array<String> return _selection.getSelectedWireIds();
+
+    // =========================================================================
+    // CLIPBOARD API (Restored)
+    // =========================================================================
+
+    public function copySelection():Void {
+        _actions.copySelection(getSelectedNodeIds());
     }
-    
-    public function getSelectedNodeIds():Array<String> return _selection.getNodeIds();
-    public function getSelectedNodeCount():Int return _selection.getNodeCount();
-    public function getSelectedWireIds():Array<String> return _selection.getWireIds();
-    
-    // ========================================================================
-    // LASSO SELECTION
-    // ========================================================================
-    
-    private function onCanvasMouseDown(e:MouseEvent):Void {
+
+    public function cutSelection():Void {
+        _actions.cutSelection(getSelectedNodeIds());
         deselectAll();
-        _canvas.addChild(_lasso);
-        _isLassoing = true;
-        var local = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
-        _lassoStartX = local.x;
-        _lassoStartY = local.y;
-        stage.addEventListener(MouseEvent.MOUSE_MOVE, onLassoMove);
-        stage.addEventListener(MouseEvent.MOUSE_UP, onLassoUp);
     }
-    
-    private function onLassoMove(e:MouseEvent):Void {
-        if (!_isLassoing) return;
-        var local = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
-        var x = Math.min(_lassoStartX, local.x);
-        var y = Math.min(_lassoStartY, local.y);
-        var w = Math.abs(local.x - _lassoStartX);
-        var h = Math.abs(local.y - _lassoStartY);
-        _lasso.graphics.clear();
-        _lasso.graphics.lineStyle(1, _theme.LASSO_BORDER_COLOR, 0.8);
-        _lasso.graphics.beginFill(_theme.LASSO_FILL_COLOR, _theme.LASSO_FILL_ALPHA);
-        _lasso.graphics.drawRect(x, y, w, h);
-        _lasso.graphics.endFill();
-    }
-    
-    private function onLassoUp(e:MouseEvent):Void {
-        stage.removeEventListener(MouseEvent.MOUSE_MOVE, onLassoMove);
-        stage.removeEventListener(MouseEvent.MOUSE_UP, onLassoUp);
-        if (!_isLassoing) return;
-        _isLassoing = false;
-        
-        if (_lasso.width > 5 && _lasso.height > 5) {
-            var lassoBounds:Rectangle = _lasso.getBounds(_canvas);
-            var idsInRect = ECS.getInRect(lassoBounds.x, lassoBounds.y, lassoBounds.width, lassoBounds.height);
-            for (id in idsInRect) {
-                var view = _nodes.get(id);
-                if (view != null && !_selection.hasNode(id)) {
-                    view.isSelected = true;
-                    _selection.addNode(id);
-                    ECS.setSelected(id, true);
+
+    public function pasteSelection():Void {
+        var idMap = _actions.pasteSelection(25.0);
+        if (idMap != null) {
+            deselectAll();
+            for (newId in idMap) {
+                var view = _nodes.get(newId);
+                if (view != null) {
+                    _selection.selectNode(newId, view);
                 }
             }
         }
-        _lasso.graphics.clear();
     }
-    
-    // ========================================================================
-    // CANVAS CONTEXT MENU
-    // ========================================================================
-    
+
+    // =========================================================================
+    // SELECTION EVENTS
+    // =========================================================================
+
+    private function onCanvasMouseDown(e:MouseEvent):Void {
+        var local = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
+        _selection.handleCanvasMouseDown(local.x, local.y);
+    }
+
     private function onCanvasRightClick(e:MouseEvent):Void {
         e.stopPropagation();
-        Impulsys.emit(new Impulse(EventType.CANVAS_RIGHT_CLICKED, {
+        Impulsys.quickEmit(EventType.CANVAS_RIGHT_CLICKED, {
             x: e.stageX,
             y: e.stageY
-        }));
+        });
     }
-    
-    // ========================================================================
-    // NODE CLICK
-    // ========================================================================
-    
+
     private function onNodeClicked(impulse:Impulse):Void {
         var view:NodeView = impulse.data.view;
         var ctrl:Bool = impulse.data.ctrlKey;
-        _isLassoing = false;
-        _lasso.graphics.clear();
-        Impulsys.quickEmit(EventType.CLOSE_CONTEXT_MENU);
-        
-        var isAlreadySelected = _selection.hasNode(view.nodeId);
-        if (ctrl) {
-            if (isAlreadySelected) {
-                view.isSelected = false;
-                _selection.removeNode(view.nodeId);
-                ECS.setSelected(view.nodeId, false);
-            } else {
-                view.isSelected = true;
-                _selection.addNode(view.nodeId);
-                ECS.setSelected(view.nodeId, true);
-            }
-        } else {
-            if (!isAlreadySelected) {
-                deselectAll();
-                view.isSelected = true;
-                _selection.addNode(view.nodeId);
-                ECS.setSelected(view.nodeId, true);
-            }
+        _selection.handleNodeClick(view.nodeId, view, ctrl);
+    }
+
+    // =========================================================================
+    // MOUSE MOVE
+    // =========================================================================
+
+    private function onMouseMove(e:MouseEvent):Void {
+        if (_viewport.isPanning()) {
+            _viewport.handlePanMove(e.stageX, e.stageY);
+            _wireRenderer.updateEdgeWires();
+            updateVisibility();
+            return;
+        }
+
+        if (_isDraggingPort) {
+            _wireRenderer.drawGhostWire(_dragStartX, _dragStartY, e.stageX, e.stageY, _dragStartIsInput);
+            return;
+        }
+
+        if (_selection.isLassoing()) {
+            var local = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
+            _selection.handleMouseMove(local.x, local.y);
         }
     }
-    
-    // ========================================================================
+
+    // =========================================================================
+    // MOUSE UP
+    // =========================================================================
+
+    private function onMouseUp(e:MouseEvent):Void {
+        if (_viewport.isPanning()) {
+            _viewport.handlePanEnd();
+            _wireRenderer.rebuildAll();
+            updateVisibility();
+            return;
+        }
+
+        if (_isDraggingPort) {
+            handleWireDragEnd(e);
+            return;
+        }
+
+        if (_selection.isLassoing()) {
+            _selection.handleMouseUp();
+        }
+    }
+
+    private function handleWireDragEnd(e:MouseEvent):Void {
+        var target = findPortAt(e.stageX, e.stageY);
+        if (target != null) {
+            var isSameContact = (_dragNodeId == target.nodeId && _dragContactName == target.contactName);
+            var startIsSource = !_dragStartIsInput;
+            var targetIsSource = !target.isInput;
+
+            if (!isSameContact && (startIsSource != targetIsSource)) {
+                var realFromId:String; var realFromContact:String;
+                var realToId:String; var realToContact:String;
+
+                if (startIsSource) {
+                    realFromId = _dragNodeId; realFromContact = _dragContactName;
+                    realToId = target.nodeId; realToContact = target.contactName;
+                } else {
+                    realFromId = target.nodeId; realFromContact = target.contactName;
+                    realToId = _dragNodeId; realToContact = _dragContactName;
+                }
+
+                _actions.connect(realFromId, realFromContact, realToId, realToContact);
+                _wireRenderer.rebuildAll();
+            }
+        }
+        
+        _isDraggingPort = false;
+        _wireRenderer.clearGhostWire();
+    }
+
+    // =========================================================================
     // NODE DRAG
-    // ========================================================================
-    
+    // =========================================================================
+
     private function onNodeMoved(impulse:Impulse):Void {
         var sourceView:NodeView = impulse.data.view;
         var dx:Float = impulse.data.dx;
         var dy:Float = impulse.data.dy;
-        
+
+        // 1. Инициализация (первый кадр перетаскивания)
         if (_draggingNode == null) {
             _draggingNode = sourceView;
             _dragStartPositions = new Map();
-            
+
+            // === FIX: Определяем тип перетаскивания ===
             var isMovingGroup = _selection.hasNode(sourceView.nodeId);
-            var nodesToMove = isMovingGroup ? _selection.getNodeIds() : [sourceView.nodeId];
-            var movingNodeIds:Array<String> = [];
-            
+            var nodesToMove:Array<String> = [];
+
+            if (isMovingGroup) {
+                // Двигаем группу: берем всех выделенных
+                nodesToMove = _selection.getSelectedNodeIds();
+            } else {
+                // Двигаем соло: берем только текущий узел
+                nodesToMove = [sourceView.nodeId];
+            }
+
+            // Говорим рендереру следить за этими проводами
+            _wireRenderer.setActiveWiresForNodes(nodesToMove);
+
+            // Сохраняем стартовые позиции для Undo
             for (id in nodesToMove) {
                 var v = _nodes.get(id);
-                if(v == null) continue;
-                _dragStartPositions.set(id, {x: v.x, y: v.y});
-                movingNodeIds.push(id);
+                if (v != null) _dragStartPositions.set(id, {x: v.x, y: v.y});
             }
-            _wireRenderer.setActiveWiresForNodes(movingNodeIds);
         }
-        
+
+        // 2. Перемещение
+        // SourceView двигается сам в NodeView.onMouseMoveDrag.
+        // Здесь мы двигаем "остальных".
+
         if (_selection.hasNode(sourceView.nodeId)) {
-            for (id in _selection.getNodeIds()) {
-                if (id != sourceView.nodeId) {
-                    var otherView = _nodes.get(id);
-                    if(otherView != null) otherView.setPosition(otherView.x + dx, otherView.y + dy);
+            // Это групповое перетаскивание. Двигаем всех, кроме источника.
+            for (id in _selection.getSelectedNodeIds()) {
+                if (id == sourceView.nodeId) continue; // Источник уже сдвинут
+
+                var view = _nodes.get(id);
+                if (view != null) {
+                    view.x += dx;
+                    view.y += dy;
+                    ECS.updatePosition(id, view.x, view.y);
                 }
             }
         }
+        // Если это был Single Drag (узел не выделен), то никого другого двигать не надо.
+
+        // 3. Обновляем визуал проводов
         _wireRenderer.updateActiveWires();
         _wireRenderer.updateEdgeWires();
     }
-    
-    /**
-     * Завершение перетаскивания узла.
-     * 
-     * ═══════════════════════════════════════════════════════════════════════
-     * ИСПРАВЛЕНИЕ v3.4:
-     * ═══════════════════════════════════════════════════════════════════════
-     * Полная перерисовка всех проводов после перемещения (rebuildAll вместо updateEdgeWires)
-     */
+
     private function onNodeDragFinished(impulse:Impulse):Void {
         var moves:Array<{id:String, fromX:Float, fromY:Float, toX:Float, toY:Float}> = [];
-        
+
         if (_dragStartPositions != null) {
             for (id in _dragStartPositions.keys()) {
                 var startPos = _dragStartPositions.get(id);
@@ -724,6 +568,7 @@ class NodeEditor extends Sprite {
                 if (view != null) {
                     var templateId = _assembly.getTemplateId(id);
                     moves.push({id: templateId, fromX: startPos.x, fromY: startPos.y, toX: view.x, toY: view.y});
+                    // Сохраняем в Blueprint
                     for (atom in _blueprint.internalAtoms) {
                         if (atom.instanceId == templateId) {
                             atom.x = view.x;
@@ -734,20 +579,80 @@ class NodeEditor extends Sprite {
                 }
             }
         }
-        
+
         if (moves.length > 0) _actions.moveAtoms(moves);
+
         _wireRenderer.clearActiveWires();
         _draggingNode = null;
         _dragStartPositions = null;
-        
-        // === v3.4 FIX: Полная перерисовка всех проводов ===
+
+        // Финализация выделения
+        // Если мы перетащили узел, который НЕ был выделен,
+        // делаем его единственным выделенным (стандартное поведение любого редактора).
+        if (!_selection.hasNode(impulse.data.view.nodeId)) {
+            deselectAll();
+            selectNode(impulse.data.view.nodeId, impulse.data.view);
+        }
+
         _wireRenderer.rebuildAll();
     }
-    
-    // ========================================================================
-    // PORT CONNECTION DRAG
-    // ========================================================================
-    
+
+    // =========================================================================
+    // VIEWPORT
+    // =========================================================================
+
+    public function getViewState():{x:Float, y:Float, zoom:Float} return _viewport.getViewState();
+    public function setViewState(state:{x:Float, y:Float, zoom:Float}):Void {
+        _viewport.setViewState(state);
+        updateVisibility();
+    }
+
+    private function onMiddleMouseDown(e:MouseEvent):Void _viewport.handlePanStart(e.stageX, e.stageY);
+    private function onMiddleMouseUp(e:MouseEvent):Void {
+        if (_viewport.isPanning()) {
+            _viewport.handlePanEnd();
+            _wireRenderer.rebuildAll();
+            updateVisibility();
+        }
+    }
+    private function onMouseWheel(e:MouseEvent):Void {
+        _viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
+        _wireRenderer.rebuildAll();
+        updateVisibility();
+    }
+
+    private function updateVisibility():Void {
+        var now = haxe.Timer.stamp();
+        if (now - _lastVisibilityUpdate < 0.1) return;
+        _lastVisibilityUpdate = now;
+
+        var w = _forcedWidth > 0 ? _forcedWidth : (stage != null ? stage.stageWidth : 1024);
+        var h = _forcedHeight > 0 ? _forcedHeight : (stage != null ? stage.stageHeight : 600);
+        _viewport.updateVisibility(_nodes.iterator(), w, h);
+    }
+
+    // =========================================================================
+    // DELETE
+    // =========================================================================
+
+    public function deleteSelectedNodes():Array<String> {
+        var ids = _selection.getSelectedNodeIds();
+        _actions.deleteAtoms(ids);
+        return ids;
+    }
+
+    public function deleteSelectedWires():Void {
+        var ids = _selection.getSelectedWireIds();
+        if (ids.length == 0) return;
+        _actions.deleteWires(ids);
+        _selection.deselectAll();
+        _wireRenderer.rebuildAll();
+    }
+
+    // =========================================================================
+    // PORT DRAG START
+    // =========================================================================
+
     private function onPortDragStart(impulse:Impulse):Void {
         _isDraggingPort = true;
         _dragNodeId = impulse.data.nodeId;
@@ -756,190 +661,11 @@ class NodeEditor extends Sprite {
         _dragStartY = impulse.data.startY;
         _dragStartIsInput = impulse.data.isInput;
     }
-    
-    private function onMouseMove(e:MouseEvent):Void {
-        if (_viewport.isPanning()) {
-            _viewport.handlePanMove(e.stageX, e.stageY);
-            _wireRenderer.updateEdgeWires();
-            updateVisibility();
-            return;
-        }
-        if (_isDraggingPort) {
-            _wireRenderer.drawGhostWire(_dragStartX, _dragStartY, e.stageX, e.stageY, _dragStartIsInput);
-        }
-    }
-    
-    /**
-     * Завершение перетаскивания провода (подключение).
-     * 
-     * ═══════════════════════════════════════════════════════════════════════
-     * ИСПРАВЛЕНИЕ v3.4:
-     * ═══════════════════════════════════════════════════════════════════════
-     * В ветке else (когда начали с INPUT) realToContact должен быть
-     * _dragContactName, а не target.contactName!
-     */
-    private function onMouseUp(e:MouseEvent):Void {
-        if (_viewport.isPanning()) {
-            _viewport.handlePanEnd();
-            _wireRenderer.rebuildAll();
-            updateVisibility();
-            return;
-        }
-        
-        if (_isDraggingPort) {
-            var target = findPortAt(e.stageX, e.stageY);
-            if (target != null) {
-                var isSameContact = (_dragNodeId == target.nodeId && _dragContactName == target.contactName);
-                var startIsSource = !_dragStartIsInput;
-                var targetIsSource = !target.isInput;
-                
-                if (!isSameContact && (startIsSource != targetIsSource)) {
-                    var realFromId:String; var realFromContact:String;
-                    var realToId:String; var realToContact:String;
-                    
-                    if (startIsSource) {
-                        // Начали с OUTPUT → заканчиваем на INPUT
-                        realFromId = _dragNodeId; realFromContact = _dragContactName;
-                        realToId = target.nodeId; realToContact = target.contactName;
-                    } else {
-                        // Начали с INPUT → заканчиваем на OUTPUT
-                        realFromId = target.nodeId; realFromContact = target.contactName;
-                        // ✅ ИСПРАВЛЕНО: было target.contactName, должно быть _dragContactName
-                        realToId = _dragNodeId; realToContact = _dragContactName;
-                    }
-                    
-                    _actions.connect(realFromId, realFromContact, realToId, realToContact);
-                    _wireRenderer.rebuildAll();
-                }
-            }
-            _isDraggingPort = false;
-            _wireRenderer.clearGhostWire();
-        }
-    }
-    
-    /**
-     * Найти порт под координатами мыши.
-     */
-    private function findPortAt(x:Float, y:Float):{nodeId:String, contactName:String, isInput:Bool} {
-        // Проверяем краевые порты сборки (SELF)
-        for (name in _edgePorts.keys()) {
-            var port = _edgePorts.get(name);
-            var local = port.globalToLocal(new Point(x, y));
-            if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) {
-                var asmPort = _assembly.ports.get(name);
-                if (asmPort == null) return null;
-                
-                // === FIX: Возвращаем тип ВНУТРЕННЕГО контакта ===
-                var contact = asmPort.internal;
-                var isInput:Bool = (contact.type == INPUT);
-                return { nodeId: "SELF", contactName: name, isInput: isInput };
-            }
-        }
 
-        // Проверяем порты узлов (без изменений)
-        for (nodeId in _nodes.keys()) {
-            var view = _nodes.get(nodeId);
-            if (view != null) {
-                // Input ports
-                for (name in view.inputPorts.keys()) {
-                    var port = view.inputPorts.get(name);
-                    if (port != null) {
-                        var local = port.globalToLocal(new Point(x, y));
-                        if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) {
-                            return {nodeId: nodeId, contactName: name, isInput: true};
-                        }
-                }
-                }
-                // Output ports
-                for (name in view.outputPorts.keys()) {
-                    var port = view.outputPorts.get(name);
-                    if (port != null) {
-                        var local = port.globalToLocal(new Point(x, y));
-                        if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) {
-                            return {nodeId: nodeId, contactName: name, isInput: false};
-                    }
-                    }
-                }
-            }
-        }
-        return null;
-    }
-    
-    // ========================================================================
-    // PAN & ZOOM (Delegated to ViewportManager)
-    // ========================================================================
-    
-    private function onMiddleMouseDown(e:MouseEvent):Void {
-        _viewport.handlePanStart(e.stageX, e.stageY);
-    }
-    
-    private function onMiddleMouseUp(e:MouseEvent):Void {
-        if (_viewport.isPanning()) {
-            _viewport.handlePanEnd();
-            _wireRenderer.rebuildAll();
-            updateVisibility();
-        }
-    }
-    
-    private function onMouseWheel(e:MouseEvent):Void {
-        _viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
-        if (_zoomRebuildTimer != null) _zoomRebuildTimer.stop();
-        _zoomRebuildTimer = haxe.Timer.delay(() -> {
-            _wireRenderer.rebuildAll();
-            updateVisibility();
-        }, 80);
-    }
-    
-    // ========================================================================
-    // DELETE (Delegated to EditorActionHandler)
-    // ========================================================================
-    
-    public function deleteAtom(id:String):Void {
-        _actions.deleteAtoms([id]);
-    }
-    
-    public function deleteSelectedNodes():Array<String> {
-        var ids = getSelectedNodeIds();
-        _actions.deleteAtoms(ids);
-        return ids;
-    }
-    
-    public function deleteWire(link:ConnectionDef):Void {
-        _blueprint.internalConnections.remove(link);
-        var cOut = resolveContact(link.from);
-        var cIn = resolveContact(link.to);
-        if (cOut != null && cIn != null) cOut.unlink(cIn);
-    }
-    
-    public function deleteSelectedWires():Void {
-        var ids = getSelectedWireIds();
-        if (ids.length == 0) return;
-        _actions.deleteWires(ids);
-        _selection.clearWires();
-        _wireRenderer.rebuildAll();
-    }
-    
-    private function resolveContact(point:ConnectionPoint):Contact {
-        if (point.atomId == "SELF") {
-            var port = _assembly.ports.get(point.contactName);
-            if (port == null) return null;
-            return port.internal;
-        } else {
-            var realAtomId = _assembly.idMap.get(point.atomId);
-            if (realAtomId == null) realAtomId = point.atomId;
-            var atom = _assembly.internalAtoms.get(realAtomId);
-            if (atom == null) return null;
-            var a:Atom = cast atom;
-            var c = a.getInput(point.contactName);
-            if (c == null) c = a.getOutput(point.contactName);
-            return c;
-        }
-    }
-    
-    // ========================================================================
-    // ATOM EVENTS
-    // ========================================================================
-    
+    // =========================================================================
+    // EVENTS
+    // =========================================================================
+
     private function onAtomDeleted(impulse:Impulse):Void {
         if (impulse.data.assemblyId != _assembly.id) return;
         var id:String = impulse.data.id;
@@ -948,11 +674,10 @@ class NodeEditor extends Sprite {
             view.dispose();
             if (view.parent == _canvas) _canvas.removeChild(view);
             _nodes.remove(id);
-            _selection.removeNode(id);
             _wireRenderer.rebuildAll();
         }
     }
-    
+
     private function onAtomRestored(impulse:Impulse):Void {
         if (impulse.data.assemblyId != _assembly.id) return;
         var id:String = impulse.data.id;
@@ -964,7 +689,7 @@ class NodeEditor extends Sprite {
             _wireRenderer.rebuildAll();
         }
     }
-    
+
     private function onForceUpdatePosition(impulse:Impulse):Void {
         var data = impulse.data;
         var view = _nodes.get(data.id);
@@ -975,63 +700,64 @@ class NodeEditor extends Sprite {
             }
         }
     }
-    
-    // ========================================================================
-    // CLIPBOARD (Delegated to EditorActionHandler)
-    // ========================================================================
-    
-    public function copySelection():Void {
-        _actions.copySelection(getSelectedNodeIds());
-    }
-    
-    public function cutSelection():Void {
-        _actions.cutSelection(getSelectedNodeIds());
-    }
-    
-    public function pasteSelection():Void {
-        var idMap = _actions.pasteSelection(25.0);
-        if (idMap != null) {
-            deselectAll();
-            for (newId in idMap) {
-                var view = _nodes.get(newId);
-                if (view != null) {
-                    view.isSelected = true;
-                    _selection.addNode(newId);
-                    ECS.setSelected(newId, true);
-                }
+
+    // =========================================================================
+    // HELPERS
+    // =========================================================================
+
+    private function getNodeViewById(id:String):NodeView return _nodes.get(id);
+    private function getEdgePortById(name:String):Sprite return _edgePorts.get(name);
+
+    private function findPortAt(x:Float, y:Float):{nodeId:String, contactName:String, isInput:Bool} {
+        // Edge Ports
+        for (name in _edgePorts.keys()) {
+            var port = _edgePorts.get(name);
+            var local = port.globalToLocal(new Point(x, y));
+            if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) {
+                var asmPort = _assembly.ports.get(name);
+                var isInput:Bool = (asmPort.type == INPUT);
+                return { nodeId: "SELF", contactName: name, isInput: isInput };
             }
-            trace('Pasted items');
         }
-    }
-    
-    // ========================================================================
-    // PROPERTIES
-    // ========================================================================
-    
-    public function setUseEcsRender(value:Bool):Void { _useEcsRender = value; }
-    public function getUseEcsRender():Bool { return _useEcsRender; }
-    public function setWireType(type:WireTypeEnum):Void { _wireRenderer.wireType = type; }
-    public function getWireType():WireTypeEnum { return _wireRenderer.wireType; }
-    public function setAllowAssembly(value:Bool):Void { _allowAssembly = value; }
-    public function getAllowAssembly():Bool { return _allowAssembly; }
-    public function getNodeCount():Int { var c = 0; for (id in _nodes.keys()) c++; return c; }
-    public function getWireCount():Int { return _wireRenderer.getWireCount(); }
-    
-    public function getNodePositions():Array<{id:String, x:Float, y:Float}> {
-        var positions = [];
+        // Node Ports
         for (nodeId in _nodes.keys()) {
             var view = _nodes.get(nodeId);
-            if (view != null) positions.push({id: nodeId, x: view.x, y: view.y});
+            if (view != null) {
+                for (name in view.inputPorts.keys()) {
+                    var port = view.inputPorts.get(name);
+                    if (port != null) {
+                        var local = port.globalToLocal(new Point(x, y));
+                        if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) return {nodeId: nodeId, contactName: name, isInput: true};
+                    }
+                }
+                for (name in view.outputPorts.keys()) {
+                    var port = view.outputPorts.get(name);
+                    if (port != null) {
+                        var local = port.globalToLocal(new Point(x, y));
+                        if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) return {nodeId: nodeId, contactName: name, isInput: false};
+                    }
+                }
+            }
         }
-        return positions;
+        return null;
     }
-    
-    public function getSelectedNodeIdsFromECS():Array<String> { return ECS.getSelected(); }
-    
-    // ========================================================================
-    // DISPOSAL
-    // ========================================================================
-    
+
+    // =========================================================================
+    // PROPERTIES
+    // =========================================================================
+
+    public function setSize(w:Float, h:Float):Void { _forcedWidth = w; _forcedHeight = h; drawFrame(); }
+    public function setUseEcsRender(v:Bool):Void {} // Stub
+    public function setWireType(v:ui.WireType):Void {} // Stub
+    public function setAllowAssembly(v:Bool):Void {} // Stub
+
+    public function getNodeCount():Int { var c = 0; for (id in _nodes.keys()) c++; return c; }
+    public function getWireCount():Int return _wireRenderer.getWireCount();
+
+    // =========================================================================
+    // DISPOSE
+    // =========================================================================
+
     public function dispose():Void {
         if (stage != null) {
             stage.removeEventListener(Event.RESIZE, onResize);
@@ -1041,30 +767,24 @@ class NodeEditor extends Sprite {
             stage.removeEventListener(MouseEvent.MIDDLE_MOUSE_UP, onMiddleMouseUp);
             stage.removeEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
         }
-        
+
         Impulsys.removeImpulse(EventType.PORT_DRAG_START, onPortDragStart);
         Impulsys.removeImpulse(EventType.EDITOR_NODE_MOVED, onNodeMoved);
         Impulsys.removeImpulse(EventType.NODE_DRAG_FINISHED, onNodeDragFinished);
         Impulsys.removeImpulse(EventType.FORCE_UPDATE_NODE_POSITION, onForceUpdatePosition);
-        Impulsys.removeImpulse(EventType.REDRAW_WIRES, _cbRedraw);
-        Impulsys.removeImpulse(EventType.ASSEMBLY_PORTS_CHANGED, _cbPortsChanged);
+        Impulsys.removeImpulse(EventType.REDRAW_WIRES, function(_) _wireRenderer.rebuildAll());
+        Impulsys.removeImpulse(EventType.ASSEMBLY_PORTS_CHANGED, function(_) { drawFrame(); _wireRenderer.rebuildAll(); });
         Impulsys.removeImpulse(EventType.ATOM_DELETED, onAtomDeleted);
         Impulsys.removeImpulse(EventType.ATOM_RESTORED, onAtomRestored);
         Impulsys.removeImpulse(EventType.NODE_CLICKED, onNodeClicked);
-        
-        _bgHitArea.removeEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
-        _bgHitArea.removeEventListener(MouseEvent.RIGHT_CLICK, onCanvasRightClick);
-        
+
+        _selection.dispose();
         _wireRenderer.dispose();
-        
-        for (nodeId in _nodes.keys()) {
-            var view = _nodes.get(nodeId);
-            if (view != null) {
-                view.dispose();
-                if (view.parent != null) view.parent.removeChild(view);
-            }
+
+        for (view in _nodes) {
+            view.dispose();
         }
-        
+
         for (nodeId in _nodes.keys()) ECS.unregister(nodeId);
         _nodes.clear();
     }
