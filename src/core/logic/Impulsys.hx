@@ -4,7 +4,7 @@ import core.logic.EventType;
 
 /**
  * IMPULSYS v1.3 (Memory Optimization)
- * Статическая шина событий (Event Bus).
+ * Static event bus for system-wide communication.
  *
  * v1.3 Changes:
  * - removeImpulse now removes empty arrays from the bus
@@ -15,7 +15,7 @@ class Impulsys {
 
     private static var _bus:Map<EventType, Array<Impulse -> Void>> = new Map();
 
-    // Счётчик для отладки
+    // Counter for debugging
     private static var _totalListeners:Int = 0;
 
     public static function subscribeToImpulse(type:EventType, callback:Impulse -> Void):Void {
@@ -24,7 +24,7 @@ class Impulsys {
         }
         var list = _bus.get(type);
 
-        // Защита от дублирования
+        // Protection against duplicates
         if (list.indexOf(callback) == -1) {
             list.push(callback);
             _totalListeners++;
@@ -32,7 +32,7 @@ class Impulsys {
     }
 
     /**
-     * v1.3: Удаляет callback и очищает пустые массивы.
+     * v1.3: Removes callback and clears empty arrays.
      */
     public static function removeImpulse(type:EventType, callback:Impulse -> Void):Void {
         if (!_bus.exists(type)) return;
@@ -44,7 +44,7 @@ class Impulsys {
             _totalListeners--;
         }
 
-        // FIX: Удалять пустые массивы из Map
+        // Remove empty arrays from Map
         if (list.length == 0) {
             _bus.remove(type);
         }
@@ -53,7 +53,7 @@ class Impulsys {
     public static function emit(impulse:Impulse):Void {
         if (!_bus.exists(impulse.type)) return;
 
-        // Копируем список для защиты от модификации во время итерации
+        // Copy list to protect against modification during iteration
         var list = _bus.get(impulse.type);
         var callbacks = list.copy();
 
@@ -73,8 +73,8 @@ class Impulsys {
     }
 
     /**
-     * Полная очистка шины.
-     * Использовать только при полной перезагрузке системы.
+     * Full clear of the bus.
+     * Use only during full system reload.
      */
     public static function clear():Void {
         for (type in _bus.keys()) {
@@ -89,7 +89,7 @@ class Impulsys {
     }
 
     /**
-     * Получить количество слушателей для типа события.
+     * Get listener count for a specific event type.
      */
     public static function getListenerCount(?type:EventType):Int {
         if (type != null) {
@@ -100,14 +100,14 @@ class Impulsys {
     }
 
     /**
-     * Получить все типы событий, имеющие слушателей.
+     * Get all event types that have listeners.
      */
     public static function getActiveEventTypes():Array<EventType> {
         return [for (type in _bus.keys()) type];
     }
 
     /**
-     * Отладочный вывод состояния шины.
+     * Debug output of bus state.
      */
     public static function debugPrint():Void {
         trace('=== Impulsys Debug ===');

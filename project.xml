@@ -9,7 +9,7 @@
 	<app main="Main" file="ALTAURI" path="bin" />
 	
 	<window  visible="false"
-			 borderless="false"
+			 borderless="true"
 			 hardware="true"
 			 vsync="true"
 			 allow-shaders="true"

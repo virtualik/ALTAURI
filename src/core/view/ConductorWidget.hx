@@ -10,10 +10,32 @@ import core.base.Contact;
 import library.logic.ConductorAtom;
 
 /**
- * CONDUCTOR WIDGET v1.0
- * Visual widget for ConductorAtom.
+ * CONDUCTOR WIDGET v1.1 (Databank Architecture)
+ * Multi-input OR gate widget with dynamic port management.
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   ConductorAtom (Databank)                                              │
+ * │                                                                         │
+ * │   Contact "in0", "in1", ... "out" ◄──► ConductorWidget                  │
+ * │                                        ┌───────────────────────────────┐│
+ * │                                        │ Shows:                        ││
+ * │                                        │ - Current ON/OFF state        ││
+ * │                                        │ - Input count                 ││
+ * │                                        │ - Add/Remove buttons          ││
+ * │                                        └───────────────────────────────┘│
+ * │                                                                         │
+ * │   Widget READS atom's output state (from Databank)                      │
+ * │   Widget CALLS atom methods to modify inputs                            │
+ * │   Atom is the Databank - stores input count                             │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
 class ConductorWidget extends DeviceView {
+
+    // =========================================================================
+    // UI COMPONENTS
+    // =========================================================================
 
     private var _bg:Sprite;
     private var _stateField:TextField;
@@ -22,8 +44,16 @@ class ConductorWidget extends DeviceView {
     private var _removeBtn:Sprite;
     private var _outContact:Contact;
 
+    // =========================================================================
+    // CONFIGURATION
+    // =========================================================================
+
     public var widgetWidth:Float = 100;
     public var widgetHeight:Float = 60;
+
+    // =========================================================================
+    // CONSTRUCTOR
+    // =========================================================================
 
     public function new(atom:Atom) {
         super(atom);
@@ -34,6 +64,10 @@ class ConductorWidget extends DeviceView {
 
         buildUI();
     }
+
+    // =========================================================================
+    // UI CONSTRUCTION
+    // =========================================================================
 
     private function buildUI():Void {
         _bg = new Sprite();
@@ -106,6 +140,10 @@ class ConductorWidget extends DeviceView {
         _countField.text = 'Inputs: $count';
     }
 
+    // =========================================================================
+    // DATA HANDLING
+    // =========================================================================
+
     override private function onContactChanged(contact:Contact, newValue:Dynamic):Void {
         if (contact == _outContact) {
             updateVisual();
@@ -128,6 +166,10 @@ class ConductorWidget extends DeviceView {
         _stateField.textColor = isOn ? 0x00FF88 : 0xAAAAAA;
     }
 
+    // =========================================================================
+    // BUTTON HANDLERS
+    // =========================================================================
+
     private function onAddClick(e:MouseEvent):Void {
         e.stopPropagation();
         if (atom != null && Std.isOfType(atom, ConductorAtom)) {
@@ -143,6 +185,10 @@ class ConductorWidget extends DeviceView {
             updateCountDisplay();
         }
     }
+
+    // =========================================================================
+    // DISPOSE
+    // =========================================================================
 
     override public function dispose():Void {
         if (_addBtn != null) {

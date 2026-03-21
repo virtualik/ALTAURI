@@ -1,8 +1,10 @@
 package core.logic;
 
+import core.logic.EventType;
+
 /**
  * IMPULSE v1.1
- * Контейнер данных для событий.
+ * Data container for events.
  */
 class Impulse {
     public var type(default, null):EventType;

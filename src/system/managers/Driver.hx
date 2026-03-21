@@ -3,16 +3,34 @@ package system.managers;
 /**
  * Driver Interface v1.0
  * Base interface for all hardware/protocol drivers.
- * 
+ *
  * A Driver is an active component that needs regular updates
  * (e.g., signal generators, input devices, monitors).
+ *
+ * In the "Atom is Databank & Compute Core" architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   Driver extends Atom                                                   │
+ * │                                                                         │
+ * │   А) COMPUTE MODULE:                                                    │
+ * │      - update(dt) is called every frame by DriverManager                │
+ * │      - Performs time-based calculations                                 │
+ * │      - Example: SignalGenerator calculates next sample                  │
+ * │                                                                         │
+ * │   Б) DATABANK:                                                          │
+ * │      - Stores generated data (frequency, phase, buffer)                 │
+ * │      - getPersistentState() saves the state                             │
+ * │                                                                         │
+ * │   В) FACE:                                                              │
+ * │      - DeviceView shows the generator's output                          │
+ * │      - DeviceViewRegistry manages the single instance                   │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
 interface Driver {
 
     /**
      * Unique ID of the driver instance.
      */
-    public var id(default, null):String;
+    public var id(get, never):String;
 
     /**
      * Called once when the driver is registered.

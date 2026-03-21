@@ -8,15 +8,48 @@ import core.base.Atom;
 import core.base.Contact;
 
 /**
- * LED WIDGET v2.5
+ * LED WIDGET v3.0 (Databank Architecture)
  * Circular LED indicator for boolean or analog signals.
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   LEDAtom (Databank)                                                    │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │   Contact "in" ──► onContactChanged() ──► callbackTargets       │   │
+ * │   │                         │                                       │   │
+ * │   │                         ▼                                       │   │
+ * │   │   LEDWidget.onContactChanged(contact, value)                    │   │
+ * │   │         │                                                       │   │
+ * │   │         ▼                                                       │   │
+ * │   │   updateVisual(isOn)                                            │   │
+ * │   │         │                                                       │   │
+ * │   │         ▼                                                       │   │
+ * │   │   graphics.clear()                                              │   │
+ * │   │   graphics.beginFill(isOn ? colorOn : colorOff)                 │   │
+ * │   │   graphics.drawCircle(0, 0, radius)                             │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   Headless: Atom receives data, no widget needed.                       │
+ * │   Normal: Widget displays atom's contact state.                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * v3.0 Changes:
+ * - Full Databank architecture compatibility
+ * - No internal state storage - reads from contact
  */
 class LEDWidget extends DeviceView {
-    
+
+    // =========================================================================
+    // UI COMPONENTS
+    // =========================================================================
+
     private var _ledSprite:Sprite;
     private var _labelField:TextField;
-    
-    // Settings
+
+    // =========================================================================
+    // CONFIGURATION
+    // =========================================================================
+
     public var radius:Float = 20;
     public var colorOn:Int = 0x00FF00;
     public var colorOff:Int = 0x003300;
@@ -24,15 +57,28 @@ class LEDWidget extends DeviceView {
     public var labelOff:String = "OFF";
     public var showLabel:Bool = true;
     public var threshold:Float = 0.1;
-    
-    // Protection
+
+    // =========================================================================
+    // STATE
+    // =========================================================================
+
     private var _isUpdating:Bool = false;
+    private var _contactName:String;
+
+    // =========================================================================
+    // CONSTRUCTOR
+    // =========================================================================
 
     public function new(atom:Atom, contactName:String = "in") {
         super(atom);
+        _contactName = contactName;
         buildUI();
     }
-    
+
+    // =========================================================================
+    // UI CONSTRUCTION
+    // =========================================================================
+
     private function buildUI():Void {
         _ledSprite = new Sprite();
         addChild(_ledSprite);
@@ -54,11 +100,29 @@ class LEDWidget extends DeviceView {
         updateVisual(false);
     }
 
+    // =========================================================================
+    // DATA HANDLING
+    // =========================================================================
+
+    override private function syncFromAtom():Void {
+        // Read current contact value
+        if (atom != null) {
+            var contact = atom.getInput(_contactName);
+            if (contact == null) contact = atom.getOutput(_contactName);
+            if (contact != null && contact.value != null) {
+                updateVisual(isOn(contact.value));
+            }
+        }
+    }
+
     override private function onContactChanged(contact:Contact, newValue:Dynamic):Void {
         if (isDisposed || _isUpdating) return;
-        updateVisual(isOn(newValue));
+
+        if (contact.name == _contactName) {
+            updateVisual(isOn(newValue));
+        }
     }
-    
+
     private function isOn(value:Dynamic):Bool {
         if (value == null) return false;
         if (Std.isOfType(value, Bool)) return cast(value, Bool);
@@ -66,7 +130,7 @@ class LEDWidget extends DeviceView {
         if (Std.isOfType(value, Int)) return cast(value, Int) > 0;
         return false;
     }
-    
+
     private function updateVisual(isOn:Bool):Void {
         if (_isUpdating || isDisposed || _ledSprite == null) return;
         _isUpdating = true;
@@ -91,7 +155,11 @@ class LEDWidget extends DeviceView {
 
         _isUpdating = false;
     }
-    
+
+    // =========================================================================
+    // DISPOSE
+    // =========================================================================
+
     override public function dispose():Void {
         _ledSprite = null;
         _labelField = null;

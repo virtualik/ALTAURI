@@ -11,50 +11,78 @@ import core.base.Atom;
 import core.base.Contact;
 
 /**
- * TEXT WIDGET v1.0
- * Текстовое поле для отображения и редактирования значения.
- * 
- * - Отображает значение контакта
- * - При редактировании отправляет новое значение
+ * TEXT WIDGET v1.1 (Databank Architecture)
+ * Text display widget for showing contact values.
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   Atom (Databank)                                                       │
+ * │                                                                         │
+ * │   Contact "value" ──► TextWidget                                        │
+ * │                       ┌─────────────────────────────────────────────┐   │
+ * │                       │ onContactChanged: update text display       │   │
+ * │                       │ syncFromAtom: read current value            │   │
+ * │                       └─────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   Widget READS atom's contact value (display only)                      │
+ * │   If editable: Widget WRITES to contact on user input                   │
+ * │   Atom is the Databank - single source of truth                         │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
 class TextWidget extends DeviceView {
+
+    // =========================================================================
+    // UI COMPONENTS
+    // =========================================================================
 
     private var _input:TextField;
     private var _labelField:TextField;
     private var _contact:Contact;
-    
+
     private var _isEditing:Bool = false;
 
-    // Настройки (переименованы, т.к. width/height уже есть в DisplayObject)
+    // =========================================================================
+    // CONFIGURATION
+    // =========================================================================
+
     public var widgetWidth:Float = 150;
     public var widgetHeight:Float = 30;
     public var editable:Bool = true;
-    public var isInput:Bool = true;  // true = input contact, false = output contact
+    public var isInput:Bool = true;
     public var contactName:String = "value";
-    
+
+    // =========================================================================
+    // CONSTRUCTOR
+    // =========================================================================
+
     public function new(atom:Atom, ?contactName:String = "value", ?isInput:Bool = true) {
         super(atom);
-        
+
         this.contactName = contactName;
         this.isInput = isInput;
-        
+
         buildUI();
     }
-    
+
+    // =========================================================================
+    // INITIALIZATION
+    // =========================================================================
+
     private function buildUI():Void {
-        // Метка названия
+        // Label (atom name)
         _labelField = new TextField();
         _labelField.width = widgetWidth;
         _labelField.height = 18;
         _labelField.selectable = false;
         _labelField.mouseEnabled = false;
-        
+
         var labelFmt = new TextFormat("_sans", 10, 0x888888);
         _labelField.defaultTextFormat = labelFmt;
         _labelField.text = atom != null ? atom.name : "Value";
         addChild(_labelField);
-        
-        // Поле ввода/отображения
+
+        // Input/Display field
         _input = new TextField();
         _input.y = 20;
         _input.width = widgetWidth;
@@ -66,24 +94,24 @@ class TextWidget extends DeviceView {
         _input.textColor = 0xFFFFFF;
         _input.selectable = true;
         _input.mouseEnabled = true;
-        
+
         if (editable) {
             _input.type = TextFieldType.INPUT;
             _input.addEventListener(Event.CHANGE, onInputChange);
             _input.addEventListener(FocusEvent.FOCUS_IN, onFocusIn);
             _input.addEventListener(FocusEvent.FOCUS_OUT, onFocusOut);
         }
-        
+
         var inputFmt = new TextFormat("_typewriter", 14, 0xFFFFFF);
         _input.defaultTextFormat = inputFmt;
-        
+
         addChild(_input);
-        
+
         updateFromContact();
     }
-    
+
     override private function onActivate():Void {
-        // Находим контакт
+        // Find contact
         if (atom != null) {
             if (isInput) {
                 _contact = atom.getInput(contactName);
@@ -91,42 +119,49 @@ class TextWidget extends DeviceView {
                 _contact = atom.getOutput(contactName);
             }
         }
-        
+
         updateFromContact();
     }
-    
+
+    // =========================================================================
+    // DATA HANDLING
+    // =========================================================================
+
     override private function onContactChanged(contact:Contact, newValue:Dynamic):Void {
         if (contact == _contact && !_isEditing) {
             updateFromContact();
         }
     }
-    
+
     private function onFocusIn(e:FocusEvent):Void {
         _isEditing = true;
     }
-    
+
     private function onFocusOut(e:FocusEvent):Void {
         _isEditing = false;
         pushValue();
     }
-    
+
     private function onInputChange(e:Event):Void {
-        // Можно добавить валидацию здесь
+        // Could add validation here
     }
-    
+
+    /**
+     * Push entered value to atom's contact.
+     */
     private function pushValue():Void {
         if (_contact == null) return;
-        
+
         var textVal = _input.text;
-        
-        // Пытаемся распарсить число
+
+        // Try to parse number
         var floatVal = Std.parseFloat(textVal);
         if (!Math.isNaN(floatVal)) {
             _contact.value = floatVal;
             return;
         }
-        
-        // Булево
+
+        // Boolean
         if (textVal.toLowerCase() == "true") {
             _contact.value = true;
             return;
@@ -135,23 +170,22 @@ class TextWidget extends DeviceView {
             _contact.value = false;
             return;
         }
-        
-        // Строка
+
+        // String
         _contact.value = textVal;
     }
-    
+
     private function updateFromContact():Void {
         if (_contact == null || _isEditing) return;
-        
+
         var v = _contact.value;
         var str = "null";
-        
+
         if (v == null) {
             str = "null";
         } else if (Std.isOfType(v, Bool)) {
             str = cast(v, Bool) ? "true" : "false";
         } else if (Std.isOfType(v, Float)) {
-            // Форматируем число
             var f = cast(v, Float);
             if (Math.abs(f) < 0.001 || Math.abs(f) > 10000) {
                 str = Std.string(f);
@@ -161,12 +195,16 @@ class TextWidget extends DeviceView {
         } else {
             str = Std.string(v);
         }
-        
+
         if (_input.text != str) {
             _input.text = str;
         }
     }
-    
+
+    // =========================================================================
+    // DISPOSE
+    // =========================================================================
+
     override public function dispose():Void {
         if (_input != null && editable) {
             _input.removeEventListener(Event.CHANGE, onInputChange);

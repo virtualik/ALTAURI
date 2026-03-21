@@ -1,64 +1,116 @@
 package ui;
 
-import openfl.display.Window;
-import openfl.display.Sprite;
-import openfl.Lib;
-import openfl.text.TextField;
-import openfl.text.TextFormat;
-import openfl.text.TextFormatAlign;
-import openfl.display.StageScaleMode;
-import openfl.display.StageAlign;
-import openfl.text.TextFieldAutoSize;
-import openfl.events.MouseEvent;
-import openfl.events.Event;
-import core.base.Atom;
-import core.view.DeviceView;
-import core.view.DeviceWidgetFactory;
+import core.logic.EventType;
 import core.logic.Impulse;
 import core.logic.Impulsys;
-import core.logic.EventType;
+import flash.display.StageAlign;
+import flash.display.StageScaleMode;
+import lime.ui.Window;
+import openfl.Lib;
+import openfl.display.Sprite;
+import openfl.events.Event;
+import openfl.events.MouseEvent;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import core.base.Atom;
+
 
 /**
- * DeviceWindow v8.4 (Force Position & Multi-Monitor)
+ * DEVICE WINDOW v2.0 (Databank Architecture, Registry‑based)
+ * Full-size device display window.
  *
- * v8.4 Changes:
- * - FORCES window position after creation (fixes centering issue on Windows)
- * - Emits DEVICE_WINDOW_CHANGED on drag end and resize for auto-save
+ * ═══════════════════════════════════════════════════════════════════════════
+ * АРХИТЕКТУРА: "ATOM IS DATABANK & COMPUTE CORE"
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * DeviceWindow — это независимое окно ОС, которое содержит карточки устройств.
+ * Карточки (DeviceCard) управляются через DeviceViewRegistry и используют
+ * единственный экземпляр DeviceView для каждого атома.
+ *
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   SCHEMATIC                         DEVICE WINDOW                       │
+ * │                                                                         │
+ * │   ┌─────────────┐                    ┌────────────────────────────┐     │
+ * │   │  NodeView   │  Double-click      │       DeviceWindow         │     │
+ * │   │   (atom1)   │ ─────────────────► │   ┌────────────────────┐   │     │
+ * │   │             │                    │   │   DeviceCard       │   │     │
+ * │   │ [Widget]    │                    │   │ ┌────────────────┐ │   │     │
+ * │   └─────────────┘                    │   │ │   DeviceView   │ │   │     │
+ * │                                      │   │ │   (atom1)      │ │   │     │
+ * │   Widget moved!                      │   │ └────────────────┘ │   │     │
+ * │   NodeView shows                     │   └────────────────────┘   │     │
+ * │   placeholder (no widget)            │                            │     │
+ * │                                      │   [Close]  [Minimize]      │     │
+ * │                                      └────────────────────────────┘     │
+ * │                                              │                          │
+ * │   ◄──────────────────────────────────────────┘                          │
+ * │              On close: Widget returns to registry,                      │
+ * │              NodeView can re‑acquire it on next activation.				 │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * v2.0 Changes:
+ * - Полностью переработан для работы с DeviceViewRegistry
+ * - Удалён внутренний класс DeviceCard (теперь используется внешний)
+ * - Карточки получают виджет через реестр, а не создают новый
+ * - При закрытии окна виджеты не уничтожаются, а возвращаются в реестр
+ * - Поддержка сохранения/восстановления позиций карточек
  */
 class DeviceWindow {
+
+    // =========================================================================
+    // PRIVATE FIELDS
+    // =========================================================================
+
     private var _window:Window;
     private var _container:Sprite;
-
-    // Элементы UI
     private var _header:Sprite;
     private var _contextMenu:Sprite;
     private var _menuVisible:Bool = false;
-    public var deviceCanvas(default, null):Sprite;
     private var _titleLabel:TextField;
-
-    // Логика устройств
     private var _deviceCards:Array<DeviceCard>;
     private var _impulseCallback:Impulse -> Void;
-
-    // Коллбеки
-    public var onGetAssemblyList:Void -> Array<{id:String, name:String, atom:Atom}>;
-    public var onAssemblySelected:Atom -> Void;
-    public var onShowEditor:Void -> Void;
-
-    // Флаг для защиты от повторного dispose
     private var _isDisposed:Bool = false;
 
-    // Размеры и позиция
+    // Drag state for window header
+    private var _dragging:Bool = false;
+    private var _dragOffsetX:Float = 0;
+    private var _dragOffsetY:Float = 0;
+
+    // Cached dimensions (used for persistence)
     private var _initX:Float;
     private var _initY:Float;
     private var _initWidth:Float;
     private var _initHeight:Float;
 
-    private static inline var DEFAULT_WIDTH:Int = 420;
-    private static inline var DEFAULT_HEIGHT:Int = 320;
-    private static inline var BG_COLOR:Int = 0x1a1a24;
+    // =========================================================================
+    // PUBLIC PROPERTIES
+    // =========================================================================
 
-    public function new(?initX:Float = 100, ?initY:Float = 100, ?initWidth:Float = DEFAULT_WIDTH, ?initHeight:Float = DEFAULT_HEIGHT) {
+    public var deviceCanvas(default, null):Sprite;
+    public var onGetAssemblyList:Void -> Array<{id:String, name:String, atom:Atom}>;
+    public var onAssemblySelected:Atom -> Void;
+    public var onShowEditor:Void -> Void;
+
+    public var windowWidth(get, never):Float;
+    private function get_windowWidth():Float return (_window != null) ? _window.width : _initWidth;
+
+    public var windowHeight(get, never):Float;
+    private function get_windowHeight():Float return (_window != null) ? _window.height : _initHeight;
+
+    public var windowX(get, never):Float;
+    private function get_windowX():Float return (_window != null) ? _window.x : _initX;
+
+    public var windowY(get, never):Float;
+    private function get_windowY():Float return (_window != null) ? _window.y : _initY;
+
+    public var isOpen(get, never):Bool;
+    private function get_isOpen():Bool return _window != null && !_isDisposed;
+
+    // =========================================================================
+    // CONSTRUCTOR
+    // =========================================================================
+
+    public function new(?initX:Float = 100, ?initY:Float = 100, ?initWidth:Float = 420, ?initHeight:Float = 320) {
         _deviceCards = [];
         _initX = initX;
         _initY = initY;
@@ -66,6 +118,10 @@ class DeviceWindow {
         _initHeight = initHeight;
         create();
     }
+
+    // =========================================================================
+    // WINDOW CREATION
+    // =========================================================================
 
     private function create():Void {
         var config = {
@@ -76,98 +132,49 @@ class DeviceWindow {
             y: Std.int(_initY),
             resizable: true,
             context: {
-                background: BG_COLOR,
-                antialiasing: 2,
+                background: 0x1a1a24,
+                antialiasing: 0,
+                borderless: true,
                 hardware: false
             }
         };
 
         _window = Lib.application.createWindow(config);
 
-        if (_window != null && _window.stage != null) {
-            // === FIX: Force position AFTER creation ===
-            // Window managers often ignore x/y in config and center the window.
-            // We explicitly move it back to the desired coordinates.
-            _window.x = Std.int(_initX);
-            _window.y = Std.int(_initY);
-            // ========================================
-
-            var stage = _window.stage;
-            stage.scaleMode = StageScaleMode.NO_SCALE;
-            stage.align = StageAlign.TOP_LEFT;
-
-            stage.color = BG_COLOR;
-            stage.opaqueBackground = BG_COLOR;
-
-            _container = new Sprite();
-            stage.addChild(_container);
-
-            _impulseCallback = onAtomDeleted;
-            Impulsys.subscribeToImpulse("ATOM_DELETED", _impulseCallback);
-
-            createHeader();
-            createDeviceCanvas();
-            createContextMenu();
-
-            stage.addEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
-            stage.addEventListener(MouseEvent.CLICK, onStageClick);
-            stage.addEventListener(Event.RESIZE, onWindowResize);
-
-            stage.invalidate();
-        } else {
-            trace("Ошибка: окно или stage не созданы");
+        if (_window == null || _window.stage == null) {
+            trace("DeviceWindow: Failed to create window");
             if (_impulseCallback != null) {
-                Impulsys.removeImpulse("ATOM_DELETED", _impulseCallback);
+                Impulsys.removeImpulse(EventType.ATOM_DELETED, _impulseCallback);
                 _impulseCallback = null;
             }
+            return;
         }
-    }
 
-    // =========================================================================
-    // WINDOW SIZE & POSITION PERSISTENCE
-    // =========================================================================
+        // Force position (window managers sometimes ignore config)
+        _window.x = Std.int(_initX);
+        _window.y = Std.int(_initY);
 
-    public var windowWidth(get, never):Float;
-    private function get_windowWidth():Float {
-        return (_window != null) ? _window.width : _initWidth;
-    }
+        var stage = _window.stage;
+        stage.scaleMode = StageScaleMode.NO_SCALE;
+        stage.align = StageAlign.TOP_LEFT;
+        stage.color = 0x1a1a24;
+        stage.opaqueBackground = 0x1a1a24;
 
-    public var windowHeight(get, never):Float;
-    private function get_windowHeight():Float {
-        return (_window != null) ? _window.height : _initHeight;
-    }
+        _container = new Sprite();
+        stage.addChild(_container);
 
-    public var windowX(get, never):Float;
-    private function get_windowX():Float {
-        return (_window != null) ? _window.x : _initX;
-    }
+        _impulseCallback = onAtomDeleted;
+        Impulsys.subscribeToImpulse(EventType.ATOM_DELETED, _impulseCallback);
 
-    public var windowY(get, never):Float;
-    private function get_windowY():Float {
-        return (_window != null) ? _window.y : _initY;
-    }
+        createHeader();
+        createDeviceCanvas();
+        createContextMenu();
 
-    private function onWindowResize(e:Event):Void {
-        updateBackground();
-        if (deviceCanvas != null && _window != null && _window.stage != null) {
-            deviceCanvas.graphics.clear();
-            deviceCanvas.graphics.beginFill(BG_COLOR);
-            deviceCanvas.graphics.drawRect(0, 0, _window.stage.stageWidth, _window.stage.stageHeight - 30);
-            deviceCanvas.graphics.endFill();
-        }
-        
-        // Notify Main to save state
-        Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
-    }
+        stage.addEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
+        stage.addEventListener(MouseEvent.CLICK, onStageClick);
+        stage.addEventListener(Event.RESIZE, onWindowResize);
 
-    private function updateBackground():Void {
-        if (_container != null && _window != null && _window.stage != null && _header != null) {
-            var newWidth = _window.stage.stageWidth;
-            _header.graphics.clear();
-            _header.graphics.beginFill(0x2a2a34);
-            _header.graphics.drawRect(0, 0, newWidth, 30);
-            _header.graphics.endFill();
-        }
+        stage.invalidate();
     }
 
     // =========================================================================
@@ -175,10 +182,7 @@ class DeviceWindow {
     // =========================================================================
 
     private function createHeader():Void {
-        var headerWidth = Std.int(_initWidth);
-        if (_window != null && _window.stage != null) {
-            headerWidth = _window.stage.stageWidth;
-        }
+        var headerWidth = (_window != null && _window.stage != null) ? _window.stage.stageWidth : Std.int(_initWidth);
 
         _header = new Sprite();
         _header.graphics.beginFill(0x2a2a34);
@@ -195,10 +199,7 @@ class DeviceWindow {
         _header.addChild(_titleLabel);
 
         var editorBtn = createHeaderButton("E", 0x005500, function(_) {
-            if (onShowEditor != null) {
-                var mainWin = Lib.current.stage.window;
-                if (mainWin != null) mainWin.visible = true;
-            }
+            if (onShowEditor != null) onShowEditor();
         });
         editorBtn.x = headerWidth - 90;
         _header.addChild(editorBtn);
@@ -240,16 +241,10 @@ class DeviceWindow {
     private function createDeviceCanvas():Void {
         deviceCanvas = new Sprite();
         deviceCanvas.y = 30;
-
-        var canvasHeight = Std.int(_initHeight - 30);
-        if (_window != null && _window.stage != null) {
-            canvasHeight = _window.stage.stageHeight - 30;
-        }
-
-        deviceCanvas.graphics.beginFill(BG_COLOR);
-        deviceCanvas.graphics.drawRect(0, 0, Std.int(_initWidth), canvasHeight);
+        var canvasHeight = (_window != null && _window.stage != null) ? _window.stage.stageHeight - 30 : Std.int(_initHeight - 30);
+        deviceCanvas.graphics.beginFill(0x1a1a24);
+        deviceCanvas.graphics.drawRect(0, 0, (_window != null ? _window.stage.stageWidth : _initWidth), canvasHeight);
         deviceCanvas.graphics.endFill();
-
         _container.addChild(deviceCanvas);
     }
 
@@ -260,13 +255,24 @@ class DeviceWindow {
     }
 
     // =========================================================================
-    // DEVICE LOGIC
+    // DEVICE MANAGEMENT
     // =========================================================================
 
-    public function addDevice(atom:Atom, ?x:Float = null, ?y:Float = null, ?width:Float = null, ?height:Float = null):Void {
-        if (_isDisposed) return;
-        if (atom == null) return;
-        if (deviceCanvas == null) return;
+    /**
+     * Add a device (atom) to the window. Creates a DeviceCard that will
+     * obtain the widget from the registry.
+     *
+     * @param atom  The atom to display
+     * @param x     Desired X position in the canvas (optional)
+     * @param y     Desired Y position in the canvas (optional)
+     */
+    public function addDevice(atom:Atom, ?x:Float = null, ?y:Float = null):Void {
+        if (_isDisposed || atom == null || deviceCanvas == null) return;
+
+        // Avoid duplicates
+        for (card in _deviceCards) {
+            if (card.atom == atom) return;
+        }
 
         var card = new DeviceCard(atom, this);
         _deviceCards.push(card);
@@ -284,23 +290,46 @@ class DeviceWindow {
         trace('DeviceWindow: Added device "${atom.name}" at (${card.x}, ${card.y})');
     }
 
+    /**
+     * Remove a device card from the window.
+     */
     public function removeDevice(card:DeviceCard):Void {
-        if (_isDisposed) return;
-        if (card == null) return;
+        if (_isDisposed || card == null) return;
         _deviceCards.remove(card);
         if (deviceCanvas != null && deviceCanvas.contains(card)) {
             deviceCanvas.removeChild(card);
         }
         card.dispose();
+        Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
     }
 
+    /**
+     * Remove all devices from the window.
+     */
+    public function clearDevices():Void {
+        while (_deviceCards.length > 0) {
+            var card = _deviceCards.pop();
+            if (deviceCanvas != null && deviceCanvas.contains(card)) {
+                deviceCanvas.removeChild(card);
+            }
+            card.dispose();
+        }
+        Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
+    }
+
+    /**
+     * Get all current device cards.
+     */
     public function getDeviceCards():Array<DeviceCard> {
         return _deviceCards;
     }
 
+    // =========================================================================
+    // EVENT HANDLERS
+    // =========================================================================
+
     private function onAtomDeleted(impulse:Impulse):Void {
-        if (_isDisposed) return;
-        if (impulse == null || impulse.data == null) return;
+        if (_isDisposed || impulse == null || impulse.data == null) return;
         var deletedId:String = impulse.data.id;
         var toRemove:Array<DeviceCard> = [];
         for (card in _deviceCards) {
@@ -313,41 +342,59 @@ class DeviceWindow {
         }
     }
 
-    private function findFreePosition(card:DeviceCard):{x:Float, y:Float} {
-        var startX = 10;
-        var startY = 10;
-        var stepX = 120;
-        var stepY = 100;
-        for (y in 0...3) {
-            for (x in 0...4) {
-                var px = startX + x * stepX;
-                var py = startY + y * stepY;
-                if (isPositionFree(px, py)) return {x: px, y: py};
-            }
+    private function onWindowResize(e:Event):Void {
+        updateBackground();
+        if (deviceCanvas != null && _window != null && _window.stage != null) {
+            deviceCanvas.graphics.clear();
+            deviceCanvas.graphics.beginFill(0x1a1a24);
+            deviceCanvas.graphics.drawRect(0, 0, _window.stage.stageWidth, _window.stage.stageHeight - 30);
+            deviceCanvas.graphics.endFill();
         }
-        return {x: startX + Math.random() * 200, y: startY + Math.random() * 150};
+        Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
     }
 
-    private function isPositionFree(x:Float, y:Float):Bool {
-        for (card in _deviceCards) {
-            if (Math.abs(card.x - x) < 100 && Math.abs(card.y - y) < 80) return false;
-        }
-        return true;
-    }
-
-    public function clearDevices():Void {
-        if (_isDisposed) return;
-        while (_deviceCards.length > 0) {
-            var card = _deviceCards.pop();
-            if (deviceCanvas != null && deviceCanvas.contains(card)) {
-                deviceCanvas.removeChild(card);
-            }
-            card.dispose();
+    private function updateBackground():Void {
+        if (_container != null && _window != null && _window.stage != null && _header != null) {
+            var newWidth = _window.stage.stageWidth;
+            _header.graphics.clear();
+            _header.graphics.beginFill(0x2a2a34);
+            _header.graphics.drawRect(0, 0, newWidth, 30);
+            _header.graphics.endFill();
         }
     }
 
     // =========================================================================
-    // CONTEXT MENU LOGIC
+    // WINDOW DRAG (header)
+    // =========================================================================
+
+    private function onMouseDown(e:MouseEvent):Void {
+        if (_isDisposed) return;
+        _dragging = true;
+        _dragOffsetX = e.localX;
+        _dragOffsetY = e.localY;
+        _window.stage.addEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
+        _window.stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+    }
+
+    private function onMouseMove(e:MouseEvent):Void {
+        if (_isDisposed || !_dragging) return;
+        if (_window != null) {
+            _window.x = Std.int(_window.x + (e.stageX - _dragOffsetX));
+            _window.y = Std.int(_window.y + (e.stageY - _dragOffsetY));
+        }
+    }
+
+    private function onMouseUp(e:MouseEvent):Void {
+        _dragging = false;
+        if (_window != null && _window.stage != null) {
+            _window.stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
+            _window.stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+        }
+        Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
+    }
+
+    // =========================================================================
+    // CONTEXT MENU
     // =========================================================================
 
     private function onRightClick(e:MouseEvent):Void {
@@ -401,12 +448,8 @@ class DeviceWindow {
         _contextMenu.graphics.drawRoundRect(0, 0, 190, yPos + 4, 6, 6);
         _contextMenu.graphics.endFill();
 
-        var maxX = Std.int(_initWidth);
-        var maxY = Std.int(_initHeight);
-        if (_window != null && _window.stage != null) {
-            maxX = _window.stage.stageWidth;
-            maxY = _window.stage.stageHeight;
-        }
+        var maxX = (_window != null && _window.stage != null) ? _window.stage.stageWidth : _initWidth;
+        var maxY = (_window != null && _window.stage != null) ? _window.stage.stageHeight : _initHeight;
 
         _contextMenu.x = Math.min(x, maxX - 200);
         _contextMenu.y = Math.min(Math.max(y - 30, 0), maxY - yPos - 10);
@@ -461,39 +504,29 @@ class DeviceWindow {
     }
 
     // =========================================================================
-    // DRAG LOGIC
+    // UTILITY
     // =========================================================================
 
-    private var _dragging:Bool = false;
-    private var _dragOffsetX:Float = 0;
-    private var _dragOffsetY:Float = 0;
-
-    private function onMouseDown(e:MouseEvent):Void {
-        if (_isDisposed) return;
-        _dragging = true;
-        _dragOffsetX = e.localX;
-        _dragOffsetY = e.localY;
-        _window.stage.addEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
-        _window.stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+    private function findFreePosition(card:DeviceCard):{x:Float, y:Float} {
+        var startX = 10;
+        var startY = 10;
+        var stepX = 120;
+        var stepY = 100;
+        for (y in 0...3) {
+            for (x in 0...4) {
+                var px = startX + x * stepX;
+                var py = startY + y * stepY;
+                if (isPositionFree(px, py)) return {x: px, y: py};
+            }
+        }
+        return {x: startX + Math.random() * 200, y: startY + Math.random() * 150};
     }
 
-    private function onMouseMove(e:MouseEvent):Void {
-        if (_isDisposed || !_dragging) return;
-        if (_window != null) {
-            _window.x = Std.int(_window.x + (e.stageX - _dragOffsetX));
-            _window.y = Std.int(_window.y + (e.stageY - _dragOffsetY));
+    private function isPositionFree(x:Float, y:Float):Bool {
+        for (card in _deviceCards) {
+            if (Math.abs(card.x - x) < 100 && Math.abs(card.y - y) < 80) return false;
         }
-    }
-
-    private function onMouseUp(e:MouseEvent):Void {
-        _dragging = false;
-        if (_window != null && _window.stage != null) {
-            _window.stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMove);
-            _window.stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
-        }
-        
-        // Notify Main to save state (position changed)
-        Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
+        return true;
     }
 
     // =========================================================================
@@ -505,7 +538,7 @@ class DeviceWindow {
         _isDisposed = true;
 
         if (_impulseCallback != null) {
-            Impulsys.removeImpulse("ATOM_DELETED", _impulseCallback);
+            Impulsys.removeImpulse(EventType.ATOM_DELETED, _impulseCallback);
             _impulseCallback = null;
         }
 
@@ -530,182 +563,5 @@ class DeviceWindow {
         onGetAssemblyList = null;
         onAssemblySelected = null;
         onShowEditor = null;
-    }
-
-    public var isOpen(get, never):Bool;
-    private function get_isOpen():Bool {
-        return _window != null && !_isDisposed;
-    }
-}
-
-// =========================================================================
-// DEVICE CARD
-// =========================================================================
-
-class DeviceCard extends Sprite {
-    public var atom(default, null):Atom;
-    private var _deviceWindow:DeviceWindow;
-    private var _deviceView:DeviceView;
-    private var _titleBar:Sprite;
-    private var _titleLabel:TextField;
-    private var _cardDragging:Bool = false;
-    private var _dragStartX:Float = 0;
-    private var _dragStartY:Float = 0;
-    private var _mouseStartX:Float = 0;
-    private var _mouseStartY:Float = 0;
-    private var _isDisposed:Bool = false;
-
-    public var cardWidth(default, null):Float = 100;
-    public var cardHeight(default, null):Float = 80;
-
-    public function new(atom:Atom, deviceWindow:DeviceWindow) {
-        super();
-        this.atom = atom;
-        _deviceWindow = deviceWindow;
-        buildCard();
-    }
-
-    private function buildCard():Void {
-        try {
-            _deviceView = DeviceWidgetFactory.create(atom);
-        } catch (e:Dynamic) {
-            _deviceView = null;
-        }
-
-        if (_deviceView == null) {
-            createFallbackCard();
-            return;
-        }
-
-        _deviceView.activate();
-
-        var viewWidth = _deviceView.width;
-        var viewHeight = _deviceView.height;
-
-        _titleBar = new Sprite();
-        _titleBar.graphics.beginFill(0x3a3a4a);
-        _titleBar.graphics.drawRect(0, 0, viewWidth + 20, 20);
-        _titleBar.graphics.endFill();
-        addChild(_titleBar);
-
-        _titleLabel = new TextField();
-        _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 10, 0xFFFFFF);
-        _titleLabel.text = " " + (atom != null ? atom.name : "Device");
-        _titleLabel.width = viewWidth;
-        _titleLabel.height = 20;
-        _titleLabel.selectable = false;
-        _titleLabel.mouseEnabled = false;
-        _titleBar.addChild(_titleLabel);
-
-        var closeBtn = new Sprite();
-        closeBtn.graphics.beginFill(0x883333);
-        closeBtn.graphics.drawRect(0, 0, 16, 16);
-        closeBtn.graphics.endFill();
-        closeBtn.x = viewWidth + 2;
-        closeBtn.y = 2;
-        var xText = new TextField();
-        xText.text = "x";
-        xText.width = 16;
-        xText.height = 16;
-        xText.selectable = false;
-        xText.mouseEnabled = false;
-        xText.defaultTextFormat = new TextFormat("_sans", 10, 0xFFFFFF, false, null, null, null, null, "center");
-        closeBtn.addChild(xText);
-        closeBtn.buttonMode = true;
-        closeBtn.addEventListener(MouseEvent.CLICK, onCloseClick);
-        _titleBar.addChild(closeBtn);
-
-        _deviceView.y = 20;
-        _deviceView.x = 0;
-        addChild(_deviceView);
-
-        cardWidth = viewWidth + 30;
-        cardHeight = viewHeight + 30;
-
-        graphics.clear();
-        graphics.beginFill(0x2a2a3a, 0.9);
-        graphics.lineStyle(1, 0x4a4a5a);
-        graphics.drawRoundRect(-5, -5, cardWidth, cardHeight, 4, 4);
-        graphics.endFill();
-
-        _titleBar.buttonMode = true;
-        _titleBar.addEventListener(MouseEvent.MOUSE_DOWN, onCardMouseDown);
-    }
-
-    private function createFallbackCard():Void {
-        cardWidth = 80;
-        cardHeight = 50;
-
-        graphics.beginFill(0x333344);
-        graphics.drawRoundRect(0, 0, cardWidth, cardHeight, 4, 4);
-        graphics.endFill();
-        var txt = new TextField();
-        txt.defaultTextFormat = new TextFormat("_sans", 10, 0xFFFFFF);
-        txt.text = atom != null ? atom.name : "?";
-        txt.width = 80;
-        txt.height = 50;
-        txt.selectable = false;
-        txt.mouseEnabled = false;
-        addChild(txt);
-    }
-
-    private function onCloseClick(e:MouseEvent):Void {
-        e.stopPropagation();
-        if (_deviceWindow != null) {
-            _deviceWindow.removeDevice(this);
-        }
-    }
-
-    private function onCardMouseDown(e:MouseEvent):Void {
-        if (_isDisposed) return;
-        _cardDragging = true;
-        _dragStartX = this.x;
-        _dragStartY = this.y;
-        _mouseStartX = e.stageX;
-        _mouseStartY = e.stageY;
-        if (parent != null) parent.addChild(this);
-        if (stage != null) {
-            stage.addEventListener(MouseEvent.MOUSE_MOVE, onCardMouseMove);
-            stage.addEventListener(MouseEvent.MOUSE_UP, onCardMouseUp);
-        }
-    }
-
-    private function onCardMouseMove(e:MouseEvent):Void {
-        if (!_cardDragging || _isDisposed) return;
-        this.x = _dragStartX + (e.stageX - _mouseStartX);
-        this.y = _dragStartY + (e.stageY - _mouseStartY);
-    }
-
-    private function onCardMouseUp(e:MouseEvent):Void {
-        _cardDragging = false;
-        if (stage != null) {
-            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onCardMouseMove);
-            stage.removeEventListener(MouseEvent.MOUSE_UP, onCardMouseUp);
-        }
-    }
-
-    public function dispose():Void {
-        if (_isDisposed) return;
-        _isDisposed = true;
-
-        if (_titleBar != null) {
-            _titleBar.removeEventListener(MouseEvent.MOUSE_DOWN, onCardMouseDown);
-        }
-
-        if (stage != null) {
-            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onCardMouseMove);
-            stage.removeEventListener(MouseEvent.MOUSE_UP, onCardMouseUp);
-        }
-
-        if (_deviceView != null) {
-            _deviceView.deactivate();
-            _deviceView.dispose();
-            _deviceView = null;
-        }
-
-        atom = null;
-        _deviceWindow = null;
-        _titleBar = null;
-        _titleLabel = null;
     }
 }

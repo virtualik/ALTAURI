@@ -6,6 +6,33 @@ import system.managers.Driver;
  * DRIVER MANAGER v2.1 (Performance)
  * Manages active drivers (update loops).
  *
+ * In the "Atom is Databank & Compute Core" architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   DriverManager is part of the COMPUTE LAYER                            │
+ * │                                                                         │
+ * │   Main Loop:                                                            │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  onEnterFrame() {                                               │   │
+ * │   │      var dt = calculateDelta();                                 │   │
+ * │   │      DriverManager.update(dt);  // Update all active atoms      │   │
+ * │   │      SignalQueue.process();     // Propagate signals            │   │
+ * │   │  }                                                              │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   Active Atoms (Drivers):                                               │
+ * │   - SignalGeneratorAtom: generates sine/square/saw waves                │
+ * │   - UniversalGeneratorAtom: multi-mode generator                        │
+ * │   - FPSMonitorAtom: measures frame rate                                 │
+ * │   - FrameTimeAtom: measures frame duration                              │
+ * │   - AudioInputAtom: captures microphone data                            │
+ * │                                                                         │
+ * │   Passive Atoms (NOT Drivers):                                          │
+ * │   - OscilloscopeAtom: just stores incoming data                         │
+ * │   - LedAtom: displays input signal                                      │
+ * │   - ButtonAtom: provides output on interaction                          │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
  * v2.1 Changes:
  * - Added getDriverCount() for debugging
  * - Safe iteration with copy on update
@@ -36,7 +63,7 @@ class DriverManager {
 
         _drivers.set(driver.id, driver);
         _needsRebuild = true;
-        
+
         driver.init();
         trace('DriverManager: Registered ${driver.id}');
     }
@@ -77,7 +104,9 @@ class DriverManager {
      * Get number of registered drivers.
      */
     public function getDriverCount():Int {
-        return Lambda.count(_drivers);
+        var count = 0;
+        for (key in _drivers.keys()) count++;
+        return count;
     }
 
     /**
@@ -111,5 +140,15 @@ class DriverManager {
         _drivers.clear();
         _driverList = [];
         _needsRebuild = false;
+    }
+
+    /**
+     * Reset singleton instance.
+     */
+    public static function reset():Void {
+        if (_instance != null) {
+            _instance.dispose();
+            _instance = null;
+        }
     }
 }

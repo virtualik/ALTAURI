@@ -9,16 +9,15 @@ import core.types.ContactType;
 import utils.UID;
 import library.AtomRegistry;
 import system.managers.DriverManager;
+import core.logic.SignalQueue; // Добавлен импорт
 
 /**
- * ASSEMBLY v5.0 (State Serialization)
+ * ASSEMBLY v5.1 (Initialization Safety)
  * Universal base class for ALL nodes.
- * Completely decoupled from View (OpenFL/Sprite).
  *
- * v5.0 Changes:
- * - Added getPersistentState() to collect state from all internal atoms
- * - Added restoreState() to restore internal atom states
- * - Recursive state collection for nested assemblies
+ * v5.1 Changes:
+ * - Suspended SignalQueue during initialization to prevent race conditions.
+ * - Signals are now processed only after all internal atoms are created and connected.
  */
 class Assembly extends Atom {
 
@@ -83,8 +82,18 @@ class Assembly extends Atom {
         super(inputsArr, outputsArr, blueprint.logic, id, typeName, false);
 
         if (blueprint.logic == null) {
-            _createInternalInstances();
-            _createInternalConnections();
+            // === FIX: Приостанавливаем очередь сигналов на время инициализации ===
+            SignalQueue.getInstance().suspend();
+            
+            try {
+                _createInternalInstances();
+                _createInternalConnections();
+            } catch (e:Dynamic) {
+                trace('ERROR during Assembly($id) initialization: $e');
+            }
+
+            // === FIX: Возобновляем очередь. Накопленные сигналы обработаются ===
+            SignalQueue.getInstance().resume();
         }
     }
 
@@ -176,15 +185,16 @@ class Assembly extends Atom {
                 internalAtoms.set(newInstanceID, instance);
 
                 // v5.0: Restore state from atomDef.values
+                // Если здесь срабатывает set_value, он попадет в очередь, но не выполнится до resume()
                 if (atomDef.values != null) {
                     instance.restoreState(atomDef.values);
                 }
 
                 // Register active drivers
                 var bpDef = AtomRegistry.get(atomDef.typeId);
-                if (bpDef != null && bpDef.isActive) {
-                    DriverManager.getInstance().register(instance);
-                }
+                if (bpDef != null && bpDef.isActive && !bpDef.isNative) {
+					DriverManager.getInstance().register(instance);
+            }
             }
         }
     }

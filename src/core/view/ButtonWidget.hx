@@ -9,14 +9,29 @@ import core.base.Atom;
 import core.base.Contact;
 
 /**
- * BUTTON WIDGET v1.1 (Editor Integration)
- * Кнопка для отправки импульса или значения.
+ * BUTTON WIDGET v1.1 (Databank Architecture)
+ * Push button widget for sending impulses.
  *
- * - При нажатии отправляет true
- * - При отпускании отправляет false
- * - v1.1: stopPropagation() added to prevent Node dragging when clicking button.
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   ButtonAtom (Databank)                                                 │
+ * │                                                                         │
+ * │   Contact "out" ◄─── ButtonWidget                                       │
+ * │                    ┌─────────────────────────────────────────────────┐  │
+ * │                    │ onMouseDown: contact.value = true               │  │
+ * │                    │ onMouseUp:   contact.value = false              │  │
+ * │                    └─────────────────────────────────────────────────┘  │
+ * │                                                                         │
+ * │   Widget WRITES to atom's contact (user input → model)                  │
+ * │   Widget DOES NOT store state - atom is the Databank                    │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
 class ButtonWidget extends DeviceView {
+
+    // =========================================================================
+    // UI COMPONENTS
+    // =========================================================================
 
     private var _btn:Sprite;
     private var _labelField:TextField;
@@ -24,28 +39,45 @@ class ButtonWidget extends DeviceView {
 
     private var _isPressed:Bool = false;
 
-    // Настройки
+    // =========================================================================
+    // CONFIGURATION
+    // =========================================================================
+
     public var widgetWidth:Float = 80;
     public var widgetHeight:Float = 40;
     public var colorNormal:Int = 0x444455;
     public var colorPressed:Int = 0x4488AA;
     public var colorOver:Int = 0x555566;
     public var label:String = "PUSH";
+    private var _contactName:String;
+
+    // =========================================================================
+    // CONSTRUCTOR
+    // =========================================================================
 
     public function new(atom:Atom, ?contactName:String = "out") {
         super(atom);
-
-        // Находим контакт
-        if (atom != null) {
-            _contact = atom.getOutput(contactName);
-            if (_contact == null) _contact = atom.getInput(contactName);
-        }
-
+        _contactName = contactName;
+        findContact();
         buildUI();
     }
 
+    // =========================================================================
+    // INITIALIZATION
+    // =========================================================================
+
+    private function findContact():Void {
+        if (atom != null) {
+            _contact = atom.getOutput(_contactName);
+            if (_contact == null) _contact = atom.getInput(_contactName);
+        }
+    }
+
+    override private function onActivate():Void {
+        findContact();
+    }
+
     private function buildUI():Void {
-        // Кнопка
         _btn = new Sprite();
         _btn.buttonMode = true;
         _btn.useHandCursor = true;
@@ -55,7 +87,6 @@ class ButtonWidget extends DeviceView {
         _btn.addEventListener(MouseEvent.MOUSE_OUT, onMouseOut);
         addChild(_btn);
 
-        // Метка
         _labelField = new TextField();
         _labelField.width = widgetWidth;
         _labelField.height = widgetHeight;
@@ -69,8 +100,6 @@ class ButtonWidget extends DeviceView {
 
         addChild(_labelField);
 
-        // Подпись атома (скрываем внутри ноды, если нужно, или оставляем)
-        // В контексте ноды это может быть лишним, но для окна устройств ок.
         var nameField = new TextField();
         nameField.width = widgetWidth;
         nameField.height = 18;
@@ -88,9 +117,13 @@ class ButtonWidget extends DeviceView {
         drawNormal();
     }
 
+    // =========================================================================
+    // EVENT HANDLERS
+    // =========================================================================
+
     private function onMouseDown(e:MouseEvent):Void {
-        e.stopPropagation(); // ВАЖНО: Не передаем клик ноде (чтобы не dragged)
-        
+        e.stopPropagation();
+
         _isPressed = true;
         drawPressed();
 
@@ -100,7 +133,7 @@ class ButtonWidget extends DeviceView {
     }
 
     private function onMouseUp(e:MouseEvent):Void {
-        e.stopPropagation(); // ВАЖНО: Не передаем клик ноде
+        e.stopPropagation();
 
         if (_isPressed) {
             _isPressed = false;
@@ -131,6 +164,10 @@ class ButtonWidget extends DeviceView {
         }
     }
 
+    // =========================================================================
+    // DRAWING
+    // =========================================================================
+
     private function drawNormal():Void {
         _btn.graphics.clear();
         _btn.graphics.beginFill(colorNormal);
@@ -154,6 +191,19 @@ class ButtonWidget extends DeviceView {
         _btn.graphics.drawRoundRect(0, 0, widgetWidth, widgetHeight, 8, 8);
         _btn.graphics.endFill();
     }
+
+    // =========================================================================
+    // DATA HANDLING (Button is an INPUT device - usually doesn't need to react)
+    // =========================================================================
+
+    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void {
+        // Button is an input device - normally doesn't react to contact changes
+        // But if needed for visual feedback from external source, implement here
+    }
+
+    // =========================================================================
+    // DISPOSE
+    // =========================================================================
 
     override public function dispose():Void {
         if (_btn != null) {

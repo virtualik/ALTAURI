@@ -1,5 +1,6 @@
 package;
 
+import core.logic.Timebase;
 import openfl.display.Sprite;
 import openfl.events.MouseEvent;
 import openfl.events.KeyboardEvent;
@@ -150,6 +151,9 @@ class Main extends Sprite {
         #end
 
         loadProject();
+		
+		//SignalQueue.getInstance().slowMotion = true;
+		SignalQueue.getInstance().maxTicksPerFrame = 0; // Без лимита
     }
 
     // =============================================================================================
@@ -339,50 +343,55 @@ class Main extends Sprite {
         saveCurrentContext();
     }
 
-    private function onToggleView():Void {
-        if (_deviceWindow != null && _deviceWindow.isOpen) {
-            // Closing: cache position
-            _cachedDeviceWindowState = extractDeviceWindowData();
-            _cachedWindowWidth = _deviceWindow.windowWidth;
-            _cachedWindowHeight = _deviceWindow.windowHeight;
-            _cachedWindowX = _deviceWindow.windowX;
-            _cachedWindowY = _deviceWindow.windowY;
+	private function onToggleView():Void {
+		if (_deviceWindow != null && _deviceWindow.isOpen) {
+			// Closing: cache position
+			_cachedDeviceWindowState = extractDeviceWindowData();
+			_cachedWindowWidth = _deviceWindow.windowWidth;
+			_cachedWindowHeight = _deviceWindow.windowHeight;
+			_cachedWindowX = _deviceWindow.windowX;
+			_cachedWindowY = _deviceWindow.windowY;
 
-            log("Closing Device Window (cached at " + _cachedWindowX + ", " + _cachedWindowY + ").");
-            _deviceWindow.close();
-            _deviceWindow = null;
-        } else {
-            log("Opening Device Window...");
-            // v2.3 FIX: Pass cached Width and Height to constructor
-            _deviceWindow = new DeviceWindow(_cachedWindowX, _cachedWindowY, _cachedWindowWidth, _cachedWindowHeight);
-            _deviceWindow.onShowEditor = restoreEditorWindow;
-            _deviceWindow.onGetAssemblyList = getAllDevicesRecursive;
-            _deviceWindow.onAssemblySelected = function(atom:Atom) { log("Device added: " + atom.name); };
+			log("Closing Device Window (cached at " + _cachedWindowX + ", " + _cachedWindowY + ").");
+			_deviceWindow.close();
+			_deviceWindow = null;
+		} else {
+			log("Opening Device Window...");
+			
+			// Создаём независимое окно ОС
+			_deviceWindow = new DeviceWindow(_cachedWindowX, _cachedWindowY, _cachedWindowWidth, _cachedWindowHeight);
+			
+			_deviceWindow.onShowEditor = restoreEditorWindow;
+			_deviceWindow.onGetAssemblyList = getAllDevicesRecursive;
+			_deviceWindow.onAssemblySelected = function(atom:Atom) { 
+				log("Device added: " + atom.name); 
+			};
 
-            if (_cachedDeviceWindowState != null && _cachedDeviceWindowState.length > 0) {
-                var rootAssembly = _editorContext.currentAssembly;
-                for (item in _cachedDeviceWindowState) {
-                    var atom = resolveDevicePath(rootAssembly, item.path);
-                    if (atom != null) {
-                        _deviceWindow.addDevice(atom, item.x, item.y);
-                    }
-                }
-                log("Restored " + _cachedDeviceWindowState.length + " devices from cache.");
-            }
-        }
-    }
-    
+			// Восстанавливаем устройства из кэша
+			if (_cachedDeviceWindowState != null && _cachedDeviceWindowState.length > 0) {
+				var rootAssembly = _editorContext.currentAssembly;
+				for (item in _cachedDeviceWindowState) {
+					var atom = resolveDevicePath(rootAssembly, item.path);
+					if (atom != null) {
+						_deviceWindow.addDevice(atom, item.x, item.y);
+					}
+				}
+				log("Restored " + _cachedDeviceWindowState.length + " devices from cache.");
+			}
+		}
+	}
+
     // v2.3: Auto-save with 300ms debounce
-    private function onDeviceWindowChanged(impulse:Impulse):Void {
-        if (_windowSaveTimer != null) {
-            _windowSaveTimer.stop();
-        }
-        _windowSaveTimer = haxe.Timer.delay(() -> {
-            saveCurrentContext();
-            _windowSaveTimer = null;
-            log("Device window state auto-saved.");
-        }, 300);
-    }
+	private function onDeviceWindowChanged(impulse:Impulse):Void {
+		if (_windowSaveTimer != null) {
+			_windowSaveTimer.stop();
+		}
+		_windowSaveTimer = haxe.Timer.delay(() -> {
+			saveCurrentContext();
+			_windowSaveTimer = null;
+			log("Device window state auto-saved.");
+		}, 300);
+	}
 
     // =============================================================================================
     // MAIN LOOP & SETUP
@@ -392,8 +401,16 @@ class Main extends Sprite {
         var now = Lib.getTimer();
         var dt = (now - _lastTime) / 1000.0;
         _lastTime = now;
-        DriverManager.getInstance().update(dt);
-        SignalQueue.getInstance().process();
+        // 1. Heartbeat: Запуск тактов (MultiPulse)
+        Timebase.getInstance().updateFrame(); 
+
+        // 2.Drivers (если нужно точное время dt, они идут после тактов)
+		DriverManager.getInstance().update(dt);
+        
+		
+		// 2. Смотрим статистику после обработки
+       // var sq = SignalQueue.getInstance();
+       // trace("Ticks: " + sq.ticksProcessed); // Вывод: сколько тактов успели
     }
 
     private function setupDebugLog() {
@@ -558,20 +575,62 @@ class Main extends Sprite {
     // HELPERS & EVENTS
     // =============================================================================================
 
-    private function onOpenAssemblyRequest(impulse:Impulse):Void {
-        if (!_settingsPanel.allowAssembly) { log("Assembly editing disabled"); return; }
-        var id = impulse.data.atomId;
-        var obj = _editorContext.currentAssembly.internalAtoms.get(id);
-        if (Std.isOfType(obj, Assembly)) {
-            var targetAsm = cast(obj, Assembly);
-            if (targetAsm.blueprint.isNative) { log("Cannot edit native atom"); return; }
-            _editorContext.currentEditor.deselectAll();
-            _propertiesWindow.close();
-            _editorContext.push(targetAsm);
-            log("Opened: " + targetAsm.blueprint.name);
-            updateNavigationUI();
-            updateButtonStates();
+        private function onOpenAssemblyRequest(impulse:Impulse):Void {
+        if (!_settingsPanel.allowAssembly) { 
+            log("Assembly editing disabled"); 
+            return; 
         }
+
+        // 1. Проверяем данные импульса
+        if (impulse == null || impulse.data == null) {
+            trace("ERROR: Open Assembly Request has no data!");
+            return;
+        }
+
+        var id = impulse.data.atomId;
+        trace('DEBUG: Open Request for ID: $id');
+
+        // 2. Ищем в текущей сборке
+        var obj = _editorContext.currentAssembly.internalAtoms.get(id);
+        
+        if (obj == null) {
+            // Если не нашли, пробуем найти через карту ID (на случай загрузки)
+            var runtimeId = _editorContext.currentAssembly.idMap.get(id);
+            if (runtimeId != null) {
+                 obj = _editorContext.currentAssembly.internalAtoms.get(runtimeId);
+                 trace('DEBUG: Found via ID Map. RuntimeID: $runtimeId');
+            }
+        }
+
+        // 3. Если всё еще null
+        if (obj == null) {
+            trace('ERROR: Atom with ID $id NOT FOUND in current assembly!');
+            // Выведем список ключей для отладки
+            trace('Available keys: ${[for(k in _editorContext.currentAssembly.internalAtoms.keys()) k]}');
+            return;
+        }
+
+        // 4. Проверяем тип
+        if (!Std.isOfType(obj, Assembly)) {
+            trace('ERROR: Object $id is NOT an Assembly. It is ${Type.getClassName(Type.getClass(obj))}');
+            return;
+        }
+
+        var targetAsm = cast(obj, Assembly);
+
+        // 5. Проверяем Native
+        if (targetAsm.blueprint.isNative) { 
+            log("Cannot edit native atom: " + targetAsm.blueprint.name); 
+            return; 
+        }
+
+        // Успех!
+        _editorContext.currentEditor.deselectAll();
+        _propertiesWindow.close();
+        _editorContext.push(targetAsm);
+        log("Opened: " + targetAsm.blueprint.name);
+        updateNavigationUI();
+        updateButtonStates();
     }
 
     private function onRequestNewContext(impulse:Impulse):Void {
@@ -754,26 +813,26 @@ class Main extends Sprite {
         }
     }
 
-    private function extractDeviceWindowData():Array<{path:Array<String>, x:Float, y:Float, ?width:Float, ?height:Float}> {
-        if (_deviceWindow != null && _deviceWindow.isOpen) {
-            var cards = _deviceWindow.getDeviceCards();
-            var data = [];
-            for (card in cards) {
-                var path = findDevicePath(_editorContext.currentAssembly, card.atom);
-                if (path != null && path.length > 0) {
-                    data.push({
-                        path: path,
-                        x: card.x,
-                        y: card.y,
-                        width: card.cardWidth,
-                        height: card.cardHeight
-                    });
-                }
-            }
-            return data;
-        }
-        return _cachedDeviceWindowState != null ? _cachedDeviceWindowState : [];
-    }
+	private function extractDeviceWindowData():Array<{path:Array<String>, x:Float, y:Float, ?width:Float, ?height:Float}> {
+		if (_deviceWindow != null && _deviceWindow.isOpen) {
+			var cards = _deviceWindow.getDeviceCards();
+			var data = [];
+			for (card in cards) {
+				var path = findDevicePath(_editorContext.currentAssembly, card.atom);
+				if (path != null && path.length > 0) {
+					data.push({
+						path: path,
+						x: card.x,
+						y: card.y,
+						width: card.cardWidth,
+						height: card.cardHeight
+					});
+				}
+			}
+			return data;
+		}
+		return _cachedDeviceWindowState != null ? _cachedDeviceWindowState : [];
+	}
 
     private function restoreDeviceWindow(rootAssembly:Assembly):Void {
         onToggleView();

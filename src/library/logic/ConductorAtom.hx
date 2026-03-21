@@ -3,41 +3,84 @@ package library.logic;
 import core.base.Atom;
 import core.base.Contact;
 import core.types.ContactType;
+import core.types.ContactType.*;
 import core.logic.SignalQueue;
 import core.types.Priority;
 
-using core.types.ContactType;
-
 /**
- * CONDUCTOR ATOM v1.0 (Multi-Input OR Gate)
- * Многовходовый кондуктор с логикой OR.
+ * CONDUCTOR ATOM v1.1 (Databank Architecture)
+ * Multi-input OR gate with dynamic port management.
  *
- * Принцип работы:
- * - 2-20 входов (динамически добавляются)
- * - Выход = true если ХОТЯ БЫ ОДИН вход = true
- * - Выход = false только если ВСЕ входы = false
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   ConductorAtom (Databank)                                              │
+ * │                                                                         │
+ * │   А) COMPUTE MODULE:                                                    │
+ * │   ─────────────────                                                     │
+ * │   onContactChanged() → schedule(_calculate)                             │
+ * │   _calculate() { result = OR(all inputs); output = result; }            │
+ * │                                                                         │
+ * │   Б) DATABANK:                                                          │
+ * │   ─────────────                                                         │
+ * │   _conductorInputCount:Int = 2  // Number of input ports                │
+ * │   addInput()    → creates new Contact                                   │
+ * │   removeLastInput() → removes last Contact                              │
+ * │   getPersistentState() → { inputCount: N }                              │
+ * │   restoreState() → recreates inputs                                     │
+ * │                                                                         │
+ * │   В) FACE (DeviceView):                                                 │
+ * │   ──────────────────                                                    │
+ * │   ConductorWidget shows:                                                │
+ * │   - Current ON/OFF state                                                │
+ * │   - Input count                                                         │
+ * │   - Add/Remove buttons                                                  │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * Principle:
+ * - 2-20 inputs (dynamically addable)
+ * - Output = true if ANY input = true
+ * - Output = false only if ALL inputs = false
  */
 class ConductorAtom extends Atom {
+
+    // =========================================================================
+    // CONFIGURATION
+    // =========================================================================
 
     public static inline var MIN_INPUTS:Int = 2;
     public static inline var MAX_INPUTS:Int = 20;
 
+    // =========================================================================
+    // DATABANK
+    // =========================================================================
+
     private var _conductorInputCount:Int = 2;
+
+    // =========================================================================
+    // CONSTRUCTOR
+    // =========================================================================
 
     public function new(id:String, ?initialInputs:Int = 2) {
         _conductorInputCount = Std.int(Math.max(MIN_INPUTS, Math.min(initialInputs, MAX_INPUTS)));
 
+        // Create inputs
         var inputs:Array<Contact> = [];
         for (i in 0..._conductorInputCount) {
             inputs.push(new Contact(false, INPUT, "in" + i));
         }
 
+        // Create outputs
         var outputs:Array<Contact> = [
             new Contact(false, OUTPUT, "out")
         ];
 
         super(inputs, outputs, null, id, "Conductor");
     }
+
+    // =========================================================================
+    // COMPUTE MODULE
+    // =========================================================================
 
     override public function onContactChanged(c:Contact):Void {
         if (_isScheduled || _isDisposed) return;
@@ -64,8 +107,13 @@ class ConductorAtom extends Atom {
         _outputs[0].value = result;
     }
 
+    // =========================================================================
+    // DYNAMIC PORT MANAGEMENT
+    // =========================================================================
+
     /**
-     * Add new input port.
+     * Add a new input port.
+     * @return Name of the new port, or null if limit reached
      */
     public function addInput():String {
         if (_inputs.length >= MAX_INPUTS) {
@@ -79,10 +127,12 @@ class ConductorAtom extends Atom {
         _inputs.push(newContact);
         _conductorInputCount = _inputs.length;
 
+        // Extend cache
         while (_inputCache.length < _inputs.length) {
             _inputCache.push(null);
         }
 
+        // Recalculate
         _calculate();
 
         trace('ConductorAtom: Added $newName (total: $_conductorInputCount)');
@@ -90,7 +140,8 @@ class ConductorAtom extends Atom {
     }
 
     /**
-     * Remove last input port.
+     * Remove the last input port.
+     * @return true if successful
      */
     public function removeLastInput():Bool {
         if (_inputs.length <= MIN_INPUTS) {
@@ -114,6 +165,10 @@ class ConductorAtom extends Atom {
         return _inputs != null ? _inputs.length : 0;
     }
 
+    // =========================================================================
+    // STATE SERIALIZATION (Databank Persistence)
+    // =========================================================================
+
     override public function getPersistentState():Dynamic {
         return { inputCount: _conductorInputCount };
     }
@@ -123,6 +178,7 @@ class ConductorAtom extends Atom {
 
         var targetCount = Std.int(Math.max(MIN_INPUTS, Math.min(state.inputCount, MAX_INPUTS)));
 
+        // Add or remove inputs to match target
         while (_inputs.length < targetCount) {
             var newName = "in" + _inputs.length;
             var newContact = new Contact(false, INPUT, newName);
@@ -136,6 +192,7 @@ class ConductorAtom extends Atom {
 
         _conductorInputCount = _inputs.length;
 
+        // Extend cache
         while (_inputCache.length < _inputs.length) {
             _inputCache.push(null);
         }
