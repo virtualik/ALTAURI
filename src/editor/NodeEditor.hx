@@ -341,71 +341,71 @@ class NodeEditor extends Sprite {
     
     /**
      * Отрисовка рамки редактора и краевых портов сборки.
-     * 
-     * ═══════════════════════════════════════════════════════════════════════
-     * ИСПРАВЛЕНИЕ v3.4:
-     * ═══════════════════════════════════════════════════════════════════════
-     * createEdgePort() теперь получает ПРАВИЛЬНЫЙ флаг isInput:
-     * - INPUT порты (слева) → isInput = true
-     * - OUTPUT порты (справа) → isInput = false
-     * 
-     * Это критично для правильного подключения проводов!
      */
+    // =========================================================================
+    // SIZE & FRAME
+    // =========================================================================
+
     private function drawFrame(e:Event = null):Void {
         var w:Float = _forcedWidth > 0 ? _forcedWidth : (stage != null ? stage.stageWidth : 1024);
         var h:Float = _forcedHeight > 0 ? _forcedHeight : (stage != null ? stage.stageHeight : 600);
-        
+
         // Рамка
         _frame.graphics.clear();
         _frame.graphics.lineStyle(5, _theme.FRAME_BORDER_COLOR);
         _frame.graphics.drawRect(0, 0, w, h);
-        
+
         // ScrollRect для холста
         _editorContainer.scrollRect = new Rectangle(0, 0, w, h);
-        
+
         // Позиция поля с именем
         _fileNameField.x = w - 10 - _fileNameField.width;
         _fileNameField.y = h - 20;
-        
+
         // Очистка краевых портов
         _edgePortsContainer.removeChildren();
         _edgePorts = new Map();
-        
-        // Получаем порты сборки
+
         var leftPorts = _assembly.getOrderedPorts(INPUT);
         var rightPorts = _assembly.getOrderedPorts(OUTPUT);
-        
-        // Шаг размещения портов
+
         var leftStep:Float = h / (leftPorts.length + 1);
         var rightStep:Float = h / (rightPorts.length + 1);
-        
+
         // === INPUT PORTS (слева) ===
         var leftIdx:Int = 0;
         for (p in leftPorts) {
-            var c:Contact = p.internal;
-            // ✅ ИСПРАВЛЕНО: true для INPUT портов
-            var portView = createEdgePort(c, true, p.name);
+            var c:Contact = p.internal; // Берем ВНУТРЕННИЙ контакт
+            
+            // === FIX: Определяем тип по РЕАЛЬНОМУ контакту ===
+            // Для Input порта сборки, внутренний контакт - это OUTPUT (источник)
+            var isInput:Bool = (c.type == INPUT); 
+            var portView = createEdgePort(c, isInput, p.name);
+            
             portView.x = 0;
             portView.y = leftStep * (leftIdx + 1);
             _edgePortsContainer.addChild(portView);
             _edgePorts.set(p.name, portView);
             leftIdx++;
         }
-        
+
         // === OUTPUT PORTS (справа) ===
         var rightIdx:Int = 0;
         for (p in rightPorts) {
-            var c:Contact = p.internal;
-            // ✅ ИСПРАВЛЕНО: false для OUTPUT портов
-            var portView = createEdgePort(c, false, p.name);
+            var c:Contact = p.internal; // Берем ВНУТРЕННИЙ контакт
+
+            // === FIX: Определяем тип по РЕАЛЬНОМУ контакту ===
+            // Для Output порта сборки, внутренний контакт - это INPUT (приемник)
+            var isInput:Bool = (c.type == INPUT);
+            var portView = createEdgePort(c, isInput, p.name);
+
             portView.x = w;
             portView.y = rightStep * (rightIdx + 1);
             _edgePortsContainer.addChild(portView);
             _edgePorts.set(p.name, portView);
             rightIdx++;
         }
-        
-        // Обновление проводов краевых портов
+
         _wireRenderer.updateEdgeWires();
     }
     
@@ -819,12 +819,6 @@ class NodeEditor extends Sprite {
     
     /**
      * Найти порт под координатами мыши.
-     * 
-     * ═══════════════════════════════════════════════════════════════════════
-     * ИСПРАВЛЕНИЕ v3.4:
-     * ═══════════════════════════════════════════════════════════════════════
-     * Для SELF портов isInput определяется правильно:
-     * asmPort.type == INPUT → isInput = true
      */
     private function findPortAt(x:Float, y:Float):{nodeId:String, contactName:String, isInput:Bool} {
         // Проверяем краевые порты сборки (SELF)
@@ -833,13 +827,16 @@ class NodeEditor extends Sprite {
             var local = port.globalToLocal(new Point(x, y));
             if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) {
                 var asmPort = _assembly.ports.get(name);
-                // ✅ ИСПРАВЛЕНО: правильное определение isInput
-                var isInput:Bool = (asmPort.type == INPUT);
+                if (asmPort == null) return null;
+                
+                // === FIX: Возвращаем тип ВНУТРЕННЕГО контакта ===
+                var contact = asmPort.internal;
+                var isInput:Bool = (contact.type == INPUT);
                 return { nodeId: "SELF", contactName: name, isInput: isInput };
             }
         }
-        
-        // Проверяем порты узлов
+
+        // Проверяем порты узлов (без изменений)
         for (nodeId in _nodes.keys()) {
             var view = _nodes.get(nodeId);
             if (view != null) {
@@ -851,7 +848,7 @@ class NodeEditor extends Sprite {
                         if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) {
                             return {nodeId: nodeId, contactName: name, isInput: true};
                         }
-                    }
+                }
                 }
                 // Output ports
                 for (name in view.outputPorts.keys()) {
@@ -860,7 +857,7 @@ class NodeEditor extends Sprite {
                         var local = port.globalToLocal(new Point(x, y));
                         if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) {
                             return {nodeId: nodeId, contactName: name, isInput: false};
-                        }
+                    }
                     }
                 }
             }

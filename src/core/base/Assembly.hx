@@ -9,15 +9,20 @@ import core.types.ContactType;
 import utils.UID;
 import library.AtomRegistry;
 import system.managers.DriverManager;
-import core.logic.SignalQueue; // Добавлен импорт
+import core.logic.SignalQueue;
+import core.logic.Impulsys; // Added Import
+import core.logic.EventType; // Added Import
 
 /**
- * ASSEMBLY v5.1 (Initialization Safety)
+ * ASSEMBLY v5.2 (Port Sync)
  * Universal base class for ALL nodes.
+ *
+ * v5.2 Changes:
+ * - Emit ASSEMBLY_PORTS_CHANGED when ports are added/removed.
+ *   This allows NodeViews representing this Assembly to update their port visuals instantly.
  *
  * v5.1 Changes:
  * - Suspended SignalQueue during initialization to prevent race conditions.
- * - Signals are now processed only after all internal atoms are created and connected.
  */
 class Assembly extends Atom {
 
@@ -32,7 +37,6 @@ class Assembly extends Atom {
     public var inputs(get, null):Map<String, Contact>;
     public var outputs(get, null):Map<String, Contact>;
 
-    // Map: Template ID -> Runtime ID
     private var _idMap:Map<String, String>;
 
     public var idMap(get, never):Map<String, String>;
@@ -82,7 +86,6 @@ class Assembly extends Atom {
         super(inputsArr, outputsArr, blueprint.logic, id, typeName, false);
 
         if (blueprint.logic == null) {
-            // === FIX: Приостанавливаем очередь сигналов на время инициализации ===
             SignalQueue.getInstance().suspend();
             
             try {
@@ -92,7 +95,6 @@ class Assembly extends Atom {
                 trace('ERROR during Assembly($id) initialization: $e');
             }
 
-            // === FIX: Возобновляем очередь. Накопленные сигналы обработаются ===
             SignalQueue.getInstance().resume();
         }
     }
@@ -146,9 +148,7 @@ class Assembly extends Atom {
                     if (pin.type == INPUT) {
                         _inputs.push(newPort.external);
                         newPort.external.owner = this;
-                        while (_inputCache.length < _inputs.length) {
-                            _inputCache.push(null);
-                        }
+                        while (_inputCache.length < _inputs.length) _inputCache.push(null);
                     } else {
                         _outputs.push(newPort.external);
                         newPort.external.owner = this;
@@ -184,16 +184,13 @@ class Assembly extends Atom {
             if (instance != null) {
                 internalAtoms.set(newInstanceID, instance);
 
-                // v5.0: Restore state from atomDef.values
-                // Если здесь срабатывает set_value, он попадет в очередь, но не выполнится до resume()
                 if (atomDef.values != null) {
                     instance.restoreState(atomDef.values);
                 }
 
-                // Register active drivers
                 var bpDef = AtomRegistry.get(atomDef.typeId);
                 if (bpDef != null && bpDef.isActive && !bpDef.isNative) {
-					DriverManager.getInstance().register(instance);
+                    DriverManager.getInstance().register(instance);
             }
             }
         }
@@ -275,13 +272,15 @@ class Assembly extends Atom {
         if (type == INPUT) {
             _inputs.push(port.external);
             port.external.owner = this;
-            while (_inputCache.length < _inputs.length) {
-                _inputCache.push(null);
-            }
+            while (_inputCache.length < _inputs.length) _inputCache.push(null);
         } else {
             _outputs.push(port.external);
             port.external.owner = this;
         }
+
+        // === v5.2 FIX: Notify the world ===
+        Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
+        // =================================
 
         return port;
     }
@@ -310,16 +309,16 @@ class Assembly extends Atom {
 
         port.dispose();
         ports.remove(name);
+
+        // === v5.2 FIX: Notify the world ===
+        Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
+        // =================================
     }
 
     // =========================================================================
     // STATE SERIALIZATION v5.0
     // =========================================================================
 
-    /**
-     * Collect state from all internal atoms.
-     * Returns a map of Runtime ID -> atom state.
-     */
     override public function getPersistentState():Dynamic {
         var states:Dynamic = {};
 
@@ -335,7 +334,6 @@ class Assembly extends Atom {
             }
         }
 
-        // Only return if we have any states
         var hasStates = false;
         for (field in Reflect.fields(states)) {
             hasStates = true;
@@ -345,10 +343,6 @@ class Assembly extends Atom {
         return hasStates ? states : null;
     }
 
-    /**
-     * Restore state to internal atoms.
-     * Expects a map of Runtime ID -> atom state.
-     */
     override public function restoreState(state:Dynamic):Void {
         if (state == null) return;
 

@@ -46,11 +46,11 @@ import library.AtomRegistry;
 using StringTools;
 
 /**
- * Main v2.3 (Window Auto-Save)
+ * Main v2.4 (Port Sync Hotfix)
  *
- * v2.3 Changes:
- * - Fixed DeviceWindow creation to pass cached Width and Height
- * - Added listener for DEVICE_WINDOW_CHANGED with 300ms debounce to auto-save position/size
+ * v2.4 Changes:
+ * - Fixed port synchronization when returning from nested assembly editing.
+ * - Now ensures assembly is saved and instances are updated in parent context.
  */
 class Main extends Sprite {
 
@@ -151,9 +151,9 @@ class Main extends Sprite {
         #end
 
         loadProject();
-		
-		//SignalQueue.getInstance().slowMotion = true;
-		SignalQueue.getInstance().maxTicksPerFrame = 0; // Без лимита
+        
+        //SignalQueue.getInstance().slowMotion = true;
+        SignalQueue.getInstance().maxTicksPerFrame = 0; // Без лимита
     }
 
     // =============================================================================================
@@ -216,7 +216,7 @@ class Main extends Sprite {
     // SAVING v2.2
     // =============================================================================================
 
- private function saveCurrentContext():Void {
+    private function saveCurrentContext():Void {
         var isRoot = (_editorContext.getStackLength() == 1);
 
         if (isRoot) {
@@ -251,6 +251,7 @@ class Main extends Sprite {
             _projectManager.saveAssemblyToLibrary(_editorContext.currentAssembly);
         }
     }
+    
     private function saveOnExit():Void {
         log("Auto-saving on exit...");
         saveCurrentContext();
@@ -343,55 +344,55 @@ class Main extends Sprite {
         saveCurrentContext();
     }
 
-	private function onToggleView():Void {
-		if (_deviceWindow != null && _deviceWindow.isOpen) {
-			// Closing: cache position
-			_cachedDeviceWindowState = extractDeviceWindowData();
-			_cachedWindowWidth = _deviceWindow.windowWidth;
-			_cachedWindowHeight = _deviceWindow.windowHeight;
-			_cachedWindowX = _deviceWindow.windowX;
-			_cachedWindowY = _deviceWindow.windowY;
+    private function onToggleView():Void {
+        if (_deviceWindow != null && _deviceWindow.isOpen) {
+            // Closing: cache position
+            _cachedDeviceWindowState = extractDeviceWindowData();
+            _cachedWindowWidth = _deviceWindow.windowWidth;
+            _cachedWindowHeight = _deviceWindow.windowHeight;
+            _cachedWindowX = _deviceWindow.windowX;
+            _cachedWindowY = _deviceWindow.windowY;
 
-			log("Closing Device Window (cached at " + _cachedWindowX + ", " + _cachedWindowY + ").");
-			_deviceWindow.close();
-			_deviceWindow = null;
-		} else {
-			log("Opening Device Window...");
-			
-			// Создаём независимое окно ОС
-			_deviceWindow = new DeviceWindow(_cachedWindowX, _cachedWindowY, _cachedWindowWidth, _cachedWindowHeight);
-			
-			_deviceWindow.onShowEditor = restoreEditorWindow;
-			_deviceWindow.onGetAssemblyList = getAllDevicesRecursive;
-			_deviceWindow.onAssemblySelected = function(atom:Atom) { 
-				log("Device added: " + atom.name); 
-			};
+            log("Closing Device Window (cached at " + _cachedWindowX + ", " + _cachedWindowY + ").");
+            _deviceWindow.close();
+            _deviceWindow = null;
+        } else {
+            log("Opening Device Window...");
+            
+            // Создаём независимое окно ОС
+            _deviceWindow = new DeviceWindow(_cachedWindowX, _cachedWindowY, _cachedWindowWidth, _cachedWindowHeight);
+            
+            _deviceWindow.onShowEditor = restoreEditorWindow;
+            _deviceWindow.onGetAssemblyList = getAllDevicesRecursive;
+            _deviceWindow.onAssemblySelected = function(atom:Atom) { 
+                log("Device added: " + atom.name); 
+            };
 
-			// Восстанавливаем устройства из кэша
-			if (_cachedDeviceWindowState != null && _cachedDeviceWindowState.length > 0) {
-				var rootAssembly = _editorContext.currentAssembly;
-				for (item in _cachedDeviceWindowState) {
-					var atom = resolveDevicePath(rootAssembly, item.path);
-					if (atom != null) {
-						_deviceWindow.addDevice(atom, item.x, item.y);
-					}
-				}
-				log("Restored " + _cachedDeviceWindowState.length + " devices from cache.");
-			}
-		}
-	}
+            // Восстанавливаем устройства из кэша
+            if (_cachedDeviceWindowState != null && _cachedDeviceWindowState.length > 0) {
+                var rootAssembly = _editorContext.currentAssembly;
+                for (item in _cachedDeviceWindowState) {
+                    var atom = resolveDevicePath(rootAssembly, item.path);
+                    if (atom != null) {
+                        _deviceWindow.addDevice(atom, item.x, item.y);
+                    }
+                }
+                log("Restored " + _cachedDeviceWindowState.length + " devices from cache.");
+            }
+        }
+    }
 
     // v2.3: Auto-save with 300ms debounce
-	private function onDeviceWindowChanged(impulse:Impulse):Void {
-		if (_windowSaveTimer != null) {
-			_windowSaveTimer.stop();
-		}
-		_windowSaveTimer = haxe.Timer.delay(() -> {
-			saveCurrentContext();
-			_windowSaveTimer = null;
-			log("Device window state auto-saved.");
-		}, 300);
-	}
+    private function onDeviceWindowChanged(impulse:Impulse):Void {
+        if (_windowSaveTimer != null) {
+            _windowSaveTimer.stop();
+        }
+        _windowSaveTimer = haxe.Timer.delay(() -> {
+            saveCurrentContext();
+            _windowSaveTimer = null;
+            log("Device window state auto-saved.");
+        }, 300);
+    }
 
     // =============================================================================================
     // MAIN LOOP & SETUP
@@ -405,10 +406,10 @@ class Main extends Sprite {
         Timebase.getInstance().updateFrame(); 
 
         // 2.Drivers (если нужно точное время dt, они идут после тактов)
-		DriverManager.getInstance().update(dt);
+        DriverManager.getInstance().update(dt);
         
-		
-		// 2. Смотрим статистику после обработки
+        
+        // 2. Смотрим статистику после обработки
        // var sq = SignalQueue.getInstance();
        // trace("Ticks: " + sq.ticksProcessed); // Вывод: сколько тактов успели
     }
@@ -813,26 +814,26 @@ class Main extends Sprite {
         }
     }
 
-	private function extractDeviceWindowData():Array<{path:Array<String>, x:Float, y:Float, ?width:Float, ?height:Float}> {
-		if (_deviceWindow != null && _deviceWindow.isOpen) {
-			var cards = _deviceWindow.getDeviceCards();
-			var data = [];
-			for (card in cards) {
-				var path = findDevicePath(_editorContext.currentAssembly, card.atom);
-				if (path != null && path.length > 0) {
-					data.push({
-						path: path,
-						x: card.x,
-						y: card.y,
-						width: card.cardWidth,
-						height: card.cardHeight
-					});
-				}
-			}
-			return data;
-		}
-		return _cachedDeviceWindowState != null ? _cachedDeviceWindowState : [];
-	}
+    private function extractDeviceWindowData():Array<{path:Array<String>, x:Float, y:Float, ?width:Float, ?height:Float}> {
+        if (_deviceWindow != null && _deviceWindow.isOpen) {
+            var cards = _deviceWindow.getDeviceCards();
+            var data = [];
+            for (card in cards) {
+                var path = findDevicePath(_editorContext.currentAssembly, card.atom);
+                if (path != null && path.length > 0) {
+                    data.push({
+                        path: path,
+                        x: card.x,
+                        y: card.y,
+                        width: card.cardWidth,
+                        height: card.cardHeight
+                    });
+                }
+            }
+            return data;
+        }
+        return _cachedDeviceWindowState != null ? _cachedDeviceWindowState : [];
+    }
 
     private function restoreDeviceWindow(rootAssembly:Assembly):Void {
         onToggleView();
