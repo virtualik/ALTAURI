@@ -5,14 +5,9 @@ import core.base.Contact;
 import core.types.ContactType;
 
 /**
- * TOGGLE ATOM v1.3 (Reset Immunity)
+* TOGGLE ATOM v1.4 (Set Input Added)
  * Переключатель с защитой от мгновенного сброса (Race Condition Protection).
  *
- * v1.3 Changes:
- * - Added "Reset Immunity" period (default 2 seconds).
- * - Prevents Reset signal from affecting the toggle immediately after user interaction.
- * - Allows user to see the state change before feedback logic kicks in.
- * 
  * Architecture:
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │   ToggleAtom (Databank)                                                 │
@@ -37,10 +32,6 @@ import core.types.ContactType;
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
- * v1.2 Changes:
- * - Added "rst" input (Reset)
- * - When rst = true, toggle resets to OFF state
- * - State persists across saves
  */
 class ToggleAtom extends Atom {
 
@@ -49,8 +40,8 @@ class ToggleAtom extends Atom {
     // =========================================================================
 
     /**
-     * Time in seconds during which Reset is ignored after a manual toggle.
-     * Default: 0.01 seconds (as requested).
+     * Time in seconds during which Reset/Set is ignored after a manual toggle.
+     * Default: 0.01 seconds.
      */
     public var resetImmunityTime:Float = 0.01;
 
@@ -66,9 +57,10 @@ class ToggleAtom extends Atom {
 
     public function new(id:String) {
         super(
-            // One input: rst (Reset)
+            // Two inputs: rst (Reset) and set (Set)
             [
-                new Contact(false, INPUT, "rst")
+                new Contact(false, INPUT, "rst"), // Index 0
+                new Contact(false, INPUT, "set")  // Index 1
             ],
             // One output: out (current state)
             [
@@ -86,32 +78,41 @@ class ToggleAtom extends Atom {
 
     /**
      * Called when any contact value changes.
-     * Handles reset signal with Immunity check.
+     * Handles reset and set signals with Immunity check.
      */
     override public function onContactChanged(c:Contact):Void {
         if (_isScheduled || _isDisposed) return;
 
-        // Check reset input
-        if (_inputs != null && _inputs.length > 0) {
+        // Check inputs
+        if (_inputs != null && _inputs.length > 1) {
             var rstValue = _inputs[0].value;
-            
+            var setValue = _inputs[1].value;
+
+            // === RESET IMMUNITY LOGIC ===
+            var now = haxe.Timer.stamp();
+            var elapsed = now - _lastToggleTime;
+
+            if (elapsed < resetImmunityTime) {
+                // Immunity active: Ignore the reset/set signals
+                return;
+            }
+            // =============================
+
+            // Priority: Reset > Set
             if (rstValue == true) {
-                // === RESET IMMUNITY LOGIC ===
-                var now = haxe.Timer.stamp();
-                var elapsed = now - _lastToggleTime;
-
-                if (elapsed < resetImmunityTime) {
-                    // Immunity active: Ignore the reset signal
-                    // trace('ToggleAtom: Reset ignored (Immunity ${Std.int(elapsed*1000)}ms < ${Std.int(resetImmunityTime*1000)}ms)');
-                    return;
-                }
-                // =============================
-
                 // Reset to OFF
                 if (_outputs != null && _outputs.length > 0) {
                     _outputs[0].value = false;
                 }
-                return;  // Don't schedule calculation
+                return;
+            }
+
+            if (setValue == true) {
+                // Set to ON
+                if (_outputs != null && _outputs.length > 0) {
+                    _outputs[0].value = true;
+                }
+                return;
             }
         }
 

@@ -120,11 +120,18 @@ class ContextMenuManager {
         var view:NodeView = impulse.data.view;
         _contextTargetId = impulse.data.id;
 
-        // Если кликнули по невыбранному узлу - сбрасываем выделение и выбираем только его
+        // Логика выделения при ПКМ
+		// Если кликнули по невыбранному узлу - сбрасываем выделение и выбираем только его
         if (!_editor.isSelected(_contextTargetId)) {
-            _editor.deselectAll();
+            // Узел не выделен: сбрасываем всё (узлы + провода) и выделяем этот узел
+			_editor.deselectAll();
             _editor.selectNode(_contextTargetId, view);
-        }
+        } else {
+			// ИСПРАВЛЕНИЕ: Узел УЖЕ выделен.
+            // Мы оставляем выделение узлов (чтобы работало групповое удаление),
+            // но снимаем выделение проводов, чтобы избежать путаницы.
+            _editor.clearWireSelection();
+		}
 
         resetMenu();
 

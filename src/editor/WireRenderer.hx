@@ -377,16 +377,31 @@ class WireRenderer {
     
     private function handleWireRightClick(wireId:String):Void {
         if (_isDisposed) return;
-        
+
         var selectedIds = _getSelectedWireIds();
+        
+        // === ЛОГИКА ВЫДЕЛЕНИЯ ПРИ ПКМ ===
+        // Если провод не выделен, мы должны выделить ТОЛЬКО его.
+        // Это снимет выделение со всех узлов (через callback в NodeEditor).
         if (selectedIds.indexOf(wireId) == -1) {
             selectedIds = [wireId];
+            
+            // Уведомляем NodeEditor: "Выдели только этот провод (и сними всё остальное)"
             if (_onWireSelectionChanged != null) {
                 _onWireSelectionChanged(selectedIds);
             }
+            
+            // Перерисовываем, чтобы цвет провода обновился
+            rebuildAll();
         }
-        
-        Impulsys.emit(new Impulse(EventType.WIRE_RIGHT_CLICKED, { ids: selectedIds.copy() }));
+        // Если провод уже выделен, мы НЕ меняем выделение (работаем с группой)
+
+        // === ОТПРАВКА ИМПУЛЬСА ДЛЯ МЕНЮ ===
+        Impulsys.quickEmit(EventType.WIRE_RIGHT_CLICKED, { 
+            ids: selectedIds.copy(), // Передаем текущий список (или 1 провод, или группа)
+            x: _canvas.stage.mouseX,
+            y: _canvas.stage.mouseY
+        });
     }
     
     // ========================================================================

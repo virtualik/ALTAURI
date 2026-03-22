@@ -135,6 +135,10 @@ class SelectionManager {
         _selection.clearWires();
     }
 
+	public function clearWires():Void {
+        _selection.clearWires();
+    }
+
     public function selectInRect(rect:Rectangle):Void {
         var idsInRect = ECS.getInRect(rect.x, rect.y, rect.width, rect.height);
         for (id in idsInRect) {
@@ -163,7 +167,8 @@ class SelectionManager {
     public function getSelectedWireIds():Array<String> return _selection.getWireIds();
     public function hasNode(id:String):Bool return _selection.hasNode(id);
     public function isLassoing():Bool return _isLassoing;
-
+	public function setWires(ids:Array<String>):Void {_selection.setWires(ids);}
+	
     public function dispose():Void {
         if (_lasso != null && _lasso.parent != null) _lasso.parent.removeChild(_lasso);
         _lasso = null;

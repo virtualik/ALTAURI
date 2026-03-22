@@ -10,7 +10,7 @@ import core.base.Contact;
 import library.electro.ToggleAtom;
 
 /**
- * TOGGLE WIDGET v2.0 (Databank Architecture)
+ * TOGGLE WIDGET v2.1 (Set Input Support)
  * Toggle switch widget with two states.
  *
  * Architecture:
@@ -18,6 +18,8 @@ import library.electro.ToggleAtom;
  * │   ToggleAtom (Databank)                                                 │
  * │                                                                         │
  * │   Contact "out" ◄──► ToggleWidget                                       │
+ * │   Contact "rst"  ◄─── (Wired externally)                                │
+ * │   Contact "set"  ◄─── (Wired externally)                                │
  * │                    ┌─────────────────────────────────────────────────┐  │
  * │                    │ onClick:    contact.value = !contact.value      │  │
  * │                    │ onActivate: syncFromAtom() → read current state │  │
@@ -28,7 +30,7 @@ import library.electro.ToggleAtom;
  * │   Widget WRITES to atom's contact (user input)                          │
  * │   Atom is the Databank - single source of truth                         │
  * │                                                                         │
- * │   v2.0: REMOVED _currentState - now reads directly from contact!        │
+ * │   v2.1: Added _setContact reference for consistency.                    │
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
@@ -41,8 +43,11 @@ class ToggleWidget extends DeviceView {
     private var _btn:Sprite;
     private var _labelField:TextField;
     private var _stateField:TextField;
+    
+    // Atom Contacts References
     private var _outContact:Contact;
     private var _rstContact:Contact;
+    private var _setContact:Contact; // Added in v2.1
 
     // =========================================================================
     // CONFIGURATION
@@ -79,12 +84,13 @@ class ToggleWidget extends DeviceView {
             if (_outContact == null) _outContact = atom.getOutput("out");
 
             _rstContact = atom.getInput("rst");
+            _setContact = atom.getInput("set"); // Find the new input
         }
     }
 
     override private function onActivate():Void {
         findContacts();
-        // Синхронизируем визуал с текущим состоянием Databank
+        // Sync visual with current Databank state
         updateVisual();
     }
 
@@ -130,41 +136,37 @@ class ToggleWidget extends DeviceView {
     // =========================================================================
 
     /**
-     * Реакция на изменение контакта.
-     * v2.0: Просто обновляем визуал, всё состояние в контакте.
+     * Reaction to contact change.
+     * v2.1: Updates visual if "out" changes.
      */
-	override private function onContactChanged(contact:Contact, newValue:Dynamic):Void {
-		if (contact == _outContact) {
-			// Просто обновляем визуал, состояние в контакте
-			updateVisual();
-		} else if (contact == _rstContact) {
-			if (newValue == true) {
-				updateVisual();
-			}
-		}
-	}
+    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void {
+        if (contact == _outContact) {
+            updateVisual();
+        } else if (contact == _rstContact || contact == _setContact) {
+            // If rst or set changes, the output might change, but usually
+            // the output change event fires separately.
+            // We can force a visual update here just in case.
+            updateVisual();
+        }
+    }
 
     /**
-     * Клик по кнопке - переключаем состояние.
-     * v2.0: Пишем прямо в контакт, без локального состояния.
+     * Click - toggle state.
+     * v2.1: Delegates logic to Atom.
      */
-	private function onClick(e:MouseEvent):Void {
-		// Читать текущее состояние ИЗ КОНТАКТА
-		var currentState = (_outContact != null && _outContact.value == true);
-		var newState = !currentState;
-		
-		// Писать в контакт
-		if (_outContact != null) {
-			_outContact.value = newState;
-		}
-		
-		// Вызвать toggle на атоме
-		if (atom != null && Std.isOfType(atom, library.electro.ToggleAtom)) {
-			cast(atom, library.electro.ToggleAtom).setState(newState);
-		}
-		
-		// Визуал обновится через onContactChanged()
-	}
+    private function onClick(e:MouseEvent):Void {
+        // Read current state FROM CONTACT
+        var currentState = (_outContact != null && _outContact.value == true);
+        var newState = !currentState;
+
+        // Use the Atom's API to ensure immunity timer is set correctly
+        if (atom != null && Std.isOfType(atom, library.electro.ToggleAtom)) {
+            cast(atom, library.electro.ToggleAtom).setState(newState);
+        } else if (_outContact != null) {
+            // Fallback: direct write
+            _outContact.value = newState;
+        }
+    }
 
     private function onOver(e:MouseEvent):Void {
         _btn.graphics.clear();
@@ -179,14 +181,13 @@ class ToggleWidget extends DeviceView {
     }
 
     /**
-     * Обновить визуальное представление.
-     * v2.0: Читаем состояние НАПРЯМУЮ из контакта.
+     * Update visual representation.
+     * Reads state DIRECTLY from contact.
      */
     private function updateVisual():Void {
-
-		// Читать из контакта
-		var isOn = (_outContact != null && _outContact.value == true);
-		var color = isOn ? colorOn : colorOff;
+        // Read from contact
+        var isOn = (_outContact != null && _outContact.value == true);
+        var color = isOn ? colorOn : colorOff;
 
         _btn.graphics.clear();
         _btn.graphics.beginFill(color);
@@ -198,31 +199,18 @@ class ToggleWidget extends DeviceView {
     }
 
     /**
-     * Получить текущее состояние ИЗ DATABANK (контакта).
-     * v2.0: Единственный источник истины - контакт атома.
-     */
-    private function getCurrentState():Bool {
-        if (_outContact != null && _outContact.value == true) {
-            return true;
-        }
-        return false;
-    }
-
-    /**
      * Get current toggle state.
-     * v2.0: Делегирует к контакту.
      */
     public function getState():Bool {
-        return getCurrentState();
+        return (_outContact != null && _outContact.value == true);
     }
 
     /**
      * Set state programmatically.
-     * v2.0: Пишет в контакт.
      */
     public function setState(value:Bool):Void {
-        if (_outContact != null) {
-            _outContact.value = value;
+        if (atom != null && Std.isOfType(atom, library.electro.ToggleAtom)) {
+            cast(atom, library.electro.ToggleAtom).setState(value);
         }
     }
 
@@ -239,6 +227,7 @@ class ToggleWidget extends DeviceView {
         _btn = null;
         _outContact = null;
         _rstContact = null;
+        _setContact = null;
         _labelField = null;
         _stateField = null;
         super.dispose();

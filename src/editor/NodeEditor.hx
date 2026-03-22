@@ -177,7 +177,10 @@ class NodeEditor extends Sprite {
             getNodeViewById, getEdgePortById, 
             function() return _selection.getSelectedWireIds()
         );
-
+		
+		// Передаем ссылку на метод setWires, чтобы WireRenderer мог обновлять выделение
+		_wireRenderer.setSelectionCallback(_selection.setWires);
+		
         // Frame
         _frame = new Sprite();
         _frame.mouseEnabled = false;
@@ -220,8 +223,10 @@ class NodeEditor extends Sprite {
         restoreExistingAtoms();
         
         _selection.setContext(_assembly, _canvas, getNodeViewById);
+		
+        _wireRenderer.setSelectionCallback(_selection.setWires);
         
-        _wireRenderer.rebuildAll();
+		_wireRenderer.rebuildAll();
     }
 
     private function onResize(e:Event):Void {
@@ -261,7 +266,7 @@ class NodeEditor extends Sprite {
         var leftIdx:Int = 0;
         for (p in leftPorts) {
             var c:Contact = p.internal;
-            var portView = createEdgePort(c, true, p.name);
+            var portView = createEdgePort(c, false, p.name);
             portView.x = 0;
             portView.y = leftStep * (leftIdx + 1);
             _edgePortsContainer.addChild(portView);
@@ -272,7 +277,7 @@ class NodeEditor extends Sprite {
         var rightIdx:Int = 0;
         for (p in rightPorts) {
             var c:Contact = p.internal;
-            var portView = createEdgePort(c, false, p.name);
+            var portView = createEdgePort(c, true, p.name);
             portView.x = w;
             portView.y = rightStep * (rightIdx + 1);
             _edgePortsContainer.addChild(portView);
@@ -361,7 +366,10 @@ class NodeEditor extends Sprite {
     // SELECTION API (Delegation)
     // =========================================================================
 
-    public function deselectAll():Void _selection.deselectAll();
+    public function deselectAll():Void {
+		_selection.deselectAll();
+		_wireRenderer.rebuildAll();
+	}
 
     public function selectAll():Void {
         var allIds = [for (id in _nodes.keys()) id];
@@ -375,7 +383,7 @@ class NodeEditor extends Sprite {
     public function getSelectedNodeIds():Array<String> return _selection.getSelectedNodeIds();
     public function getSelectedNodeCount():Int return _selection.getSelectedNodeCount();
     public function getSelectedWireIds():Array<String> return _selection.getSelectedWireIds();
-
+	public function clearWireSelection():Void {_selection.clearWires();_wireRenderer.rebuildAll(); }
     // =========================================================================
     // CLIPBOARD API (Restored)
     // =========================================================================
@@ -467,6 +475,9 @@ class NodeEditor extends Sprite {
 
         if (_selection.isLassoing()) {
             _selection.handleMouseUp();
+			// После лассо/клика по пустому месту нужно перерисовать провода,
+            // так как выделение могло сброситься.
+            _wireRenderer.rebuildAll();
         }
     }
 
@@ -715,7 +726,7 @@ class NodeEditor extends Sprite {
             var local = port.globalToLocal(new Point(x, y));
             if (Math.abs(local.x) < 10 && Math.abs(local.y) < 10) {
                 var asmPort = _assembly.ports.get(name);
-                var isInput:Bool = (asmPort.type == INPUT);
+                var isInput:Bool = (asmPort.type != INPUT);
                 return { nodeId: "SELF", contactName: name, isInput: isInput };
             }
         }

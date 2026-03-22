@@ -351,46 +351,84 @@ class NodeView extends Sprite {
     
     private function createPortSprite(name:String, isInput:Bool):Sprite {
         var port = new Sprite();
+
+        // Основные размеры
+        var w = PORT_RADIUS * 2; // Ширина = 14
+        var h = PORT_RADIUS * 2; // Высота = 14
         
+        // Цвета
         var color = isInput ? 0xFFAA00 : 0x00AAFF;
+
         port.graphics.beginFill(color);
         port.graphics.lineStyle(1, 0xFFFFFF);
-        port.graphics.drawCircle(0, 0, PORT_RADIUS);
+
+        if (isInput) {
+            // === INPUT PORT ===
+            // Простой квадрат по центру
+            // (x,y) = (0,0) - это центр порта.
+            // Рисуем от левого верхнего угла: (-w/2, -h/2)
+            port.graphics.drawRect(-w / 2, -h / 2, w, h);
+        } else {
+            // === OUTPUT PORT ===
+            // Стрелка вправо.
+            // Тело стрелки (прямоугольник слева)
+            var bodyWidth = w * 0.7; // 70% ширины - тело
+            port.graphics.drawRect(-w / 2, -h / 2, bodyWidth, h);
+            
+            // Наконечник стрелки (треугольник справа)
+            // Начинаем от правого края тела
+            var tipStartX = -w / 2 + bodyWidth;
+            port.graphics.moveTo(tipStartX, -h / 2);       // Левый верхний угол треугольника
+            port.graphics.lineTo(w / 2, 0);               // Кончик стрелки (центр справа)
+            port.graphics.lineTo(tipStartX, h / 2);        // Левый нижний угол треугольника
+            port.graphics.lineTo(tipStartX, -h / 2);       // Замыкаем к началу
+        }
+
         port.graphics.endFill();
-        
+
+        // --- HIT AREA (область клика) ---
         var hit = new Sprite();
         hit.graphics.beginFill(0x000000, 0);
-        hit.graphics.drawCircle(0, 0, PORT_RADIUS * 2);
+        // Делаем область клика чуть больше самого порта для удобства
+        hit.graphics.drawRect(-w, -h, w * 2, h * 2);
         hit.graphics.endFill();
         port.addChild(hit);
-        
+
+        // --- LABEL (Подпись) ---
         var label = new TextField();
         label.width = 50;
         label.height = 14;
         label.selectable = false;
         label.mouseEnabled = false;
         label.defaultTextFormat = new TextFormat("_sans", 8, 0x888888);
-        if (isInput) label.x = PORT_RADIUS + 3;
-        else label.x = -PORT_RADIUS - 53;
+
+        if (isInput) {
+            // Для входа: подпись справа от порта
+            label.x = w / 2 + 3;
+        } else {
+            // Для выхода: подпись слева от порта
+            // Сдвигаем влево на ширину текста (50) + отступ
+            label.x = -w / 2 - 53;
+        }
         label.y = -7;
         label.text = name;
         port.addChild(label);
-        
+
         port.name = name;
-        
+
         port.buttonMode = true;
         port.useHandCursor = true;
-        
+
         port.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent) {
             e.stopPropagation();
             onPortMouseDown(name, isInput, e);
         });
-        
+
         port.addEventListener(MouseEvent.RIGHT_CLICK, function(e:MouseEvent) {
             e.stopPropagation();
             onPortRightClick(name, isInput, e);
         });
-        
+
         return port;
     }
     
