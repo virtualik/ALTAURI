@@ -76,6 +76,9 @@ class ConductorAtom extends Atom {
         ];
 
         super(inputs, outputs, null, id, "Conductor");
+		
+		// ВАЖНО: Это логический вентиль
+        this.isLogic = true;
     }
 
     // =========================================================================
@@ -89,6 +92,7 @@ class ConductorAtom extends Atom {
     }
 
     override private function _calculate():Void {
+        // ВАЖНО: Сбрасываем флаг в самом начале
         _isScheduled = false;
 
         if (_isDisposed || _inputs == null || _outputs == null) return;
@@ -104,7 +108,21 @@ class ConductorAtom extends Atom {
             }
         }
 
-        _outputs[0].value = result;
+        // === ИСПРАВЛЕНИЕ: Уважаем флаг isLogic ===
+        if (isLogic) {
+            // ЦИФРОВОЙ РЕЖИМ: Записываем результат в следующем такте
+            var val = result;
+            var out = _outputs[0];
+            
+            SignalQueue.getInstance().scheduleNextTick(function() {
+                if (!_isDisposed && out != null) {
+                    out.value = val;
+                }
+            });
+        } else {
+            // АНАЛОГОВЫЙ РЕЖИМ: Мгновенная запись
+            _outputs[0].value = result;
+        }
     }
 
     // =========================================================================

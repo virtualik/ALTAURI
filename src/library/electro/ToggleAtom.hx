@@ -2,10 +2,10 @@ package library.electro;
 
 import core.base.Atom;
 import core.base.Contact;
-import core.types.ContactType;
+import core.logic.SignalQueue;
 
 /**
-* TOGGLE ATOM v1.4 (Set Input Added)
+* TOGGLE ATOM v1.5 (Hybrid Sync)
  * Переключатель с защитой от мгновенного сброса (Race Condition Protection).
  *
  * Architecture:
@@ -14,9 +14,9 @@ import core.types.ContactType;
  * │                                                                         │
  * │   А) COMPUTE MODULE:                                                    │
  * │   ─────────────────                                                     │
- * │   onContactChanged("rst") → reset to false                              │
- * │   toggle() → flip state                                                 │
- * │   setState(v) → set state directly                                      │
+ * │   onContactChanged("rst") -> reset to false                             │
+ * │   toggle() -> flip state                                                │
+ * │   setState(v) -> set state directly                                     │
  * │                                                                         │
  * │   Б) DATABANK:                                                          │
  * │   ─────────────                                                         │
@@ -32,6 +32,9 @@ import core.types.ContactType;
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
+ * v1.5 Changes:
+ * - setState (user interaction) now uses scheduleNextTick() for stability.
+ * - Logic inputs (rst/set) remain reactive to work within tick propagation.
  */
 class ToggleAtom extends Atom {
 
@@ -134,16 +137,24 @@ class ToggleAtom extends Atom {
     }
 
     /**
-     * Set state directly.
+     * Set state directly (User Interaction).
      * Updates the immunity timestamp.
+     * v1.5: Uses scheduleNextTick for stability.
      */
     public function setState(value:Bool):Void {
         if (_outputs != null && _outputs.length > 0) {
             // Record the time of manual interaction
             _lastToggleTime = haxe.Timer.stamp();
-            
+
             // Set value
-            _outputs[0].value = value;
+            // _outputs[0].value = value; // Old way (immediate)
+            
+            // v1.5 HYBRID: Schedule for next tick to sync with logic clock
+            SignalQueue.getInstance().scheduleNextTick(function() {
+                if (_outputs != null && _outputs.length > 0) {
+                    _outputs[0].value = value;
+                }
+            });
         }
     }
 

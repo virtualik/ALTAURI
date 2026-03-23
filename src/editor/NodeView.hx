@@ -266,28 +266,87 @@ class NodeView extends Sprite {
         setupInteraction();
     }
     
-    public function redraw():Void {
+	public function redraw():Void {
         var w = DEFAULT_WIDTH;
         var h = DEFAULT_HEIGHT;
-        
+
         var g = _background.graphics;
         g.clear();
-        g.beginFill(0x2a2a3a, 0.95);
-        g.lineStyle(selected ? 2 : 1, selected ? _theme.NODE_SELECTED_COLOR : _theme.NODE_BORDER_COLOR);
-        g.drawRoundRect(0, 0, w, h, 8, 8);
-        g.endFill();
         
+        // Основная заливка
+        g.beginFill(0x2a2a3a, 0.95);
+
+        // Обводка (выделенный или обычный)
+        g.lineStyle(selected ? 2 : 1, selected ? _theme.NODE_SELECTED_COLOR : _theme.NODE_BORDER_COLOR);
+
+        // === ВЫБОР ФОРМЫ ПО РЕЖИМУ isLogic ===
+        if (atom.isLogic) {
+            // ЦИФРОВОЙ ВИД (Digital Chip):
+            // Скошенные углы под 45 градусов (Chamfered Rectangle).
+            // Напоминает микросхему или чип.
+            var cut = 10.0; // Глубина скоса угла
+            
+            g.moveTo(cut, 0);
+            g.lineTo(w - cut, 0);
+            g.lineTo(w, cut);
+            g.lineTo(w, h - cut);
+            g.lineTo(w - cut, h);
+            g.lineTo(cut, h);
+            g.lineTo(0, h - cut);
+            g.lineTo(0, cut);
+            g.lineTo(cut, 0);
+            g.endFill();
+
+        } else {
+            // АНАЛОГОВЫЙ ВИД (Analog):
+            // Скругленные углы (Rounded Rectangle).
+            // Мягкий, плавный вид.
+            g.drawRoundRect(0, 0, w, h, 8, 8);
+            g.endFill();
+        }
+
+        // Заголовок (TitleBar)
         var tg = _titleBar.graphics;
         tg.clear();
         tg.beginFill(0x3a3a4a, 0.9);
-        tg.drawRoundRectComplex(0, 0, w, TITLE_HEIGHT, 8, 8, 0, 0);
-        tg.endFill();
         
+        // Заголовок повторяет форму верха корпуса
+        if (atom.isLogic) {
+            // Скошенный верх
+            var cut = 10.0;
+            tg.moveTo(cut, 0);
+            tg.lineTo(w - cut, 0);
+            tg.lineTo(w, cut);
+            tg.lineTo(w, TITLE_HEIGHT);
+            tg.lineTo(0, TITLE_HEIGHT);
+            tg.lineTo(0, cut);
+            tg.lineTo(cut, 0);
+        } else {
+            // Скругленный верх
+            tg.drawRoundRectComplex(0, 0, w, TITLE_HEIGHT, 8, 8, 0, 0);
+        }
+        tg.endFill();
+
+        // Подсветка выделения
         var sg = _selectionHighlight.graphics;
         sg.clear();
         if (selected) {
             sg.lineStyle(3, _theme.NODE_SELECTED_COLOR, 0.6);
-            sg.drawRoundRect(-3, -3, w + 6, h + 6, 10, 10);
+            // Подсветка тоже повторяет форму
+            if (atom.isLogic) {
+                var cut = 12.0;
+                sg.moveTo(cut, -3);
+                sg.lineTo(w - cut, -3);
+                sg.lineTo(w + 3, cut);
+                sg.lineTo(w + 3, h - cut);
+                sg.lineTo(w - cut, h + 3);
+                sg.lineTo(cut, h + 3);
+                sg.lineTo(-3, h - cut);
+                sg.lineTo(-3, cut);
+                sg.lineTo(cut, -3);
+            } else {
+                sg.drawRoundRect(-3, -3, w + 6, h + 6, 10, 10);
+            }
         }
     }
     

@@ -3,10 +3,33 @@ package core.logic;
 import core.types.Priority;
 
 /**
- * SIGNAL QUEUE v3.5 (Metrics & Speed Control)
- * Добавлен счетчик тиков и возможность ограничения скорости.
+ * SIGNAL QUEUE v3.6 (Hybrid: Tick + Reactive)
+ * Гибридная архитектура: Синхронная логика + Асинхронные драйверы.
+ *
+ * v3.6 Changes:
+ * - ADDED: _time (Global discrete time counter).
+ * - ADDED: _pendingInputs (Buffer for next tick events).
+ * - ADDED: scheduleNextTick(task). Used by Buttons/Inputs to sync with logic.
+ * - ADDED: tick(). The main simulation step processor.
+ *
+ * ARCHITECTURE:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │                         ГИБРИДНАЯ МОДЕЛЬ                                │
+ * │                                                                         │
+ * │   1. DIGITAL (Logic):                                                   │
+ * │      Buttons/Inputs -> scheduleNextTick() -> _pendingInputs             │
+ * │      tick() starts -> Move _pendingInputs to Queue -> process()         │
+ * │      Result: All logic updates synchronized to discrete time steps.     │
+ * │                                                                         │
+ * │   2. ANALOG (Drivers/Audio):                                            │
+ * │      Audio/Oscillators -> schedule() -> Immediate Queue                 │
+ * │      process() -> Immediate propagation (Speed of Light)                │
+ * │      Result: Smooth audio and real-time visualization.                  │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
  *
  * v3.5 Changes:
+ * Добавлен счетчик тиков и возможность ограничения скорости.
  * - added `ticksProcessed`: сколько тактов симуляции выполнено за последний кадр.
  * - added `maxTicksPerFrame`: лимит тиков (0 = без лимита, только по времени).
  * - added `throttleSpeed()`: метод для замедления симуляции (слоу-мо).
@@ -40,24 +63,36 @@ import core.types.Priority;
  * │         │                                                               │
  * │         └─► ... more tasks ...                                          │
  * └─────────────────────────────────────────────────────────────────────────┘
+ * 
+ * SIGNAL QUEUE v3.6 (Hybrid: Tick + Reactive)
+ * Гибридная архитектура: Синхронная логика + Асинхронные драйверы.
  *
- * Как управлять скоростью
- * 1. Нормальная скорость:
- * SignalQueue.getInstance().slowMotion = false;
- * SignalQueue.getInstance().maxTicksPerFrame = 0; // Без лимита
- *  ->Будет крутить столько тактов, сколько успеет за 10 мс.
- * 
- * 2. Slow Motion (Отладка):
- * SignalQueue.getInstance().slowMotion = true;
- *  ->Будет делать ровно 1 тик за кадр. Вы увидите, как сигнал бежит по проводам.
- * 
- * 3. Фиксированная скорость:
- * SignalQueue.getInstance().maxTicksPerFrame = 100; //Ограничить 100 тактами логики за кадр.
- * 
- * Теперь я точно знаю производительность моей системы. 
- * Если ticksProcessed показывает 5000 — значит логика "улетела" далеко вперёд реального времени.
- * Если 1 — значит система тяжелая или включен слоу-мо.
- * 
+ * v3.6 Changes:
+ * - ADDED: _time (Global discrete time counter).
+ * - ADDED: _pendingInputs (Buffer for next tick events).
+ * - ADDED: scheduleNextTick(task). Used by Buttons/Inputs to sync with logic.
+ * - ADDED: tick(). The main simulation step processor.
+ *
+ * ARCHITECTURE:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │                         ГИБРИДНАЯ МОДЕЛЬ                               │
+ * │                                                                         │
+ * │   1. DIGITAL (Logic):                                                   │
+ * │      Buttons/Inputs -> scheduleNextTick() -> _pendingInputs            │
+ * │      tick() starts -> Move _pendingInputs to Queue -> process()        │
+ * │      Result: All logic updates synchronized to discrete time steps.    │
+ * │                                                                         │
+ * │   2. ANALOG (Drivers/Audio):                                            │
+ * │      Audio/Oscillators -> schedule() -> Immediate Queue                │
+ * │      process() -> Immediate propagation (Speed of Light)               │
+ * │      Result: Smooth audio and real-time visualization.                 │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * v3.5 Changes:
+ * - added `ticksProcessed`: сколько тактов симуляции выполнено за последний кадр.
+ * - added `maxTicksPerFrame`: лимит тиков (0 = без лимита, только по времени).
+ * - added `throttleSpeed()`: метод для замедления симуляции (слоу-мо).
  */
 class SignalQueue {
 
@@ -74,10 +109,10 @@ class SignalQueue {
     // =========================================================================
 
     /** Бюджет времени на кадр (10 мс). Если 0 - работает только по счетчику тиков. */
-    public var maxProcessTime:Float = 0.010; 
+    public var maxProcessTime:Float = 0.010;
 
     /** Лимит тиков за кадр. 0 = без лимита (пока есть время). */
-    public var maxTicksPerFrame:Int = 0; 
+    public var maxTicksPerFrame:Int = 0;
 
     /** Сколько тиков (проходов логики) было выполнено в прошлом кадре. */
     public var ticksProcessed(default, null):Int = 0;
@@ -86,6 +121,16 @@ class SignalQueue {
     public var slowMotion:Bool = false;
 
     public var maxIterationsPerFrame:Int = 50000; // Общий лимит задач (защита от зависания)
+
+    // =========================================================================
+    // HYBRID CORE v3.6
+    // =========================================================================
+
+    /** Глобальное дискретное время (такты симуляции). */
+    public var time(default, null):Int = 0;
+
+    /** Буфер задач, запланированных на НАЧАЛО следующего такта. */
+    private var _pendingInputs:Array<Void -> Void>;
 
     public static function getInstance():SignalQueue {
         if (_instance == null) _instance = new SignalQueue();
@@ -103,8 +148,19 @@ class SignalQueue {
         _queuesRead.set(CRITICAL, []);
         _queuesRead.set(NORMAL, []);
         _queuesRead.set(BACKGROUND, []);
+
+        _pendingInputs = [];
     }
 
+    // =========================================================================
+    // SCHEDULING API
+    // =========================================================================
+
+    /**
+     * Стандартное планирование (Асинхронное/Аналоговое).
+     * Используется драйверами (Audio), визуализацией и для распространения сигналов.
+     * Задача выполняется при ближайшем вызове process().
+     */
     public function schedule(task:Void -> Void, priority:Priority = NORMAL):Void {
         var queue = _queuesWrite.get(priority);
         if (queue != null) {
@@ -116,6 +172,17 @@ class SignalQueue {
         }
     }
 
+    /**
+     * Планирование на СЛЕДУЮЩИЙ ТАКТ (Синхронное/Цифровое).
+     * Используется кнопками, входами и генераторами импульсов.
+     * Задача будет выполнена в начале следующего вызова tick().
+     */
+    public function scheduleNextTick(task:Void -> Void):Void {
+        if (task != null) {
+            _pendingInputs.push(task);
+        }
+    }
+
     public function suspend():Void _suspended = true;
 
     public function resume():Void {
@@ -123,7 +190,7 @@ class SignalQueue {
         _suspended = false;
         if (!_isProcessing && hasPendingTasks()) process();
     }
-    
+
     public function isSuspended():Bool return _suspended;
 
     public function hasPendingTasks():Bool {
@@ -132,17 +199,21 @@ class SignalQueue {
         return false;
     }
 
+    // =========================================================================
+    // CORE EXECUTION
+    // =========================================================================
+
     /**
      * Гибридный процессор.
      * Выполняет такты пока есть время ИЛИ пока не достигнут лимит тиков.
      */
     public function process():Void {
         if (_suspended) return;
-        if (_isProcessing) return; 
+        if (_isProcessing) return;
 
         _isProcessing = true;
         ticksProcessed = 0; // Сброс счетчика
-        
+
         var startTime = haxe.Timer.stamp();
         var iterationGuard = 0; // Защита от бесконечного цикла внутри задач
 
@@ -176,7 +247,7 @@ class SignalQueue {
 
                         var task = queue[i];
                         if (task != null) {
-                            try { task(); } 
+                            try { task(); }
                             catch (e:Dynamic) { trace('ERROR: $e'); }
                         }
                     }
@@ -187,7 +258,7 @@ class SignalQueue {
             ticksProcessed++; // Увеличиваем счетчик только что выполненного такта
 
             // === УСЛОВИЯ ВЫХОДА ===
-            
+
             // 1. Если включен Slow Motion - выходим после 1 тика
             if (slowMotion) break;
 
@@ -203,9 +274,32 @@ class SignalQueue {
         _isProcessing = false;
     }
 
+    /**
+     * ТАКТ СИМУЛЯЦИИ (v3.6).
+     * 1. Внедряет отложенные входные сигналы (_pendingInputs).
+     * 2. Запускает process() для распространения изменений по схеме.
+     * 3. Увеличивает глобальное время.
+     */
+    public function tick():Void {
+        // 1. Внедряем запланированные входы (Кнопки, Генераторы)
+        if (_pendingInputs.length > 0) {
+            for (task in _pendingInputs) {
+                schedule(task, NORMAL);
+            }
+            _pendingInputs = [];
+        }
+
+        // 2. Запускаем распространение сигналов (Logic Flow)
+        process();
+
+        // 3. Увеличиваем глобальное время
+        time++;
+    }
+
     public function clear():Void {
         for (q in _queuesWrite) if(q != null) q.resize(0);
         for (q in _queuesRead) if(q != null) q.resize(0);
+        _pendingInputs = [];
         _isProcessing = false;
         _suspended = false;
         ticksProcessed = 0;

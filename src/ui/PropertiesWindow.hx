@@ -5,15 +5,18 @@ import openfl.events.MouseEvent;
 import openfl.events.Event;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
+//import openfl.text.TextFormatAlign;
 import core.base.Atom;
-import core.base.Contact;
+import core.base.Assembly;
+//import core.base.Contact;
 import ui.widgets.NumberInput;
 import ui.widgets.NumberDisplay;
 import ui.widgets.IHMIWidget;
 
 /**
- * PropertiesWindow v2.0
+ * PropertiesWindow v2.1
  * FIXED: Widget lifecycle, null checks, proper cleanup
+ * ADDED: Logic Mode switch for Assembly.
  */
 class PropertiesWindow extends Sprite {
     private var _bg:Sprite;
@@ -124,6 +127,51 @@ class PropertiesWindow extends Sprite {
         if (_isDisposed || atom == null) return;
         _title.text = "Atom: " + atom.name;
         var yPos = 0;
+
+        // === v2.1 LOGIC MODE SWITCH ===
+        // Show toggle for Assembly or Atoms with process logic
+        var isLogicTarget = Std.isOfType(atom, Assembly);
+        
+        if (isLogicTarget) {
+            var modeLabel = new TextField();
+            modeLabel.text = "Simulation Mode:";
+            modeLabel.width = 250;
+            modeLabel.height = 20;
+            modeLabel.selectable = false;
+            modeLabel.defaultTextFormat = new TextFormat("_typewriter", 11, 0xAAAAAA);
+            modeLabel.y = yPos;
+            _content.addChild(modeLabel);
+            yPos += 22;
+
+            var modeText = atom.isLogic ? "Digital (Delayed)" : "Analog (Immediate)";
+            var modeBtn = new Sprite();
+            modeBtn.graphics.beginFill(atom.isLogic ? 0x2A5A3A : 0x3A5A4A);
+            modeBtn.graphics.drawRoundRect(0, 0, 250, 25, 4, 4);
+            modeBtn.graphics.endFill();
+            modeBtn.y = yPos;
+            modeBtn.buttonMode = true;
+
+            var tf = new TextField();
+            tf.text = modeText;
+            tf.width = 250;
+            tf.height = 25;
+            tf.selectable = false;
+            tf.mouseEnabled = false;
+            tf.defaultTextFormat = new TextFormat("_sans", 12, 0xFFFFFF, false, null, null, null, null, "center");
+            modeBtn.addChild(tf);
+
+            modeBtn.addEventListener(MouseEvent.CLICK, function(e) {
+                atom.isLogic = !atom.isLogic;
+                // Refresh UI
+                _populateAtom(atom);
+                // Save change
+                core.logic.Impulsys.quickEmit(core.logic.EventType.VALUE_COMMITTED);
+            });
+
+            _content.addChild(modeBtn);
+            yPos += 35;
+        }
+        // ===============================
 
         if (atom.getInputs() != null) {
             for (c in atom.getInputs()) {

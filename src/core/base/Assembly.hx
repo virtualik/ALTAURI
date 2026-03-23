@@ -14,12 +14,16 @@ import core.logic.Impulsys; // Added Import
 import core.logic.EventType; // Added Import
 
 /**
- * ASSEMBLY v5.2 (Port Sync)
+ * ASSEMBLY v5.3 (Logic Mode Switch)
  * Universal base class for ALL nodes.
+ *
+ * v5.3 Changes:
+ * - ADDED: isLogic property override.
+ * - ADDED: _updatePortLinks() to switch between Analog (Direct) and Digital (Delayed) modes.
+ * - FIXED: Loops in feedback circuits when isLogic = true.
  *
  * v5.2 Changes:
  * - Emit ASSEMBLY_PORTS_CHANGED when ports are added/removed.
- *   This allows NodeViews representing this Assembly to update their port visuals instantly.
  *
  * v5.1 Changes:
  * - Suspended SignalQueue during initialization to prevent race conditions.
@@ -61,11 +65,27 @@ class Assembly extends Atom {
         return map;
     }
 
+    // =========================================================================
+    // LOGIC MODE SWITCH v5.3
+    // =========================================================================
+
+    // Храним callbacks для возможности отписки
+    private var _portCallbacks:Map<String, Dynamic -> Void>;
+
+    override private function set_isLogic(value:Bool):Bool {
+        if (_isLogic != value) {
+            _isLogic = value;
+            _updatePortLinks();
+        }
+        return _isLogic;
+    }
+
     public function new(id:String, blueprint:Blueprint) {
         this.blueprint = blueprint;
         this.ports = new Map();
         this.internalAtoms = new Map();
         _idMap = new Map();
+        _portCallbacks = new Map();
 
         _createInterface();
 
@@ -87,7 +107,7 @@ class Assembly extends Atom {
 
         if (blueprint.logic == null) {
             SignalQueue.getInstance().suspend();
-            
+
             try {
                 _createInternalInstances();
                 _createInternalConnections();
@@ -96,6 +116,65 @@ class Assembly extends Atom {
             }
 
             SignalQueue.getInstance().resume();
+        }
+    }
+
+    // =========================================================================
+    // PORT LINKING LOGIC v5.3
+    // =========================================================================
+
+    /**
+     * Управляет связями между внешними и внутренними контактами портов.
+     * 
+     * Analog Mode (isLogic = false): Прямая связь (провод).
+     * Digital Mode (isLogic = true): 
+     *   - Входы: Прямая связь (считывание мгновенное).
+     *   - Выходы: Задержка на 1 такт (Unit Delay).
+     */
+    private function _updatePortLinks():Void {
+        for (name in ports.keys()) {
+            var port = ports.get(name);
+            if (port == null) continue;
+
+            // 1. Очистка старых связей
+            if (port.external.hasLink(port.internal)) port.external.unlink(port.internal);
+            if (port.internal.hasLink(port.external)) port.internal.unlink(port.external);
+            
+            // Удаляем старые callback-подписки
+            if (_portCallbacks.exists(name)) {
+                port.internal.unsubscribe(_portCallbacks.get(name));
+                _portCallbacks.remove(name);
+            }
+
+            // 2. Установка новых связей
+            if (this.isLogic) {
+                // === DIGITAL MODE ===
+                if (port.type == INPUT) {
+                    // Вход: Передаем сигнал внутрь мгновенно (как чтение входа)
+                    port.external.link(port.internal);
+                } else {
+                    // Выход: Задержка через scheduleNextTick
+                    var callback = function(v:Dynamic) {
+                        // Важно: захватываем конкретный порт в замыкании
+                        var targetPort = port; 
+                        SignalQueue.getInstance().scheduleNextTick(function() {
+                            if (!_isDisposed && targetPort != null) {
+                                targetPort.external.value = v;
+                            }
+                        });
+                    };
+                    port.internal.subscribe(callback);
+                    _portCallbacks.set(name, callback);
+                }
+            } else {
+                // === ANALOG MODE ===
+                // Прямая связь (провод)
+                if (port.type == INPUT) {
+                    port.external.link(port.internal);
+                } else {
+                    port.internal.link(port.external);
+                }
+            }
         }
     }
 
@@ -158,6 +237,8 @@ class Assembly extends Atom {
         }
 
         this.blueprint = newBp;
+        // Обновляем связи после изменения структуры портов
+        _updatePortLinks();
     }
 
     private function _createInterface():Void {
@@ -166,6 +247,8 @@ class Assembly extends Atom {
             var port = new ConductorPort(pinDef.name, pinDef.type, pinDef.defaultValue);
             ports.set(pinDef.name, port);
         }
+        // Устанавливаем связи согласно текущему режиму isLogic
+        _updatePortLinks();
     }
 
     private function _createInternalInstances():Void {
@@ -278,9 +361,10 @@ class Assembly extends Atom {
             port.external.owner = this;
         }
 
-        // === v5.2 FIX: Notify the world ===
+        // Обновляем связи для нового порта
+        _updatePortLinks();
+
         Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
-        // =================================
 
         return port;
     }
@@ -310,9 +394,7 @@ class Assembly extends Atom {
         port.dispose();
         ports.remove(name);
 
-        // === v5.2 FIX: Notify the world ===
         Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
-        // =================================
     }
 
     // =========================================================================
@@ -340,18 +422,31 @@ class Assembly extends Atom {
             break;
         }
 
-        return hasStates ? states : null;
+        // Возвращаем структуру, если есть данные или isLogic != false (по умолчанию)
+        var baseState = super.getPersistentState();
+        if (hasStates || (baseState != null && baseState.isLogic == true)) {
+            return {
+                isLogic: baseState != null ? baseState.isLogic : false,
+                internalStates: hasStates ? states : null
+            };
+        }
+        
+        return null;
     }
 
     override public function restoreState(state:Dynamic):Void {
         if (state == null) return;
 
-        if (internalAtoms != null) {
+        // Сначала восстанавливаем флаг isLogic (это обновит связи портов)
+        super.restoreState(state);
+
+        if (internalAtoms != null && Reflect.hasField(state, "internalStates")) {
+            var states = Reflect.field(state, "internalStates");
             for (runtimeId in internalAtoms.keys()) {
-                if (Reflect.hasField(state, runtimeId)) {
+                if (Reflect.hasField(states, runtimeId)) {
                     var atom:Atom = cast internalAtoms.get(runtimeId);
                     if (atom != null) {
-                        var atomState = Reflect.field(state, runtimeId);
+                        var atomState = Reflect.field(states, runtimeId);
                         atom.restoreState(atomState);
                     }
                 }

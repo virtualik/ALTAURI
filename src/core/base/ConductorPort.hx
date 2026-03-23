@@ -3,8 +3,12 @@ package core.base;
 import core.types.ContactType;
 
 /**
- * CONDUCTOR PORT v1.3 (DeviceView Compatible)
+ * CONDUCTOR PORT v1.4 (Logic Mode Support)
  * Пробрасывающий элемент. Пара контактов, соединяющих внешнюю и внутреннюю стороны сборки.
+ *
+ * v1.4 Changes:
+ * - Removed auto-linking in constructor.
+ * - Assembly now manages links to support Logic Mode (Unit Delay).
  */
 class ConductorPort {
 
@@ -25,12 +29,12 @@ class ConductorPort {
             // ВХОД СБОРКИ:
             external = new Contact(defaultValue, INPUT, name);
             internal = new Contact(defaultValue, OUTPUT, name + "_int");
-            external.link(internal);
+            // СВЯЗЬ УСТАНАВЛИВАЕТСЯ В Assembly._updatePortLinks()
         } else {
             // ВЫХОД СБОРКИ:
             internal = new Contact(defaultValue, INPUT, name + "_int");
             external = new Contact(defaultValue, OUTPUT, name);
-            internal.link(external);
+            // СВЯЗЬ УСТАНАВЛИВАЕТСЯ В Assembly._updatePortLinks()
         }
     }
 
