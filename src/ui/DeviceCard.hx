@@ -128,7 +128,7 @@ class DeviceCard extends Sprite {
 
         cardWidth = viewWidth + 30;   // отступы слева/справа
         cardHeight = viewHeight + 40; // заголовок 20 + нижний отступ
-		if (!_cardVisibility) return;
+		
         // 4. Заголовок
         _titleBar = new Sprite();
         _titleBar.graphics.beginFill(0x3a3a4a);

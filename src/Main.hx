@@ -34,6 +34,7 @@ import ui.SettingsPanel;
 import ui.WireType;
 import ui.DeviceWindow;
 import ui.DevicePanel;
+import ui.DeviceCard;
 import ui.WindowController;
 import system.commands.editor.GroupAtomsCommand;
 import system.commands.editor.CreateNewAssemblyCommand;
@@ -46,15 +47,11 @@ import library.AtomRegistry;
 using StringTools;
 
 /**
-* Main v2.5 (Device Panel & Transparency Integration)
+* Main v2.8 (Fix Device Panel Save on Exit)
 *
-* v2.5 Changes:
-* - ADDED: WindowController integration for Main Window transparency.
-* - ADDED: DevicePanel (Sprite-based) as an alternative to DeviceWindow (OS Window).
-* - CHANGED: Key 'V' now toggles between:
-*   1. Editor Mode (Standard view).
-*   2. Device Panel Mode (Transparent editor, Panel overlay).
-* - IMPROVED: Background color handling for transparency support (Black = Transparent).
+* v2.8 Changes:
+* - FIXED: Device Panel state now syncs to cache before saving on exit.
+* - FIXED: Adding a device to Device Panel now triggers auto-save.
 */
 class Main extends Sprite
 {
@@ -175,7 +172,7 @@ class Main extends Sprite
 	}
 
 // =============================================================================================
-// LOADING v2.2
+// LOADING v2.7
 // =============================================================================================
 	private function loadProject():Void
 	{
@@ -212,9 +209,11 @@ class Main extends Sprite
 			_editorContext.currentEditor.setViewState(data.view);
 			if (data.isOpen)
 			{
-				restoreDeviceWindow(rootAssembly);
+				// При загрузке, если было открыто, переключаемся в режим Device
+				_isPanelMode = false; // Сбрасываем, чтобы сработал toggle
+				onToggleView();
 			}
-			log("Project loaded (v2.5).");
+			log("Project loaded (v2.8).");
 		}
 		else {
 			createEmptyProject();
@@ -251,7 +250,7 @@ class Main extends Sprite
 		_editorContext.push(rootAssembly, true);
 	}
 // =============================================================================================
-// SAVING v2.2
+// SAVING v2.8
 // =============================================================================================
 	private function saveCurrentContext():Void
 	{
@@ -259,17 +258,18 @@ class Main extends Sprite
 		if (isRoot)
 		{
 			log("Saving Root...");
-			if (_deviceWindow != null && _deviceWindow.isOpen)
+
+			// v2.8 FIX: Синхронизируем состояние панели ПЕРЕД записью файла,
+			// даже если мы сейчас находимся в режиме Device Panel.
+			if (_isPanelMode)
 			{
-				_cachedDeviceWindowState = extractDeviceWindowData();
-				_cachedWindowWidth = _deviceWindow.windowWidth;
-				_cachedWindowHeight = _deviceWindow.windowHeight;
-				_cachedWindowX = _deviceWindow.windowX;
-				_cachedWindowY = _deviceWindow.windowY;
+				syncDevicePanelToCache();
 			}
+
 			var viewState = _editorContext.currentEditor.getViewState();
 			var devicesData = _cachedDeviceWindowState != null ? _cachedDeviceWindowState : [];
-			var isWindowOpen = (_deviceWindow != null && _deviceWindow.isOpen);
+			var isWindowOpen = _isPanelMode; // Если мы в режиме панели, значит "открыто"
+
 			_projectManager.saveSelfrun(
 				_editorContext.currentAssembly,
 				viewState,
@@ -385,15 +385,61 @@ class Main extends Sprite
 		saveCurrentContext();
 	}
 // =============================================================================================
-// v2.5: TOGGLE VIEW (Editor <-> Device Panel)
+// v2.7: TOGGLE VIEW & STATE SYNC
 // =============================================================================================
+
+	/**
+	 * Сохраняет текущее состояние DevicePanel в кэш.
+	 */
+	private function syncDevicePanelToCache():Void
+	{
+		if (_devicePanel == null) return;
+		var cards = _devicePanel.getDeviceCards();
+		if (cards.length == 0 && (_cachedDeviceWindowState == null || _cachedDeviceWindowState.length == 0)) return;
+
+		var newData:Array<{path:Array<String>, x:Float, y:Float, width:Float, height:Float}> = [];
+		for (card in cards)
+		{
+			var path = findDevicePath(_editorContext.currentAssembly, card.atom);
+			if (path != null && path.length > 0)
+			{
+				newData.push(
+				{
+					path: path,
+					x: card.x,
+					y: card.y,
+					width: card.cardWidth,
+					height: card.cardHeight
+				});
+			}
+		}
+		_cachedDeviceWindowState = newData;
+	}
+
+	/**
+	 * Восстанавливает состояние DevicePanel из кэша.
+	 */
+	private function restoreDevicePanelFromCache():Void
+	{
+		if (_cachedDeviceWindowState == null) return;
+		_devicePanel.clearDevices(); // Clear current state first
+		for (data in _cachedDeviceWindowState)
+		{
+			var atom = resolveDevicePath(_editorContext.currentAssembly, data.path);
+			if (atom != null)
+			{
+				_devicePanel.addDevice(atom, data.x, data.y);
+			}
+		}
+	}
+
 	private function onToggleView():Void
 	{
 		_isPanelMode = !_isPanelMode;
 		if (_isPanelMode)
 		{
 			// --- SWITCH TO DEVICE PANEL MODE ---
-			log("Mode: Device Panel (Transparent Editor)");
+			log("Mode: Device Panel");
 
 			// 1. Скрываем Редактор и UI редактора
 			_editorLayer.visible = false;
@@ -406,10 +452,12 @@ class Main extends Sprite
 			// 3. Передаем текущий контекст (сборку)
 			_devicePanel.setContext(_editorContext.currentAssembly);
 
-			// 4. Закрываем отдельное окно (если открыто)
+			// 4. Восстанавливаем состояние из кэша
+			restoreDevicePanelFromCache();
+
+			// 5. Закрываем отдельное окно (если открыто)
 			if (_deviceWindow != null && _deviceWindow.isOpen) _deviceWindow.close();
 
-			// 5. Включаем прозрачность (Black = Transparent)
 			#if windows
 			_windowController.enableLayeredTransparency();
 			#end
@@ -418,12 +466,27 @@ class Main extends Sprite
 			// --- SWITCH TO EDITOR MODE ---
 			log("Mode: Node Editor");
 
+			// 1. Сохраняем текущее состояние панели в кэш
+			syncDevicePanelToCache();
+
+			// 2. Прячем панель
 			if (_devicePanel != null) _devicePanel.visible = false;
 
+			// 3. Показываем редактор
 			_editorLayer.visible = true;
 			_uiLayer.visible = true;
+
+			// 4. Возвращаем все виджеты из Panel в NodeViews
+			if (_editorContext.currentEditor != null)
+			{
+				_editorContext.currentEditor.restoreAllWidgets();
+			}
+
+			// 5. Очищаем визуал панели
+			if (_devicePanel != null) _devicePanel.clearDevices();
 		}
 	}
+
 // v2.3: Auto-save with 300ms debounce
 	private function onDeviceWindowChanged(impulse:Impulse):Void
 	{
@@ -432,9 +495,10 @@ class Main extends Sprite
 			_windowSaveTimer.stop();
 		}
 		_windowSaveTimer = haxe.Timer.delay(() -> {
+			syncDevicePanelToCache();
 			saveCurrentContext();
 			_windowSaveTimer = null;
-			log("Device window state auto-saved.");
+			log("Device state auto-saved.");
 		}, 300);
 	}
 // =============================================================================================
@@ -566,8 +630,7 @@ class Main extends Sprite
 	}
 	private function onResize(e:Event):Void
 	{
-		
-		
+
 		graphics.clear();
 		graphics.beginFill(0, 0); // Alpha = 0 (Полностью прозрачный)
 		graphics.drawRect(0, 0, stage.stageWidth, stage.stageHeight);
@@ -676,14 +739,7 @@ class Main extends Sprite
 	}
 	private function onValueCommitted(impulse:Impulse):Void
 	{
-		if (_deviceWindow != null && _deviceWindow.isOpen)
-		{
-			_cachedDeviceWindowState = extractDeviceWindowData();
-			_cachedWindowWidth = _deviceWindow.windowWidth;
-			_cachedWindowHeight = _deviceWindow.windowHeight;
-			_cachedWindowX = _deviceWindow.windowX;
-			_cachedWindowY = _deviceWindow.windowY;
-		}
+		syncDevicePanelToCache();
 		saveCurrentContext();
 		log("Data saved.");
 	}
@@ -878,34 +934,11 @@ class Main extends Sprite
 	}
 	private function extractDeviceWindowData():Array< {path:Array<String>, x:Float, y:Float, ?width:Float, ?height:Float}>
 	{
-		if (_deviceWindow != null && _deviceWindow.isOpen)
+		if (_devicePanel != null && _devicePanel.visible)
 		{
-			var cards = _deviceWindow.getDeviceCards();
-			var data = [];
-			for (card in cards)
-			{
-				var path = findDevicePath(_editorContext.currentAssembly, card.atom);
-				if (path != null && path.length > 0)
-				{
-					data.push(
-					{
-						path: path,
-						x: card.x,
-						y: card.y,
-						width: card.cardWidth,
-						height: card.cardHeight
-					});
-				}
-			}
-			return data;
+			return _cachedDeviceWindowState;
 		}
 		return _cachedDeviceWindowState != null ? _cachedDeviceWindowState : [];
-	}
-	private function restoreDeviceWindow(rootAssembly:Assembly):Void
-	{
-		// v2.5: Simply toggle to panel mode instead of opening OS window
-		_isPanelMode = false; // Reset state
-		onToggleView(); // Turn Panel ON
 	}
 	private function findDevicePath(container:Assembly, target:Atom):Array<String>
 	{

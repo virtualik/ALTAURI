@@ -151,7 +151,7 @@ class DeviceWidgetFactory {
                 // Показываем выход "out"
                 new TextWidget(atom, "out", false);
 
-            case "conductor":
+            case "orgate":
                 new ORGateWidget(atom);
 
             case "universlgen", "universalgenerator":

@@ -2,6 +2,8 @@ package library.logic;
 
 import core.base.Atom;
 import core.base.Contact;
+import core.logic.EventType;
+import core.logic.Impulsys;
 import core.types.ContactType;
 import core.types.ContactType.*;
 import core.logic.SignalQueue;
@@ -29,7 +31,7 @@ import core.types.Priority;
  * │                                                                         │
  * │   Б) DATABANK:                                                          │
  * │   ─────────────                                                         │
- * │   _ORGateInputCount:Int = 2  // Number of input ports                │
+ * │   _ORGateInputCount:Int = 2  // Number of input ports                   │
  * │   addInput()    → creates new Contact                                   │
  * │   removeLastInput() → removes last Contact                              │
  * │   getPersistentState() → { inputCount: N }                              │
@@ -83,7 +85,7 @@ class ORGateAtom extends Atom {
             new Contact(false, OUTPUT, "out")
         ];
 
-        super(inputs, outputs, null, id, "Conductor");
+        super(inputs, outputs, null, id, "ORGate");
         
         // ВАЖНО: Это логический вентиль
         this.isLogic = true;
@@ -161,8 +163,11 @@ class ORGateAtom extends Atom {
 
         // Recalculate
         _calculate();
-
-        trace('ConductorAtom: Added $newName (total: $_ORGateInputCount)');
+		
+		// Уведомляем визуализатор о смене портов ===
+        Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
+        
+		trace('ConductorAtom: Added $newName (total: $_ORGateInputCount)');
         return newName;
     }
 
@@ -184,6 +189,9 @@ class ORGateAtom extends Atom {
         _ORGateInputCount = _inputs.length;
         _calculate();
 
+		// Уведомляем визуализатор о смене портов ===
+        Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
+        
         trace('ConductorAtom: Removed input (total: $_ORGateInputCount)');
         return true;
     }

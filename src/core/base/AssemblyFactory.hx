@@ -54,39 +54,45 @@ class AssemblyFactory
 // Приводим к верхнему регистру и удаляем пробелы для сравнения
 			var upperId:String = typeId.toUpperCase().replace(" ", "");
 			switch (upperId)
-			{
-				case "NAND": normalizedTypeId = "NAND";
-				case "NANDGATE": normalizedTypeId = "NAND";
-				case "CONDUCTOR": normalizedTypeId = "Conductor";
-				case "OR_GATE": normalizedTypeId = "Conductor";
-				case "OR_GATE_MULTI": normalizedTypeId = "Conductor";
-				case "BUTTON": normalizedTypeId = "Button";
-				case "PUSHBUTTON": normalizedTypeId = "Button";
-				case "TOGGLE": normalizedTypeId = "Toggle";
-				case "TOGGLESWITCH": normalizedTypeId = "Toggle";
-				case "LED": normalizedTypeId = "LED";
-				case "LEDINDICATOR": normalizedTypeId = "LED";
-				case "RELAY": normalizedTypeId = "Relay";
-				case "OSCILLOSCOPE": normalizedTypeId = "Oscilloscope";
-				case "TEXTINPUT": normalizedTypeId = "TextInput";
-				case "UNIVERSALGEN": normalizedTypeId = "UniversalGen";
-				case "UNIVERSALGENERATOR": normalizedTypeId = "UniversalGen";
-				case "SIGNALGEN": normalizedTypeId = "SignalGen";
-				case "SIGNALGENERATOR": normalizedTypeId = "SignalGen";
-				case "FPSMONITOR": normalizedTypeId = "FPSMonitor";
-				case "FRAMETIME": normalizedTypeId = "FrameTime";
-				case "AUDIOIN": normalizedTypeId = "AudioIn";
-				case "AUDIOINPUT": normalizedTypeId = "AudioIn";
-				case "NOT_GATE": normalizedTypeId = "NOT_Gate";
-				case "NOTGATE": normalizedTypeId = "NOT_Gate";
-				case "AND_GATE": normalizedTypeId = "AND_Gate";
-				case "ANDGATE": normalizedTypeId = "AND_Gate";
-				case "OR_GATE_STD": normalizedTypeId = "OR_Gate";
-				case "NOR_GATE": normalizedTypeId = "NOR_Gate";
-				case "T_TRIGGER": normalizedTypeId = "T-TRIGGER";
-				case "TTRIGGER": normalizedTypeId = "T-TRIGGER";
-				default: normalizedTypeId = typeId;  // Оставляем как есть для Assembly
-			}
+			 {
+                case "NAND": normalizedTypeId = "NAND";
+                case "NANDGATE": normalizedTypeId = "NAND";
+                
+                // === FIX: Перенаправляем старые и новые имена на ORGateAtom ===
+                case "CONDUCTOR": normalizedTypeId = "ORGateAtom";
+                case "OR_GATE": normalizedTypeId = "ORGateAtom";
+                case "OR_GATE_MULTI": normalizedTypeId = "ORGateAtom";
+                case "ORGATE": normalizedTypeId = "ORGateAtom";
+                case "ORGATEATOM": normalizedTypeId = "ORGateAtom";
+                // ==============================================================
+
+                case "BUTTON": normalizedTypeId = "Button";
+                case "PUSHBUTTON": normalizedTypeId = "Button";
+                case "TOGGLE": normalizedTypeId = "Toggle";
+                case "TOGGLESWITCH": normalizedTypeId = "Toggle";
+                case "LED": normalizedTypeId = "LED";
+                case "LEDINDICATOR": normalizedTypeId = "LED";
+                case "RELAY": normalizedTypeId = "Relay";
+                case "OSCILLOSCOPE": normalizedTypeId = "Oscilloscope";
+                case "TEXTINPUT": normalizedTypeId = "TextInput";
+                case "UNIVERSALGEN": normalizedTypeId = "UniversalGen";
+                case "UNIVERSALGENERATOR": normalizedTypeId = "UniversalGen";
+                case "SIGNALGEN": normalizedTypeId = "SignalGen";
+                case "SIGNALGENERATOR": normalizedTypeId = "SignalGen";
+                case "FPSMONITOR": normalizedTypeId = "FPSMonitor";
+                case "FRAMETIME": normalizedTypeId = "FrameTime";
+                case "AUDIOIN": normalizedTypeId = "AudioIn";
+                case "AUDIOINPUT": normalizedTypeId = "AudioIn";
+                case "NOT_GATE": normalizedTypeId = "NOT_Gate";
+                case "NOTGATE": normalizedTypeId = "NOT_Gate";
+                case "AND_GATE": normalizedTypeId = "AND_Gate";
+                case "ANDGATE": normalizedTypeId = "AND_Gate";
+                case "OR_GATE_STD": normalizedTypeId = "OR_Gate";
+                case "NOR_GATE": normalizedTypeId = "NOR_Gate";
+                case "T_TRIGGER": normalizedTypeId = "T-TRIGGER";
+                case "TTRIGGER": normalizedTypeId = "T-TRIGGER";
+                default: normalizedTypeId = typeId;
+            }
 		}
 // ================================================================
 
@@ -103,7 +109,7 @@ class AssemblyFactory
 			case "AudioIn": atom = new AudioInputAtom(id);
 // Logic
 			case "NAND": atom = new NandAtom(id);
-			case "Conductor": atom = new ORGateAtom(id);
+			case "ORGateAtom": atom = new ORGateAtom(id);
 // Electro
 			case "Button": atom = new ButtonAtom(id);
 			case "Toggle": atom = new library.electro.ToggleAtom(id);

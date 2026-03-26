@@ -48,11 +48,11 @@ class AtomRegistry {
 			{name: "B", type: INPUT, dataType: "bool"},
 			{name: "Q", type: OUTPUT, dataType: "bool"}
 		], null, null);
-		reg("Conductor", "OR Gate (Multi)", [
+		reg("ORGateAtom", "OR Gate 1", [
 			{name: "in0", type: INPUT, dataType: "bool"},
 			{name: "in1", type: INPUT, dataType: "bool"},
 			{name: "out", type: OUTPUT, dataType: "bool"}
-		], null, "conductor");
+		], null, "orgate");
 		
 		// Active Drivers (Must be registered with isActive=true)
 		reg("UniversalGen", "Universal Generator", [

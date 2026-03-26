@@ -10,14 +10,14 @@ import core.base.Contact;
 import library.logic.ORGateAtom;
 
 /**
- * CONDUCTOR WIDGET v1.1 (Databank Architecture)
+ * ORGateAtom WIDGET v1.1 (Databank Architecture)
  * Multi-input OR gate widget with dynamic port management.
  *
  * Architecture:
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │   ConductorAtom (Databank)                                              │
+ * │   ORGateAtom (Databank)                                              │
  * │                                                                         │
- * │   Contact "in0", "in1", ... "out" ◄──► ConductorWidget                  │
+ * │   Contact "in0", "in1", ... "out" ◄──► ORGateAtom                  │
  * │                                        ┌───────────────────────────────┐│
  * │                                        │ Shows:                        ││
  * │                                        │ - Current ON/OFF state        ││
