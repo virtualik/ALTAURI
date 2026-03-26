@@ -8,8 +8,15 @@ import core.logic.SignalQueue;
 import core.types.Priority;
 
 /**
- * CONDUCTOR ATOM v1.1 (Databank Architecture)
+ * OR Gate ATOM v1.2 (Stable Initialization)
  * Multi-input OR gate with dynamic port management.
+ *
+ * v1.2 Changes:
+ * - FIXED: Default input values (false) for stable initial state.
+ * - FIXED: Proper handling of null inputs in _calculate.
+ *
+ * v1.1 Changes:
+ * - Architecture documentation added.
  *
  * Architecture:
  * ┌─────────────────────────────────────────────────────────────────────────┐
@@ -22,7 +29,7 @@ import core.types.Priority;
  * │                                                                         │
  * │   Б) DATABANK:                                                          │
  * │   ─────────────                                                         │
- * │   _conductorInputCount:Int = 2  // Number of input ports                │
+ * │   _ORGateInputCount:Int = 2  // Number of input ports                │
  * │   addInput()    → creates new Contact                                   │
  * │   removeLastInput() → removes last Contact                              │
  * │   getPersistentState() → { inputCount: N }                              │
@@ -42,7 +49,7 @@ import core.types.Priority;
  * - Output = true if ANY input = true
  * - Output = false only if ALL inputs = false
  */
-class ConductorAtom extends Atom {
+class ORGateAtom extends Atom {
 
     // =========================================================================
     // CONFIGURATION
@@ -55,18 +62,19 @@ class ConductorAtom extends Atom {
     // DATABANK
     // =========================================================================
 
-    private var _conductorInputCount:Int = 2;
+    private var _ORGateInputCount:Int = 2;
 
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
 
     public function new(id:String, ?initialInputs:Int = 2) {
-        _conductorInputCount = Std.int(Math.max(MIN_INPUTS, Math.min(initialInputs, MAX_INPUTS)));
+        _ORGateInputCount = Std.int(Math.max(MIN_INPUTS, Math.min(initialInputs, MAX_INPUTS)));
 
         // Create inputs
         var inputs:Array<Contact> = [];
-        for (i in 0..._conductorInputCount) {
+        for (i in 0..._ORGateInputCount) {
+            // === FIX v1.2: Начальное значение false (pull-down для OR) ===
             inputs.push(new Contact(false, INPUT, "in" + i));
         }
 
@@ -76,8 +84,8 @@ class ConductorAtom extends Atom {
         ];
 
         super(inputs, outputs, null, id, "Conductor");
-		
-		// ВАЖНО: Это логический вентиль
+        
+        // ВАЖНО: Это логический вентиль
         this.isLogic = true;
     }
 
@@ -102,6 +110,7 @@ class ConductorAtom extends Atom {
         var result:Bool = false;
 
         for (input in _inputs) {
+            // === FIX v1.2: null трактуется как false ===
             if (input != null && input.value == true) {
                 result = true;
                 break;
@@ -143,7 +152,7 @@ class ConductorAtom extends Atom {
         var newContact = new Contact(false, INPUT, newName);
         newContact.owner = this;
         _inputs.push(newContact);
-        _conductorInputCount = _inputs.length;
+        _ORGateInputCount = _inputs.length;
 
         // Extend cache
         while (_inputCache.length < _inputs.length) {
@@ -153,7 +162,7 @@ class ConductorAtom extends Atom {
         // Recalculate
         _calculate();
 
-        trace('ConductorAtom: Added $newName (total: $_conductorInputCount)');
+        trace('ConductorAtom: Added $newName (total: $_ORGateInputCount)');
         return newName;
     }
 
@@ -172,10 +181,10 @@ class ConductorAtom extends Atom {
             removed.dispose();
         }
 
-        _conductorInputCount = _inputs.length;
+        _ORGateInputCount = _inputs.length;
         _calculate();
 
-        trace('ConductorAtom: Removed input (total: $_conductorInputCount)');
+        trace('ConductorAtom: Removed input (total: $_ORGateInputCount)');
         return true;
     }
 
@@ -188,7 +197,7 @@ class ConductorAtom extends Atom {
     // =========================================================================
 
     override public function getPersistentState():Dynamic {
-        return { inputCount: _conductorInputCount };
+        return { inputCount: _ORGateInputCount };
     }
 
     override public function restoreState(state:Dynamic):Void {
@@ -208,7 +217,7 @@ class ConductorAtom extends Atom {
             if (removed != null) removed.dispose();
         }
 
-        _conductorInputCount = _inputs.length;
+        _ORGateInputCount = _inputs.length;
 
         // Extend cache
         while (_inputCache.length < _inputs.length) {

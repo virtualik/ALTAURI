@@ -61,12 +61,15 @@ class EditorTheme {
     // CANVAS & BACKGROUND
     // =========================================================================
 
-    // Main canvas background color
+    // Editor canvas background color
     public var CANVAS_BG_COLOR:Int = 0x333333;
 
+    // Device canvas background color
+    public var DEVICE_CANVAS_BG_COLOR:Int = 0x333333;
+
     // Hit area color (invisible for hit testing)
-    public var CANVAS_HIT_AREA_COLOR:Int = 0x000000;
-    public var CANVAS_HIT_AREA_ALPHA:Float = 0.01;
+    public var CANVAS_HIT_AREA_COLOR:Int = 0x0AA000;
+    public var CANVAS_HIT_AREA_ALPHA:Float = 0.11;
 
     // =========================================================================
     // SELECTION & LASSO
@@ -86,7 +89,8 @@ class EditorTheme {
     // =========================================================================
 
     // Main application background
-    public var APP_BG_COLOR:Int = 0x1a1a24;
+    public var APP_BG_COLOR:Int = 0x00000000;
+    public var APP_BG_BLACK:Int = 0x00000000;
 	public var OPAQUE_BACKGROUND_COLOR:Int = 0x1a1a24;
 	
     // Container frame border color

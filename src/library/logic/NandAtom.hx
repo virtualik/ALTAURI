@@ -5,8 +5,12 @@ import core.base.Contact;
 import core.types.ContactType;
 
 /**
- * NAND Atom
+ * NAND Atom v1.2
  * Universal logic gate.
+ * 
+ * v1.2 Changes:
+ * - ADDED: Default input values (true) for stable initial state.
+ * - FIXED: Cross-coupled NAND latches (SR Latch, T-TRIGGER) initialize without oscillation.
  * 
  * v1.1 Changes:
  * - Set isLogic = true to enable Unit Delay behavior.
@@ -15,17 +19,21 @@ import core.types.ContactType;
 class NandAtom extends Atom {
 
     public function new(id:String) {
+        // === FIX v1.2: Создаем контакты с начальными значениями ===
+        var inputA = new Contact(true, INPUT, "A");  // По умолчанию true
+        var inputB = new Contact(true, INPUT, "B");  // По умолчанию true
+        
         super(
+            [inputA, inputB],
             [
-                new Contact(false, INPUT, "A"),
-                new Contact(false, INPUT, "B")
-            ],
-            [
-                new Contact(false, OUTPUT, "Q")
+                new Contact(false, OUTPUT, "Q")  // NAND(1,1) = 0
             ],
             function(inputs:Array<Dynamic>):Array<Dynamic> {
                 var a = inputs[0];
                 var b = inputs[1];
+                // === FIX v1.2: Обработка null как true (pull-up) ===
+                if (a == null) a = true;
+                if (b == null) b = true;
                 return [!(a && b)];
             },
             id,

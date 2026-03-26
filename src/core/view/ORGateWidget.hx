@@ -7,7 +7,7 @@ import openfl.text.TextFormatAlign;
 import openfl.events.MouseEvent;
 import core.base.Atom;
 import core.base.Contact;
-import library.logic.ConductorAtom;
+import library.logic.ORGateAtom;
 
 /**
  * CONDUCTOR WIDGET v1.1 (Databank Architecture)
@@ -31,7 +31,7 @@ import library.logic.ConductorAtom;
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
-class ConductorWidget extends DeviceView {
+class ORGateWidget extends DeviceView {
 
     // =========================================================================
     // UI COMPONENTS
@@ -134,8 +134,8 @@ class ConductorWidget extends DeviceView {
 
     private function updateCountDisplay():Void {
         var count = 2;
-        if (atom != null && Std.isOfType(atom, ConductorAtom)) {
-            count = cast(atom, ConductorAtom).getInputCount();
+        if (atom != null && Std.isOfType(atom, ORGateAtom)) {
+            count = cast(atom, ORGateAtom).getInputCount();
         }
         _countField.text = 'Inputs: $count';
     }
@@ -172,16 +172,16 @@ class ConductorWidget extends DeviceView {
 
     private function onAddClick(e:MouseEvent):Void {
         e.stopPropagation();
-        if (atom != null && Std.isOfType(atom, ConductorAtom)) {
-            cast(atom, ConductorAtom).addInput();
+        if (atom != null && Std.isOfType(atom, ORGateAtom)) {
+            cast(atom, ORGateAtom).addInput();
             updateCountDisplay();
         }
     }
 
     private function onRemoveClick(e:MouseEvent):Void {
         e.stopPropagation();
-        if (atom != null && Std.isOfType(atom, ConductorAtom)) {
-            cast(atom, ConductorAtom).removeLastInput();
+        if (atom != null && Std.isOfType(atom, ORGateAtom)) {
+            cast(atom, ORGateAtom).removeLastInput();
             updateCountDisplay();
         }
     }

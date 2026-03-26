@@ -11,8 +11,8 @@ import core.logic.Impulsys;
 import core.logic.EventType;
 
 /**
- * DEVICE CARD v2.0 (Databank Architecture, Registry‑based)
- * Compact card representation of a device for the DeviceWindow.
+ * DeviceCard v2.1 (Universal Container)
+ * Compact card representation of a device for the DeviceWindow or DevicePanel.
  *
  * ═══════════════════════════════════════════════════════════════════════════
  * АРХИТЕКТУРА: "ATOM IS DATABANK & COMPUTE CORE"
@@ -28,24 +28,22 @@ import core.logic.EventType;
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │   DeviceCard                                                            │
  * │   ┌─────────────────────────────────────────────────────────────────┐   │
- * │   │  [Title Bar: Atom Name]  [x]                                   │   │
+ * │   │  [Title Bar: Atom Name]  [x]                                    │   │
  * │   ├─────────────────────────────────────────────────────────────────┤   │
- * │   │                                                                  │   │
+ * │   │                                                                 │   │
  * │   │  ┌───────────────────────────────────────────────────────────┐  │   │
- * │   │  │  DeviceView (получен из реестра, scale = 1.0)              │  │   │
+ * │   │  │  DeviceView (получен из реестра, scale = 1.0)             │  │   │
  * │   │  └───────────────────────────────────────────────────────────┘  │   │
- * │   │                                                                  │   │
+ * │   │                                                                 │   │
  * │   └─────────────────────────────────────────────────────────────────┘   │
  * │                                                                         │
  * │   Перетаскивание за заголовок — перемещение карточки по окну.           │
  * │   Кнопка [x] — закрытие карточки, виджет возвращается в реестр.         │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
- * v2.0 Changes:
- * - Полностью переработан для работы с DeviceViewRegistry
- * - Виджет больше не создаётся через фабрику, а запрашивается из реестра
- * - При закрытии карточки виджет НЕ уничтожается, а возвращается в реестр
- * - Размер карточки автоматически подстраивается под размер виджета
+ * v2.1 Changes:
+ * - Changed _deviceWindow to _owner (Dynamic) to support both Window and Panel.
+ * - Added support for DevicePanel as a container.
  */
 class DeviceCard extends Sprite {
 
@@ -61,12 +59,13 @@ class DeviceCard extends Sprite {
     // PRIVATE FIELDS
     // =========================================================================
 
-    private var _deviceWindow:DeviceWindow;
+    private var _owner:Dynamic; // DeviceWindow или DevicePanel
     private var _deviceView:DeviceView;
     private var _titleBar:Sprite;
     private var _titleLabel:TextField;
 
     // Drag state
+    private var _cardVisibility:Bool = false;
     private var _cardDragging:Bool = false;
     private var _dragStartX:Float = 0;
     private var _dragStartY:Float = 0;
@@ -84,17 +83,17 @@ class DeviceCard extends Sprite {
      * and place it inside itself.
      *
      * @param atom          The atom to display
-     * @param deviceWindow  Reference to the parent DeviceWindow
-     * @param x             Initial X position in the DeviceWindow canvas
-     * @param y             Initial Y position in the DeviceWindow canvas
+     * @param owner         Reference to the parent (DeviceWindow or DevicePanel)
+     * @param x             Initial X position in the container
+     * @param y             Initial Y position in the container
      */
-    public function new(atom:Atom, deviceWindow:DeviceWindow, ?x:Float = 0, ?y:Float = 0) {
+    public function new(atom:Atom, owner:Dynamic, ?x:Float = 0, ?y:Float = 0) {
         super();
         this.atom = atom;
-        _deviceWindow = deviceWindow;
+        _owner = owner;
         this.x = x;
         this.y = y;
-        buildCard();
+		buildCard();
     }
 
     // =========================================================================
@@ -113,6 +112,7 @@ class DeviceCard extends Sprite {
 
         // 2. Перемещаем виджет в карточку с помощью реестра
         //    (виджет будет изъят из предыдущего контейнера, если был)
+        //    Мы передаем `this` как контейнер.
         _deviceView = registry.moveToDeviceWindow(atom.id, this, 0, 20);
         if (_deviceView == null) {
             trace('DeviceCard: Failed to move widget for atom "${atom.name}"');
@@ -128,7 +128,7 @@ class DeviceCard extends Sprite {
 
         cardWidth = viewWidth + 30;   // отступы слева/справа
         cardHeight = viewHeight + 40; // заголовок 20 + нижний отступ
-
+		if (!_cardVisibility) return;
         // 4. Заголовок
         _titleBar = new Sprite();
         _titleBar.graphics.beginFill(0x3a3a4a);
@@ -205,8 +205,11 @@ class DeviceCard extends Sprite {
 
     private function onCloseClick(e:MouseEvent):Void {
         e.stopPropagation();
-        if (_deviceWindow != null) {
-            _deviceWindow.removeDevice(this);
+        if (_owner != null) {
+            // Универсальный вызов removeDevice у владельца
+            if (Reflect.hasField(_owner, 'removeDevice')) {
+                Reflect.callMethod(_owner, Reflect.field(_owner, 'removeDevice'), [this]);
+            }
         }
     }
 
@@ -283,7 +286,7 @@ class DeviceCard extends Sprite {
         }
 
         atom = null;
-        _deviceWindow = null;
+        _owner = null;
         _titleBar = null;
         _titleLabel = null;
 

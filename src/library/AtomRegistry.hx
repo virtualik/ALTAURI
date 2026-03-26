@@ -63,10 +63,10 @@ class AtomRegistry {
 			{name: "out", type: OUTPUT, dataType: "float"}
 		], null, "panel", true, true); // isActive = true
 		
-		reg("SignalGen", "Signal Generator", [
-			{name: "freq", type: INPUT, defaultValue: 440.0, dataType: "float"},
-			{name: "out", type: OUTPUT, dataType: "array"}
-		], null, "panel", true, true); // isActive = true
+//reg("SignalGen", "Signal Generator", [
+//{name: "freq", type: INPUT, defaultValue: 440.0, dataType: "float"},
+//{name: "out", type: OUTPUT, dataType: "array"}
+//], null, "panel", true, true); // isActive = true
 
 		reg("FPSMonitor", "FPS Monitor", [
 			{name: "fps", type: OUTPUT, dataType: "int"}

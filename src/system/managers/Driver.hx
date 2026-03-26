@@ -50,3 +50,19 @@ interface Driver {
      */
     public function dispose():Void;
 }
+/**
+ * Драйвера планируемые в первой очереди для создания:
+ * 
+ * - TextFeild
+ * - TextArea
+ * - InputText
+ * - PushButton
+ * - ToggleButton
+ * - RadioButton
+ * - CheckBox
+ *  
+ * - Keyboard
+ * - Mouse
+ * - COMPORT
+ * - NetConnect
+ */

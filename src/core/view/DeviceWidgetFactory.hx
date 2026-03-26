@@ -112,7 +112,7 @@ class DeviceWidgetFactory {
                 new OscilloscopeWidget(asm, "samples");
 
             case "conductor":
-                new ConductorWidget(asm);
+                new ORGateWidget(asm);
 
             default:
                 // Пробуем найти класс по имени
@@ -152,14 +152,14 @@ class DeviceWidgetFactory {
                 new TextWidget(atom, "out", false);
 
             case "conductor":
-                new ConductorWidget(atom);
+                new ORGateWidget(atom);
 
             case "universlgen", "universalgenerator":
                 // Генератор показывает output
                 new TextWidget(atom, "out", false);
 
-            case "signalgen", "signalgenerator":
-                new TextWidget(atom, "out", false);
+//case "signalgen", "signalgenerator":
+//    new TextWidget(atom, "out", false);
 
             case "fpsmonitor":
                 new TextWidget(atom, "fps", false);

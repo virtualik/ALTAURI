@@ -9,14 +9,16 @@
 	<app main="Main" file="ALTAURI" path="bin" />
 	
 	<window  visible="false"
-			 borderless="true"
+			 borderless="false"
 			 hardware="true"
 			 vsync="true"
 			 allow-shaders="true"
-			 antialiasing="0"
+			 antialiasing="4"
 			 allow-high-dpi="false"
 			 width="1024" height="800"
-			 fps="120" />
+			 fps="60"
+			 background="#00000000"
+			 transparent="true"/>
 	
 	<setenv name="OPENFL_DISABLE_DIRTY_REGIONS" value="true" />
 	<setenv name="LIME_RENDER_CONTEXT" value="opengl" />
