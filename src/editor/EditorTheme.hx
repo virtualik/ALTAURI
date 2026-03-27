@@ -65,7 +65,7 @@ class EditorTheme {
     public var CANVAS_BG_COLOR:Int = 0x333333;
 
     // Device canvas background color
-    public var DEVICE_CANVAS_BG_COLOR:Int = 0x333333;
+    public var DEVICE_CANVAS_BG_COLOR:Int = 0x444444;
 
     // Hit area color (invisible for hit testing)
     public var CANVAS_HIT_AREA_COLOR:Int = 0x0AA000;

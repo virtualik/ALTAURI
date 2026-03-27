@@ -111,9 +111,6 @@ class DeviceWidgetFactory {
                 // AudioInput показывает samples как осциллограмму
                 new OscilloscopeWidget(asm, "samples");
 
-            case "conductor":
-                new ORGateWidget(asm);
-
             default:
                 // Пробуем найти класс по имени
                 createByClassName(deviceType, asm);
@@ -151,21 +148,8 @@ class DeviceWidgetFactory {
                 // Показываем выход "out"
                 new TextWidget(atom, "out", false);
 
-            case "orgate":
-                new ORGateWidget(atom);
-
             case "universlgen", "universalgenerator":
-                // Генератор показывает output
                 new TextWidget(atom, "out", false);
-
-//case "signalgen", "signalgenerator":
-//    new TextWidget(atom, "out", false);
-
-            case "fpsmonitor":
-                new TextWidget(atom, "fps", false);
-
-            case "frametime":
-                new TextWidget(atom, "ms", false);
 
             default:
                 // Универсальный виджет - текстовое отображение

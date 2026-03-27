@@ -46,7 +46,7 @@ class ToggleAtom extends Atom {
      * Time in seconds during which Reset/Set is ignored after a manual toggle.
      * Default: 0.01 seconds.
      */
-    public var resetImmunityTime:Float = 0.01;
+    public var resetImmunityTime:Float = 0.1;
 
     // =========================================================================
     // STATE

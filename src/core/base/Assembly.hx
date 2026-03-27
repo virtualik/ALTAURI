@@ -9,23 +9,16 @@ import core.types.ContactType;
 import utils.UID;
 import library.AtomRegistry;
 import system.managers.DriverManager;
-import core.logic.SignalQueue;
+import core.logic.TickGenerator; // CHANGED SignalQueue
 import core.logic.Impulsys;
 import core.logic.EventType;
 
 /**
-* ASSEMBLY v5.7 (Hot Start Protocol)
+* ASSEMBLY v5.8 (TickGenerator Integration)
 * Universal base class for ALL nodes.
 *
-* v5.7 Changes (HOT START PROTOCOL):
-* - FIXED: Internal atoms now get isInitializing=true during creation.
-* - FIXED: State restored while atoms are "frozen".
-* - FIXED: _processPendingSignals forces output sync BEFORE unfreezing atoms.
-* - RESULT: Toggle sets output -> LED gets signal. TextInput ignores inputs until unfrozen.
-*
-* v5.6 Changes (CRITICAL FIX):
-* - FIXED: Changed tick() back to resume() - tick() doesn't unsuspend the queue!
-* - FIXED: resume() properly sets _suspended = false BEFORE processing
+* v5.8 Changes:
+* - Migrated from SignalQueue to TickGenerator.
 */
 class Assembly extends Atom
 {
@@ -87,9 +80,9 @@ class Assembly extends Atom
     }
 
 // ============================================================================
-// ИНИЦИАЛИЗАЦИЯ v5.7 - Протокол горячего старта
+// ИНИЦИАЛИЗАЦИЯ v5.8 - Протокол горячего старта
 // ============================================================================
-    // isInitializing наследуется от Atom. 
+    // isInitializing наследуется от Atom.
     // Мы используем его напрямую (isInitializing = true/false).
 
     private var _quarantineReason:String = null;
@@ -135,7 +128,7 @@ class Assembly extends Atom
     public function getQuarantineReason():String return _quarantineReason;
 
 // ============================================================================
-// Assembly.hx - КОНСТРУКТОР (v5.7 - ИСПРАВЛЕНО)
+// Assembly.hx - КОНСТРУКТОР (v5.8 - ИСПРАВЛЕНО)
 // ============================================================================
     public function new(id:String, blueprint:Blueprint)
     {
@@ -176,7 +169,7 @@ class Assembly extends Atom
 
         if (blueprint.logic == null && blueprint.internalAtoms != null && blueprint.internalAtoms.length > 0)
         {
-            SignalQueue.getInstance().suspend();
+            TickGenerator.getInstance().suspend(); // CHANGED
             try
             {
                 _createInternalInstances(); // Создаем с isInitializing=true
@@ -196,7 +189,7 @@ class Assembly extends Atom
             // Внутренние атомы остаются "заморожены" до _processPendingSignals
             isInitializing = false;
 
-            SignalQueue.getInstance().resume();
+            TickGenerator.getInstance().resume(); // CHANGED
 
             _processPendingSignals(); // Здесь разморозим атомы
         }
@@ -349,7 +342,7 @@ class Assembly extends Atom
     }
 
 // =========================================================================
-// PORT LINKING LOGIC v5.3
+// PORT LINKING LOGIC v5.8 (TickGenerator Integration)
 // =========================================================================
     private function _updatePortLinks():Void
     {
@@ -360,16 +353,16 @@ class Assembly extends Atom
             if (port.type == null) continue;
             if (port.external == null) continue;
             if (port.internal == null) continue;
-            
+
             if (port.external.hasLink(port.internal)) port.external.unlink(port.internal);
             if (port.internal.hasLink(port.external)) port.internal.unlink(port.external);
-            
+
             if (_portCallbacks.exists(name))
             {
                 port.internal.unsubscribe(_portCallbacks.get(name));
                 _portCallbacks.remove(name);
             }
-            
+
             if (this.isLogic)
             {
                 if (port.type == INPUT)
@@ -381,7 +374,8 @@ class Assembly extends Atom
                     var callback = function(v:Dynamic)
                     {
                         var targetPort = port;
-                        SignalQueue.getInstance().scheduleNextTick(function()
+                        // CHANGED SignalQueue -> TickGenerator
+                        TickGenerator.getInstance().scheduleNextTick(function()
                         {
                             if (!_isDisposed && targetPort != null && !isInitializing)
                             {
@@ -469,6 +463,7 @@ class Assembly extends Atom
         }
         this.blueprint = newBp;
         _updatePortLinks();
+        Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
     }
 
 // ============================================================================

@@ -1,10 +1,14 @@
 package core.base;
 
-import core.logic.SignalQueue;
+import core.logic.TickGenerator; 
 import core.types.ContactType;
 
 /**
-* * CONTACT v5.5 (Hot Start Protocol Fix)
+/**
+* * CONTACT v5.6 (TickGenerator Integration)
+*
+* v5.6 Changes:
+* - Migrated from SignalQueue to TickGenerator.
 *
 * v5.5 Changes (HOT START PROTOCOL):
 * - REMOVED: Blocking propagation based on owner.isInitializing.
@@ -59,6 +63,7 @@ import core.types.ContactType;
 * - Added getValue() and setValue() for cleaner state access
 * - Added getValueType() for type detection
 */
+
 class Contact
 {
     public var id(default, null):Dynamic;
@@ -131,7 +136,7 @@ class Contact
         if (!_isScheduled)
         {
             _isScheduled = true;
-            SignalQueue.getInstance().schedule(_propagate, NORMAL);
+            TickGenerator.getInstance().schedule(_propagate, NORMAL); // CHANGED
         }
     }
 
@@ -179,10 +184,11 @@ class Contact
     private function set_value(newValue:Dynamic):Dynamic
     {
         if (isDisposed) return newValue;
-        if (_value == newValue) return newValue;
 
-        // === FIX v5.5: Убрана блокировка isInitializing ===
-        // Теперь Contact.value просто обновляется и планирует распространение.
+        // === FIX v5.6: Массивы всегда считаются "изменёнными" ===
+        // Генератор передаёт тот же _buffer (ссылка), но содержимое изменилось.
+        // Без этого fix propagate НЕ вызывается и осциллограф не обновляется!
+        if (_value == newValue && !Std.isOfType(newValue, Array)) return newValue;
 
         // === FIX v5.5: Обнаружение осцилляции ===
         var currentTime = haxe.Timer.stamp();
@@ -193,7 +199,7 @@ class Contact
             _changeCount = 0;
             _oscillationBlocked = false;
         }
-        
+
         _lastChangeTime = currentTime;
         _changeCount++;
 
@@ -214,7 +220,7 @@ class Contact
         if (!_isScheduled)
         {
             _isScheduled = true;
-            SignalQueue.getInstance().schedule(_propagate, NORMAL);
+            TickGenerator.getInstance().schedule(_propagate, NORMAL); // CHANGED
         }
 
         _propagationDepth--;

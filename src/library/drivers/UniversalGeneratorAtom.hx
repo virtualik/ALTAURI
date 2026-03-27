@@ -159,7 +159,7 @@ class UniversalGeneratorAtom extends Atom implements system.managers.Driver {
 
         // 5. Output buffer
         if (_outputs != null && _outputs.length > 0) {
-            _outputs[0].value = _buffer.copy();
+            _outputs[0].value = _buffer;
         }
     }
 

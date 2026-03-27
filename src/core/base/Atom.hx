@@ -1,26 +1,17 @@
 package core.base;
 
-import core.logic.SignalQueue;
+import core.logic.TickGenerator; // CHANGED
 import core.types.ContactType;
 import core.types.ContactType.*;
 import system.managers.DriverManager;
 import system.managers.Driver;
 
 /**
- * ATOM BASE CLASS v6.7 (Hot Start Protocol)
+ * ATOM BASE CLASS v6.8 (TickGenerator Integration)
  * Fundamental unit of logic. Independent of rendering engine.
  *
- * v6.7 Changes (HOT START PROTOCOL):
- * - ADDED: isInitializing flag to Base Atom class.
- * - FIXED: onContactChanged now respects isInitializing flag.
- * - RESULT: Memory atoms (TextInput, Toggle) ignore inputs during load, preserving state.
- *           Passive atoms (LED) receive propagated signals correctly.
- *
- * v6.6 Changes (CRITICAL FIX):
- * - FIXED: restoreState() now checks owner.isInitializing before triggering calculations
- * - FIXED: _calculate() properly handles isLogic during first calculation
- * - IMPROVED: Better coordination with Assembly initialization sequence
- * - ADDED: _isInitializing check to prevent premature signal propagation
+ * v6.8 Changes:
+ * - Migrated from SignalQueue to TickGenerator.
  */
 class Atom implements IDisposable implements Driver
 {
@@ -60,7 +51,7 @@ class Atom implements IDisposable implements Driver
     private var _hasCalculatedOnce:Bool = false;
 
     // =========================================================================
-    // ИНИЦИАЛИЗАЦИЯ v6.7
+    // ИНИЦИАЛИЗАЦИЯ v6.8
     // =========================================================================
 
     /**
@@ -100,17 +91,17 @@ class Atom implements IDisposable implements Driver
 
         // === FIX v6.6: Проверяем, находимся ли мы внутри инициализирующейся Assembly ===
         var isInsideInitializingAssembly = false;
-        var sq = SignalQueue.getInstance();
+        var tg = TickGenerator.getInstance(); // CHANGED
 
         var isAssemblyWithInternal = Std.isOfType(this, Assembly) &&
                                      cast(this, Assembly).blueprint != null &&
                                      cast(this, Assembly).blueprint.internalAtoms != null &&
                                      cast(this, Assembly).blueprint.internalAtoms.length > 0;
 
-        if (_process != null && !isAssemblyWithInternal && !sq.isSuspended())
+        if (_process != null && !isAssemblyWithInternal && !tg.isSuspended())
         {
             _isScheduled = true;
-            SignalQueue.getInstance().scheduleNextTick(function()
+            TickGenerator.getInstance().scheduleNextTick(function() // CHANGED
             {
                 if (!_isDisposed)
                 {
@@ -169,7 +160,7 @@ class Atom implements IDisposable implements Driver
         if (_process != null)
         {
             _isScheduled = true;
-            core.logic.SignalQueue.getInstance().schedule(_calculate, NORMAL);
+            TickGenerator.getInstance().schedule(_calculate, NORMAL); // CHANGED
         }
     }
 
@@ -200,7 +191,7 @@ class Atom implements IDisposable implements Driver
                 var outs = _outputs;
                 var vals = results;
 
-                SignalQueue.getInstance().scheduleNextTick(function()
+                TickGenerator.getInstance().scheduleNextTick(function() // CHANGED
                 {
                     if (_isDisposed) return;
                     for (i in 0...outs.length)

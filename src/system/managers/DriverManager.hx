@@ -20,7 +20,6 @@ import system.managers.Driver;
  * │   └─────────────────────────────────────────────────────────────────┘   │
  * │                                                                         │
  * │   Active Atoms (Drivers):                                               │
- * │   - SignalGeneratorAtom: generates sine/square/saw waves                │
  * │   - UniversalGeneratorAtom: multi-mode generator                        │
  * │   - FPSMonitorAtom: measures frame rate                                 │
  * │   - FrameTimeAtom: measures frame duration                              │

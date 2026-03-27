@@ -617,24 +617,43 @@ class NodeView extends Sprite {
         Impulsys.quickEmit(EventType.ATOM_PROPERTIES_REQUEST, { atom: atom, view: this });
     }
     
-    private function onMouseDown(e:MouseEvent):Void {
-        if (Std.isOfType(e.target, Sprite)) {
-            var target:Sprite = cast e.target;
-            if (inputPorts.exists(target.name) || outputPorts.exists(target.name)) return;
-        }
+	private function onMouseDown(e:MouseEvent):Void {
+		// === ИСПРАВЛЕНИЕ: Проверяем, не кликнул ли пользователь по вложенному интерактивному элементу ===
+		// Если цель события - это кнопка или объект с buttonMode, то перетаскивать узел НЕ нужно.
+		var targetObj:openfl.display.DisplayObject = cast e.target;
+		while (targetObj != null && targetObj != this) {
+			if (Std.isOfType(targetObj, openfl.display.Sprite)) {
+				var s = cast(targetObj, openfl.display.Sprite);
+				// Если у дочернего спрайта включен buttonMode/useHandCursor, считаем его кнопкой
+				if (s.buttonMode || s.useHandCursor) {
+					// Останавливаем всплытие, чтобы не сработал Lasso в редакторе,
+					// но НЕ запускаем drag. Событие дойдет до дочернего виджета.
+					e.stopPropagation();
+					return;
+				}
+			}
+			targetObj = targetObj.parent;
+		}
+		// ==========================================================================================
 
-        _dragOffsetX = e.localX;
-        _dragOffsetY = e.localY;
+		if (Std.isOfType(e.target, Sprite)) {
+			var target:Sprite = cast e.target;
+			// Старая проверка портов остается
+			if (inputPorts.exists(target.name) || outputPorts.exists(target.name)) return;
+		}
 
-        if (parent != null) parent.addChild(this);
+		_dragOffsetX = e.localX;
+		_dragOffsetY = e.localY;
 
-        if (stage != null) {
-            stage.addEventListener(MouseEvent.MOUSE_MOVE, onMouseMoveDrag);
-            stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUpDrag);
-        }
+		if (parent != null) parent.addChild(this);
 
-        e.stopPropagation();
-    }
+		if (stage != null) {
+			stage.addEventListener(MouseEvent.MOUSE_MOVE, onMouseMoveDrag);
+			stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUpDrag);
+		}
+
+		e.stopPropagation();
+	}
 
     private function onMouseMoveDrag(e:MouseEvent):Void {
         var parentPos = parent.globalToLocal(new Point(e.stageX, e.stageY));
