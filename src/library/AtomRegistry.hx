@@ -46,6 +46,22 @@ class AtomRegistry
 		// Logic
 
 		// Active Drivers (Must be registered with isActive=true)
+		reg("SignalGenerator", "Signal Generator", [
+			{name: "freq", type: INPUT, defaultValue: 1.0, dataType: "float"},
+			{name: "quantum", type: INPUT, defaultValue: 0.1, dataType: "float"},
+			{name: "mode", type: INPUT, defaultValue: 3, dataType: "int"},
+			{name: "out", type: OUTPUT, dataType: "float"},
+			{name: "changed", type: OUTPUT, dataType: "bool"}
+		], null, "panel", true, true); // isActive = true
+		
+		//reg("SignalGenerator", "Signal Generator", [
+		//{name: "freq", type: INPUT, defaultValue: 1.0, dataType: "float"},
+		//{name: "quantum", type: INPUT, defaultValue: 0.1, dataType: "float"},
+		//{name: "mode", type: INPUT, defaultValue: 0, dataType: "int"},
+		//{name: "out", type: OUTPUT, dataType: "float"},
+		//{name: "changed", type: OUTPUT, dataType: "bool"}
+		//], null, "signalgenerator", true, true);
+
 		reg("UniversalGen", "Universal Generator", [
 		{name: "square", type: INPUT, defaultValue: false, dataType: "bool"},
 		{name: "saw", type: INPUT, defaultValue: false, dataType: "bool"},

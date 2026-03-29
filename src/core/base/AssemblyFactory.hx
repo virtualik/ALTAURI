@@ -87,6 +87,7 @@ class AssemblyFactory
         switch (normalizedTypeId)
         {
             // Active Drivers
+			case "SignalGenerator": atom = new library.drivers.SignalGenerator(id);
             case "UniversalGen": atom = new UniversalGeneratorAtom(id);
             case "AudioIn": atom = new AudioInputAtom(id);
 

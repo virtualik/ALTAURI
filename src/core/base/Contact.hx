@@ -96,7 +96,6 @@ class Contact
 	// Защищён через try/finally чтобы гарантировать декремент даже при исключениях.
 	private static var _propagationDepth:Int = 0;
 	private static inline var MAX_PROPAGATION_DEPTH:Int = 100;
-
 	// === ОБНАРУЖЕНИЕ ОСЦИЛЛЯЦИИ v5.7 ===
 	// Используем дельта-время вместо сравнения границ секунд.
 	// Это устраняет ложные срабатывания когда изменение происходит
@@ -105,6 +104,7 @@ class Contact
 	private var _lastChangeTime:Float = 0;
 	private var _changeCount:Int = 0;
 	private var _oscillationBlocked:Bool = false;
+	public var ignoreOscillation:Bool = false;
 	private static inline var CHANGES_PER_SECOND_LIMIT:Int = 600;
 	private static inline var OSCILLATION_WINDOW:Float = 1.0; // секунд
 
@@ -236,9 +236,10 @@ class Contact
 		_lastChangeTime = currentTime;
 		_changeCount++;
 
-		if (_changeCount > CHANGES_PER_SECOND_LIMIT)
+		if (!ignoreOscillation && _changeCount > CHANGES_PER_SECOND_LIMIT)
 		{
 			_oscillationBlocked = true;
+			trace('Contact ${name} blocked due to oscillation, changes=$_changeCount, elapsed=$elapsed');
 			return newValue;
 		}
 
@@ -269,7 +270,13 @@ class Contact
 
 		return newValue;
 	}
-
+	
+	public function resetOscillation():Void {
+		_oscillationBlocked = false;
+		_changeCount = 0;
+		_lastChangeTime = 0.0;
+	}
+	
 	private function get_value():Dynamic return _value;
 
 	private function _propagate():Void

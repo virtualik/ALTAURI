@@ -137,8 +137,11 @@ class Main extends Sprite
 
         _editorContext = new EditorContext(_editorLayer);
         DriverManager.getInstance();
-        // CHANGED: Initialize TickGenerator instead of SignalQueue
+        
+		// Initialize TickGenerator 
         TickGenerator.getInstance();
+		TickGenerator.getInstance().targetHz = 1000; // 60 Гц — стандарт для симуляции
+		
         addEventListener(Event.ENTER_FRAME, onMainLoop);
         buildUI();
         stage.addEventListener(Event.RESIZE, onResize);
@@ -148,7 +151,7 @@ class Main extends Sprite
         loadProject();
 
         // Передаем управление лимитом в TickGenerator
-        TickGenerator.getInstance().maxStepsPerFrame = 5; // Example config
+        TickGenerator.getInstance().maxStepsPerFrame = 20; 
     }
 
 // =============================================================================================

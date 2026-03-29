@@ -106,6 +106,9 @@ class DeviceWidgetFactory {
 
             case "textinput":
                 new TextInputWidget(asm);
+				
+			case "signalgenerator":
+				new SignalGeneratorWidget(asm);
 
             case "audioinput", "audio":
                 // AudioInput показывает samples как осциллограмму
@@ -147,6 +150,9 @@ class DeviceWidgetFactory {
             case "relay":
                 // Показываем выход "out"
                 new TextWidget(atom, "out", false);
+			
+			case "signalgenerator":
+				new SignalGeneratorWidget(atom);
 
             case "universlgen", "universalgenerator":
                 new TextWidget(atom, "out", false);

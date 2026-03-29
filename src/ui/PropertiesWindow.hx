@@ -5,18 +5,17 @@ import openfl.events.MouseEvent;
 import openfl.events.Event;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
-//import openfl.text.TextFormatAlign;
 import core.base.Atom;
 import core.base.Assembly;
-//import core.base.Contact;
+import library.electro.OscilloscopeAtom;
 import ui.widgets.NumberInput;
 import ui.widgets.NumberDisplay;
 import ui.widgets.IHMIWidget;
 
 /**
- * PropertiesWindow v2.1
+ * PropertiesWindow v2.2 (Oscilloscope Shape Selector)
  * FIXED: Widget lifecycle, null checks, proper cleanup
- * ADDED: Logic Mode switch for Assembly.
+ * ADDED: Display Shape selector for OscilloscopeAtom.
  */
 class PropertiesWindow extends Sprite {
     private var _bg:Sprite;
@@ -129,9 +128,8 @@ class PropertiesWindow extends Sprite {
         var yPos = 0;
 
         // === v2.1 LOGIC MODE SWITCH ===
-        // Show toggle for Assembly or Atoms with process logic
         var isLogicTarget = Std.isOfType(atom, Assembly);
-        
+
         if (isLogicTarget) {
             var modeLabel = new TextField();
             modeLabel.text = "Simulation Mode:";
@@ -162,9 +160,7 @@ class PropertiesWindow extends Sprite {
 
             modeBtn.addEventListener(MouseEvent.CLICK, function(e) {
                 atom.isLogic = !atom.isLogic;
-                // Refresh UI
                 _populateAtom(atom);
-                // Save change
                 core.logic.Impulsys.quickEmit(core.logic.EventType.VALUE_COMMITTED);
             });
 
@@ -172,6 +168,60 @@ class PropertiesWindow extends Sprite {
             yPos += 35;
         }
         // ===============================
+
+        // === v2.2 OSCILLOSCOPE DISPLAY SHAPE ===
+        if (Std.isOfType(atom, OscilloscopeAtom)) {
+            var oscAtom:OscilloscopeAtom = cast atom;
+
+            var shapeLabel = new TextField();
+            shapeLabel.text = "Display Shape:";
+            shapeLabel.width = 250;
+            shapeLabel.height = 20;
+            shapeLabel.selectable = false;
+            shapeLabel.defaultTextFormat = new TextFormat("_typewriter", 11, 0xAAAAAA);
+            shapeLabel.y = yPos;
+            _content.addChild(shapeLabel);
+            yPos += 22;
+
+            var shapes = [
+                { label: "Rectangular", value: OscilloscopeAtom.SHAPE_RECTANGULAR },
+                { label: "Square", value: OscilloscopeAtom.SHAPE_SQUARE },
+                { label: "Circular", value: OscilloscopeAtom.SHAPE_CIRCULAR }
+            ];
+
+            for (shape in shapes) {
+                var isSelected = (oscAtom.getDisplayShape() == shape.value);
+                var btn = new Sprite();
+                btn.graphics.beginFill(isSelected ? 0x2A5A3A : 0x3A3A4A);
+                btn.graphics.drawRoundRect(0, 0, 250, 25, 4, 4);
+                btn.graphics.endFill();
+                btn.y = yPos;
+                btn.buttonMode = true;
+
+                var btf = new TextField();
+                btf.text = shape.label;
+                btf.width = 250;
+                btf.height = 25;
+                btf.selectable = false;
+                btf.mouseEnabled = false;
+                btf.defaultTextFormat = new TextFormat("_sans", 12, isSelected ? 0x00FF88 : 0xFFFFFF, false, null, null, null, null, "center");
+                btn.addChild(btf);
+
+                final capturedValue = shape.value;
+                btn.addEventListener(MouseEvent.CLICK, function(e) {
+                    oscAtom.setDisplayShape(capturedValue);
+                    // Refresh UI
+                    _populateAtom(atom);
+                    // Notify change
+                    core.logic.Impulsys.quickEmit(core.logic.EventType.VALUE_COMMITTED);
+                });
+
+                _content.addChild(btn);
+                yPos += 30;
+            }
+            yPos += 10; // Extra spacing
+        }
+        // ======================================
 
         if (atom.getInputs() != null) {
             for (c in atom.getInputs()) {
