@@ -156,7 +156,14 @@ class DeviceWidgetFactory {
 
             case "universlgen", "universalgenerator":
                 new TextWidget(atom, "out", false);
-
+				
+			case "miniaudioatom", "mini audio capture":
+                // Временный fallback: показываем панель со всеми контактами.
+                // В будущем, когда напишешь MiniAudioWidget, заменишь на:
+                // return new MiniAudioWidget(atom);
+                //new PanelWidget(atom);
+				new TextWidget(atom);
+			
             default:
                 // Универсальный виджет - текстовое отображение
                 new TextWidget(atom);

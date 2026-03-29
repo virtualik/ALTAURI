@@ -123,7 +123,7 @@ class OscilloscopeWidget extends DeviceView {
     // =========================================================================
 
     private var _lastDrawTime:Float = 0;
-    private static inline var DRAW_INTERVAL:Float = 1.0 / 120.0;
+    private static inline var DRAW_INTERVAL:Float = 1.0 / 60.0;
 
     // =========================================================================
     // CONSTRUCTOR

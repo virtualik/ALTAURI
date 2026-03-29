@@ -53,14 +53,6 @@ class AtomRegistry
 			{name: "out", type: OUTPUT, dataType: "float"},
 			{name: "changed", type: OUTPUT, dataType: "bool"}
 		], null, "panel", true, true); // isActive = true
-		
-		//reg("SignalGenerator", "Signal Generator", [
-		//{name: "freq", type: INPUT, defaultValue: 1.0, dataType: "float"},
-		//{name: "quantum", type: INPUT, defaultValue: 0.1, dataType: "float"},
-		//{name: "mode", type: INPUT, defaultValue: 0, dataType: "int"},
-		//{name: "out", type: OUTPUT, dataType: "float"},
-		//{name: "changed", type: OUTPUT, dataType: "bool"}
-		//], null, "signalgenerator", true, true);
 
 		reg("UniversalGen", "Universal Generator", [
 		{name: "square", type: INPUT, defaultValue: false, dataType: "bool"},
@@ -75,6 +67,24 @@ class AtomRegistry
 		{name: "level", type: OUTPUT, dataType: "float"}
 		], null, "oscilloscope", true, true); // isActive = true
 
+		reg("MiniAudioAtom", "Mini Audio Capture", [
+            // Входные контакты (настройки)
+            {name: "mode",     type: INPUT,  defaultValue: 0,    dataType: "int"},
+            {name: "quantum",  type: INPUT,  defaultValue: 0.01, dataType: "float"},
+            {name: "gain",     type: INPUT,  defaultValue: 1.0,  dataType: "float"},
+            {name: "channel",  type: INPUT,  defaultValue: 0,    dataType: "int"},
+            {name: "rate",     type: INPUT,  defaultValue: 0,    dataType: "int"},
+            
+            // Выходные контакты
+            {name: "sample",   type: OUTPUT, dataType: "float"},
+            {name: "changed",  type: OUTPUT, dataType: "bool"},
+            {name: "rms",      type: OUTPUT, dataType: "float"},
+            {name: "clip",     type: OUTPUT, dataType: "bool"},
+            {name: "tick",     type: OUTPUT, dataType: "bool"},
+            {name: "level",    type: OUTPUT, dataType: "float"},
+            {name: "device",   type: OUTPUT, dataType: "string"}
+        ], null, "miniaudio", true, true); // isActive = true - КРИТИЧНО!
+		
 		// Passive Displays
 		reg("Oscilloscope", "Oscilloscope", [
 		{name: "in", type: INPUT, dataType: "array"}

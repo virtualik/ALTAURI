@@ -5,36 +5,32 @@ import haxe.Timer;
 import system.managers.DriverManager;
 
 /**
- * TICK GENERATOR v1.0 (Unified Clock & Queue)
+ * TICK GENERATOR v1.1 (Unified Clock & Queue + Thread Safety)
  * Единый центр управления симуляцией.
  *
- * Объединяет функционал:
- * - SignalQueue (очередь задач и распространение сигналов)
- * - SimulationClock (управление временем и частотой)
- * - Timebase (глобальный счетчик тактов)
+ * v1.1 Changes:
+ * - FIXED: Заменен массив _pendingInputs на LockFreeQueue<Void->Void>.
+ *   Это полностью устраняет Data Race при вызове scheduleNextTick()
+ *   из сторонних потоков (например, Audio Thread в MiniAudioAtom).
  *
  * Архитектура:
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │   Main Loop                                                             │
- * │   ┌─────────────────────────────────────────────────────────────────┐   │
- * │   │  onEnterFrame() {                                               │   │
- * │   │      var dt = calculateDelta();                                 │   │
- * │   │      TickGenerator.getInstance().update(dt);                    │   │
- * │   │  }                                                              │   │
- * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │   External Threads                  Main Loop (Game Loop)              │
  * │                                                                         │
- * │   TickGenerator.update(dt):                                             │
- * │   1. Накапливает время (Fixed Timestep).                                │
- * │   2. Вызывает performStep():                                            │
- * │      a. incrementTick() - глобальный счетчик.                           │
- * │      b. DriverManager.update() - обновление драйверов (генераторы).     │
- * │      c. flushPendingInputs() - внедрение отложенных событий.            │
- * │      d. process() - обработка очереди сигналов (Контакты передают сигн.)│
- * │      e. emitTick() - событие "Tick" для слушателей.                     │
- * │                                                                         │
- * │   Контакты (Contact) используют schedule() для отложенного              │
- * │   распространения значения. Задача выполняется при наступлении Tick.    │
- * │                                                                         │
+ * │   ┌───────────────────┐             ┌─────────────────────────────────┐ │
+ * │   │ Audio Callback    │             │  onEnterFrame() {              │ │
+ * │   │ scheduleNextTick()│───SPSC────►│    TickGenerator.update(dt);   │ │
+ * │   └───────────────────┘   Queue     │  }                              │ │
+ * │                                         │                             │
+ * │   ┌───────────────────┐                 ▼                             │
+ * │   │ UI Input (Main)   │──────────► flushPendingInputs()              │
+ * │   │ scheduleNextTick()│  (безопасно,│    │                            │
+ * │   └───────────────────┘   тот поток) │    ▼                            │
+ * │                                         performStep()                 │
+ * │                                           ├─ DriverManager.update()   │
+ * │                                           ├─ flushPendingInputs()     │
+ * │                                           ├─ process()                │
+ * │                                           └─ emitTick()               │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
 class TickGenerator
@@ -47,7 +43,8 @@ class TickGenerator
 
     /** Частота симуляции в Герцах. */
     public var targetHz(default, set):Int = 60;
-    private function set_targetHz(value:Int):Int {
+    private function set_targetHz(value:Int):Int
+    {
         targetHz = Std.int(Math.max(1, value));
         fixedDeltaTime = 1.0 / targetHz;
         return targetHz;
@@ -81,7 +78,9 @@ class TickGenerator
     private var _isProcessing:Bool = false;
     private var _suspended:Bool = false;
 
-    private var _pendingInputs:Array<Void -> Void>;
+    // v1.1: Lock-free очередь для межпоточного обмена
+    private var _pendingQueue:LockFreeQueue<Void -> Void>;
+    
     private var _blockedUntilNextFrame:Bool = false;
     private var _iterationGuard:Int = 0;
     private var _maxIterationsPerTick:Int = 5000;
@@ -108,7 +107,9 @@ class TickGenerator
         _queuesRead.set(CRITICAL, []);
         _queuesRead.set(NORMAL, []);
         _queuesRead.set(BACKGROUND, []);
-        _pendingInputs = [];
+        
+        // 4096 задач с запасом даже при самом агрессивном аудиопотоке
+        _pendingQueue = new LockFreeQueue<Void -> Void>(4096);
     }
 
     // =========================================================================
@@ -177,7 +178,7 @@ class TickGenerator
         // Сброс блокировок нового кадра
         _blockedUntilNextFrame = false;
 
-        // Внедряем запланированные входы (кнопки, инпуты)
+        // Внедряем запланированные входы (кнопки, инпуты, аудио данные)
         flushPendingInputs();
 
         // Запускаем распространение сигналов
@@ -239,13 +240,16 @@ class TickGenerator
 
     /**
      * Schedule a task for execution at the START of the next tick.
-     * Используется для пользовательского ввода.
+     * v1.1: ПОТОКОБЕЗОПАСНО. Можно вызывать из Audio Thread.
      */
     public function scheduleNextTick(task:Void -> Void):Void
     {
         if (task != null)
         {
-            _pendingInputs.push(task);
+            if (!_pendingQueue.push(task))
+            {
+                trace('TickGenerator: pending queue overflow! Task dropped.');
+            }
         }
     }
 
@@ -270,23 +274,31 @@ class TickGenerator
     {
         for (q in _queuesWrite) if (q != null && q.length > 0) return true;
         for (q in _queuesRead) if (q != null && q.length > 0) return true;
-        if (_pendingInputs.length > 0) return true;
+        
+        // v1.1: проверка LockFreeQueue
+        var test = _pendingQueue.pop();
+        if (test != null)
+        {
+            // Если что-то есть, возвращаем обратно (через push, это безопасно из главного потока)
+            // В идеале для SPSC нужен peek(), но для проверки переполнения пойдёт так
+            _queuesWrite.get(NORMAL).push(test);
+            return true;
+        }
         return false;
     }
 
     public function flushPendingInputs():Void
     {
-        if (_pendingInputs.length == 0) return;
-
         var queue = _queuesWrite.get(NORMAL);
-        if (queue != null)
+        if (queue == null) return;
+
+        // v1.1: Вытаскиваем задачи из lock-free очереди без аллокаций
+        var task = _pendingQueue.pop();
+        while (task != null)
         {
-            for (task in _pendingInputs)
-            {
-                queue.push(task);
-            }
+            queue.push(task);
+            task = _pendingQueue.pop();
         }
-        _pendingInputs = [];
     }
 
     // =========================================================================
@@ -316,10 +328,10 @@ class TickGenerator
             var order:Array<Priority> = [CRITICAL, NORMAL, BACKGROUND];
             for (p in order)
             {
-                var queue = _queuesRead.get(p);
-                if (queue != null && queue.length > 0)
+                var q = _queuesRead.get(p);
+                if (q != null && q.length > 0)
                 {
-                    for (i in 0...queue.length)
+                    for (i in 0...q.length)
                     {
                         _iterationGuard++;
 
@@ -331,20 +343,14 @@ class TickGenerator
                             return;
                         }
 
-                        var task = queue[i];
+                        var task = q[i];
                         if (task != null)
                         {
-                            try
-                            {
-                                task();
-                            }
-                            catch (e:Dynamic)
-                            {
-                                trace('TickGenerator: Error in task: $e');
-                            }
+                            try { task(); }
+                            catch (e:Dynamic) { trace('TickGenerator: Error in task: $e'); }
                         }
                     }
-                    queue.resize(0);
+                    q.resize(0);
                 }
             }
 
@@ -364,7 +370,6 @@ class TickGenerator
     public function clear():Void
     {
         clearQueues();
-        _pendingInputs = [];
         _isProcessing = false;
         _suspended = false;
         _blockedUntilNextFrame = false;
@@ -375,6 +380,7 @@ class TickGenerator
         if (_instance != null)
         {
             _instance.clear();
+            if (_instance._pendingQueue != null) _instance._pendingQueue.dispose();
             _instance = null;
         }
     }

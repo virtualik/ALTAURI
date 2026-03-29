@@ -25,34 +25,35 @@ package system.managers;
  * │      - DeviceViewRegistry manages the single instance                   │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
-interface Driver {
+interface Driver
+{
 
-    /**
-     * Unique ID of the driver instance.
-     */
-    public var id(get, never):String;
+	/**
+	 * Unique ID of the driver instance.
+	 */
+	public var id(get, never):String;
 
-    /**
-     * Called once when the driver is registered.
-     * Override to perform initialization.
-     */
-    public function init():Void;
+	/**
+	 * Called once when the driver is registered.
+	 * Override to perform initialization.
+	 */
+	public function init():Void;
 
-    /**
-     * Called periodically (every frame) to poll data or maintain connection.
-     * @param dt Delta time in seconds.
-     */
-    public function update(dt:Float):Void;
+	/**
+	 * Called periodically (every frame) to poll data or maintain connection.
+	 * @param dt Delta time in seconds.
+	 */
+	public function update(dt:Float):Void;
 
-    /**
-     * Cleanup resources.
-     * Called when driver is unregistered or on shutdown.
-     */
-    public function dispose():Void;
+	/**
+	 * Cleanup resources.
+	 * Called when driver is unregistered or on shutdown.
+	 */
+	public function dispose():Void;
 }
 /**
  * Драйвера планируемые в первой очереди для создания:
- * 
+ *
  * - TextFeild
  * - TextArea
  * - InputText
@@ -60,7 +61,7 @@ interface Driver {
  * - ToggleButton
  * - RadioButton
  * - CheckBox
- *  
+ *
  * - Keyboard
  * - Mouse
  * - COMPORT
