@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <project>
+		
 	<meta title="ALTAURI" package="com.virtualik.altauri" version="1.0.0" company="ViRTUALiK" />
 	<app main="Main" file="ALTAURI" path="bin" />
 	
@@ -19,9 +20,8 @@
 	<setenv name="LIME_RENDER_CONTEXT" value="opengl" />
 	
 	<source path="src" />
-	<files id="haxe">
-        <file name="src/miniaudio_impl.c"/>
-    </files>
+	<source path="include" />
+	
 	<haxelib name="openfl" />
 	<haxelib name="hxcpp" if="cpp" />
 	

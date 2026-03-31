@@ -162,9 +162,6 @@ class DeviceWidgetFactory {
 			
 			case "signalgenerator":
 				new SignalGeneratorWidget(atom);
-
-            case "universlgen", "universalgenerator":
-                new TextWidget(atom, "out", false);
 			
 			#if cpp
 			case "miniaudioatom", "mini audio capture":

@@ -54,14 +54,6 @@ class AtomRegistry
 			{name: "changed", type: OUTPUT, dataType: "bool"}
 		], null, "panel", true, true); // isActive = true
 
-		reg("UniversalGen", "Universal Generator", [
-		{name: "square", type: INPUT, defaultValue: false, dataType: "bool"},
-		{name: "saw", type: INPUT, defaultValue: false, dataType: "bool"},
-		{name: "sine", type: INPUT, defaultValue: false, dataType: "bool"},
-		{name: "freq", type: INPUT, defaultValue: 440.0, dataType: "float"},
-		{name: "out", type: OUTPUT, dataType: "float"}
-		], null, "panel", true, true); // isActive = true
-
 		reg("AudioIn", "Audio Input", [
 		{name: "samples", type: OUTPUT, dataType: "array"},
 		{name: "level", type: OUTPUT, dataType: "float"}

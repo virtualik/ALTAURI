@@ -20,6 +20,7 @@
     <class path="C:\HaxeToolkit\haxe\lib\lime\8,3,1\src" />
     <class path="C:\HaxeToolkit\haxe\lib\hxcpp\4,3,2" />
     <class path="src" />
+    <class path="include" />
     <class path="bin\windows\haxe" />
   </classpaths>
   <!-- Build options -->

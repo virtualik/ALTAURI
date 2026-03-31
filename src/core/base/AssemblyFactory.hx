@@ -10,9 +10,8 @@ import library.electro.ButtonAtom;
 import library.electro.LedAtom;
 import library.electro.RelayAtom;
 import library.electro.OscilloscopeAtom;
-import library.drivers.UniversalGeneratorAtom;
 import library.drivers.AudioInputAtom;
-import library.drivers.MiniAudioAtom;           // ← NEW: your real C++ audio driver
+import library.drivers.MiniAudioAtom;
 import library.drivers.SignalGenerator;
 
 using StringTools;
@@ -66,9 +65,6 @@ class AssemblyFactory
                 // === ACTIVE DRIVERS (C++ native atoms) ===
                 case "SIGNALGENERATOR": normalizedTypeId = "SignalGenerator";
 
-                case "UNIVERSALGEN":
-                case "UNIVERSALGENERATOR": normalizedTypeId = "UniversalGen";
-
                 case "AUDIOIN":
                 case "AUDIOINPUT": normalizedTypeId = "AudioIn";
 
@@ -115,9 +111,6 @@ class AssemblyFactory
             // =============================================================
             case "SignalGenerator":
                 atom = new library.drivers.SignalGenerator(id);
-
-            case "UniversalGen":
-                atom = new UniversalGeneratorAtom(id);
 
             case "AudioIn":
                 atom = new AudioInputAtom(id);

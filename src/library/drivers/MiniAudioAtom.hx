@@ -7,12 +7,12 @@ import core.types.ContactType.*;
 import system.managers.DriverManager;
 
 @:headerCode('
-#include "C:/Users/ViRTUALiK/Desktop/ALTAURI/include/miniaudio.h"
+#include "C:/Users/ViRTUALiK/OneDrive/ALTAURI/include/miniaudio.h"
 #include <math.h>
 ')
 @:cppFileCode('
 #define MINIAUDIO_IMPLEMENTATION
-#include "C:/Users/ViRTUALiK/Desktop/ALTAURI/include/miniaudio.h"
+#include "C:/Users/ViRTUALiK/OneDrive/ALTAURI/include/miniaudio.h"
 
 // ================================================
 // C++ callback для miniaudio
@@ -143,10 +143,6 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
     // =========================================================================
     public function new(id:String)
     {
-        trace("=================================================================");
-        trace("MiniAudioAtom: CONSTRUCTOR CALLED (id = " + id + ")");
-        trace("=================================================================");
-        
         super(
             [
                 new Contact(MODE_MIC, INPUT, "mode"),
@@ -173,9 +169,6 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
         var sampleOut = getOutput("sample");
         if (sampleOut != null) sampleOut.ignoreOscillation = true;
         
-        trace("MiniAudioAtom: Created (id=" + id + ")");
-        
-        trace("MiniAudioAtom: Calling init() from constructor...");
         init();
     }
     
@@ -184,10 +177,6 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
     // =========================================================================
     override public function init():Void
     {
-        trace("=================================================================");
-        trace("MiniAudioAtom: init() CALLED - starting device...");
-        trace("=================================================================");
-        
         readInputs();
         openDevice();
     }
@@ -198,7 +187,6 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
         
         if (_hasPending)
         {
-            trace('MiniAudioAtom: Received audio data! RMS=${_pendingRms}, Sample=${_pendingSample}');
             _hasPending = false;
             
             var snapSample  = _pendingSample;
@@ -249,7 +237,6 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
         closeDevice();
         DriverManager.getInstance().unregister(this.id);
         super.dispose();
-        trace('MiniAudioAtom: Disposed');
     }
     
     // =========================================================================
@@ -257,8 +244,6 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
     // =========================================================================
     private function openDevice():Void
     {
-        trace("MiniAudioAtom: openDevice() called. Mode=" + _mode + ", Rate=" + SAMPLE_RATES[_sampleRateIdx]);
-        
         var sampleRate : Int = SAMPLE_RATES[_sampleRateIdx];
         var deviceType : Int = (_mode == MODE_LOOPBACK) ? 2 : 1;
         
@@ -342,12 +327,10 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
         if (_deviceReady)
         {
             setDeviceNameOutput((_mode == MODE_LOOPBACK) ? "Loopback @" + sampleRate + "Hz" : "Capture @" + sampleRate + "Hz");
-            trace("MiniAudioAtom: Device opened SUCCESSFULLY");
         }
         else
         {
             setDeviceNameOutput("ERROR: device init failed");
-            trace("MiniAudioAtom: openDevice FAILED");
         }
     }
     
@@ -381,7 +364,6 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
             {0}->_rmsBufferRaw = nullptr;
         ', this);
         
-        trace('MiniAudioAtom: Device closed');
     }
     
     // =========================================================================
