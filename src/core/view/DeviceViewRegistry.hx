@@ -94,7 +94,7 @@ class DeviceViewRegistry {
      */
     public function getOrCreate(atom:Atom, createIfNotExists:Bool = true):DeviceView {
         if (atom == null) return null;
-
+ trace('[ALi]:DeviceViewRegistry: Created widget for atom "${atom.name}" (id: ${atom.id})');
         // Уже существует?
         if (_widgets.exists(atom.id)) {
             return _widgets.get(atom.id);

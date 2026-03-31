@@ -110,7 +110,12 @@ class DeviceWidgetFactory {
 
             case "textinput":
                 new TextInputWidget(asm);
-				
+			
+			#if cpp
+			case "miniaudioatom", "mini audio capture":
+				new MiniAudioWidget(asm);
+			#end
+			
 			case "signalgenerator":
 				new SignalGeneratorWidget(asm);
 

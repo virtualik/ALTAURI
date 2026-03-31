@@ -19,7 +19,9 @@
 	<setenv name="LIME_RENDER_CONTEXT" value="opengl" />
 	
 	<source path="src" />
-	
+	<files id="haxe">
+        <file name="src/miniaudio_impl.c"/>
+    </files>
 	<haxelib name="openfl" />
 	<haxelib name="hxcpp" if="cpp" />
 	

@@ -12,108 +12,166 @@ import library.electro.RelayAtom;
 import library.electro.OscilloscopeAtom;
 import library.drivers.UniversalGeneratorAtom;
 import library.drivers.AudioInputAtom;
+import library.drivers.MiniAudioAtom;           // ← NEW: your real C++ audio driver
+import library.drivers.SignalGenerator;
 
 using StringTools;
 
 /**
- * ASSEMBLY FACTORY v4.6 (Clean Logic Gate Fix)
- * Создает правильные экземпляры классов для нативных атомов.
+ * ASSEMBLY FACTORY v4.7 (MiniAudioAtom Integration)
  *
- * v4.6 Changes:
- * - Added missing imports for FPSMonitorAtom and FrameTimeAtom.
- * - Removed redirection logic for deleted native Logic Gates (ORGateAtom, etc).
- * - Logic Gate types now default to creating an Assembly (composite).
+ * Central factory that creates every Atom in ALTAURI.
+ * It decides whether to instantiate a native C++ driver (SignalGenerator, MiniAudioAtom, etc.)
+ * or a composite Assembly (user-created blueprints).
+ *
+ * v4.7 Changes (March 2026):
+ *   - Added full support for MiniAudioAtom (real microphone capture via miniaudio.h)
+ *   - Clean normalization for both "MiniAudioAtom" and "Mini Audio Capture"
+ *   - All native drivers are now in one clear section
+ *   - Better comments and structure for future maintenance
+ *
+ * This is the single place where you add new native atoms.
  */
 class AssemblyFactory
 {
     /**
      * Creates an Atom or Assembly instance.
-     * If forcedId is null, generates a new UUID.
+     * If forcedId is null, a new UUID is generated automatically.
+     *
+     * @param typeId      Blueprint ID from AtomRegistry (e.g. "Mini Audio Capture")
+     * @param forcedId    Optional runtime ID (used during deserialization)
+     * @param initialState Optional saved state to restore
      */
     public static function createAtom(typeId:String, ?forcedId:String, ?initialState:Dynamic):Atom
     {
         var bp = AtomRegistry.get(typeId);
         var id:String = (forcedId != null) ? forcedId : UID.generate();
-        
+
         if (bp == null)
         {
-            trace('ERROR: Blueprint not found: $typeId');
+            trace('ERROR: Blueprint not found: ${typeId}');
             return null;
         }
-        
-        // trace('AssemblyFactory: Creating ${bp.name} (typeId: $typeId, id: $id)');
 
-        // === FIX: Нормализация typeId для совместимости ===
+        // =====================================================================
+        // NORMALIZATION: Make type names robust against different spellings
+        // =====================================================================
         var normalizedTypeId:String = typeId;
         if (typeId != null)
         {
             var upperId:String = typeId.toUpperCase().replace(" ", "");
-            
+
             switch (upperId)
             {
-                // === NATIVE ATOMS REDIRECTS ===
-                case "BUTTON": normalizedTypeId = "Button";
-                case "PUSHBUTTON": normalizedTypeId = "Button";
-                
-                case "TOGGLE": normalizedTypeId = "Toggle";
-                case "TOGGLESWITCH": normalizedTypeId = "Toggle";
-                
-                case "LED": normalizedTypeId = "LED";
-                case "LEDINDICATOR": normalizedTypeId = "LED";
-                
-                case "RELAY": normalizedTypeId = "Relay";
-                case "OSCILLOSCOPE": normalizedTypeId = "Oscilloscope";
-                case "TEXTINPUT": normalizedTypeId = "TextInput";
-                
-                case "UNIVERSALGEN": normalizedTypeId = "UniversalGen";
+                // === ACTIVE DRIVERS (C++ native atoms) ===
+                case "SIGNALGENERATOR": normalizedTypeId = "SignalGenerator";
+
+                case "UNIVERSALGEN":
                 case "UNIVERSALGENERATOR": normalizedTypeId = "UniversalGen";
-             
-                case "AUDIOIN": normalizedTypeId = "AudioIn";
+
+                case "AUDIOIN":
                 case "AUDIOINPUT": normalizedTypeId = "AudioIn";
 
-                // === REMOVED LOGIC GATES REDIRECTS ===
-                // ORGateAtom class has been removed.
-                // Types like OR_GATE, NAND will fall to 'default' and become Assembly.
-                
-                default: 
-                    // Keep original if no match
+                // ─────────────────────────────────────────────────────────────
+                // MINI AUDIO ATOM — your real microphone capture driver
+                // ─────────────────────────────────────────────────────────────
+                case "MINIAUDIOATOM":
+                case "MINI AUDIO CAPTURE":
+                case "MINIAUDIOPLAYER":        // in case you add playback later
+                    normalizedTypeId = "MiniAudioAtom";
+                // ─────────────────────────────────────────────────────────────
+
+                // === ELECTRO / UI ATOMS ===
+                case "BUTTON":
+                case "PUSHBUTTON": normalizedTypeId = "Button";
+
+                case "TOGGLE":
+                case "TOGGLESWITCH": normalizedTypeId = "Toggle";
+
+                case "LED":
+                case "LEDINDICATOR": normalizedTypeId = "LED";
+
+                case "RELAY": normalizedTypeId = "Relay";
+
+                case "OSCILLOSCOPE": normalizedTypeId = "Oscilloscope";
+
+                case "TEXTINPUT": normalizedTypeId = "TextInput";
+
+                default:
+                    // Keep original name if no special mapping is needed
                     normalizedTypeId = typeId;
             }
         }
 
         var atom:Atom = null;
 
-        // === INSTANTIATION ===
+        // =====================================================================
+        // INSTANTIATION SWITCH — this is where real objects are born
+        // =====================================================================
         switch (normalizedTypeId)
         {
-            // Active Drivers
-			case "SignalGenerator": atom = new library.drivers.SignalGenerator(id);
-            case "UniversalGen": atom = new UniversalGeneratorAtom(id);
-            case "AudioIn": atom = new AudioInputAtom(id);
+            // =============================================================
+            // ACTIVE DRIVERS (real C++ code, registered in DriverManager)
+            // =============================================================
+            case "SignalGenerator":
+                atom = new library.drivers.SignalGenerator(id);
 
-            // Electro
-            case "Button": atom = new ButtonAtom(id);
-            case "Toggle": atom = new library.electro.ToggleAtom(id);
-            case "LED": atom = new LedAtom(id);
-            case "Relay": atom = new RelayAtom(id);
-            case "Oscilloscope": atom = new OscilloscopeAtom(id);
-            case "TextInput": atom = new TextInputAtom(id);
+            case "UniversalGen":
+                atom = new UniversalGeneratorAtom(id);
 
-            // Default: create Assembly for composite or missing native types
+            case "AudioIn":
+                atom = new AudioInputAtom(id);
+
+            // =============================================================
+            // MINI AUDIO ATOM — your microphone capture engine
+            // =============================================================
+            case "MiniAudioAtom":
+                atom = new library.drivers.MiniAudioAtom(id);
+                trace('🔊 AssemblyFactory: Created MiniAudioAtom (id: ${id}) — real miniaudio.h driver');
+
+            // =============================================================
+            // ELECTRO / UI ATOMS
+            // =============================================================
+            case "Button":
+                atom = new ButtonAtom(id);
+
+            case "Toggle":
+                atom = new library.electro.ToggleAtom(id);
+
+            case "LED":
+                atom = new LedAtom(id);
+
+            case "Relay":
+                atom = new RelayAtom(id);
+
+            case "Oscilloscope":
+                atom = new OscilloscopeAtom(id);
+
+            case "TextInput":
+                atom = new TextInputAtom(id);
+
+            // =============================================================
+            // DEFAULT: Composite user-created Assembly
+            // =============================================================
             default:
+                // This path is used for all user-made blueprints that contain internalAtoms
                 atom = new Assembly(id, bp);
-                // trace('AssemblyFactory: Created Assembly for type $normalizedTypeId');
+                // trace('AssemblyFactory: Created composite Assembly for "${normalizedTypeId}"');
         }
 
-        // Restore state if provided
+        // Restore saved state (frequency, mode, buffer settings, etc.)
         if (atom != null && initialState != null)
         {
             atom.restoreState(initialState);
         }
-        
+
         return atom;
     }
 
+    /**
+     * Convenience method — always returns an Assembly (never a native atom).
+     * Used when you explicitly want a composite node.
+     */
     public static function createAssembly(typeId:String):Assembly
     {
         var atom = createAtom(typeId);
@@ -123,21 +181,20 @@ class AssemblyFactory
         }
         else
         {
-            trace('WARN: $typeId is a native Atom, not an Assembly.');
+            trace('WARN: ${typeId} is a native Atom, not an Assembly.');
             return null;
         }
     }
 
     /**
-     * Check if a type is a composite (user-created assembly).
+     * Returns true if the given typeId is a user-created composite blueprint
+     * (contains internalAtoms and connections).
      */
     public static function isComposite(typeId:String):Bool
     {
         var bp = AtomRegistry.get(typeId);
         if (bp == null) return false;
-        
-        // Native atoms with logic are not composites
-        if (bp.internalAtoms != null && bp.internalAtoms.length > 0) return true;
-        return false;
+
+        return (bp.internalAtoms != null && bp.internalAtoms.length > 0);
     }
 }
