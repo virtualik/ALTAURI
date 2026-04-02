@@ -61,7 +61,7 @@ class AtomRegistry
 
 		reg("MiniAudioAtom", "Mini Audio Capture", [
             // Входные контакты (настройки)
-            {name: "mode",     type: INPUT,  defaultValue: 1,    dataType: "int"},
+            {name: "mode",     type: INPUT,  defaultValue: 2,    dataType: "int"},
             {name: "quantum",  type: INPUT,  defaultValue: 0.01, dataType: "float"},
             {name: "gain",     type: INPUT,  defaultValue: 1.0,  dataType: "float"},
             {name: "channel",  type: INPUT,  defaultValue: 0,    dataType: "int"},

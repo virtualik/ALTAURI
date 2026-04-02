@@ -7,12 +7,12 @@ import core.types.ContactType.*;
 import system.managers.DriverManager;
 
 @:headerCode('
-#include "C:/Users/ViRTUALiK/OneDrive/ALTAURI/include/miniaudio.h"
+#include "../../../../include/miniaudio.h"
 #include <math.h>
 ')
 @:cppFileCode('
 #define MINIAUDIO_IMPLEMENTATION
-#include "C:/Users/ViRTUALiK/OneDrive/ALTAURI/include/miniaudio.h"
+#include "../../../../include/miniaudio.h"
 
 // ================================================
 // C++ callback для miniaudio

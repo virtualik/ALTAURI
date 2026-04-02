@@ -1,0 +1,6 @@
+<xml>
+    <target id="hxcpp">
+        <compilerflag value="-I${project.path}/include" />
+        <compilerflag value="/I${project.path}/include" if="windows" />
+    </target>
+</xml>

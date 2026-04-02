@@ -3,7 +3,7 @@
 		
 	<meta title="ALTAURI" package="com.virtualik.altauri" version="1.0.0" company="ViRTUALiK" />
 	<app main="Main" file="ALTAURI" path="bin" />
-	
+	<output type="Application" mainClass="Main" />
 	<window  visible="false"
 			 borderless="false"
 			 hardware="true"
@@ -20,7 +20,18 @@
 	<setenv name="LIME_RENDER_CONTEXT" value="opengl" />
 	
 	<source path="src" />
-	<source path="include" />
+
+	<!-- === КРИТИЧЕСКИ ВАЖНО: Правильный синтаксис для Lime 8.x === -->
+    <!-- Путь должен быть относительно project.xml -->
+    <cpp>
+        <compilerflag value="-I${project.path}/include" />
+    </cpp>
+    
+    <!-- Альтернативный вариант для MSVC (если -I не работает) -->
+    <windows>
+        <compilerflag value="/I${project.path}/include" if="cpp" />
+    </windows>
+    <!-- ========================================================= -->
 	
 	<haxelib name="openfl" />
 	<haxelib name="hxcpp" if="cpp" />
