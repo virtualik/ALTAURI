@@ -21,18 +21,6 @@
 	
 	<source path="src" />
 
-	<!-- === КРИТИЧЕСКИ ВАЖНО: Правильный синтаксис для Lime 8.x === -->
-    <!-- Путь должен быть относительно project.xml -->
-    <cpp>
-        <compilerflag value="-I${project.path}/include" />
-    </cpp>
-    
-    <!-- Альтернативный вариант для MSVC (если -I не работает) -->
-    <windows>
-        <compilerflag value="/I${project.path}/include" if="cpp" />
-    </windows>
-    <!-- ========================================================= -->
-	
 	<haxelib name="openfl" />
 	<haxelib name="hxcpp" if="cpp" />
 	

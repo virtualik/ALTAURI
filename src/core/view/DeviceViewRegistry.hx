@@ -94,7 +94,7 @@ class DeviceViewRegistry {
      */
     public function getOrCreate(atom:Atom, createIfNotExists:Bool = true):DeviceView {
         if (atom == null) return null;
- trace('[ALi]:DeviceViewRegistry: Created widget for atom "${atom.name}" (id: ${atom.id})');
+ 
         // Уже существует?
         if (_widgets.exists(atom.id)) {
             return _widgets.get(atom.id);
@@ -108,7 +108,6 @@ class DeviceViewRegistry {
             _widgets.set(atom.id, widget);
             // Контейнер ещё не назначен
             _containers.remove(atom.id);
-            trace('DeviceViewRegistry: Created widget for atom "${atom.name}" (id: ${atom.id})');
         }
 
         return widget;
@@ -144,7 +143,6 @@ class DeviceViewRegistry {
         }
 
         _widgets.set(atomId, widget);
-        trace('DeviceViewRegistry: Registered widget for atom id: $atomId');
     }
 
     /**
@@ -162,7 +160,6 @@ class DeviceViewRegistry {
             }
             _widgets.remove(atomId);
             _containers.remove(atomId);
-            trace('DeviceViewRegistry: Removed widget for atom id: $atomId');
         }
     }
 
@@ -262,7 +259,6 @@ class DeviceViewRegistry {
             widget.activate();
         }
 
-        trace('DeviceViewRegistry: Moved widget $atomId to DeviceWindow');
         return widget;
     }
 
@@ -309,7 +305,6 @@ class DeviceViewRegistry {
         // Обновляем контейнер
         setContainer(atomId, CONTAINER_NODE_VIEW);
 
-        trace('DeviceViewRegistry: Moved widget $atomId to NodeView');
         return widget;
     }
 
@@ -357,9 +352,6 @@ class DeviceViewRegistry {
      * Диагностический вывод состояния реестра.
      */
     public function debugPrint():Void {
-        trace('=== DeviceViewRegistry Debug ===');
-        trace('Total widgets: ${getCount()}');
-
         var nodeViewCount = 0;
         var deviceWindowCount = 0;
         var noContainerCount = 0;
@@ -370,11 +362,6 @@ class DeviceViewRegistry {
             else if (container == CONTAINER_DEVICE_WINDOW) deviceWindowCount++;
             else noContainerCount++;
         }
-
-        trace('  In NodeView: $nodeViewCount');
-        trace('  In DeviceWindow: $deviceWindowCount');
-        trace('  No container: $noContainerCount');
-        trace('================================');
     }
 
     // =========================================================================

@@ -7,6 +7,8 @@ import core.types.ContactType.*;
 import system.managers.DriverManager;
 
 @:headerCode('
+// Путь относительно сгенерированного .cpp в bin/windows/obj/.../src/library/drivers/
+// 4 уровня вверх до корня проекта, затем в /include
 #include "../../../../include/miniaudio.h"
 #include <math.h>
 ')

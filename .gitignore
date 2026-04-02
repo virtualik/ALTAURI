@@ -1,3 +1,9 @@
-# .gitignore
-Main.swf
-RECOVER_Main.fla
+# Haxe/C++ build
+bin/windows/obj/
+bin/windows/haxe/
+bin/windows/bin/
+*.ndll
+*.exe
+*.build
+# Lime cache
+.lime/
