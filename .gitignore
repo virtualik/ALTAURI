@@ -4,6 +4,7 @@ bin/windows/haxe/
 bin/windows/bin/
 *.ndll
 *.exe
-*.build
+.build
 # Lime cache
 .lime/
+ALTAURI.hxproj
