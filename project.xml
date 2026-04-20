@@ -14,7 +14,8 @@
 			 width="1024" height="800"
 			 fps="60"
 			 background="#000000"
-			 transparent="true"/>
+			 transparent="true">
+	</window>/>
 	
 	<setenv name="OPENFL_DISABLE_DIRTY_REGIONS" value="true" />
 	<setenv name="LIME_RENDER_CONTEXT" value="opengl" />

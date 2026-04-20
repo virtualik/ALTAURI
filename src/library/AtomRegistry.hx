@@ -47,11 +47,11 @@ class AtomRegistry
 
 		// Active Drivers (Must be registered with isActive=true)
 		reg("SignalGenerator", "Signal Generator", [
-			{name: "freq", type: INPUT, defaultValue: 1.0, dataType: "float"},
-			{name: "quantum", type: INPUT, defaultValue: 0.1, dataType: "float"},
-			{name: "mode", type: INPUT, defaultValue: 3, dataType: "int"},
-			{name: "out", type: OUTPUT, dataType: "float"},
-			{name: "changed", type: OUTPUT, dataType: "bool"}
+		{name: "freq", type: INPUT, defaultValue: 1.0, dataType: "float"},
+		{name: "quantum", type: INPUT, defaultValue: 0.1, dataType: "float"},
+		{name: "mode", type: INPUT, defaultValue: 3, dataType: "int"},
+		{name: "out", type: OUTPUT, dataType: "float"},
+		{name: "changed", type: OUTPUT, dataType: "bool"}
 		], null, "panel", true, true); // isActive = true
 
 		reg("AudioIn", "Audio Input", [
@@ -60,23 +60,48 @@ class AtomRegistry
 		], null, "oscilloscope", true, true); // isActive = true
 
 		reg("MiniAudioAtom", "Mini Audio Capture", [
-            // Входные контакты (настройки)
-            {name: "mode",     type: INPUT,  defaultValue: 1,    dataType: "int"},
-            {name: "quantum",  type: INPUT,  defaultValue: 0.01, dataType: "float"},
-            {name: "gain",     type: INPUT,  defaultValue: 1.0,  dataType: "float"},
-            {name: "channel",  type: INPUT,  defaultValue: 0,    dataType: "int"},
-            {name: "rate",     type: INPUT,  defaultValue: 0,    dataType: "int"},
-            
-            // Выходные контакты
-            {name: "sample",   type: OUTPUT, dataType: "float"},
-            {name: "changed",  type: OUTPUT, dataType: "bool"},
-            {name: "rms",      type: OUTPUT, dataType: "float"},
-            {name: "clip",     type: OUTPUT, dataType: "bool"},
-            {name: "tick",     type: OUTPUT, dataType: "bool"},
-            {name: "level",    type: OUTPUT, dataType: "float"},
-            {name: "device",   type: OUTPUT, dataType: "string"}
-        ], null, "miniaudio", true, true); // isActive = true - КРИТИЧНО!
+			// Входные контакты (настройки)
+		{name: "mode",     type: INPUT,  defaultValue: 1,    dataType: "int"},
+		{name: "quantum",  type: INPUT,  defaultValue: 0.01, dataType: "float"},
+		{name: "gain",     type: INPUT,  defaultValue: 1.0,  dataType: "float"},
+		{name: "channel",  type: INPUT,  defaultValue: 0,    dataType: "int"},
+		{name: "rate",     type: INPUT,  defaultValue: 0,    dataType: "int"},
+
+		// Выходные контакты
+		{name: "sample",   type: OUTPUT, dataType: "float"},
+		{name: "changed",  type: OUTPUT, dataType: "bool"},
+		{name: "rms",      type: OUTPUT, dataType: "float"},
+		{name: "clip",     type: OUTPUT, dataType: "bool"},
+		{name: "tick",     type: OUTPUT, dataType: "bool"},
+		{name: "level",    type: OUTPUT, dataType: "float"},
+		{name: "device",   type: OUTPUT, dataType: "string"}
+		], null, "miniaudio", true, true); // isActive = true - КРИТИЧНО!
 		
+		// --- COM Port Drivers (Active, isActive=true) ---
+		reg("ComPortAtom", "COM Port", [
+			// Входные контакты (управление)
+		{name: "portName",  type: INPUT,  defaultValue: "COM1", dataType: "string"},
+		{name: "baudRate",  type: INPUT,  defaultValue: 9600,   dataType: "int"},
+		{name: "open",      type: INPUT,  defaultValue: false,  dataType: "bool"},
+		{name: "close",     type: INPUT,  defaultValue: false,  dataType: "bool"},
+		{name: "send",      type: INPUT,  defaultValue: false,  dataType: "bool"},
+		{name: "txData",    type: INPUT,  defaultValue: "",     dataType: "string"},
+		{name: "setDTR",    type: INPUT,  defaultValue: false,  dataType: "bool"},
+		// Выходные контакты
+		{name: "isOpen",    type: OUTPUT, dataType: "bool"},
+		{name: "rxData",    type: OUTPUT, dataType: "string"},
+		{name: "rxTick",    type: OUTPUT, dataType: "bool"},
+		{name: "txTick",    type: OUTPUT, dataType: "bool"},
+		{name: "error",     type: OUTPUT, dataType: "string"},
+		{name: "errorTick", type: OUTPUT, dataType: "bool"}
+		], null, "comport", true, true); // isNative=true, isActive=true
+
+		reg("ComEnumeratorAtom", "COM Enumerator", [
+			// Нет входов
+			// Выходные контакты
+		{name: "ports",     type: OUTPUT, dataType: "string"}
+		], null, "comenumerator", true, true); // isNative=true, isActive=true
+
 		// Passive Displays
 		reg("Oscilloscope", "Oscilloscope", [
 		{name: "in", type: INPUT, dataType: "array"}
