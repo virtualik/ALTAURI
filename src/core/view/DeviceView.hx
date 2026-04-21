@@ -7,9 +7,31 @@ import core.base.Assembly;
 import core.base.Contact;
 
 /**
- * DEVICE VIEW BASE v2.0 (Databank Architecture)
+ * DEVICE VIEW BASE v2.1 (Databank Architecture)
  * Base class for all device widgets.
+*
+ * v2.1 Changes:
+ * - ADDED: getWidgetSize() method.
+ *   Returns the natural (unscaled) dimensions of this widget.
+ *   Used by NodeView to calculate the proper node rectangle size,
+ *   so that the Atom body (with contacts) is always larger than the
+ *   Widget card, and the Widget fits inside the Atom rectangle.
  *
+ * Architecture: "Atom is Databank & Compute Core"
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │                         АТОМ (Сущность)                                 │
+ * │                              │                                          │
+ * │        ┌─────────────────────┼─────────────────────┐                    │
+ * │        │                     │                     │                    │
+ * │        ▼                     ▼                     ▼                    │
+ * │   А) COMPUTE            Б) DATABANK           В) FACE                   │
+ * │   (вычисления)          (данные)              (DeviceView)              │
+ * │                                                 │                       │
+ * │                   DeviceView reads from Atom     │                      │
+ * │                   DeviceView writes to Atom      │                      │
+ * │                   DeviceView DOES NOT store state│                      │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ * *
  * ═══════════════════════════════════════════════════════════════════════════
  * АРХИТЕКТУРА: "ATOM IS DATABANK & COMPUTE CORE"
  * ═══════════════════════════════════════════════════════════════════════════
@@ -372,5 +394,51 @@ class DeviceView extends Sprite {
      */
     public function isInNodeView():Bool {
         return getContainerType() == DeviceViewRegistry.CONTAINER_NODE_VIEW;
+    }
+
+    // =========================================================================
+    // WIDGET SIZE QUERY (v1.1)
+    // =========================================================================
+
+    /**
+     * Returns the natural (unscaled) dimensions of this widget.
+     *
+     * Used by NodeView to calculate the proper node rectangle size,
+     * ensuring that the Atom body with contacts is always larger than
+     * the Widget card, and the Widget fits comfortably inside the
+     * Atom rectangle with padding.
+     *
+     * Subclasses that define `widgetWidth` and `widgetHeight` fields
+     * do NOT need to override this method — it reads them via Reflect.
+     * Only subclasses with non-standard sizing need to override.
+     *
+     * Layout principle:
+     * ┌──────────────────────────────────────────────┐
+     * │  NodeView rectangle (Atom body + contacts)   │
+     * │  ┌────────────────────────────────────────┐  │
+     * │  │  Widget (scaled by PREVIEW_SCALE)      │  │
+     * │  │  Always smaller than NodeView          │  │
+     * │  └────────────────────────────────────────┘  │
+     * │  ← padding →                    ← padding →  │
+     * └──────────────────────────────────────────────┘
+     *
+     * @return {width: Float, height: Float} unscaled widget dimensions
+     */
+    public function getWidgetSize():{width:Float, height:Float} {
+        var w:Float = 80;
+        var h:Float = 40;
+
+        // Most subclasses declare public var widgetWidth / widgetHeight.
+        // Read them via Reflect so we don't force every subclass to override.
+        if (Reflect.hasField(this, "widgetWidth")) {
+            var v = Reflect.field(this, "widgetWidth");
+            if (v != null) w = cast v;
+        }
+        if (Reflect.hasField(this, "widgetHeight")) {
+            var v = Reflect.field(this, "widgetHeight");
+            if (v != null) h = cast v;
+        }
+
+        return {width: w, height: h};
     }
 }

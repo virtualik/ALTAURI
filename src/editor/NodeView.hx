@@ -1,22 +1,67 @@
 package editor;
 
 import openfl.display.Sprite;
+import openfl.display.DisplayObjectContainer;
+import openfl.display.InteractiveObject;
+import openfl.display.DisplayObject;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
 import openfl.events.MouseEvent;
 import openfl.geom.Point;
+
 import core.base.Atom;
 import core.base.Assembly;
-import core.logic.Impulsys;
-import core.logic.EventType;
-import core.logic.Impulse;
+import core.base.Contact;
 import core.view.DeviceView;
 import core.view.DeviceViewRegistry;
+import core.logic.EventType;
+import core.logic.Impulse;
+import core.logic.Impulsys;
 import ecs.ECS;
-import Lambda;
 
 /**
- * NodeView v2.1 (Port Sync Hotfix)
+ * NODE VIEW v3.0 (Dynamic Widget-Adaptive Sizing)
+ *
+ * Visual representation of an Atom (node) on the schematic canvas.
+ * The node rectangle automatically adapts to the size of the embedded
+ * DeviceView widget, ensuring that:
+ *
+ *   1) The Atom body (rectangle with contacts) is always LARGER
+ *      than the Widget card.
+ *   2) The Widget card fits inside the Atom rectangle with padding.
+ *   3) Contacts (ports) remain at the edges and are never overlapped
+ *      by the widget.
+ *
+ * v3.0 Changes:
+ * - REPLACED: Fixed DEFAULT_WIDTH/DEFAULT_HEIGHT with dynamic sizing.
+ *   Node rectangle now scales to accommodate the Widget preview.
+ * - ADDED: recalcSize() — computes _nodeWidth/_nodeHeight based on
+ *   widget dimensions (widgetSize * PREVIEW_SCALE + padding) and
+ *   port count.
+ * - ADDED: updateLayout() — convenience method to recalculate size,
+ *   redraw background, and reposition ports in one call.
+ * - CHANGED: redraw() uses _nodeWidth/_nodeHeight instead of constants.
+ * - CHANGED: createPorts() uses _nodeWidth/_nodeHeight for positioning.
+ * - CHANGED: addWidgetToPreview() centers the widget inside the body
+ *   and calls updateLayout() after placement.
+ * - CHANGED: getWirePoint() uses _nodeWidth/_nodeHeight.
+ * - CHANGED: onAssemblyPortsChanged() calls updateLayout().
+ *
+ * Layout diagram:
+ * ┌────────────────────────────────────────────────────┐
+ * │  TitleBar                               [⚙]       │  TITLE_HEIGHT
+ * ├────────────────────────────────────────────────────┤
+ * │  WIDGET_PADDING                                    │
+ * │  ┌──────────────────────────────────────────────┐  │
+ * │  │                                              │  │
+ * │  │         Widget (scaled by PREVIEW_SCALE)     │  │
+ * │  │                                              │  │
+ * │  └──────────────────────────────────────────────┘  │
+ * │  WIDGET_PADDING                                    │
+ * └────────────────────────────────────────────────────┘
+ *  ↑                                                  ↑
+ *  Input ports at x=0                    Output ports at x=_nodeWidth
+ *
  * Визуальное представление атома на схеме с портами для проводов.
  *
  * ═══════════════════════════════════════════════════════════════════════════
@@ -91,72 +136,90 @@ import Lambda;
  * - Двойной клик по сборке открывает её внутри редактора
  */
 class NodeView extends Sprite {
-    
+
     // =========================================================================
     // CONFIGURATION
     // =========================================================================
-    
+
     /** Scale factor for preview mode. 0.6 = 60% of full size. */
     public static inline var PREVIEW_SCALE:Float = 0.6;
-    
-    /** Default size for a node. */
-    public static inline var DEFAULT_WIDTH:Float = 180;
-    public static inline var DEFAULT_HEIGHT:Float = 90;
-    
+
+    /** Minimum node width (ensures readability even for tiny widgets). */
+    public static inline var MIN_WIDTH:Float = 180;
+
+    /** Minimum body height below title bar. */
+    public static inline var MIN_BODY_HEIGHT:Float = 68;
+
+    /** Padding around the widget inside the node body area. */
+    public static inline var WIDGET_PADDING:Float = 12;
+
     /** Title bar height. */
     public static inline var TITLE_HEIGHT:Float = 22;
-    
+
     /** Port radius. */
     public static inline var PORT_RADIUS:Float = 7;
-    
+
+    /** Vertical spacing between ports (used when many ports). */
+    public static inline var PORT_SPACING:Float = 22;
+
+    // =========================================================================
+    // DYNAMIC SIZE (v3.0)
+    // =========================================================================
+
+    /** Calculated node width. Updated by recalcSize(). */
+    private var _nodeWidth:Float = MIN_WIDTH;
+
+    /** Calculated node height. Updated by recalcSize(). */
+    private var _nodeHeight:Float = MIN_BODY_HEIGHT + TITLE_HEIGHT;
+
     // =========================================================================
     // REFERENCES
     // =========================================================================
-    
+
     /** Atom represented by this NodeView. Can be a simple Atom or an Assembly. */
     public var atom(default, null):Atom;
-    
+
     /** Assembly reference if atom is an Assembly. */
     public var assembly(default, null):Assembly;
-    
+
     /** DeviceView widget (managed by DeviceViewRegistry). Shown as preview inside the node. */
     public var deviceView(default, null):DeviceView;
-    
+
     /** Unique identifier for this NodeView. */
     public var nodeId(default, null):String;
-    
+
     // =========================================================================
     // PORTS
     // =========================================================================
-    
+
     /** Input ports map: contactName -> Sprite. */
     public var inputPorts(default, null):Map<String, Sprite>;
-    
+
     /** Output ports map: contactName -> Sprite. */
     public var outputPorts(default, null):Map<String, Sprite>;
-    
+
     // =========================================================================
     // STATE
     // =========================================================================
-    
+
     public var selected(default, set):Bool = false;
-    
+
     private function set_selected(value:Bool):Bool {
         selected = value;
         updateSelectionVisual();
         return value;
     }
-    
+
     public var isSelected(get, set):Bool;
     private function get_isSelected():Bool return selected;
     private function set_isSelected(value:Bool):Bool { selected = value; return value; }
-    
+
     public var hasWidget(default, null):Bool = false;
-    
+
     // =========================================================================
     // VISUAL COMPONENTS
     // =========================================================================
-    
+
     private var _background:Sprite;
     private var _titleBar:Sprite;
     private var _titleLabel:TextField;
@@ -164,67 +227,123 @@ class NodeView extends Sprite {
     private var _selectionHighlight:Sprite;
     private var _settingsButton:Sprite;
     private var _theme:EditorTheme;
-    
+
     // =========================================================================
     // DRAG STATE
     // =========================================================================
-    
+
     private var _isDragging:Bool = false;
     private var _dragOffsetX:Float = 0;
     private var _dragOffsetY:Float = 0;
-    
+
     // =========================================================================
     // CALLBACKS
     // =========================================================================
-    
+
     public var onOpenDeviceWindow:NodeView -> Void;
     public var onSelect:NodeView -> Void;
-    
+
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
-    
+
     public function new(atom:Atom, nodeId:String) {
         super();
         this.atom = atom;
         this.nodeId = nodeId;
         _theme = EditorTheme.getInstance();
-        
+
         inputPorts = new Map<String, Sprite>();
         outputPorts = new Map<String, Sprite>();
-        
+
         if (Std.isOfType(atom, Assembly)) {
             this.assembly = cast(atom, Assembly);
         }
-        
+
         buildUI();
         createPorts();
         acquireWidget();
         setupInteraction();
         ECS.register(nodeId, this, this.x, this.y);
-        
+
         // === v2.1 FIX: Listen for Assembly Port Changes ===
         Impulsys.subscribeToImpulse(EventType.ASSEMBLY_PORTS_CHANGED, onAssemblyPortsChanged);
         // ==================================================
-        
+
         trace('NodeView: Created for atom "${atom.name}" (id: ${nodeId})');
     }
-    
+
+    // =========================================================================
+    // DYNAMIC SIZING (v3.0)
+    // =========================================================================
+
+    /**
+     * Recalculates node dimensions based on the widget preview size
+     * and the number of ports.
+     *
+     * Called from redraw(), updateLayout(), and addWidgetToPreview().
+     *
+     * Rules:
+     * - Widget preview (widgetSize * PREVIEW_SCALE) must fit inside
+     *   the body area with WIDGET_PADDING on all sides.
+     * - Body must be tall enough to space all ports evenly.
+     * - _nodeWidth and _nodeHeight are never smaller than MIN_WIDTH
+     *   and MIN_BODY_HEIGHT + TITLE_HEIGHT respectively.
+     */
+    private function recalcSize():Void {
+        var bodyWidth:Float = MIN_WIDTH;
+        var bodyHeight:Float = MIN_BODY_HEIGHT;
+
+        // --- Widget-based sizing ---
+        if (deviceView != null) {
+            var ws = deviceView.getWidgetSize();
+            var scaledW = ws.width * PREVIEW_SCALE;
+            var scaledH = ws.height * PREVIEW_SCALE;
+
+            // Widget + padding on both sides = minimum body dimension
+            bodyWidth = Math.max(bodyWidth, scaledW + WIDGET_PADDING * 2);
+            bodyHeight = Math.max(bodyHeight, scaledH + WIDGET_PADDING * 2);
+        }
+
+        // --- Port-based sizing ---
+        // Need enough vertical space so ports don't overlap.
+        var inputCount = (atom != null && atom.getInputs() != null) ? atom.getInputs().length : 0;
+        var outputCount = (atom != null && atom.getOutputs() != null) ? atom.getOutputs().length : 0;
+        var maxPorts = Std.int(Math.max(inputCount, outputCount));
+        if (maxPorts > 0) {
+            var portsHeight = (maxPorts + 1) * PORT_SPACING;
+            bodyHeight = Math.max(bodyHeight, portsHeight);
+        }
+
+        _nodeWidth = bodyWidth;
+        _nodeHeight = TITLE_HEIGHT + bodyHeight;
+    }
+
+    /**
+     * Convenience method: recalculate size, redraw, and reposition ports.
+     * Call this whenever the widget or port configuration changes.
+     */
+    private function updateLayout():Void {
+        recalcSize();
+        redraw();
+        createPorts();
+    }
+
     // =========================================================================
     // UI CONSTRUCTION
     // =========================================================================
-    
+
     private function buildUI():Void {
         _background = new Sprite();
         _background.doubleClickEnabled = true;
         addChild(_background);
-        
+
         _titleBar = new Sprite();
         _titleBar.doubleClickEnabled = true;
         addChild(_titleBar);
-        
+
         _titleLabel = new TextField();
-        _titleLabel.width = DEFAULT_WIDTH - 30;
+        _titleLabel.width = _nodeWidth - 30;
         _titleLabel.height = TITLE_HEIGHT;
         _titleLabel.x = 5;
         _titleLabel.y = 2;
@@ -235,7 +354,7 @@ class NodeView extends Sprite {
         );
         _titleLabel.text = atom != null ? atom.name : "Node";
         _titleBar.addChild(_titleLabel);
-        
+
         _settingsButton = new Sprite();
         _settingsButton.graphics.beginFill(_theme.NODE_SETTINGS_BTN_COLOR);
         _settingsButton.graphics.drawCircle(0, 0, 8);
@@ -246,33 +365,57 @@ class NodeView extends Sprite {
         _settingsButton.graphics.lineTo(3, 0);
         _settingsButton.graphics.moveTo(0, -3);
         _settingsButton.graphics.lineTo(0, 3);
-        _settingsButton.x = DEFAULT_WIDTH - 15;
+        _settingsButton.x = _nodeWidth - 15;
         _settingsButton.y = TITLE_HEIGHT / 2;
         _settingsButton.buttonMode = true;
         _settingsButton.useHandCursor = true;
         _settingsButton.addEventListener(MouseEvent.CLICK, onSettingsClick);
         _titleBar.addChild(_settingsButton);
-        
+
         _previewContainer = new Sprite();
-        _previewContainer.x = 25;
-        _previewContainer.y = TITLE_HEIGHT + 5;
         addChild(_previewContainer);
-        
+
         _selectionHighlight = new Sprite();
         _selectionHighlight.visible = false;
         addChildAt(_selectionHighlight, 0);
-        
+
+        recalcSize();
         redraw();
+        centerPreviewContainer();
         setupInteraction();
     }
-    
-	public function redraw():Void {
-        var w = DEFAULT_WIDTH;
-        var h = DEFAULT_HEIGHT;
+
+    /**
+     * Positions the preview container so the widget is centered
+     * inside the body area of the node.
+     */
+    private function centerPreviewContainer():Void {
+        if (deviceView == null) {
+            // No widget — place at default position
+            _previewContainer.x = WIDGET_PADDING;
+            _previewContainer.y = TITLE_HEIGHT + WIDGET_PADDING;
+            return;
+        }
+
+        var ws = deviceView.getWidgetSize();
+        var scaledW = ws.width * PREVIEW_SCALE;
+        var scaledH = ws.height * PREVIEW_SCALE;
+        var bodyWidth = _nodeWidth;
+        var bodyHeight = _nodeHeight - TITLE_HEIGHT;
+
+        _previewContainer.x = (bodyWidth - scaledW) / 2;
+        _previewContainer.y = TITLE_HEIGHT + (bodyHeight - scaledH) / 2;
+    }
+
+    public function redraw():Void {
+        recalcSize();
+
+        var w = _nodeWidth;
+        var h = _nodeHeight;
 
         var g = _background.graphics;
         g.clear();
-        
+
         // Основная заливка
         g.beginFill(0x2a2a3a, 0.95);
 
@@ -285,7 +428,7 @@ class NodeView extends Sprite {
             // Скошенные углы под 45 градусов (Chamfered Rectangle).
             // Напоминает микросхему или чип.
             var cut = 10.0; // Глубина скоса угла
-            
+
             g.moveTo(cut, 0);
             g.lineTo(w - cut, 0);
             g.lineTo(w, cut);
@@ -309,7 +452,7 @@ class NodeView extends Sprite {
         var tg = _titleBar.graphics;
         tg.clear();
         tg.beginFill(0x3a3a4a, 0.9);
-        
+
         // Заголовок повторяет форму верха корпуса
         if (atom.isLogic) {
             // Скошенный верх
@@ -326,6 +469,10 @@ class NodeView extends Sprite {
             tg.drawRoundRectComplex(0, 0, w, TITLE_HEIGHT, 8, 8, 0, 0);
         }
         tg.endFill();
+
+        // Обновляем позиции элементов заголовка
+        _titleLabel.width = w - 30;
+        _settingsButton.x = w - 15;
 
         // Подсветка выделения
         var sg = _selectionHighlight.graphics;
@@ -349,17 +496,17 @@ class NodeView extends Sprite {
             }
         }
     }
-    
+
     private function updateSelectionVisual():Void {
         _selectionHighlight.visible = selected;
         redraw();
         ECS.setSelected(nodeId, selected);
     }
-    
+
     // =========================================================================
     // PORTS CREATION
     // =========================================================================
-    
+
     private function createPorts():Void {
         for (name in inputPorts.keys()) {
             var port = inputPorts.get(name);
@@ -371,13 +518,15 @@ class NodeView extends Sprite {
         }
         inputPorts.clear();
         outputPorts.clear();
-        
+
         var inputs = atom.getInputs();
         var outputs = atom.getOutputs();
-        
+
+        var bodyHeight = _nodeHeight - TITLE_HEIGHT;
+
         if (inputs != null) {
             var count = inputs.length;
-            var stepY = (DEFAULT_HEIGHT - TITLE_HEIGHT - 10) / (count + 1);
+            var stepY = bodyHeight / (count + 1);
             for (i in 0...count) {
                 var c = inputs[i];
                 if (c != null) {
@@ -389,32 +538,32 @@ class NodeView extends Sprite {
                 }
             }
         }
-        
+
         if (outputs != null) {
             var count = outputs.length;
-            var stepY = (DEFAULT_HEIGHT - TITLE_HEIGHT - 10) / (count + 1);
+            var stepY = bodyHeight / (count + 1);
             for (i in 0...count) {
                 var c = outputs[i];
                 if (c != null) {
                     var port = createPortSprite(c.name, false);
-                    port.x = DEFAULT_WIDTH;
+                    port.x = _nodeWidth;
                     port.y = TITLE_HEIGHT + stepY * (i + 1);
                     addChild(port);
                     outputPorts.set(c.name, port);
                 }
             }
         }
-        
+
         trace('NodeView: Created ${Lambda.count(inputPorts)} input ports, ${Lambda.count(outputPorts)} output ports');
     }
-    
+
     private function createPortSprite(name:String, isInput:Bool):Sprite {
         var port = new Sprite();
 
         // Основные размеры
         var w = PORT_RADIUS * 2; // Ширина = 14
         var h = PORT_RADIUS * 2; // Высота = 14
-        
+
         // Цвета
         var color = isInput ? 0xFFAA00 : 0x00AAFF;
 
@@ -433,7 +582,7 @@ class NodeView extends Sprite {
             // Тело стрелки (прямоугольник слева)
             var bodyWidth = w * 0.7; // 70% ширины - тело
             port.graphics.drawRect(-w / 2, -h / 2, bodyWidth, h);
-            
+
             // Наконечник стрелки (треугольник справа)
             // Начинаем от правого края тела
             var tipStartX = -w / 2 + bodyWidth;
@@ -490,81 +639,92 @@ class NodeView extends Sprite {
 
         return port;
     }
-    
+
     // =========================================================================
     // PREVIEW WIDGET MANAGEMENT
     // =========================================================================
-    
+
     private function acquireWidget():Void {
         if (atom == null) return;
-        
+
         var registry = DeviceViewRegistry.getInstance();
-        
+
         deviceView = registry.getOrCreate(atom, true);
         if (deviceView == null) {
             trace('NodeView: Could not get widget for atom ${atom.id}');
             return;
         }
-        
+
         if (registry.isInDeviceWindow(atom.id)) {
             hasWidget = false;
             trace('NodeView: Widget for ${atom.id} is in DeviceWindow');
             return;
         }
-        
+
         addWidgetToPreview();
     }
-    
+
     private function addWidgetToPreview():Void {
         if (deviceView == null) return;
-        
+
         if (deviceView.parent != null) deviceView.parent.removeChild(deviceView);
-        
+
         deviceView.scaleX = PREVIEW_SCALE;
         deviceView.scaleY = PREVIEW_SCALE;
         _previewContainer.addChild(deviceView);
-        
+
         enableDoubleClickRecursive(deviceView);
-        
+
         DeviceViewRegistry.getInstance().setContainer(atom.id, DeviceViewRegistry.CONTAINER_NODE_VIEW);
-        
+
         if (!deviceView.isActive) deviceView.activate();
-        
+
         hasWidget = true;
+
+        // v3.0: Recalculate size for the new widget and rebuild layout.
+        // This ensures the node rectangle adapts to the widget size,
+        // and the widget is centered inside the body with proper padding.
+        updateLayout();
+        centerPreviewContainer();
+
         trace('NodeView: Widget added for ${atom.id}');
     }
-    
-    private function enableDoubleClickRecursive(obj:openfl.display.DisplayObjectContainer):Void {
+
+    private function enableDoubleClickRecursive(obj:DisplayObjectContainer):Void {
         if (obj == null) return;
         obj.doubleClickEnabled = true;
         for (i in 0...obj.numChildren) {
             var child = obj.getChildAt(i);
-            if (Std.isOfType(child, openfl.display.DisplayObjectContainer)) enableDoubleClickRecursive(cast child);
-            else if (Std.isOfType(child, openfl.display.InteractiveObject)) cast(child, openfl.display.InteractiveObject).doubleClickEnabled = true;
+            if (Std.isOfType(child, DisplayObjectContainer)) enableDoubleClickRecursive(cast child);
+            else if (Std.isOfType(child, InteractiveObject)) cast(child, InteractiveObject).doubleClickEnabled = true;
         }
     }
-    
-    
+
+
     public function releaseWidget():DeviceView {
         if (deviceView == null || !hasWidget) return null;
-        
+
         if (deviceView.parent == _previewContainer) _previewContainer.removeChild(deviceView);
-        
+
         hasWidget = false;
+
+        // v3.0: Recalculate layout without widget
+        updateLayout();
+
         trace('NodeView: Released widget for ${atom.id}');
         return deviceView;
     }
-    
+
     public function acceptWidget():Void {
         if (deviceView == null) acquireWidget();
         else addWidgetToPreview();
         trace('NodeView: Accepted widget back for ${atom.id}');
     }
-    
+
     // =========================================================================
     // INTERACTION
     // =========================================================================
-    
+
     private function setupInteraction():Void {
         mouseEnabled = true;
         buttonMode = true;
@@ -575,7 +735,7 @@ class NodeView extends Sprite {
         addEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
         addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
     }
-    
+
     private function onDoubleClick(e:MouseEvent):Void {
         trace('NodeView onDoubleClick');
         if (Std.isOfType(e.target, Sprite)) {
@@ -590,70 +750,70 @@ class NodeView extends Sprite {
             Impulsys.quickEmit(EventType.OPEN_ASSEMBLY_REQUEST, { atomId: atom.id });
             return;
         }
-        
+
         trace('NodeView: Double-click on simple atom ${atom.id} (ignored)');
     }
-    
+
     private function onClick(e:MouseEvent):Void {
         if (Std.isOfType(e.target, Sprite)) {
             var target:Sprite = cast e.target;
             if (inputPorts.exists(target.name) || outputPorts.exists(target.name)) return;
         }
-        
+
         if (onSelect != null) onSelect(this);
-        
+
         Impulsys.quickEmit(EventType.NODE_CLICKED, { view: this, id: nodeId, ctrlKey: e.ctrlKey });
-        
+
         e.stopPropagation();
     }
-    
+
     private function onRightClick(e:MouseEvent):Void {
         Impulsys.quickEmit(EventType.NODE_RIGHT_CLICKED, { view: this, id: nodeId, x: e.stageX, y: e.stageY });
         e.stopPropagation();
     }
-    
+
     private function onSettingsClick(e:MouseEvent):Void {
         e.stopPropagation();
         Impulsys.quickEmit(EventType.ATOM_PROPERTIES_REQUEST, { atom: atom, view: this });
     }
-    
-	private function onMouseDown(e:MouseEvent):Void {
-		// === ИСПРАВЛЕНИЕ: Проверяем, не кликнул ли пользователь по вложенному интерактивному элементу ===
-		// Если цель события - это кнопка или объект с buttonMode, то перетаскивать узел НЕ нужно.
-		var targetObj:openfl.display.DisplayObject = cast e.target;
-		while (targetObj != null && targetObj != this) {
-			if (Std.isOfType(targetObj, openfl.display.Sprite)) {
-				var s = cast(targetObj, openfl.display.Sprite);
-				// Если у дочернего спрайта включен buttonMode/useHandCursor, считаем его кнопкой
-				if (s.buttonMode || s.useHandCursor) {
-					// Останавливаем всплытие, чтобы не сработал Lasso в редакторе,
-					// но НЕ запускаем drag. Событие дойдет до дочернего виджета.
-					e.stopPropagation();
-					return;
-				}
-			}
-			targetObj = targetObj.parent;
-		}
-		// ==========================================================================================
 
-		if (Std.isOfType(e.target, Sprite)) {
-			var target:Sprite = cast e.target;
-			// Старая проверка портов остается
-			if (inputPorts.exists(target.name) || outputPorts.exists(target.name)) return;
-		}
+    private function onMouseDown(e:MouseEvent):Void {
+        // === ИСПРАВЛЕНИЕ: Проверяем, не кликнул ли пользователь по вложенному интерактивному элементу ===
+        // Если цель события - это кнопка или объект с buttonMode, то перетаскивать узел НЕ нужно.
+        var targetObj:DisplayObject = cast e.target;
+        while (targetObj != null && targetObj != this) {
+            if (Std.isOfType(targetObj, Sprite)) {
+                var s = cast(targetObj, Sprite);
+                // Если у дочернего спрайта включен buttonMode/useHandCursor, считаем его кнопкой
+                if (s.buttonMode || s.useHandCursor) {
+                    // Останавливаем всплытие, чтобы не сработал Lasso в редакторе,
+                    // но НЕ запускаем drag. Событие дойдет до дочернего виджета.
+                    e.stopPropagation();
+                    return;
+                }
+            }
+            targetObj = targetObj.parent;
+        }
+        // ==========================================================================================
 
-		_dragOffsetX = e.localX;
-		_dragOffsetY = e.localY;
+        if (Std.isOfType(e.target, Sprite)) {
+            var target:Sprite = cast e.target;
+            // Старая проверка портов остается
+            if (inputPorts.exists(target.name) || outputPorts.exists(target.name)) return;
+        }
 
-		if (parent != null) parent.addChild(this);
+        _dragOffsetX = e.localX;
+        _dragOffsetY = e.localY;
 
-		if (stage != null) {
-			stage.addEventListener(MouseEvent.MOUSE_MOVE, onMouseMoveDrag);
-			stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUpDrag);
-		}
+        if (parent != null) parent.addChild(this);
 
-		e.stopPropagation();
-	}
+        if (stage != null) {
+            stage.addEventListener(MouseEvent.MOUSE_MOVE, onMouseMoveDrag);
+            stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUpDrag);
+        }
+
+        e.stopPropagation();
+    }
 
     private function onMouseMoveDrag(e:MouseEvent):Void {
         var parentPos = parent.globalToLocal(new Point(e.stageX, e.stageY));
@@ -678,7 +838,7 @@ class NodeView extends Sprite {
         }
         Impulsys.quickEmit(EventType.NODE_DRAG_FINISHED, { view: this, id: nodeId });
     }
-    
+
     private function onMouseUp(e:MouseEvent):Void {
         if (!_isDragging) return;
         _isDragging = false;
@@ -686,11 +846,11 @@ class NodeView extends Sprite {
         if (stage != null) stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
         Impulsys.quickEmit(EventType.NODE_DRAG_FINISHED, { view: this, id: nodeId });
     }
-    
+
     // =========================================================================
     // PORT INTERACTION
     // =========================================================================
-    
+
     private function onPortMouseDown(contactName:String, isInput:Bool, e:MouseEvent):Void {
         var port = isInput ? inputPorts.get(contactName) : outputPorts.get(contactName);
         if (port == null) return;
@@ -699,23 +859,23 @@ class NodeView extends Sprite {
             nodeId: nodeId, contactName: contactName, isInput: isInput, startX: globalPos.x, startY: globalPos.y
         });
     }
-    
+
     private function onPortRightClick(contactName:String, isInput:Bool, e:MouseEvent):Void {
         Impulsys.quickEmit(EventType.PORT_RIGHT_CLICKED, {
             nodeId: nodeId, contactName: contactName, isInput: isInput, x: e.stageX, y: e.stageY
         });
     }
-    
+
     // =========================================================================
     // POSITION
     // =========================================================================
-    
+
     public function setPosition(x:Float, y:Float):Void {
         this.x = x;
         this.y = y;
         ECS.updatePosition(nodeId, x, y);
     }
-    
+
     public function getPortPosition(contactName:String):{x:Float, y:Float} {
         var port = inputPorts.get(contactName);
         if (port == null) port = outputPorts.get(contactName);
@@ -723,7 +883,7 @@ class NodeView extends Sprite {
         var global = port.localToGlobal(new Point(0, 0));
         return {x: global.x, y: global.y};
     }
-    
+
     public function getWirePoint(contactName:String, isInput:Bool):{x:Float, y:Float} {
         var ports = isInput ? inputPorts : outputPorts;
         var port = ports.get(contactName);
@@ -731,14 +891,14 @@ class NodeView extends Sprite {
             var global = port.localToGlobal(new Point(0, 0));
             return {x: global.x, y: global.y};
         }
-        var x = isInput ? 0 : DEFAULT_WIDTH;
-        var y = DEFAULT_HEIGHT / 2;
+        var x = isInput ? 0 : _nodeWidth;
+        var y = _nodeHeight / 2;
         var global = localToGlobal(new Point(x, y));
         return {x: global.x, y: global.y};
     }
 
     // =========================================================================
-    // ASSEMBLY SYNC (v2.1)
+    // ASSEMBLY SYNC (v3.0 — uses updateLayout)
     // =========================================================================
 
     /**
@@ -748,52 +908,51 @@ class NodeView extends Sprite {
     private function onAssemblyPortsChanged(impulse:Impulse):Void {
         // Проверяем, что событие для нас (по ID экземпляра)
         if (impulse.data != null && impulse.data.assemblyId == this.atom.id) {
-            trace('NodeView: Ports changed event received for ${atom.name}. Rebuilding ports.');
-            createPorts();
-            redraw(); 
+            trace('NodeView: Ports changed event received for ${atom.name}. Rebuilding layout.');
+            updateLayout();
         }
     }
-    
+
     // =========================================================================
     // DISPOSE
     // =========================================================================
-    
+
     public function dispose():Void {
         // === v2.1 FIX: Unsubscribe ===
         Impulsys.removeImpulse(EventType.ASSEMBLY_PORTS_CHANGED, onAssemblyPortsChanged);
         // ==============================
 
         ECS.unregister(nodeId);
-        
+
         removeEventListener(MouseEvent.DOUBLE_CLICK, onDoubleClick);
         removeEventListener(MouseEvent.CLICK, onClick);
         removeEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
         removeEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
-        
+
         if (_settingsButton != null) {
             _settingsButton.removeEventListener(MouseEvent.CLICK, onSettingsClick);
         }
-        
+
         if (deviceView != null && deviceView.parent == _previewContainer) {
             _previewContainer.removeChild(deviceView);
         }
-        
+
         inputPorts.clear();
         outputPorts.clear();
-        
+
         deviceView = null;
         atom = null;
         assembly = null;
         onOpenDeviceWindow = null;
         onSelect = null;
-        
+
         _background = null;
         _titleBar = null;
         _titleLabel = null;
         _previewContainer = null;
         _selectionHighlight = null;
         _settingsButton = null;
-        
+
         trace('NodeView: Disposed');
     }
 }
