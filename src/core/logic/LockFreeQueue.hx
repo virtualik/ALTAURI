@@ -5,19 +5,19 @@ package core.logic;
  * 
  * Архитектура (Правильная инъекция):
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │  Haxe генерирует LockFreeQueue.h:                                    │
+ * │  Haxe генерирует LockFreeQueue.h:                                       │
  * │                                                                         │
- * │  #include <atomic>             // @:headerCode (ГЛОБАЛЬНЫЙ ВЕРХ)     │
- * │  struct AtomicQueueState { ... }                                      │
- * │  static inline lock_free_queue_create() { ... }                      │
- * │  ...                                                                   │
+ * │  #include <atomic>             // @:headerCode (ГЛОБАЛЬНЫЙ ВЕРХ)        │
+ * │  struct AtomicQueueState { ... }                                        │
+ * │  static inline lock_free_queue_create() { ... }                         │
+ * │  ...                                                                    │
  * │                                                                         │
- * │  class LockFreeQueue_obj { ... }  // Класс Haxe                      │
+ * │  class LockFreeQueue_obj { ... }  // Класс Haxe                         │
  * │                                                                         │
- * │  Почему static inline:                                                 │
- * │  Заголовок включается во многие .cpp файлы (__boot__, TickGenerator). │
- * │  static inline гарантирует, что линковщик не увидит "дубликаты"       │
- * │  функций и не выдаст LNK2005.                                         │
+ * │  Почему static inline:                                                  │
+ * │  Заголовок включается во многие .cpp файлы (__boot__, TickGenerator).   │
+ * │  static inline гарантирует, что линковщик не увидит "дубликаты"         │
+ * │  функций и не выдаст LNK2005.                                           │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
 
