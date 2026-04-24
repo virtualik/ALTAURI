@@ -140,27 +140,32 @@ class LockFreeQueue<T>
         #if cpp
         var currentHead:Int = _loadHeadR(_state);
         var currentTail:Int = _loadTailR(_state);
-        #end
-        #if hl
-        var currentHead:Int = _head.get();
-        var currentTail:Int = _tail.get();
-        #end
-
+        
         var nextHead:Int = (currentHead + 1) % _capacity;
         if (nextHead == currentTail) return false;
-
         _buffer[currentHead] = item;
-
-        #if cpp
         _storeHead(_state, nextHead);
-        #end
-        #if hl
-        _head.set(nextHead);
-        #end
-
         return true;
+        
+        #elseif hl
+        var currentHead:Int = _head.get();
+        var currentTail:Int = _tail.get();
+        
+        var nextHead:Int = (currentHead + 1) % _capacity;
+        if (nextHead == currentTail) return false;
+        _buffer[currentHead] = item;
+        _head.set(nextHead);
+        return true;
+        
+        #else
+        // Заглушка для других целей (например, если вы запустите на JS/Neko)
+        _buffer.push(item); 
+        return true;
+        #end
     }
-
+    /**
+     * Извлечь элемент (Consumer Thread).
+     */
     /**
      * Извлечь элемент (Consumer Thread).
      */
@@ -169,27 +174,33 @@ class LockFreeQueue<T>
         #if cpp
         var currentTail:Int = _loadTailR(_state);
         var currentHead:Int = _loadHeadA(_state);
-        #end
-        #if hl
-        var currentTail:Int = _tail.get();
-        var currentHead:Int = _head.get();
-        #end
 
         if (currentHead == currentTail) return null;
 
         var item = _buffer[currentTail];
         _buffer[currentTail] = null;
 
-        #if cpp
         _storeTail(_state, (currentTail + 1) % _capacity);
-        #end
-        #if hl
-        _tail.set((currentTail + 1) % _capacity);
-        #end
-
         return item;
-    }
 
+        #elseif hl
+        var currentTail:Int = _tail.get();
+        var currentHead:Int = _head.get();
+
+        if (currentHead == currentTail) return null;
+
+        var item = _buffer[currentTail];
+        _buffer[currentTail] = null;
+
+        _tail.set((currentTail + 1) % _capacity);
+        return item;
+
+        #else
+        // Заглушка для других целей
+        if (_buffer.length == 0) return null;
+        return _buffer.shift();
+        #end
+    }
     public function dispose():Void
     {
         #if cpp

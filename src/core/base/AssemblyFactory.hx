@@ -126,27 +126,36 @@ class AssemblyFactory
 			// ACTIVE DRIVERS (real C++ code, registered in DriverManager)
 			// =============================================================
 			case "SignalGenerator":
-				atom = new library.drivers.SignalGenerator(id);
+                #if cpp
+                atom = new library.drivers.SignalGenerator(id);
+                #end
 
-			case "AudioIn":
-				atom = new AudioInputAtom(id);
-
+            case "AudioIn":
+                #if cpp
+                atom = new AudioInputAtom(id);
+                #end
 			// =============================================================
 			// MINI AUDIO ATOM — your microphone capture engine
 			// =============================================================
 			case "MiniAudioAtom":
-				atom = new library.drivers.MiniAudioAtom(id);
-				trace('🔊 AssemblyFactory: Created MiniAudioAtom (id: ${id}) — real miniaudio.h driver');
-			// =============================================================
-			
-			// =============================================================
-			case "ComPortAtom":
-				atom = new library.drivers.ComPortAtom(id);
-				trace('📡 AssemblyFactory: Created ComPortAtom (id: ${id})');
+                #if cpp
+                atom = new library.drivers.MiniAudioAtom(id);
+                trace('🔊 AssemblyFactory: Created MiniAudioAtom...');
+                #else
+                trace('⚠️ MiniAudioAtom requires C++ target');
+                #end
+            
+            case "ComPortAtom":
+                #if cpp
+                atom = new library.drivers.ComPortAtom(id);
+                trace('📡 AssemblyFactory: Created ComPortAtom...');
+                #end
 
-			case "ComEnumeratorAtom":
-				atom = new library.drivers.ComEnumeratorAtom(id);
-				trace('🔍 AssemblyFactory: Created ComEnumeratorAtom (id: ${id})');
+            case "ComEnumeratorAtom":
+                #if cpp
+                atom = new library.drivers.ComEnumeratorAtom(id);
+                trace('🔍 AssemblyFactory: Created ComEnumeratorAtom...');
+                #end
 			// =============================================================
 
 			// =============================================================
