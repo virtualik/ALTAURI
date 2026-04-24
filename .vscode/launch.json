@@ -1,0 +1,23 @@
+{
+    // Используйте IntelliSense, чтобы узнать о возможных атрибутах.
+    // Наведите указатель мыши, чтобы просмотреть описания существующих атрибутов.
+    // Для получения дополнительной информации посетите: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "OpenFL: Launch Windows",
+            "type": "lime",
+            "request": "launch",
+            "command": "test",
+            "target": "windows"
+        },
+        {
+            "name": "OpenFL: Launch HTML5",
+            "type": "chrome",
+            "request": "launch",
+            "url": "http://localhost:8080", // OpenFL обычно запускает сервер тут
+            "webRoot": "${workspaceFolder}",
+            "preLaunchTask": "OpenFL: Build HTML5"
+        }
+    ]
+}
