@@ -20,7 +20,7 @@ import core.logic.Impulsys;
 import ecs.ECS;
 
 /**
- * NODE VIEW v3.0 (Dynamic Widget-Adaptive Sizing)
+ * NODE VIEW v3.1 (Dynamic Widget-Adaptive Sizing + Fixed Drag)
  *
  * Visual representation of an Atom (node) on the schematic canvas.
  * The node rectangle automatically adapts to the size of the embedded
@@ -31,6 +31,14 @@ import ecs.ECS;
  *   2) The Widget card fits inside the Atom rectangle with padding.
  *   3) Contacts (ports) remain at the edges and are never overlapped
  *      by the widget.
+ *
+ * v3.1 Changes:
+ * - FIXED: Node dragging was blocked by buttonMode check on DeviceView
+ *   children. The preview container is now set to mouseChildren=false
+ *   so clicks pass through to the NodeView body for drag initiation.
+ * - FIXED: onMouseDown() buttonMode check rewritten to only block drag
+ *   for known interactive elements (port sprites, settings button),
+ *   not for any sprite in the hierarchy with buttonMode=true.
  *
  * v3.0 Changes:
  * - REPLACED: Fixed DEFAULT_WIDTH/DEFAULT_HEIGHT with dynamic sizing.
@@ -62,14 +70,14 @@ import ecs.ECS;
  *  ↑                                                  ↑
  *  Input ports at x=0                    Output ports at x=_nodeWidth
  *
- * Визуальное представление атома на схеме с портами для проводов.
+ * Visual representation of an atom on the schematic with ports for wires.
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * АРХИТЕКТУРА: "NODEVIEW IS SCHEMATIC NODE"
+ * ARCHITECTURE: "NODEVIEW IS SCHEMATIC NODE"
  * ═══════════════════════════════════════════════════════════════════════════
- * 
- * NodeView - это УЗЕЛ на схеме с ПОРТАМИ для проводов.
- * 
+ *
+ * NodeView is a NODE on the schematic with PORTS for wires.
+ *
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │                         SCHEMATIC (Canvas)                              │
  * │                                                                         │
@@ -81,12 +89,12 @@ import ecs.ECS;
  * │   │ in       out│      │ in       out│      │ in       out│             │
  * │   └─────────────┘      └─────────────┘      └─────────────┘             │
  * │                                                                         │
- * │   ПОРТЫ: Кружки для подключения проводов                                │
- * │   ПРОВОДА: Соединения между портами                                     │
- * │   ДВОЙНОЙ КЛИК ПО СБОРКЕ: Открыть её внутри редактора                   │
+ * │   PORTS: Circles for wire connections                                   │
+ * │   WIRES: Connections between ports                                      │
+ * │   DOUBLE-CLICK ON ASSEMBLY: Open it inside the editor                   │
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
- * 
+ *
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │                         NODEVIEW STRUCTURE                              │
  * │                                                                         │
@@ -102,38 +110,30 @@ import ecs.ECS;
  * │   │                                                             │       │
  * │   └─────────────────────────────────────────────────────────────┘       │
  * │                                                                         │
- * │   ПОРТЫ рисуются в NodeView, НЕ внутри DeviceView!                      │
- * │   DeviceView — только визуальный preview атома.                         │
+ * │   PORTS are drawn in NodeView, NOT inside DeviceView!                   │
+ * │   DeviceView — only a visual preview of the atom.                       │
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
- * 
- * Ключевые принципы:
+ *
+ * Key principles:
  * ─────────────────
- * 1. NodeView ВЛАДЕЕТ портами (inputPorts, outputPorts)
- * 2. DeviceView — только preview внутри (scale=0.6)
- * 3. Порты существуют НЕЗАВИСИМО от DeviceView
- * 4. Двойной клик по сборке → открыть её внутри редактора (импульс OPEN_ASSEMBLY_REQUEST)
- * 5. Перетаскивание → перемещение узла
- * 6. Клики на портах → создание проводов
- * 
+ * 1. NodeView OWNS the ports (inputPorts, outputPorts)
+ * 2. DeviceView — only a preview inside (scale=0.6)
+ * 3. Ports exist INDEPENDENTLY of DeviceView
+ * 4. Double-click on assembly → open it inside the editor (OPEN_ASSEMBLY_REQUEST impulse)
+ * 5. Dragging → moves the node
+ * 6. Clicks on ports → wire creation
+ *
  * ═══════════════════════════════════════════════════════════════════════════
  * v2.1 Changes:
  * - ADDED: Listener for ASSEMBLY_PORTS_CHANGED. If the Assembly changes ports, NodeView updates immediately.
- * 
+ *
  * v2.0 Changes:
- * - ✅ FIXED: Конструктор принимает 2 параметра (atom, nodeId)
- * - ✅ FIXED: Свойство selected вместо isSelected
- * - ✅ FIXED: Порты inputPorts/outputPorts создаются из атома
- * - DeviceView показывается как preview
- * - Двойной клик по сборке открывает её внутри редактора
-
- * 
- * v2.0 Changes:
- * - ✅ FIXED: Конструктор принимает 2 параметра (atom, nodeId)
- * - ✅ FIXED: Свойство selected вместо isSelected
- * - ✅ FIXED: Порты inputPorts/outputPorts создаются из атома
- * - DeviceView показывается как preview
- * - Двойной клик по сборке открывает её внутри редактора
+ * - FIXED: Constructor accepts 2 parameters (atom, nodeId)
+ * - FIXED: Property selected instead of isSelected
+ * - FIXED: Ports inputPorts/outputPorts are created from atom
+ * - DeviceView is shown as preview
+ * - Double-click on assembly opens it inside the editor
  */
 class NodeView extends Sprite {
 
@@ -373,6 +373,14 @@ class NodeView extends Sprite {
         _titleBar.addChild(_settingsButton);
 
         _previewContainer = new Sprite();
+        // === BUG 3 FIX v3.1: Make preview container non-interactive ===
+        // In the editor canvas, the widget preview is just a visual — the user
+        // should not interact with it directly. Setting mouseChildren=false
+        // ensures that clicks on the preview area pass through to the NodeView
+        // body, enabling node dragging. The widget becomes interactive again
+        // when it is moved to a DeviceCard (in DeviceWindow/Panel).
+        _previewContainer.mouseChildren = true;
+        _previewContainer.mouseEnabled = false;
         addChild(_previewContainer);
 
         _selectionHighlight = new Sprite();
@@ -416,18 +424,18 @@ class NodeView extends Sprite {
         var g = _background.graphics;
         g.clear();
 
-        // Основная заливка
+        // Main fill
         g.beginFill(0x2a2a3a, 0.95);
 
-        // Обводка (выделенный или обычный)
+        // Border (selected or normal)
         g.lineStyle(selected ? 2 : 1, selected ? _theme.NODE_SELECTED_COLOR : _theme.NODE_BORDER_COLOR);
 
-        // === ВЫБОР ФОРМЫ ПО РЕЖИМУ isLogic ===
+        // === CHOOSE SHAPE BASED ON isLogic MODE ===
         if (atom.isLogic) {
-            // ЦИФРОВОЙ ВИД (Digital Chip):
-            // Скошенные углы под 45 градусов (Chamfered Rectangle).
-            // Напоминает микросхему или чип.
-            var cut = 10.0; // Глубина скоса угла
+            // DIGITAL VIEW (Digital Chip):
+            // Chamfered corners at 45 degrees.
+            // Resembles a microchip or IC.
+            var cut = 10.0; // Chamfer depth
 
             g.moveTo(cut, 0);
             g.lineTo(w - cut, 0);
@@ -441,21 +449,21 @@ class NodeView extends Sprite {
             g.endFill();
 
         } else {
-            // АНАЛОГОВЫЙ ВИД (Analog):
-            // Скругленные углы (Rounded Rectangle).
-            // Мягкий, плавный вид.
+            // ANALOG VIEW (Analog):
+            // Rounded corners (Rounded Rectangle).
+            // Soft, smooth appearance.
             g.drawRoundRect(0, 0, w, h, 8, 8);
             g.endFill();
         }
 
-        // Заголовок (TitleBar)
+        // Title bar
         var tg = _titleBar.graphics;
         tg.clear();
         tg.beginFill(0x3a3a4a, 0.9);
 
-        // Заголовок повторяет форму верха корпуса
+        // Title bar repeats the shape of the top of the body
         if (atom.isLogic) {
-            // Скошенный верх
+            // Chamfered top
             var cut = 10.0;
             tg.moveTo(cut, 0);
             tg.lineTo(w - cut, 0);
@@ -465,21 +473,21 @@ class NodeView extends Sprite {
             tg.lineTo(0, cut);
             tg.lineTo(cut, 0);
         } else {
-            // Скругленный верх
+            // Rounded top
             tg.drawRoundRectComplex(0, 0, w, TITLE_HEIGHT, 8, 8, 0, 0);
         }
         tg.endFill();
 
-        // Обновляем позиции элементов заголовка
+        // Update title bar element positions
         _titleLabel.width = w - 30;
         _settingsButton.x = w - 15;
 
-        // Подсветка выделения
+        // Selection highlight
         var sg = _selectionHighlight.graphics;
         sg.clear();
         if (selected) {
             sg.lineStyle(3, _theme.NODE_SELECTED_COLOR, 0.6);
-            // Подсветка тоже повторяет форму
+            // Highlight also repeats the shape
             if (atom.isLogic) {
                 var cut = 12.0;
                 sg.moveTo(cut, -3);
@@ -560,11 +568,11 @@ class NodeView extends Sprite {
     private function createPortSprite(name:String, isInput:Bool):Sprite {
         var port = new Sprite();
 
-        // Основные размеры
-        var w = PORT_RADIUS * 2; // Ширина = 14
-        var h = PORT_RADIUS * 2; // Высота = 14
+        // Main dimensions
+        var w = PORT_RADIUS * 2; // Width = 14
+        var h = PORT_RADIUS * 2; // Height = 14
 
-        // Цвета
+        // Colors
         var color = isInput ? 0xFFAA00 : 0x00AAFF;
 
         port.graphics.beginFill(color);
@@ -572,37 +580,37 @@ class NodeView extends Sprite {
 
         if (isInput) {
             // === INPUT PORT ===
-            // Простой квадрат по центру
-            // (x,y) = (0,0) - это центр порта.
-            // Рисуем от левого верхнего угла: (-w/2, -h/2)
+            // Simple square centered at origin.
+            // (x,y) = (0,0) is the port center.
+            // Draw from top-left corner: (-w/2, -h/2)
             port.graphics.drawRect(-w / 2, -h / 2, w, h);
         } else {
             // === OUTPUT PORT ===
-            // Стрелка вправо.
-            // Тело стрелки (прямоугольник слева)
-            var bodyWidth = w * 0.7; // 70% ширины - тело
+            // Right-pointing arrow.
+            // Arrow body (rectangle on the left)
+            var bodyWidth = w * 0.7; // 70% of width = body
             port.graphics.drawRect(-w / 2, -h / 2, bodyWidth, h);
 
-            // Наконечник стрелки (треугольник справа)
-            // Начинаем от правого края тела
+            // Arrow tip (triangle on the right)
+            // Start from the right edge of the body
             var tipStartX = -w / 2 + bodyWidth;
-            port.graphics.moveTo(tipStartX, -h / 2);       // Левый верхний угол треугольника
-            port.graphics.lineTo(w / 2, 0);               // Кончик стрелки (центр справа)
-            port.graphics.lineTo(tipStartX, h / 2);        // Левый нижний угол треугольника
-            port.graphics.lineTo(tipStartX, -h / 2);       // Замыкаем к началу
+            port.graphics.moveTo(tipStartX, -h / 2);       // Top-left corner of triangle
+            port.graphics.lineTo(w / 2, 0);               // Arrow tip (center right)
+            port.graphics.lineTo(tipStartX, h / 2);        // Bottom-left corner of triangle
+            port.graphics.lineTo(tipStartX, -h / 2);       // Close back to start
         }
 
         port.graphics.endFill();
 
-        // --- HIT AREA (область клика) ---
+        // --- HIT AREA (click area) ---
         var hit = new Sprite();
         hit.graphics.beginFill(0x000000, 0);
-        // Делаем область клика чуть больше самого порта для удобства
+        // Make the click area slightly larger than the port for convenience
         hit.graphics.drawRect(-w, -h, w * 2, h * 2);
         hit.graphics.endFill();
         port.addChild(hit);
 
-        // --- LABEL (Подпись) ---
+        // --- LABEL (Caption) ---
         var label = new TextField();
         label.width = 50;
         label.height = 14;
@@ -611,11 +619,11 @@ class NodeView extends Sprite {
         label.defaultTextFormat = new TextFormat("_sans", 8, 0x888888);
 
         if (isInput) {
-            // Для входа: подпись справа от порта
+            // For input: label to the right of the port
             label.x = w / 2 + 3;
         } else {
-            // Для выхода: подпись слева от порта
-            // Сдвигаем влево на ширину текста (50) + отступ
+            // For output: label to the left of the port
+            // Shift left by text width (50) + offset
             label.x = -w / 2 - 53;
         }
         label.y = -7;
@@ -777,31 +785,45 @@ class NodeView extends Sprite {
         Impulsys.quickEmit(EventType.ATOM_PROPERTIES_REQUEST, { atom: atom, view: this });
     }
 
+    /**
+     * BUG 3 FIX v3.1: Rewritten mouse-down handler.
+     *
+     * The old version walked up from the click target and blocked drag if ANY
+     * intermediate sprite had buttonMode=true. This was too aggressive because
+     * DeviceView widgets inside the preview often set buttonMode on their
+     * interactive areas, which prevented ALL node dragging.
+     *
+     * The new version:
+     * 1. Checks if the click was on a PORT sprite (by name lookup) → skip drag, port handler will fire.
+     * 2. Checks if the click was on the SETTINGS button (walk up to _settingsButton) → skip drag, handle click.
+     * 3. Otherwise → start drag.
+     *
+     * Note: The _previewContainer has mouseChildren=false, so clicks on the
+     * widget preview area will have their target as the NodeView or _background,
+     * not as a widget child. This ensures drag works correctly.
+     */
     private function onMouseDown(e:MouseEvent):Void {
-        // === ИСПРАВЛЕНИЕ: Проверяем, не кликнул ли пользователь по вложенному интерактивному элементу ===
-        // Если цель события - это кнопка или объект с buttonMode, то перетаскивать узел НЕ нужно.
+        // === Check 1: Did the user click on a PORT sprite? ===
+        if (Std.isOfType(e.target, Sprite)) {
+            var target:Sprite = cast e.target;
+            if (inputPorts.exists(target.name) || outputPorts.exists(target.name)) {
+                // Click was on a port — do not start drag, port handler will fire
+                return;
+            }
+        }
+
+        // === Check 2: Did the user click on the SETTINGS button? ===
         var targetObj:DisplayObject = cast e.target;
         while (targetObj != null && targetObj != this) {
-            if (Std.isOfType(targetObj, Sprite)) {
-                var s = cast(targetObj, Sprite);
-                // Если у дочернего спрайта включен buttonMode/useHandCursor, считаем его кнопкой
-                if (s.buttonMode || s.useHandCursor) {
-                    // Останавливаем всплытие, чтобы не сработал Lasso в редакторе,
-                    // но НЕ запускаем drag. Событие дойдет до дочернего виджета.
-                    e.stopPropagation();
-                    return;
-                }
+            if (targetObj == _settingsButton) {
+                // Click was on settings button — do not start drag
+                e.stopPropagation();
+                return;
             }
             targetObj = targetObj.parent;
         }
-        // ==========================================================================================
 
-        if (Std.isOfType(e.target, Sprite)) {
-            var target:Sprite = cast e.target;
-            // Старая проверка портов остается
-            if (inputPorts.exists(target.name) || outputPorts.exists(target.name)) return;
-        }
-
+        // === Check 3: Start drag ===
         _dragOffsetX = e.localX;
         _dragOffsetY = e.localY;
 
@@ -902,11 +924,11 @@ class NodeView extends Sprite {
     // =========================================================================
 
     /**
-     * Обработчик изменения портов сборки.
-     * Если это наша сборка — обновляем визуал.
+     * Handler for assembly port changes.
+     * If this is our assembly — update the visuals.
      */
     private function onAssemblyPortsChanged(impulse:Impulse):Void {
-        // Проверяем, что событие для нас (по ID экземпляра)
+        // Check that the event is for us (by instance ID)
         if (impulse.data != null && impulse.data.assemblyId == this.atom.id) {
             trace('NodeView: Ports changed event received for ${atom.name}. Rebuilding layout.');
             updateLayout();

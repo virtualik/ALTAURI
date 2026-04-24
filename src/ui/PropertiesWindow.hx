@@ -13,9 +13,13 @@ import ui.widgets.NumberDisplay;
 import ui.widgets.IHMIWidget;
 
 /**
- * PropertiesWindow v2.2 (Oscilloscope Shape Selector)
+ * PropertiesWindow v2.3 (Fixed Close Button Interaction)
  * FIXED: Widget lifecycle, null checks, proper cleanup
  * ADDED: Display Shape selector for OscilloscopeAtom.
+ *
+ * v2.3 Changes:
+ * - FIXED: Close button MOUSE_DOWN now calls stopPropagation() to prevent
+ *   it from triggering the header drag.
  */
 class PropertiesWindow extends Sprite {
     private var _bg:Sprite;
@@ -54,6 +58,9 @@ class PropertiesWindow extends Sprite {
         closeBtn.y = 5;
         closeBtn.buttonMode = true;
         closeBtn.addEventListener(MouseEvent.CLICK, function(_) _close());
+        // === BUG 1 FIX v2.3: Stop MOUSE_DOWN from propagating to title ===
+        // Without this, clicking close would also start a drag on the header.
+        closeBtn.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent) e.stopPropagation());
         addChild(closeBtn);
 
         _title.addEventListener(MouseEvent.MOUSE_DOWN, _onMouseDownHeader);

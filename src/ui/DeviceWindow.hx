@@ -14,18 +14,17 @@ import openfl.text.TextField;
 import openfl.text.TextFormat;
 import core.base.Atom;
 
-
 /**
- * DEVICE WINDOW v2.0 (Databank Architecture, Registry‑based)
+ * DEVICE WINDOW v2.1 (Fixed Header Button Interaction)
  * Full-size device display window.
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * АРХИТЕКТУРА: "ATOM IS DATABANK & COMPUTE CORE"
+ * ARCHITECTURE: "ATOM IS DATABANK & COMPUTE CORE"
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * DeviceWindow — это независимое окно ОС, которое содержит карточки устройств.
- * Карточки (DeviceCard) управляются через DeviceViewRegistry и используют
- * единственный экземпляр DeviceView для каждого атома.
+ * DeviceWindow — an independent OS window containing device cards.
+ * Cards (DeviceCard) are managed through DeviceViewRegistry and use
+ * a single DeviceView instance for each atom.
  *
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │   SCHEMATIC                         DEVICE WINDOW                       │
@@ -40,20 +39,19 @@ import core.base.Atom;
  * │   Widget moved!                      │   │ └────────────────┘ │   │     │
  * │   NodeView shows                     │   └────────────────────┘   │     │
  * │   placeholder (no widget)            │                            │     │
- * │                                      │   [Close]  [Minimize]      │     │
+ * │                                      │   [E]  [C]  [X] (Header)   │     │
  * │                                      └────────────────────────────┘     │
  * │                                              │                          │
  * │   ◄──────────────────────────────────────────┘                          │
  * │              On close: Widget returns to registry,                      │
- * │              NodeView can re‑acquire it on next activation.				 │
+ * │              NodeView can re-acquire it on next activation.             │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
- * v2.0 Changes:
- * - Полностью переработан для работы с DeviceViewRegistry
- * - Удалён внутренний класс DeviceCard (теперь используется внешний)
- * - Карточки получают виджет через реестр, а не создают новый
- * - При закрытии окна виджеты не уничтожаются, а возвращаются в реестр
- * - Поддержка сохранения/восстановления позиций карточек
+ * v2.1 Changes:
+ * - FIXED: Header buttons [E], [C], [X] now stop MOUSE_DOWN propagation
+ *   so they don't trigger window drag when clicked.
+ * - FIXED: onMouseDown() now checks if the click target is a header button
+ *   and skips drag initiation if so (defensive double-check).
  */
 class DeviceWindow {
 
@@ -218,6 +216,11 @@ class DeviceWindow {
         _container.addChild(_header);
     }
 
+    /**
+     * BUG 1 FIX: Header buttons now stop MOUSE_DOWN propagation.
+     * This prevents the MOUSE_DOWN event from bubbling up from the button
+     * to the _header, which would start an unwanted window drag.
+     */
     private function createHeaderButton(label:String, color:Int, onClick:MouseEvent->Void):Sprite {
         var btn = new Sprite();
         btn.graphics.beginFill(color);
@@ -235,6 +238,10 @@ class DeviceWindow {
 
         btn.buttonMode = true;
         btn.addEventListener(MouseEvent.CLICK, onClick);
+        // === BUG 1 FIX: Stop MOUSE_DOWN from propagating to header ===
+        // Without this, clicking the button would also trigger onMouseDown()
+        // on the header, starting an unwanted window drag.
+        btn.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent) e.stopPropagation());
         return btn;
     }
 
@@ -367,8 +374,30 @@ class DeviceWindow {
     // WINDOW DRAG (header)
     // =========================================================================
 
+    /**
+     * BUG 1 FIX: Added target check to skip drag if the user clicked
+     * on a header button child. Even though buttons now stopPropagation
+     * on MOUSE_DOWN, this defensive check ensures that if somehow the
+     * event still reaches this handler, we don't start a drag.
+     */
     private function onMouseDown(e:MouseEvent):Void {
         if (_isDisposed) return;
+
+        // === BUG 1 FIX: Check if click target is inside a header button ===
+        // Walk up from the click target. If we find a child of _header that
+        // has buttonMode=true (one of the [E]/[C]/[X] buttons), skip drag.
+        var targetObj:openfl.display.DisplayObject = cast e.target;
+        while (targetObj != null && targetObj != _header) {
+            if (Std.isOfType(targetObj, Sprite)) {
+                var s = cast(targetObj, Sprite);
+                if (s.buttonMode && targetObj.parent == _header) {
+                    // Clicked on a header button — do not start drag
+                    return;
+                }
+            }
+            targetObj = targetObj.parent;
+        }
+
         _dragging = true;
         _dragOffsetX = e.localX;
         _dragOffsetY = e.localY;

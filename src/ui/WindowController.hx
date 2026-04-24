@@ -138,7 +138,7 @@ class WindowController {
             debugLogNative("Added WS_EX_LAYERED");
         }
        
-        BOOL result = SetLayeredWindowAttributes(hWnd, 0x000000, 255, LWA_COLORKEY);
+        BOOL result = SetLayeredWindowAttributes(hWnd, 0xFF00FF, 255, LWA_COLORKEY);
        
         sprintf(buf, "SetLayeredWindowAttributes: %s", result ? "SUCCESS" : "FAILED");
         debugLogNative(buf);

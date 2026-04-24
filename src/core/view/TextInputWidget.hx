@@ -5,6 +5,7 @@ import openfl.text.TextField;
 import openfl.text.TextFormat;
 import openfl.text.TextFormatAlign;
 import openfl.text.TextFieldType;
+import openfl.events.Event;
 import openfl.events.FocusEvent;
 import openfl.events.KeyboardEvent;
 import openfl.ui.Keyboard;
@@ -14,30 +15,32 @@ import core.logic.Impulsys;
 import core.logic.EventType;
 
 /**
- * TEXT INPUT WIDGET v1.2 (Databank Architecture)
- * Widget for text or number input.
+ * TEXT INPUT WIDGET v1.2 (Focus-aware Keyboard Handling)
+ * Text input field widget for entering values into TextInputAtom.
  *
  * Architecture:
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │   TextInputAtom (Databank)                                              │
+ * │   Atom (Databank)                                                       │
  * │                                                                         │
- * │   Contact "out" ◄─── TextInputWidget                                    │
- * │   Contact "set"  ───► TextInputWidget (updates display)                 │
- * │                     ┌─────────────────────────────────────────────────┐ │
- * │                     │ pushValue(): contact.value = input.text         │ │
- * │                     │ onContactChanged("set"): update display         │ │
- * │                     │ onActivate(): syncFromAtom()                    │ │
- * │                     └─────────────────────────────────────────────────┘ │
+ * │   Contact "set"  ──► TextInputWidget                                    │
+ * │   Contact "out"  ──► TextInputWidget                                    │
+ * │                       ┌─────────────────────────────────────────────┐   │
+ * │                       │ _inputField: INPUT TextField                │   │
+ * │                       │ onKeyDown: push on ENTER, stopPropagation   │   │
+ * │                       │ onFocusOut: push value                      │   │
+ * │                       │ onContactChanged: display value             │   │
+ * │                       └─────────────────────────────────────────────┘   │
  * │                                                                         │
- * │   Widget READS atom's contact state (for display sync)                  │
- * │   Widget WRITES to atom's contact (user input)                          │
+ * │   Widget READS atom's contact value (display only)                      │
+ * │   Widget WRITES to atom's "out" contact on user input                   │
  * │   Atom is the Databank - single source of truth                         │
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
  * v1.2 Changes:
- * - Emits VALUE_COMMITTED impulse on Enter key
- * - This triggers automatic save in Main.hx
+ * - FIXED: stopImmediatePropagation() on ALL key events when the input
+ *   field is focused. This prevents the global keyboard handler in Main
+ *   from intercepting keys like 'D' (delete) while the user is typing.
  */
 class TextInputWidget extends DeviceView {
 
@@ -49,18 +52,9 @@ class TextInputWidget extends DeviceView {
     private var _outputContact:Contact;
     private var _setContact:Contact;
 
-    // =========================================================================
-    // CONFIGURATION
-    // =========================================================================
-
-    public var widgetWidth:Float = 120;
-    public var widgetHeight:Float = 30;
-
-    // =========================================================================
-    // STATE
-    // =========================================================================
-
-    private var _isEditing:Bool = false;
+    // Widget dimensions
+    private var widgetWidth:Float = 120;
+    private var widgetHeight:Float = 24;
 
     // =========================================================================
     // CONSTRUCTOR
@@ -132,6 +126,12 @@ class TextInputWidget extends DeviceView {
     }
 
     private function onKeyDown(e:KeyboardEvent):Void {
+        // === BUG 2 FIX: Stop ALL key events from propagating when the ===
+        // input field is focused. This prevents Main.onKeyDown() from
+        // intercepting single-key shortcuts (like 'D' for delete) while
+        // the user is typing in this field.
+        e.stopImmediatePropagation();
+
         if (e.keyCode == Keyboard.ENTER) {
             pushValue();
 

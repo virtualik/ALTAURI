@@ -6,8 +6,8 @@ import openfl.events.KeyboardEvent;
 import openfl.ui.Keyboard;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
-  
-  
+
+import lime.app.Application;
 import openfl.Lib;
 import openfl.events.Event;
 import openfl.system.System;
@@ -20,8 +20,7 @@ import core.logic.EventType;
 import system.managers.UndoManager;
 import system.managers.DriverManager;
 import system.managers.ProjectManager;
- 
- 
+
 import editor.EditorTheme;
 import editor.ContextMenuManager;
 import editor.EditorContext;
@@ -29,18 +28,18 @@ import ui.TextInputPopup;
 import ui.PropertiesWindow;
 import ui.ButtonComponent;
 import ui.SettingsPanel;
- 
+
 import ui.DeviceWindow;
 import ui.DevicePanel;
- 
+
 import ui.WindowController;
- 
+
 import system.commands.editor.CreateNewAssemblyCommand;
 import system.commands.editor.DeleteWiresCommand;
 import system.commands.editor.DeleteAtomCommand;
 import system.commands.base.MacroCommand;
 import ecs.ECS;
- 
+
 import library.AtomRegistry;
 using StringTools;
 
@@ -119,7 +118,7 @@ class Main extends Sprite
 		ECS.init();
 		setupLayers();
 
-		// v2.5: Инициализация прозрачности сразу после создания слоев
+		// v2.5: Initialize transparency right after layer creation
 		initTransparency();
 
 		if (stage != null) init();
@@ -130,8 +129,8 @@ class Main extends Sprite
 		removeEventListener(Event.ADDED_TO_STAGE, init);
 		openfl.Lib.current.stage.window.visible = true;
 		stage.color = _theme.APP_BG_BLACK;
-		// Устанавливаем низкое качество рендеринга.
-		// Это отключает Anti-Aliasing для векторной графики (линии, круги).
+		// Set low rendering quality.
+		// This disables Anti-Aliasing for vector graphics (lines, circles).
 		stage.quality = HIGH;
 
 		_editorContext = new EditorContext(_editorLayer);
@@ -139,17 +138,22 @@ class Main extends Sprite
 
 		// Initialize TickGenerator
 		TickGenerator.getInstance();
-		TickGenerator.getInstance().targetHz = 60; // 60 Гц — стандарт для симуляции
+		TickGenerator.getInstance().targetHz = 60; // 60 Hz — standard for simulation
 
 		addEventListener(Event.ENTER_FRAME, onMainLoop);
 		buildUI();
 		stage.addEventListener(Event.RESIZE, onResize);
-		#if sys
-		openfl.Lib.current.stage.window.onClose.add(onMainWindowClose);
-		#end
+Lib.current.stage.addEventListener(flash.events.Event.EXITING, function(e) {
+    e.preventDefault();
+    _popup.showConfirm("Exit", "Save before closing?", function(confirmed) {
+        if (confirmed) saveOnExit();
+        System.exit(0);
+    });
+});
+		
 		loadProject();
 
-		// Передаем управление лимитом в TickGenerator
+		// Pass control of the limit to TickGenerator
 		TickGenerator.getInstance().maxStepsPerFrame = 100;
 	}
 
@@ -161,11 +165,11 @@ class Main extends Sprite
 		_windowController = new WindowController();
 
 		#if windows
-		// Включаем прозрачность по умолчанию при старте
+		// Enable transparency by default at startup
 		if (_windowController.enableLayeredTransparency())
 		{
 			log("Main Window: Transparency ENABLED (Black = Transparent)");
-			// Устанавливаем черный цвет фона сцены, чтобы "прозрачные" области стали прозрачными
+			// Set black stage background so "transparent" areas become transparent
 			stage.color = _theme.APP_BG_BLACK;
 		}
 		else {
@@ -212,8 +216,8 @@ class Main extends Sprite
 			_editorContext.currentEditor.setViewState(data.view);
 			if (data.isOpen)
 			{
-				// При загрузке, если было открыто, переключаемся в режим Device
-				_isPanelMode = false; // Сбрасываем, чтобы сработал toggle
+				// On load, if it was open, switch to Device mode
+				_isPanelMode = false; // Reset so toggle fires
 				onToggleView();
 			}
 			log("Project loaded (v2.9).");
@@ -262,8 +266,8 @@ class Main extends Sprite
 		{
 			log("Saving Root...");
 
-			// v2.8 FIX: Синхронизируем состояние панели ПЕРЕД записью файла,
-			// даже если мы сейчас находимся в режиме Device Panel.
+			// v2.8 FIX: Sync panel state BEFORE writing the file,
+			// even if we are currently in Device Panel mode.
 			if (_isPanelMode)
 			{
 				syncDevicePanelToCache();
@@ -271,7 +275,7 @@ class Main extends Sprite
 
 			var viewState = _editorContext.currentEditor.getViewState();
 			var devicesData = _cachedDeviceWindowState != null ? _cachedDeviceWindowState : [];
-			var isWindowOpen = _isPanelMode; // Если мы в режиме панели, значит "открыто"
+			var isWindowOpen = _isPanelMode; // If in panel mode, then "open"
 
 			_projectManager.saveSelfrun(
 				_editorContext.currentAssembly,
@@ -392,7 +396,7 @@ class Main extends Sprite
 // =============================================================================================
 
 	/**
-	 * Сохраняет текущее состояние DevicePanel в кэш.
+	 * Saves the current DevicePanel state to cache.
 	 */
 	private function syncDevicePanelToCache():Void
 	{
@@ -420,7 +424,7 @@ class Main extends Sprite
 	}
 
 	/**
-	 * Восстанавливает состояние DevicePanel из кэша.
+	 * Restores DevicePanel state from cache.
 	 */
 	private function restoreDevicePanelFromCache():Void
 	{
@@ -444,21 +448,21 @@ class Main extends Sprite
 			// --- SWITCH TO DEVICE PANEL MODE ---
 			log("Mode: Device Panel");
 
-			// 1. Скрываем Редактор и UI редактора
+			// 1. Hide Editor and editor UI
 			_editorLayer.visible = false;
 			_uiLayer.visible = false;
 
-			// 2. Показываем Device Panel
+			// 2. Show Device Panel
 			_devicePanel.visible = true;
 			_devicePanel.setSize(stage.stageWidth, stage.stageHeight);
 
-			// 3. Передаем текущий контекст (сборку)
+			// 3. Pass current context (assembly)
 			_devicePanel.setContext(_editorContext.currentAssembly);
 
-			// 4. Восстанавливаем состояние из кэша
+			// 4. Restore state from cache
 			restoreDevicePanelFromCache();
 
-			// 5. Закрываем отдельное окно (если открыто)
+			// 5. Close separate window (if open)
 			if (_deviceWindow != null && _deviceWindow.isOpen) _deviceWindow.close();
 
 			#if windows
@@ -469,22 +473,22 @@ class Main extends Sprite
 			// --- SWITCH TO EDITOR MODE ---
 			log("Mode: Node Editor");
 
-			// 1. Сохраняем текущее состояние панели в кэш
+			// 1. Save current panel state to cache
 			syncDevicePanelToCache();
 
-			// 2. Прячем панель
+			// 2. Hide the panel
 			if (_devicePanel != null) _devicePanel.visible = false;
 
-			// 3. Показываем редактор
+			// 3. Show the editor
 			_editorLayer.visible = true;
 			_uiLayer.visible = true;
 
-			// === ИСПРАВЛЕНИЕ: Сначала очищаем панель! ===
-			// Это освободит виджеты (registry.clearContainer) и деактивирует их.
-			// Теперь NodeView сможет их "подобрать" и снова активировать.
+			// === FIX: Clear the panel first! ===
+			// This releases widgets (registry.clearContainer) and deactivates them.
+			// Now NodeView can "pick them up" and reactivate them.
 			if (_devicePanel != null) _devicePanel.clearDevices();
 
-			// 4. Теперь возвращаем все виджеты в NodeViews
+			// 4. Now return all widgets to NodeViews
 			if (_editorContext.currentEditor != null)
 			{
 				_editorContext.currentEditor.restoreAllWidgets();
@@ -639,7 +643,7 @@ class Main extends Sprite
 	{
 
 		graphics.clear();
-		graphics.beginFill(0, 0); // Alpha = 0 (Полностью прозрачный)
+		graphics.beginFill(_theme.APP_BG_COLOR, 0); // Alpha = 0 (Fully transparent)
 		graphics.drawRect(0, 0, stage.stageWidth, stage.stageHeight);
 		graphics.endFill();
 		_debugField.y = stage.stageHeight - 40;
@@ -834,16 +838,25 @@ class Main extends Sprite
 	}
 	private function onMainWindowClose():Void
 	{
-		log("Main window close requested...");
-		saveOnExit();
-		if (_deviceWindow != null && _deviceWindow.isOpen)
+		_popup.showConfirm("Exit", "Do You want to close Editor?", function(confirmed:Bool)
 		{
-			log("Device window is active. Hiding editor instead of exit.");
-		}
-		else {
-			log("Exiting application.");
-			System.exit(0);
-		}
+			if (confirmed)
+			{
+				saveOnExit();
+				System.exit(0);
+			}
+		});
+		//
+		//log("Main window close requested...");
+		//saveOnExit();
+		//if (_deviceWindow != null && _deviceWindow.isOpen)
+		//{
+		//log("Device window is active. Hiding editor instead of exit.");
+		//}
+		//else {
+		//log("Exiting application.");
+		//System.exit(0);
+		//}
 	}
 	private function onCloseClicked():Void
 	{
@@ -856,9 +869,33 @@ class Main extends Sprite
 			}
 		});
 	}
+
+	/**
+	 * BUG 2 FIX: Added TextField focus check.
+	 *
+	 * Before processing single-key shortcuts (D, R, E, DELETE, BACKSPACE),
+	 * we now check if stage.focus is a TextField. If it is, the user is
+	 * typing in an input field, and we should not intercept their keystrokes.
+	 *
+	 * Ctrl+key shortcuts (Ctrl+C, Ctrl+Z, etc.) are still processed even
+	 * when a TextField has focus, because those are deliberate editor
+	 * commands that should override text input.
+	 */
 	private function onKeyDown(e:KeyboardEvent):Void
 	{
 		if (_popup.visible) return;
+
+		// === BUG 2 FIX: If a TextField has keyboard focus, skip ===
+		// single-key shortcuts but keep Ctrl+key shortcuts.
+		// This prevents 'D' from deleting atoms while typing in
+		// TextInputWidget, while still allowing Ctrl+C, Ctrl+Z, etc.
+		var focusObj = Lib.current.stage.focus;
+		var isTextFieldFocused:Bool = Std.isOfType(focusObj, TextField);
+		// Also check if focus is on a TextField in a DeviceWindow
+		// (separate native window) — we check all windows' stages.
+		// For simplicity, any TextField focus blocks single-key shortcuts.
+		if (isTextFieldFocused && !e.ctrlKey && !e.altKey) return;
+
 		if (e.keyCode == Keyboard.S && !e.ctrlKey) { saveCurrentContext(); return; }
 		if (e.ctrlKey && e.keyCode == Keyboard.C) { if (_editorContext.currentEditor != null) _editorContext.currentEditor.copySelection(); return; }
 		if (e.ctrlKey && e.keyCode == Keyboard.X) { if (_editorContext.currentEditor != null) _editorContext.currentEditor.cutSelection(); return; }
@@ -877,6 +914,7 @@ class Main extends Sprite
 		if (e.keyCode == Keyboard.E) { if (_editorContext.getStackLength() > 1) onDeleteCurrentAssembly(); else log("Cannot erase root assembly."); return; }
 		if (e.keyCode == Keyboard.BACKSPACE) { if (_editorContext.getStackLength() > 1) onBackClicked(); return; }
 	}
+
 	private function deleteSelectedOnCanvas():Void
 	{
 		if (_editorContext.currentEditor == null) return;

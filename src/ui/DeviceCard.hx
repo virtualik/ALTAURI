@@ -3,6 +3,7 @@ package ui;
 import openfl.display.Sprite;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
+import openfl.text.TextFormatAlign;
 import openfl.events.MouseEvent;
 import core.base.Atom;
 import core.view.DeviceView;
@@ -11,39 +12,29 @@ import core.logic.Impulsys;
 import core.logic.EventType;
 
 /**
- * DeviceCard v2.1 (Universal Container)
- * Compact card representation of a device for the DeviceWindow or DevicePanel.
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * АРХИТЕКТУРА: "ATOM IS DATABANK & COMPUTE CORE"
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * DeviceCard — это контейнер для единственного экземпляра DeviceView.
- * Он не создаёт новый виджет, а получает его из DeviceViewRegistry.
- * При создании карточки виджет перемещается из предыдущего контейнера
- * (например, NodeView) в карточку. При закрытии карточки виджет
- * возвращается в реестр (контейнер сбрасывается), и NodeView может
- * снова забрать его при следующей активации.
+ * DEVICE CARD v1.1 (Fixed Header Button Interaction)
+ * Card holding a DeviceView inside a DevicePanel or DeviceWindow.
  *
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │   DeviceCard                                                            │
- * │   ┌─────────────────────────────────────────────────────────────────┐   │
- * │   │  [Title Bar: Atom Name]  [x]                                    │   │
- * │   ├─────────────────────────────────────────────────────────────────┤   │
- * │   │                                                                 │   │
- * │   │  ┌───────────────────────────────────────────────────────────┐  │   │
- * │   │  │  DeviceView (получен из реестра, scale = 1.0)             │  │   │
- * │   │  └───────────────────────────────────────────────────────────┘  │   │
- * │   │                                                                 │   │
- * │   └─────────────────────────────────────────────────────────────────┘   │
  * │                                                                         │
- * │   Перетаскивание за заголовок — перемещение карточки по окну.           │
- * │   Кнопка [x] — закрытие карточки, виджет возвращается в реестр.         │
+ * │   ┌──────────────────────────────────┐                                  │
+ * │   │  Title Bar  [label]         [x]  │  ← Title + close button          │
+ * │   ├──────────────────────────────────┤                                  │
+ * │   │                                  │                                  │
+ * │   │  DeviceView (full size)          │  ← Interactive widget            │
+ * │   │                                  │                                  │
+ * │   └──────────────────────────────────┘                                  │
+ * │                                                                         │
+ * │   Title bar: drag to move card                                          │
+ * │   [x] button: close/remove card                                         │
+ * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
- * v2.1 Changes:
- * - Changed _deviceWindow to _owner (Dynamic) to support both Window and Panel.
- * - Added support for DevicePanel as a container.
+ * v1.1 Changes:
+ * - FIXED: Close button MOUSE_DOWN now calls stopPropagation() to prevent
+ *   the MOUSE_DOWN event from bubbling up to the title bar and starting
+ *   an unwanted card drag.
  */
 class DeviceCard extends Sprite {
 
@@ -59,7 +50,7 @@ class DeviceCard extends Sprite {
     // PRIVATE FIELDS
     // =========================================================================
 
-    private var _owner:Dynamic; // DeviceWindow или DevicePanel
+    private var _owner:Dynamic; // DeviceWindow or DevicePanel
     private var _deviceView:DeviceView;
     private var _titleBar:Sprite;
     private var _titleLabel:TextField;
@@ -93,7 +84,7 @@ class DeviceCard extends Sprite {
         _owner = owner;
         this.x = x;
         this.y = y;
-		buildCard();
+        buildCard();
     }
 
     // =========================================================================
@@ -101,7 +92,7 @@ class DeviceCard extends Sprite {
     // =========================================================================
 
     private function buildCard():Void {
-        // 1. Получаем виджет из реестра (гарантированно один экземпляр)
+        // 1. Get the widget from the registry (guaranteed single instance)
         var registry = DeviceViewRegistry.getInstance();
         _deviceView = registry.getOrCreate(atom, true);
         if (_deviceView == null) {
@@ -110,9 +101,9 @@ class DeviceCard extends Sprite {
             return;
         }
 
-        // 2. Перемещаем виджет в карточку с помощью реестра
-        //    (виджет будет изъят из предыдущего контейнера, если был)
-        //    Мы передаем `this` как контейнер.
+        // 2. Move the widget into the card via the registry
+        //    (the widget will be removed from its previous container, if any)
+        //    We pass `this` as the container.
         _deviceView = registry.moveToDeviceWindow(atom.id, this, 0, 20);
         if (_deviceView == null) {
             trace('DeviceCard: Failed to move widget for atom "${atom.name}"');
@@ -120,16 +111,16 @@ class DeviceCard extends Sprite {
             return;
         }
 
-        // 3. Определяем размеры карточки на основе размеров виджета
+        // 3. Determine card dimensions based on widget size
         var viewWidth = _deviceView.width;
         var viewHeight = _deviceView.height;
         if (viewWidth < 50) viewWidth = 100;
         if (viewHeight < 30) viewHeight = 60;
 
-        cardWidth = viewWidth + 30;   // отступы слева/справа
-        cardHeight = viewHeight + 40; // заголовок 20 + нижний отступ
-		
-        // 4. Заголовок
+        cardWidth = viewWidth + 30;   // left/right padding
+        cardHeight = viewHeight + 40; // title 20 + bottom padding
+
+        // 4. Title bar
         _titleBar = new Sprite();
         _titleBar.graphics.beginFill(0x3a3a4a);
         _titleBar.graphics.drawRect(0, 0, viewWidth + 20, 20);
@@ -145,7 +136,7 @@ class DeviceCard extends Sprite {
         _titleLabel.mouseEnabled = false;
         _titleBar.addChild(_titleLabel);
 
-        // Кнопка закрытия
+        // Close button
         var closeBtn = new Sprite();
         closeBtn.graphics.beginFill(0x883333);
         closeBtn.graphics.drawRect(0, 0, 16, 16);
@@ -162,16 +153,20 @@ class DeviceCard extends Sprite {
         closeBtn.addChild(xText);
         closeBtn.buttonMode = true;
         closeBtn.addEventListener(MouseEvent.CLICK, onCloseClick);
+        // === BUG 1 FIX: Stop MOUSE_DOWN from propagating to title bar ===
+        // Without this, clicking the close button would also start a card drag
+        // because MOUSE_DOWN bubbles from the button to _titleBar.
+        closeBtn.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent) e.stopPropagation());
         _titleBar.addChild(closeBtn);
 
-        // 5. Фон карточки (рисуем позади всего)
+        // 5. Card background (drawn behind everything)
         graphics.clear();
         graphics.beginFill(0x2a2a3a, 0.9);
         graphics.lineStyle(1, 0x4a4a5a);
         graphics.drawRoundRect(-5, -5, cardWidth, cardHeight, 4, 4);
         graphics.endFill();
 
-        // 6. Включаем перетаскивание за заголовок
+        // 6. Enable dragging by title bar
         _titleBar.buttonMode = true;
         _titleBar.addEventListener(MouseEvent.MOUSE_DOWN, onCardMouseDown);
 
@@ -206,7 +201,7 @@ class DeviceCard extends Sprite {
     private function onCloseClick(e:MouseEvent):Void {
         e.stopPropagation();
         if (_owner != null) {
-            // Универсальный вызов removeDevice у владельца
+            // Universal call to owner's removeDevice method
             if (Reflect.hasField(_owner, 'removeDevice')) {
                 Reflect.callMethod(_owner, Reflect.field(_owner, 'removeDevice'), [this]);
             }
@@ -225,7 +220,7 @@ class DeviceCard extends Sprite {
         _mouseStartX = e.stageX;
         _mouseStartY = e.stageY;
 
-        // Поднимаем карточку наверх
+        // Bring card to front
         if (parent != null) parent.addChild(this);
 
         if (stage != null) {
@@ -247,7 +242,7 @@ class DeviceCard extends Sprite {
             stage.removeEventListener(MouseEvent.MOUSE_UP, onCardMouseUp);
         }
 
-        // Уведомляем об изменении позиции для автосохранения
+        // Notify position change for auto-save
         Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
     }
 
@@ -272,15 +267,15 @@ class DeviceCard extends Sprite {
             stage.removeEventListener(MouseEvent.MOUSE_UP, onCardMouseUp);
         }
 
-        // Возвращаем виджет в реестр (очищаем контейнер)
+        // Return the widget to the registry (clear container)
         if (_deviceView != null) {
-            // Убираем виджет из карточки
+            // Remove widget from card
             if (this.contains(_deviceView)) {
                 removeChild(_deviceView);
             }
-            // Очищаем запись о контейнере в реестре
+            // Clear container record in registry
             DeviceViewRegistry.getInstance().clearContainer(atom.id);
-            // Деактивируем виджет (он перестанет получать обновления, но данные в атоме останутся)
+            // Deactivate the widget (it will stop receiving updates, but atom data remains)
             _deviceView.deactivate();
             _deviceView = null;
         }
