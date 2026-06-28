@@ -37,7 +37,16 @@ class MiniAudioWidget extends DeviceView
     // =========================================================================
     // UI ЭЛЕМЕНТЫ
     // =========================================================================
-    private var _vuMeterBg:Sprite;
+	
+	// Widget dimensions
+	public var widgetWidth:Float = 240;
+	public var widgetHeight:Float = 150;
+	// widget size return (из за Reflect)
+	override public function getWidgetSize():{width:Float, height:Float} {
+		return {width: widgetWidth, height: widgetHeight};
+	}
+	
+	private var _vuMeterBg:Sprite;
     private var _vuMeterFg:Sprite;
     private var _clipIndicator:Sprite;
     
@@ -54,6 +63,7 @@ class MiniAudioWidget extends DeviceView
     // =========================================================================
     private var _maxVUWidth:Float = 150;
     private var _clipTimeout:haxe.Timer;
+
 
     public function new(atom:Atom)
     {

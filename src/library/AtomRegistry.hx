@@ -1,17 +1,22 @@
 package library;
+
 import core.data.Blueprint;
+import core.data.Blueprint.ParameterPriority;
 import core.types.ContactType;
 
 /**
-* Atom Registry v2.2 (Fixed Driver Registration)
+* Atom Registry v2.3 (Inline Editor Metadata)
 * Stores and manages blueprints for all atom types.
+*
+* v2.3 Changes:
+* - ADDED: ParameterPriority metadata to PinDef for inline editor visibility
 */
 class AtomRegistry
 {
 	private static var _initialized:Bool = false;
 	private static var _blueprints:Map<String, Blueprint> = new Map();
 	public static var customLibraryPath:String = "";
-
+	
 	private static function reg(id:String, name:String, pins:Array<core.data.Blueprint.PinDef>, ?logic, ?deviceType:String = null, ?isNative:Bool = true, ?isActive:Bool = false)
 	{
 		var bp = new Blueprint(id, name, pins, null);
@@ -20,106 +25,98 @@ class AtomRegistry
 		bp.isActive = isActive;
 		_blueprints.set(id, bp);
 	}
-
+	
 	public static function getAllIds():Array<String>
 	{
 		return [for (key in _blueprints.keys()) key];
 	}
-
+	
 	public static function initialize():Void
 	{
 		if (_initialized) return;
-
+		
 		// --- Native Atoms Registration ---
-
 		// Electro / UI
 		reg("Button", "Push Button", [{name: "out", type: OUTPUT, dataType: "bool"}], null, "button");
-		reg("LED", "LED Indicator", [{name: "in", type: INPUT, dataType: "bool"}], null, "led", true, false); // isActive = false
+		reg("LED", "LED Indicator", [{name: "in", type: INPUT, dataType: "bool"}], null, "led", true, false);
 		reg("Toggle", "Toggle Switch", [{name: "out", type: OUTPUT, dataType: "bool"}], null, "toggle");
-		reg("TextInput", "Text Input", [{name: "set", type: INPUT, dataType: "string"},	{name: "out", type: OUTPUT, dataType: "string"}		], null, "textinput");
+		reg("TextInput", "Text Input", [
+			{name: "set", type: INPUT, dataType: "string"},
+			{name: "out", type: OUTPUT, dataType: "string"}
+		], null, "textinput");
 		reg("Relay", "Relay", [
-		{name: "signal", type: INPUT, dataType: "any"},
-		{name: "control", type: INPUT, dataType: "bool"},
-		{name: "out", type: OUTPUT, dataType: "any"}
+			{name: "signal", type: INPUT, dataType: "any"},
+			{name: "control", type: INPUT, dataType: "bool"},
+			{name: "out", type: OUTPUT, dataType: "any"}
 		], null, "relay");
-
-		// Logic
-
-		// Active Drivers (Must be registered with isActive=true)
-		reg("SignalGenerator", "Signal Generator", [
-		{name: "freq", type: INPUT, defaultValue: 1.0, dataType: "float"},
-		{name: "quantum", type: INPUT, defaultValue: 0.1, dataType: "float"},
-		{name: "mode", type: INPUT, defaultValue: 3, dataType: "int"},
-		{name: "out", type: OUTPUT, dataType: "float"},
-		{name: "changed", type: OUTPUT, dataType: "bool"}
-		], null, "panel", true, true); // isActive = true
-
-		reg("AudioIn", "Audio Input", [
-		{name: "samples", type: OUTPUT, dataType: "array"},
-		{name: "level", type: OUTPUT, dataType: "float"}
-		], null, "oscilloscope", true, true); // isActive = true
-
-		reg("MiniAudioAtom", "Mini Audio Capture", [
-			// Входные контакты (настройки)
-		{name: "mode",     type: INPUT,  defaultValue: 1,    dataType: "int"},
-		{name: "quantum",  type: INPUT,  defaultValue: 0.01, dataType: "float"},
-		{name: "gain",     type: INPUT,  defaultValue: 1.0,  dataType: "float"},
-		{name: "channel",  type: INPUT,  defaultValue: 0,    dataType: "int"},
-		{name: "rate",     type: INPUT,  defaultValue: 0,    dataType: "int"},
-
-		// Выходные контакты
-		{name: "sample",   type: OUTPUT, dataType: "float"},
-		{name: "changed",  type: OUTPUT, dataType: "bool"},
-		{name: "rms",      type: OUTPUT, dataType: "float"},
-		{name: "clip",     type: OUTPUT, dataType: "bool"},
-		{name: "tick",     type: OUTPUT, dataType: "bool"},
-		{name: "level",    type: OUTPUT, dataType: "float"},
-		{name: "device",   type: OUTPUT, dataType: "string"}
-		], null, "miniaudio", true, true); // isActive = true - КРИТИЧНО!
 		
-		// --- COM Port Drivers (Active, isActive=true) ---
+		// Active Drivers
+		reg("SignalGenerator", "Signal Generator", [
+			{name: "freq", type: INPUT, defaultValue: 1.0, dataType: "float", priority: IMPORTANT, label: "Freq", visibleInEditor: true},
+			{name: "quantum", type: INPUT, defaultValue: 0.1, dataType: "float", priority: OPTIONAL, visibleInEditor: false},
+			{name: "mode", type: INPUT, defaultValue: 3, dataType: "int", priority: IMPORTANT, label: "Mode", visibleInEditor: true},
+			{name: "out", type: OUTPUT, dataType: "float", priority: CRITICAL},
+			{name: "changed", type: OUTPUT, dataType: "bool", priority: OPTIONAL}
+		], null, "panel", true, true);
+		
+		reg("AudioIn", "Audio Input", [
+			{name: "samples", type: OUTPUT, dataType: "array"},
+			{name: "level", type: OUTPUT, dataType: "float"}
+		], null, "oscilloscope", true, true);
+		
+		reg("MiniAudioAtom", "Mini Audio Capture", [
+			{name: "mode",     type: INPUT,  defaultValue: 1,    dataType: "int",     priority: IMPORTANT, label: "Mode"},
+			{name: "quantum",  type: INPUT,  defaultValue: 0.01, dataType: "float",   priority: OPTIONAL},
+			{name: "gain",     type: INPUT,  defaultValue: 1.0,  dataType: "float",   priority: IMPORTANT, label: "Gain"},
+			{name: "channel",  type: INPUT,  defaultValue: 0,    dataType: "int",     priority: OPTIONAL},
+			{name: "rate",     type: INPUT,  defaultValue: 0,    dataType: "int",     priority: OPTIONAL},
+			{name: "sample",   type: OUTPUT, dataType: "float",  priority: CRITICAL},
+			{name: "changed",  type: OUTPUT, dataType: "bool",   priority: OPTIONAL},
+			{name: "rms",      type: OUTPUT, dataType: "float",  priority: IMPORTANT, label: "RMS"},
+			{name: "clip",     type: OUTPUT, dataType: "bool",   priority: OPTIONAL},
+			{name: "tick",     type: OUTPUT, dataType: "bool",   priority: INTERNAL},
+			{name: "level",    type: OUTPUT, dataType: "float",  priority: IMPORTANT, label: "Level"},
+			{name: "device",   type: OUTPUT, dataType: "string", priority: OPTIONAL}
+		], null, "miniaudio", true, true);
+		
 		reg("ComPortAtom", "COM Port", [
-			// Входные контакты (управление)
-		{name: "portName",  type: INPUT,  defaultValue: "COM1", dataType: "string"},
-		{name: "baudRate",  type: INPUT,  defaultValue: 9600,   dataType: "int"},
-		{name: "open",      type: INPUT,  defaultValue: false,  dataType: "bool"},
-		{name: "close",     type: INPUT,  defaultValue: false,  dataType: "bool"},
-		{name: "send",      type: INPUT,  defaultValue: false,  dataType: "bool"},
-		{name: "txData",    type: INPUT,  defaultValue: "",     dataType: "string"},
-		{name: "setDTR",    type: INPUT,  defaultValue: false,  dataType: "bool"},
-		// Выходные контакты
-		{name: "isOpen",    type: OUTPUT, dataType: "bool"},
-		{name: "rxData",    type: OUTPUT, dataType: "string"},
-		{name: "rxTick",    type: OUTPUT, dataType: "bool"},
-		{name: "txTick",    type: OUTPUT, dataType: "bool"},
-		{name: "error",     type: OUTPUT, dataType: "string"},
-		{name: "errorTick", type: OUTPUT, dataType: "bool"}
-		], null, "comport", true, true); // isNative=true, isActive=true
-
+			{name: "portName",  type: INPUT,  defaultValue: "COM1", dataType: "string", priority: IMPORTANT, label: "Port"},
+			{name: "baudRate",  type: INPUT,  defaultValue: 9600,   dataType: "int",    priority: IMPORTANT, label: "Baud"},
+			{name: "open",      type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL},
+			{name: "close",     type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL},
+			{name: "send",      type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL},
+			{name: "txData",    type: INPUT,  defaultValue: "",     dataType: "string", priority: OPTIONAL},
+			{name: "setDTR",    type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL},
+			{name: "isOpen",    type: OUTPUT, dataType: "bool",     priority: CRITICAL},
+			{name: "rxData",    type: OUTPUT, dataType: "string",   priority: IMPORTANT, label: "RX"},
+			{name: "rxTick",    type: OUTPUT, dataType: "bool",     priority: INTERNAL},
+			{name: "txTick",    type: OUTPUT, dataType: "bool",     priority: INTERNAL},
+			{name: "error",     type: OUTPUT, dataType: "string",   priority: IMPORTANT, label: "Error"},
+			{name: "errorTick", type: OUTPUT, dataType: "bool",     priority: INTERNAL}
+		], null, "comport", true, true);
+		
 		reg("ComEnumeratorAtom", "COM Enumerator", [
-			// Нет входов
-			// Выходные контакты
-		{name: "ports",     type: OUTPUT, dataType: "string"}
-		], null, "comenumerator", true, true); // isNative=true, isActive=true
-
+			{name: "ports", type: OUTPUT, dataType: "string", priority: CRITICAL}
+		], null, "comenumerator", true, true);
+		
 		// Passive Displays
 		reg("Oscilloscope", "Oscilloscope", [
-		{name: "in", type: INPUT, dataType: "array"}
+			{name: "in", type: INPUT, dataType: "array", priority: CRITICAL}
 		], null, "oscilloscope");
-
+		
 		_initialized = true;
 	}
-
+	
 	public static function get(id:String):Blueprint
 	{
 		return _blueprints.get(id);
 	}
-
+	
 	public static function registerBlueprint(id:String, bp:Blueprint):Void
 	{
 		_blueprints.set(id, bp);
 	}
-
+	
 	public static function remove(id:String):Bool
 	{
 		if (_blueprints.exists(id))
@@ -131,12 +128,12 @@ class AtomRegistry
 		trace('AtomRegistry: $id not found for removal');
 		return false;
 	}
-
+	
 	public static function exists(id:String):Bool
 	{
 		return _blueprints.exists(id);
 	}
-
+	
 	public static function scanFolder(path:String):Void
 	{
 		#if sys
@@ -163,7 +160,7 @@ class AtomRegistry
 		}
 		#end
 	}
-
+	
 	public static function loadAtomFile(fullPath:String):Bool
 	{
 		#if sys
@@ -171,7 +168,6 @@ class AtomRegistry
 			var content = sys.io.File.getContent(fullPath);
 			var json = haxe.Json.parse(content);
 			var rawBp:Dynamic = json.blueprint;
-
 			var pins:Array<core.data.Blueprint.PinDef> = [];
 			if (rawBp.pins != null)
 			{
@@ -192,7 +188,6 @@ class AtomRegistry
 					}
 				}
 			}
-
 			var conns:Array<core.data.ConnectionDef> = [];
 			if (rawBp.internalConnections != null)
 			{
@@ -205,7 +200,6 @@ class AtomRegistry
 					});
 				}
 			}
-
 			var atoms:Array<core.data.AtomDef> = [];
 			if (rawBp.internalAtoms != null)
 			{
@@ -221,7 +215,6 @@ class AtomRegistry
 					});
 				}
 			}
-
 			var bp = new Blueprint(
 				Std.string(rawBp.id),
 				Std.string(rawBp.name),
@@ -231,12 +224,10 @@ class AtomRegistry
 				conns,
 				Std.string(rawBp.category)
 			);
-
 			if (rawBp.deviceType != null)
 			{
 				bp.deviceType = Std.string(rawBp.deviceType);
 			}
-
 			bp.isNative = false;
 			registerBlueprint(bp.id, bp);
 			trace("Library loaded: " + bp.id);
@@ -251,7 +242,7 @@ class AtomRegistry
 		return false;
 		#end
 	}
-
+	
 	private static function _parseContactType(val:Dynamic):ContactType
 	{
 		if (Std.isOfType(val, ContactType)) return val;

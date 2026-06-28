@@ -50,13 +50,20 @@ class PanelWidget extends DeviceView {
     // CONFIGURATION
     // =========================================================================
 
+    // Widget dimensions
     public var panelWidth:Float = 200;
     public var panelHeight:Float = 150;
-    public var headerHeight:Float = 24;
+	// widget size return (из за Reflect)
+	override public function getWidgetSize():{width:Float, height:Float} {
+		return {width: panelWidth, height: panelHeight};
+	}
+    
+	public var headerHeight:Float = 24;
     public var portRadius:Float = 6;
     public var bgColor:Int = 0x2A2A3A;
     public var headerColor:Int = 0x3A3A4A;
     public var borderColor:Int = 0x4A4A6A;
+
 
     // =========================================================================
     // CONSTRUCTOR

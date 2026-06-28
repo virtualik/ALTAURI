@@ -46,8 +46,14 @@ class TextWidget extends DeviceView {
     // CONFIGURATION
     // =========================================================================
 
-    public var widgetWidth:Float = 150;
+    // Widget dimensions
+	public var widgetWidth:Float = 150;
     public var widgetHeight:Float = 30;
+	// widget size return (из за Reflect)
+	override public function getWidgetSize():{width:Float, height:Float} {
+		return {width: widgetWidth, height: widgetHeight};
+	}	
+	
     public var editable:Bool = true;
     public var isInput:Bool = true;
     public var contactName:String = "value";

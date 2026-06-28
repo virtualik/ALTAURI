@@ -13,13 +13,17 @@ import core.base.IDisposable;
 import core.base.AssemblyFactory;
 import core.logic.Impulsys;
 import core.logic.Impulse;
-import core.logic.EventType; // <--- IMPORT
+import core.logic.EventType;
 import core.types.ContactType;
 import library.AtomRegistry;
 
 /**
- * GROUP ATOMS COMMAND v2.0 (Full Undo/Redo Support)
+ * GROUP ATOMS COMMAND v2.1 (Fixed PinDef Compatibility)
  * Command to group selected atoms into a new Assembly.
+ * 
+ * v2.1 Changes:
+ * - FIXED: PinDef creation now uses only standard fields (name, type) 
+ *   to avoid compilation errors if Blueprint.hx doesn't have extended metadata.
  */
 class GroupAtomsCommand extends Command {
 
@@ -130,7 +134,7 @@ class GroupAtomsCommand extends Command {
         // =====================================================================
 
         var newTypeId = "CustomAssembly_" + generateShortId();
-        var newPins:Array<{name:String, type:ContactType, ?dataType:String, ?defaultValue:Dynamic}> = [];
+        var newPins:Array<core.data.Blueprint.PinDef> = [];
         var newInternalAtoms:Array<AtomDef> = [];
         var newInternalConnections:Array<ConnectionDef> = [];
 
@@ -168,8 +172,11 @@ class GroupAtomsCommand extends Command {
             // Track port mapping
             _snapshot.addPortMapping(conn, portName, portType == INPUT);
 
-            // Add pin to blueprint
-            newPins.push({name: portName, type: portType});
+            // Add pin to blueprint (using standard PinDef fields only)
+            newPins.push({
+                name: portName, 
+                type: portType
+            });
 
             // Create internal connection to SELF port
             if (isFromSelected) {
@@ -611,7 +618,7 @@ class GroupAtomsCommand extends Command {
         return str;
     }
 
-   private function saveNewAssembly(bp:Blueprint):Void {
+    private function saveNewAssembly(bp:Blueprint):Void {
         #if sys
         var atomsData:Array<Dynamic> = [];
         for (atomDef in bp.internalAtoms) {

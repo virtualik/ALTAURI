@@ -90,14 +90,21 @@ import library.electro.OscilloscopeAtom;
  * - Widget reads from atom's Databank via getBuffer(), getWriteIndex()
  * - Multiple widgets see the SAME data
  */
+
 class OscilloscopeWidget extends DeviceView {
 
     // =========================================================================
     // CONFIGURATION
     // =========================================================================
 
+    // Widget dimensions
     public var widgetWidth:Float = 300;
-    public var widgetHeight:Float = 150;
+    public var widgetHeight:Float = 100;
+	// widget size return (из за Reflect)
+	override public function getWidgetSize():{width:Float, height:Float} {
+		return {width: widgetWidth, height: widgetHeight};
+	}
+
     public var colorLine:Int = 0x00FF00;
     public var colorBg:Int = 0x0a0a12;
     public var colorGrid:Int = 0x1a2a1a;
@@ -124,6 +131,7 @@ class OscilloscopeWidget extends DeviceView {
 
     private var _lastDrawTime:Float = 0;
     private static inline var DRAW_INTERVAL:Float = 1.0 / 60.0;
+
 
     // =========================================================================
     // CONSTRUCTOR

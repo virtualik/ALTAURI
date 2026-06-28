@@ -109,8 +109,13 @@ class SignalGeneratorWidget extends DeviceView
 	// КОНФИГУРАЦИЯ
 	// =========================================================================
 
+    // Widget dimensions
 	public var widgetWidth:Float = 280;
-	public var widgetHeight:Float = 280;
+	public var widgetHeight:Float = 310;
+	// widget size return (из за Reflect)
+	override public function getWidgetSize():{width:Float, height:Float} {
+		return {width: widgetWidth, height: widgetHeight};
+	}
 
 	private var _colorBg:Int = 0x1a1a24;
 	private var _colorHeader:Int = 0x2a2a3a;

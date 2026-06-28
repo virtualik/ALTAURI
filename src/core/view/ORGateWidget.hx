@@ -48,8 +48,13 @@ class ORGateWidget extends DeviceView {
     // CONFIGURATION
     // =========================================================================
 
+	// Widget dimensions
     public var widgetWidth:Float = 100;
     public var widgetHeight:Float = 60;
+	// widget size return (из за Reflect)
+	override public function getWidgetSize():{width:Float, height:Float} {
+		return {width: widgetWidth, height: widgetHeight};
+	}
 
     // =========================================================================
     // CONSTRUCTOR

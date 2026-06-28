@@ -53,8 +53,14 @@ class ToggleWidget extends DeviceView {
     // CONFIGURATION
     // =========================================================================
 
-    public var widgetWidth:Float = 80;
+    // Widget dimensions    
+	public var widgetWidth:Float = 80;
     public var widgetHeight:Float = 30;
+	// widget size return (из за Reflect)
+	override public function getWidgetSize():{width:Float, height:Float} {
+		return {width: widgetWidth, height: widgetHeight};
+	}
+
     public var colorOn:Int = 0x448844;
     public var colorOff:Int = 0x444444;
     public var colorOver:Int = 0x555555;

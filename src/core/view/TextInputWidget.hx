@@ -55,6 +55,10 @@ class TextInputWidget extends DeviceView {
     // Widget dimensions
     private var widgetWidth:Float = 120;
     private var widgetHeight:Float = 24;
+	// widget size return (из за Reflect)
+	override public function getWidgetSize():{width:Float, height:Float} {
+		return {width: widgetWidth, height: widgetHeight};
+	}
 
     // =========================================================================
     // CONSTRUCTOR

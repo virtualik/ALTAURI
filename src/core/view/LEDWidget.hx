@@ -50,14 +50,21 @@ class LEDWidget extends DeviceView {
     // CONFIGURATION
     // =========================================================================
 
-    public var radius:Float = 20;
+	// Widget dimensions
+   	public var widgetWidth:Float = 80;
+	public var widgetHeight:Float = 60;
+	// widget size return (из за Reflect)
+	override public function getWidgetSize():{width:Float, height:Float} {
+		return {width: widgetWidth, height: widgetHeight};
+	}
+	
+	public var radius:Float = 20;
     public var colorOn:Int = 0x00FF00;
     public var colorOff:Int = 0x003300;
     public var labelOn:String = "ON";
     public var labelOff:String = "OFF";
     public var showLabel:Bool = true;
     public var threshold:Float = 0.1;
-
     // =========================================================================
     // STATE
     // =========================================================================
@@ -65,6 +72,7 @@ class LEDWidget extends DeviceView {
     private var _isUpdating:Bool = false;
     private var _contactName:String;
 
+	
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
@@ -138,14 +146,14 @@ class LEDWidget extends DeviceView {
         _ledSprite.graphics.clear();
         _ledSprite.graphics.lineStyle(2, 0x444444);
         _ledSprite.graphics.beginFill(isOn ? colorOn : colorOff);
-        _ledSprite.graphics.drawCircle(0, 0, radius);
+        _ledSprite.graphics.drawCircle(0 + widgetWidth / 2, 0 + widgetHeight / 2, radius);
         _ledSprite.graphics.endFill();
 
         // Glow effect when on
         if (isOn) {
             _ledSprite.graphics.lineStyle(0, 0, 0);
-            _ledSprite.graphics.beginFill(0xFFFFFF, 0.3);
-            _ledSprite.graphics.drawCircle(-radius * 0.3, -radius * 0.3, radius * 0.3);
+            _ledSprite.graphics.beginFill(0xFFFFFF, 0.7);
+            _ledSprite.graphics.drawCircle(0 + widgetWidth / 2 -radius * 0.3, 0 + widgetHeight / 2 -radius * 0.3, radius * 0.3);
             _ledSprite.graphics.endFill();
         }
 

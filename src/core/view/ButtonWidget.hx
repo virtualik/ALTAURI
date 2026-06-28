@@ -42,9 +42,15 @@ class ButtonWidget extends DeviceView {
     // =========================================================================
     // CONFIGURATION
     // =========================================================================
-
+	
+    // Widget dimensions
     public var widgetWidth:Float = 80;
     public var widgetHeight:Float = 40;
+	// widget size return (из за Reflect)
+	override public function getWidgetSize():{width:Float, height:Float} {
+		return {width: widgetWidth, height: widgetHeight};
+	}
+
     public var colorNormal:Int = 0x444455;
     public var colorPressed:Int = 0x4488AA;
     public var colorOver:Int = 0x555566;
