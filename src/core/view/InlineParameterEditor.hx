@@ -42,6 +42,20 @@ class InlineParameterEditor extends Sprite {
 		_contact = contact;
 		_pinDef = pinDef;
 		
+		// === FIX: Защита от null pinDef ===
+		if (_pinDef == null) {
+			// Создаём минимальный pinDef для контакта
+			_pinDef = {
+				name: contact.name,
+				type: contact.type,
+				defaultValue: contact.value,
+				label: contact.name,
+				priority: core.data.Blueprint.ParameterPriority.OPTIONAL,
+				visibleInEditor: true,
+				editable: true
+			};
+		}
+		
 		buildUI();
 		subscribeToContact();
 		updateDisplay();

@@ -243,13 +243,14 @@ class NodeView extends Sprite {
 		
 		buildUI();
 		createPorts();
-		// createInlineEditors();  // === v3.3: Добавлено создание inline редакторов ===
+		createInlineEditors();  // === v3.3: Добавлено создание inline редакторов ===
 		acquireWidget();
 		setupInteraction();
 		ECS.register(nodeId, this, this.x, this.y);
 		
 		// === v2.1 FIX: Listen for Assembly Port Changes ===
 		Impulsys.subscribeToImpulse(EventType.ASSEMBLY_PORTS_CHANGED, onAssemblyPortsChanged);
+		Impulsys.subscribeToImpulse(EventType.REDRAW_WIRES, onWiresRedrawn);
 		// ==================================================
 		
 		trace('NodeView: Created for atom "${atom.name}" (id: ${nodeId})');
@@ -671,28 +672,33 @@ class NodeView extends Sprite {
 		var inputs = atom.getInputs();
 		if (inputs == null) return;
 		
-		var bodyHeight = _nodeHeight - TITLE_HEIGHT;
 		var yPos:Float = TITLE_HEIGHT + 10;
 		
 		for (contact in inputs) {
 			if (contact == null) continue;
 			
-			// Проверить, есть ли входящее соединение
+			// === FIX: Пропускать контакты с проводами ===
 			if (contact.hasLinks()) {
-				// Есть провод — только порт, без редактора
 				continue;
 			}
 			
 			// Найти PinDef для этого контакта
 			var pinDef = getPinDefForContact(contact);
 			
-			// Проверить приоритет
+			// === FIX: Проверка видимости ===
+			var shouldShow:Bool = false;
+			
 			if (pinDef != null) {
+				// Если есть PinDef — используем его метаданные
 				var priority = (pinDef.priority != null) ? pinDef.priority : OPTIONAL;
-				var visible = (pinDef.visibleInEditor != null) ? pinDef.visibleInEditor : (priority == CRITICAL || priority == IMPORTANT);
-				
-				if (!visible) continue;
+				shouldShow = (pinDef.visibleInEditor != null) ? pinDef.visibleInEditor : (priority == CRITICAL || priority == IMPORTANT);
+			} else {
+				// Если PinDef нет — показываем редактор для всех контактов без провода
+				// (для обратной совместимости с простыми атомами)
+				shouldShow = true;
 			}
+			
+			if (!shouldShow) continue;
 			
 			// Создать inline редактор
 			var editor = new InlineParameterEditor(contact, pinDef);
@@ -1026,7 +1032,12 @@ class NodeView extends Sprite {
 		if (impulse.data != null && impulse.data.assemblyId == this.atom.id) {
 			trace('NodeView: Ports changed event received for ${atom.name}. Rebuilding layout.');
 			updateLayout();
+			updateInlineEditorsVisibility();  // ← ДОБАВИТЬ ЭТУ СТРОКУ
 		}
+	}
+	
+	private function onWiresRedrawn(impulse:Impulse):Void {
+		updateInlineEditorsVisibility();
 	}
 	
 	// =========================================================================
@@ -1035,6 +1046,7 @@ class NodeView extends Sprite {
 	public function dispose():Void {
 		// === v2.1 FIX: Unsubscribe ===
 		Impulsys.removeImpulse(EventType.ASSEMBLY_PORTS_CHANGED, onAssemblyPortsChanged);
+		Impulsys.removeImpulse(EventType.REDRAW_WIRES, onWiresRedrawn);
 		// ==============================
 		
 		ECS.unregister(nodeId);
@@ -1048,11 +1060,11 @@ class NodeView extends Sprite {
 		}
 		
 		// === v3.3: Очистить inline редакторы ===
-		//for (name in _inlineEditors.keys()) {
-			//var editor = _inlineEditors.get(name);
-			//if (editor != null) editor.dispose();
-		//}
-		//_inlineEditors.clear();
+		for (name in _inlineEditors.keys()) {
+			var editor = _inlineEditors.get(name);
+			if (editor != null) editor.dispose();
+		}
+		_inlineEditors.clear();
 		// ======================================
 		
 		if (deviceView != null && deviceView.parent == _previewContainer) {
