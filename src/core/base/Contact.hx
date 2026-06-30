@@ -73,18 +73,34 @@ class Contact
 		if (_value != null && !suppressPropagation) target.value = _value;
 	}
 	
-	public function propagateCurrentValue():Void
-	{
-		if (_value == null || isDisposed) return;
-		if (!canPropagate()) return;
-		if (linkedTargets != null)
-		{
-			for (target in linkedTargets)
-			{
-				if (target != null && !target.isDisposed) target._receiveValue(_value);
-			}
-		}
-	}
+    public function propagateCurrentValue():Void
+    {
+        if (_value == null || isDisposed) return;
+        if (!canPropagate()) return;
+
+        // 1. Уведомляем владельца атома (как в _propagate)
+        if (owner != null) owner.onContactChanged(this);
+
+        // 2. Распространяем по проводам (linkedTargets)
+        if (linkedTargets != null)
+        {
+            for (target in linkedTargets)
+            {
+                if (target != null && !target.isDisposed) target._receiveValue(_value);
+            }
+        }
+
+        // 3. Уведомляем подписчиков (callbackTargets — виджеты, DeviceView)
+        // ИСПРАВЛЕНИЕ: Раньше этот блок отсутствовал, из-за чего виджеты 
+        // не получали обновления от драйверов, использующих setValueSilent.
+        if (callbackTargets != null)
+        {
+            for (callback in callbackTargets)
+            {
+                if (callback != null) callback(this._value);
+            }
+        }
+    }
 	
 	private function _receiveValue(newValue:Dynamic):Void
 	{

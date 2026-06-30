@@ -71,6 +71,14 @@ class AssemblyFactory
 				case "AUDIOINPUT": normalizedTypeId = "AudioIn";
 
 				// ─────────────────────────────────────────────────────────────
+				// SYSTEM VU METER — Windows WASAPI audio meter
+				// ─────────────────────────────────────────────────────────────
+				case "SYSTEMVUMETERATOM":
+				case "SYSTEMVUMETER":
+				case "SYSTEM VU METER":
+				case "VUMETER": normalizedTypeId = "SystemVUMeterAtom";
+
+				// ─────────────────────────────────────────────────────────────
 				// MINI AUDIO ATOM — real microphone capture driver
 				// ─────────────────────────────────────────────────────────────
 				case "MINIAUDIOATOM":
@@ -156,6 +164,18 @@ class AssemblyFactory
                 atom = new library.drivers.ComEnumeratorAtom(id);
                 trace('🔍 AssemblyFactory: Created ComEnumeratorAtom...');
                 #end
+				
+			// =============================================================
+			// SYSTEM VU METER — Windows WASAPI audio meter
+			// =============================================================
+			case "SystemVUMeterAtom":
+				#if cpp
+				atom = new library.drivers.SystemVUMeterAtom(id);
+				trace('🔊 AssemblyFactory: Created SystemVUMeterAtom...');
+				#else
+				trace('⚠️ SystemVUMeterAtom requires C++ target');
+				#end
+				
 			// =============================================================
 
 			// =============================================================

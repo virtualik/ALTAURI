@@ -8,8 +8,8 @@ import core.data.Blueprint;
 	import core.view.MiniAudioWidget;
 	import core.view.ComPortWidget;
 	import core.view.ComEnumeratorWidget;
+	import core.view.SystemVUMeterWidget;
 #end
-
 /**
  * DEVICE WIDGET FACTORY v1.1
  * Фабрика для создания DeviceView (Лица Атома).
@@ -175,7 +175,12 @@ class DeviceWidgetFactory
 
 			case "audioin", "audioinput", "audio":
 				new OscilloscopeWidget(atom, "samples");
-
+			
+			#if cpp
+			case "systemvumeteratom", "system vu meter", "vumeter":
+				new SystemVUMeterWidget(atom);
+			#end
+			
 			case "relay":
 				// Показываем выход "out"
 				new TextWidget(atom, "out", false);
@@ -183,13 +188,13 @@ class DeviceWidgetFactory
 			case "signalgenerator":
 				new SignalGeneratorWidget(atom);
 
-				#if cpp
+			#if cpp
 			case "comportatom", "com port":
 				new ComPortWidget(atom);
 
 			case "comenumeratoratom", "com enumerator":
 				new ComEnumeratorWidget(atom);
-				#end
+			#end
 
 				#if cpp
 			case "miniaudioatom", "mini audio capture":

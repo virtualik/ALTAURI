@@ -79,6 +79,21 @@ class AtomRegistry
 			{name: "device",   type: OUTPUT, dataType: "string", priority: OPTIONAL}
 		], null, "miniaudio", true, true);
 		
+		reg("SystemVUMeterAtom", "System Stereo VU Meter", [
+			{name: "mode",     type: INPUT,  defaultValue: 0,    dataType: "int",   priority: IMPORTANT, label: "Source"},
+			{name: "peakL",    type: OUTPUT, dataType: "float",  priority: CRITICAL, label: "Peak L"},
+			{name: "peakR",    type: OUTPUT, dataType: "float",  priority: CRITICAL, label: "Peak R"},
+			{name: "peakMono", type: OUTPUT, dataType: "float",  priority: IMPORTANT, label: "Peak Mono"},
+			{name: "percentL", type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "% L"},
+			{name: "percentR", type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "% R"},
+			{name: "dB_L",     type: OUTPUT, dataType: "float",  priority: IMPORTANT, label: "dB L"},
+			{name: "dB_R",     type: OUTPUT, dataType: "float",  priority: IMPORTANT, label: "dB R"},
+			{name: "channels", type: OUTPUT, dataType: "int",    priority: OPTIONAL, label: "Channels"},
+			{name: "active",   type: OUTPUT, dataType: "bool",   priority: OPTIONAL},
+			{name: "clipL",    type: OUTPUT, dataType: "bool",   priority: OPTIONAL, label: "Clip L"},
+			{name: "clipR",    type: OUTPUT, dataType: "bool",   priority: OPTIONAL, label: "Clip R"}
+		], null, "vumeter", true, true);
+		
 		reg("ComPortAtom", "COM Port", [
 			{name: "portName",  type: INPUT,  defaultValue: "COM1", dataType: "string", priority: IMPORTANT, label: "Port"},
 			{name: "baudRate",  type: INPUT,  defaultValue: 9600,   dataType: "int",    priority: IMPORTANT, label: "Baud"},

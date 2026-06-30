@@ -389,48 +389,51 @@ if (triggerLevel != 0) {
     /**
      * Draw linear waveform (rectangular or square display).
      */
-    private function drawWaveLinear(buffer:Array<Float>, writeIndex:Int, count:Int):Void {
-        var g = _canvas.graphics;
-        g.clear();
-
-        if (buffer == null || buffer.length == 0) return;
-
-        var timeScale = _oscAtom.getTimeScale();
-        var totalSamples = buffer.length;
-        
-        // Вычисляем сколько сэмплов должно помещаться на экране при текущем зуме
-        // timeScale = 1.0 -> весь буфер (512)
-        // timeScale = 0.5 -> половина буфера (256) - Zoom IN
-        var displayCount = Std.int(totalSamples / timeScale);
-        if (displayCount > totalSamples) displayCount = totalSamples;
-        if (displayCount < 1) displayCount = 1;
-
-        // ФИКСИРОВАННЫЙ шаг по X. Не зависит от того, сколько данных накоплено!
-        var stepX = widgetWidth / displayCount;
-        
-        // Сколько точек реально рисуем (не больше, чем накопили)
-        var countToDraw = count;
-        if (countToDraw > displayCount) countToDraw = displayCount;
-        if (countToDraw < 2) return;
-
-        var centerY = widgetHeight / 2.0;
-        var scale = (widgetHeight / 2.0) * 0.9;
-
-        // Индекс ПОСЛЕДНЕГО записанного сэмпла (самый свежий)
-        var lastIdx = (writeIndex - 1 + totalSamples) % totalSamples;
-
-        g.lineStyle(1.5, colorLine, 1.0);
-        
-        // Всегда начинаем рисовать с ПРАВОГО края дисплея
-        g.moveTo(widgetWidth, centerY - buffer[lastIdx] * scale);
-
-        // Двигаемся строго влево с фиксированным шагом
-        for (i in 1...countToDraw) {
-            var idx = (lastIdx - i + totalSamples) % totalSamples;
-            var x = widgetWidth - (i * stepX);
-            g.lineTo(x, centerY - buffer[idx] * scale);
-        }
+private function drawWaveLinear(buffer:Array<Float>, writeIndex:Int, count:Int):Void {
+    var g = _canvas.graphics;
+    g.clear();
+    
+    if (buffer == null || buffer.length == 0) return;
+    
+    var timeScale = _oscAtom.getTimeScale();
+    var totalSamples = buffer.length;
+    
+    // === FIX v4.1: Визуальный зум на основе timeScale ===
+    // timeScale = 1.0 → показываем весь буфер (512 сэмплов)
+    // timeScale = 0.1 → показываем только 10% буфера (51 сэмпл) → Zoom IN
+    // timeScale = 2.0 → показываем 2x буфера (растягиваем) → Zoom OUT
+    
+    // Вычисляем сколько сэмплов показывать на экране
+    var displayCount = Std.int(totalSamples * timeScale);
+    if (displayCount > totalSamples) displayCount = totalSamples;
+    if (displayCount < 2) displayCount = 2;
+    
+    // Вычисляем шаг по X - теперь он зависит от displayCount
+    var stepX = widgetWidth / displayCount;
+    
+    // Сколько точек реально рисуем
+    var countToDraw = count;
+    if (countToDraw > displayCount) countToDraw = displayCount;
+    if (countToDraw < 2) return;
+    
+    var centerY = widgetHeight / 2.0;
+    var scale = (widgetHeight / 2.0) * 0.9;
+    
+    // Индекс ПОСЛЕДНЕГО записанного сэмпла (самый свежий)
+    var lastIdx = (writeIndex - 1 + totalSamples) % totalSamples;
+    
+    g.lineStyle(1.5, colorLine, 1.0);
+    
+    // Всегда начинаем рисовать с ПРАВОГО края дисплея
+    g.moveTo(widgetWidth, centerY - buffer[lastIdx] * scale);
+    
+    // Двигаемся строго влево с фиксированным шагом
+    for (i in 1...countToDraw) {
+        var idx = (lastIdx - i + totalSamples) % totalSamples;
+        var x = widgetWidth - (i * stepX);
+        g.lineTo(x, centerY - buffer[idx] * scale);
     }
+}
 
     /**
      * Draw circular waveform (spiral or polar).

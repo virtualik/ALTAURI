@@ -341,67 +341,67 @@ class OscilloscopeAtom extends Atom implements Driver
     // =========================================================================
     // SAMPLING LOGIC (v4.0)
     // =========================================================================
-    /**
-     * Взять один сэмпл с входа.
-     * Вызывается из update() когда накопилось достаточно времени.
-     */
-    private function takeSample():Void
-    {
-        // 1. Читаем текущее значение входа
-        var inContact = getInput("in");
-        var currentValue:Float = 0.0;
-        
-        if (inContact != null && inContact.value != null) {
-            currentValue = _toFloat(inContact.value, _lastInputValue);
-        } else {
-            currentValue = _lastInputValue;
-        }
-        
-        // Обновляем последнее значение
-        _lastInputValue = currentValue;
-        
-        // 2. Логика триггера
-        if (_triggerMode != 0 && !_triggerArmed) {
-            // Не вооружены — игнорируем сэмплы (ждём вооружения)
-            return;
-        }
-        
-        // Проверка на запуск по фронту
-        if (_triggerMode != 0 && _triggerArmed) {
-            var triggered = false;
-            
-            if (_triggerEdge == 0) { // rising
-                if (_lastValue < _triggerLevel && currentValue >= _triggerLevel) {
-                    triggered = true;
-                }
-            } else { // falling
-                if (_lastValue > _triggerLevel && currentValue <= _triggerLevel) {
-                    triggered = true;
-                }
+/**
+ * Взять один сэмпл с входа.
+ * Вызывается из update() когда накопилось достаточно времени.
+ * 
+ * v4.1 FIX: Всегда пишем в буфер для непрерывной развёртки,
+ * даже если триггер не сработал. Триггер только синхронизирует
+ * начало отображения, но не останавливает сэмплирование.
+ */
+private function takeSample():Void
+{
+    // 1. Читаем текущее значение входа
+    var inContact = getInput("in");
+    var currentValue:Float = 0.0;
+    if (inContact != null && inContact.value != null) {
+        currentValue = _toFloat(inContact.value, _lastInputValue);
+    } else {
+        currentValue = _lastInputValue;
+    }
+    
+    // Обновляем последнее значение
+    _lastInputValue = currentValue;
+    
+    // 2. === FIX v4.1: ВСЕГДА пишем в буфер (непрерывная развёртка) ===
+    _buffer[_writeIndex] = currentValue;
+    _writeIndex = (_writeIndex + 1) % BUFFER_SIZE;
+    if (_samplesCollected < BUFFER_SIZE) {
+        _samplesCollected++;
+    }
+    _totalSamples++;
+    
+    // 3. Логика триггера (только для синхронизации, не блокирует сэмплирование)
+    if (_triggerMode != 0 && !_triggerArmed) {
+        // Ждём срабатывания триггера
+        var triggered = false;
+        if (_triggerEdge == 0) { // rising
+            if (_lastValue < _triggerLevel && currentValue >= _triggerLevel) {
+                triggered = true;
             }
-            
-            if (triggered) {
-                _triggerArmed = false;
-                // Очищаем буфер и начинаем запись с текущего сэмпла
-                clearBuffer();
-                _buffer[0] = currentValue;
-                _writeIndex = 1;
-                _samplesCollected = 1;
-                _lastValue = currentValue;
-                _totalSamples++;
-                return;
+        } else { // falling
+            if (_lastValue > _triggerLevel && currentValue <= _triggerLevel) {
+                triggered = true;
             }
         }
-        
-        // 3. Запись в буфер (auto mode или когда триггер не сработал)
-        _buffer[_writeIndex] = currentValue;
-        _writeIndex = (_writeIndex + 1) % BUFFER_SIZE;
-        if (_samplesCollected < BUFFER_SIZE) {
-            _samplesCollected++;
+        if (triggered) {
+            _triggerArmed = false;
+            // Сбрасываем writeIndex чтобы начать отображение с этого сэмпла
+            // Но НЕ очищаем буфер - просто меняем точку отсчёта
+            _writeIndex = 0;
+            _samplesCollected = 1;
         }
         _lastValue = currentValue;
-        _totalSamples++;
+        return; // Выходим, но буфер уже записан!
     }
+    
+    // 4. Авто-вооружение триггера в auto mode
+    if (_triggerMode == 0 && !_triggerArmed && _samplesCollected >= BUFFER_SIZE) {
+        _triggerArmed = true;
+    }
+    
+    _lastValue = currentValue;
+}
     
     // =========================================================================
     // PUBLIC API
