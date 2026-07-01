@@ -40,15 +40,8 @@ class AtomRegistry
 		reg("Button", "Push Button", [{name: "out", type: OUTPUT, dataType: "bool"}], null, "button");
 		reg("LED", "LED Indicator", [{name: "in", type: INPUT, dataType: "bool"}], null, "led", true, false);
 		reg("Toggle", "Toggle Switch", [{name: "out", type: OUTPUT, dataType: "bool"}], null, "toggle");
-		reg("TextInput", "Text Input", [
-			{name: "set", type: INPUT, dataType: "string"},
-			{name: "out", type: OUTPUT, dataType: "string"}
-		], null, "textinput");
-		reg("Relay", "Relay", [
-			{name: "signal", type: INPUT, dataType: "any"},
-			{name: "control", type: INPUT, dataType: "bool"},
-			{name: "out", type: OUTPUT, dataType: "any"}
-		], null, "relay");
+		reg("TextInput", "Text Input", [{name: "set", type: INPUT, dataType: "string"}, {name: "out", type: OUTPUT, dataType: "string"}], null, "textinput");
+		reg("Relay", "Relay", [{name: "signal", type: INPUT, dataType: "any"},{name: "control", type: INPUT, dataType: "bool"}, {name: "out", type: OUTPUT, dataType: "any"}], null, "relay");
 		
 		// Active Drivers
 		reg("SignalGenerator", "Signal Generator", [
@@ -58,11 +51,6 @@ class AtomRegistry
 			{name: "out", type: OUTPUT, dataType: "float", priority: CRITICAL},
 			{name: "changed", type: OUTPUT, dataType: "bool", priority: OPTIONAL}
 		], null, "panel", true, true);
-		
-		reg("AudioIn", "Audio Input", [
-			{name: "samples", type: OUTPUT, dataType: "array"},
-			{name: "level", type: OUTPUT, dataType: "float"}
-		], null, "oscilloscope", true, true);
 		
 		reg("MiniAudioAtom", "Mini Audio Capture", [
 			{name: "mode",     type: INPUT,  defaultValue: 1,    dataType: "int",     priority: IMPORTANT, label: "Mode"},

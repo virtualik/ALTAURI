@@ -273,10 +273,10 @@ class SignalGenerator extends Atom implements system.managers.Driver
 	{
 		if (_isDisposed) return;
 
-		//// Добавим логирование каждые 60 кадров
+		// Добавим логирование каждые 60 кадров
 		//if (Std.random(60) == 0)
 		//{
-			//trace('SignalGenerator update, freq=$_frequency, mode=$_mode, tick=${TickGenerator.getInstance().currentTick}');
+		//	trace('SignalGenerator update, freq=$_frequency, mode=$_mode, tick=${TickGenerator.getInstance().currentTick}');
 		//}
 
 		_updateCount++;

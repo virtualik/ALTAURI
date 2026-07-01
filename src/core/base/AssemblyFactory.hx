@@ -10,7 +10,6 @@ import library.electro.ButtonAtom;
 import library.electro.LedAtom;
 import library.electro.RelayAtom;
 import library.electro.OscilloscopeAtom;
-import library.drivers.AudioInputAtom;
 import library.drivers.MiniAudioAtom;
 import library.drivers.SignalGenerator;
 import library.drivers.ComPortAtom;
@@ -66,9 +65,6 @@ class AssemblyFactory
 			{
 				// === ACTIVE DRIVERS (C++ native atoms) ===
 				case "SIGNALGENERATOR": normalizedTypeId = "SignalGenerator";
-
-				case "AUDIOIN":
-				case "AUDIOINPUT": normalizedTypeId = "AudioIn";
 
 				// ─────────────────────────────────────────────────────────────
 				// SYSTEM VU METER — Windows WASAPI audio meter
@@ -138,10 +134,6 @@ class AssemblyFactory
                 atom = new library.drivers.SignalGenerator(id);
                 #end
 
-            case "AudioIn":
-                #if cpp
-                atom = new AudioInputAtom(id);
-                #end
 			// =============================================================
 			// MINI AUDIO ATOM — your microphone capture engine
 			// =============================================================

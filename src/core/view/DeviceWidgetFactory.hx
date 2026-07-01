@@ -137,10 +137,6 @@ class DeviceWidgetFactory
 				new ComEnumeratorWidget(asm);
 				#end
 
-			case "audioinput", "audio":
-				// AudioInput показывает samples как осциллограмму
-				new OscilloscopeWidget(asm, "samples");
-
 			default:
 				// Пробуем найти класс по имени
 				createByClassName(deviceType, asm);
