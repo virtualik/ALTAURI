@@ -1,11 +1,35 @@
 package core.types;
 
 /**
- * Priority levels for the Signal Queue.
- * Lower values are processed first.
+ * PRIORITY
+ * 
+ * Priority levels for the TickGenerator's task queues.
+ * Determines the execution order of scheduled tasks within a single tick.
+ * 
+ * Execution Order: CRITICAL -> NORMAL -> BACKGROUND
+ * 
+ * Used by:
+ * - TickGenerator (to sort and execute task queues)
+ * - Contact (when scheduling propagation)
+ * - Atom (when scheduling calculations)
  */
-enum Priority {
-    CRITICAL;   // User input, drivers - processed first
-    NORMAL;     // Default logic
-    BACKGROUND; // Visualization, logs - processed last
+enum Priority 
+{
+    /** 
+     * Highest priority. Processed first.
+     * Used for: User input, hardware drivers, critical state updates.
+     */
+    CRITICAL;
+    
+    /** 
+     * Default priority. Processed second.
+     * Used for: Standard logic calculations, signal propagation.
+     */
+    NORMAL;
+    
+    /** 
+     * Lowest priority. Processed last.
+     * Used for: Visualization updates, logging, non-essential background tasks.
+     */
+    BACKGROUND;
 }

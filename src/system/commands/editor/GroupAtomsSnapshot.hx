@@ -9,43 +9,62 @@ import core.types.ContactType;
 /**
  * GROUP ATOMS SNAPSHOT v2.0
  * Complete data container for GroupAtomsCommand undo/redo.
- * 
- * Stores all data needed to completely reverse a grouping operation:
- * - Removed atoms (definitions and positions)
- * - Removed connections (internal and external)
- * - Port mappings (external connections -> assembly ports)
- * - Created assembly data (for removal on undo)
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   GroupAtomsSnapshot                                                    │
+ * │                                                                         │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  REMOVED DATA (restore on undo):                                │   │
+ * │   │  - _removedAtomDefs: Array<AtomDef>                             │   │
+ * │   │  - _removedInternalConnections: Array<ConnectionDef>            │   │
+ * │   │  - _removedExternalConnections: Array<ConnectionDef>            │   │
+ * │   │  - _selectedNodeIds: Array<String>                              │   │
+ * │   │                                                                 │   │
+ * │   │  CREATED DATA (delete on undo):                                 │   │
+ * │   │  - _createdTypeId: String                                       │   │
+ * │   │  - _createdInstanceId: String                                   │   │
+ * │   │  - _createdAtomDef: AtomDef                                     │   │
+ * │   │  - _createdConnections: Array<ConnectionDef>                    │   │
+ * │   │                                                                 │   │
+ * │   │  PORT MAPPINGS:                                                 │   │
+ * │   │  - _portMappings: Array<PortMapping>                            │   │
+ * │   │    (original connection → port name → is input)                 │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   Stores all data needed to completely reverse a grouping operation:    │
+ * │   - Removed atoms (definitions and positions)                           │
+ * │   - Removed connections (internal and external)                         │
+ * │   - Port mappings (external connections -> assembly ports)              │
+ * │   - Created assembly data (for removal on undo)                         │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
 class GroupAtomsSnapshot {
-
     // =========================================================================
     // REMOVED DATA (restore on undo)
     // =========================================================================
-
     private var _removedAtomDefs:Array<AtomDef>;
     private var _removedInternalConnections:Array<ConnectionDef>;
     private var _removedExternalConnections:Array<ConnectionDef>;
     private var _selectedNodeIds:Array<String>;
-
+    
     // =========================================================================
     // CREATED DATA (delete on undo)
     // =========================================================================
-
     private var _createdTypeId:String;
     private var _createdInstanceId:String;
     private var _createdAtomDef:AtomDef;
     private var _createdConnections:Array<ConnectionDef>;
-
+    
     // =========================================================================
     // PORT MAPPINGS
     // =========================================================================
-
     private var _portMappings:Array<PortMapping>;
-
+    
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
-
     public function new() {
         _removedAtomDefs = [];
         _removedInternalConnections = [];
@@ -54,11 +73,10 @@ class GroupAtomsSnapshot {
         _createdConnections = [];
         _portMappings = [];
     }
-
+    
     // =========================================================================
     // GETTERS
     // =========================================================================
-
     public function getRemovedAtomDefs():Array<AtomDef> return _removedAtomDefs;
     public function getRemovedInternalConnections():Array<ConnectionDef> return _removedInternalConnections;
     public function getRemovedExternalConnections():Array<ConnectionDef> return _removedExternalConnections;
@@ -67,11 +85,10 @@ class GroupAtomsSnapshot {
     public function getCreatedTypeId():String return _createdTypeId;
     public function getCreatedInstanceId():String return _createdInstanceId;
     public function getCreatedAtomDef():AtomDef return _createdAtomDef;
-
+    
     // =========================================================================
     // ADD METHODS
     // =========================================================================
-
     /**
      * Add an atom definition that will be removed.
      */
@@ -83,28 +100,28 @@ class GroupAtomsSnapshot {
             y: def.y
         });
     }
-
+    
     /**
      * Add an internal connection that will be removed.
      */
     public function addRemovedInternalConnection(conn:ConnectionDef):Void {
         _removedInternalConnections.push(cloneConnection(conn));
     }
-
+    
     /**
      * Add an external connection that will be converted to port.
      */
     public function addRemovedExternalConnection(conn:ConnectionDef):Void {
         _removedExternalConnections.push(cloneConnection(conn));
     }
-
+    
     /**
      * Set the selected node IDs.
      */
     public function setSelectedNodeIds(ids:Array<String>):Void {
         _selectedNodeIds = ids != null ? ids.copy() : [];
     }
-
+    
     /**
      * Add a port mapping for undo restore.
      * @param originalConn The original external connection
@@ -118,7 +135,7 @@ class GroupAtomsSnapshot {
             isInput: isInput
         });
     }
-
+    
     /**
      * Store created assembly data for undo deletion.
      */
@@ -130,7 +147,7 @@ class GroupAtomsSnapshot {
     ):Void {
         _createdTypeId = typeId;
         _createdInstanceId = instanceId;
-
+        
         if (atomDef != null) {
             _createdAtomDef = {
                 instanceId: atomDef.instanceId,
@@ -139,7 +156,7 @@ class GroupAtomsSnapshot {
                 y: atomDef.y
             };
         }
-
+        
         if (connections != null) {
             _createdConnections = [];
             for (c in connections) {
@@ -147,11 +164,10 @@ class GroupAtomsSnapshot {
             }
         }
     }
-
+    
     // =========================================================================
     // VALIDATION
     // =========================================================================
-
     /**
      * Validate snapshot has all required data for undo.
      * @return Error message or null if valid
@@ -160,19 +176,21 @@ class GroupAtomsSnapshot {
         if (_removedAtomDefs == null || _removedAtomDefs.length == 0) {
             return "No atoms captured for restore";
         }
+        
         if (_createdTypeId == null || _createdTypeId.length == 0) {
             return "Created assembly type ID not captured";
         }
+        
         if (_createdInstanceId == null || _createdInstanceId.length == 0) {
             return "Created assembly instance ID not captured";
         }
+        
         return null; // Valid
     }
-
+    
     // =========================================================================
     // UTILITY
     // =========================================================================
-
     private function cloneConnection(conn:ConnectionDef):ConnectionDef {
         if (conn == null) return null;
         return {
@@ -186,7 +204,7 @@ class GroupAtomsSnapshot {
             }
         };
     }
-
+    
     /**
      * Clear all stored data.
      */
@@ -197,27 +215,32 @@ class GroupAtomsSnapshot {
             #end
             _removedAtomDefs = [];
         }
+        
         if (_removedInternalConnections != null) {
             _removedInternalConnections = [];
         }
+        
         if (_removedExternalConnections != null) {
             _removedExternalConnections = [];
         }
+        
         if (_selectedNodeIds != null) {
             _selectedNodeIds = [];
         }
+        
         if (_createdConnections != null) {
             _createdConnections = [];
         }
+        
         if (_portMappings != null) {
             _portMappings = [];
         }
-
+        
         _createdTypeId = null;
         _createdInstanceId = null;
         _createdAtomDef = null;
     }
-
+    
     /**
      * Debug string.
      */
@@ -228,14 +251,13 @@ class GroupAtomsSnapshot {
             'extConns=${_removedExternalConnections != null ? _removedExternalConnections.length : 0}, ' +
             'ports=${_portMappings != null ? _portMappings.length : 0}, ' +
             'created=$_createdTypeId' +
-        '}';
+            '}';
     }
 }
 
 // =============================================================================
 // PORT MAPPING TYPEDEF
 // =============================================================================
-
 /**
  * Port mapping record.
  * Stores the relationship between an original external connection
@@ -246,12 +268,12 @@ typedef PortMapping = {
      * The original connection before it was converted to a port.
      */
     var originalConnection:ConnectionDef;
-
+    
     /**
      * The port name assigned in the new assembly.
      */
     var portName:String;
-
+    
     /**
      * true = input port (external -> internal)
      * false = output port (internal -> external)

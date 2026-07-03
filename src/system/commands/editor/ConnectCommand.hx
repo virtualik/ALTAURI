@@ -8,21 +8,44 @@ import core.base.Contact;
 import core.base.ConductorPort;
 import core.types.ContactType;
 import core.logic.Impulsys;
-import core.logic.EventType; // <--- IMPORT
+import core.logic.EventType;
 
 /**
+ * CONNECT COMMAND v1.0
  * Command to connect two contacts.
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   ConnectCommand                                                        │
+ * │                                                                         │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  execute():                                                     │   │
+ * │   │  - Resolve contacts by atomId and contactName                   │   │
+ * │   │  - Check if connection already exists                           │   │
+ * │   │  - Add ConnectionDef to blueprint.internalConnections           │   │
+ * │   │  - Create physical link between contacts                        │   │
+ * │   │  - Emit REDRAW_WIRES event                                      │   │
+ * │   │                                                                 │   │
+ * │   │  undo():                                                        │   │
+ * │   │  - Remove ConnectionDef from blueprint                          │   │
+ * │   │  - Unlink physical connection                                   │   │
+ * │   │  - Emit REDRAW_WIRES event                                      │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   Contact Resolution:                                                   │
+ * │   - SELF → assembly.ports[name].internal                                │
+ * │   - atomId → assembly.internalAtoms[id].getInput/getOutput              │
+ * │   - Template ID → Runtime ID conversion via idMap                       │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
 class ConnectCommand extends Command {
-
     private var _blueprint:Blueprint;
     private var _assembly:Assembly;
-
     private var _fromId:String;
     private var _fromContact:String;
     private var _toId:String;
     private var _toContact:String;
-
     private var _createdLink:core.data.Blueprint.ConnectionDef;
 
     public function new(blueprint:Blueprint, assembly:Assembly, fromId:String, fromContact:String, toId:String, toContact:String) {
@@ -71,16 +94,13 @@ class ConnectCommand extends Command {
     override public function undo():Void {
         if (_createdLink != null) {
             _blueprint.internalConnections.remove(_createdLink);
-
             var cOut = resolveContact(_fromId, _fromContact, OUTPUT);
             var cIn = resolveContact(_toId, _toContact, INPUT);
-
             if (cOut != null && cIn != null) {
                 cOut.unlink(cIn);
             } else {
                 trace('ConnectCommand Undo: Contacts missing, skipping unlink.');
             }
-
             Impulsys.quickEmit(EventType.REDRAW_WIRES);
         }
     }
@@ -92,17 +112,14 @@ class ConnectCommand extends Command {
             return port.internal;
         } else {
             var obj = _assembly.internalAtoms.get(atomId);
-
-            // ИСПРАВЛЕНИЕ: Если не нашли напрямую, пробуем через карту ID
+            // FIX: If not found directly, try via ID map
             if (obj == null) {
                 var realAtomId = _assembly.idMap.get(atomId);
                 if (realAtomId != null) {
                     obj = _assembly.internalAtoms.get(realAtomId);
                 }
             }
-
             if (obj == null) return null;
-
             var atom:Atom = cast obj;
             return (type == INPUT) ? atom.getInput(contactName) : atom.getOutput(contactName);
         }

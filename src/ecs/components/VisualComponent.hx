@@ -5,15 +5,33 @@ import openfl.display.Sprite;
 /**
  * VISUAL COMPONENT v1.0
  * Holds OpenFL sprite reference. Pure data, no logic.
- * 
+ *
  * Used by:
  * - RenderSystem (for drawing)
  * - Query (for selection checks)
- * 
+ *
  * Replaces direct sprite references in NodeView.
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   VisualComponent                                                       │
+ * │                                                                         │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  Data:                                                          │   │
+ * │   │  - sprite:Sprite         → The display object to render         │   │
+ * │   │  - isSelected:Bool       → Selection state                      │   │
+ * │   │  - isVisible:Bool        → Visibility flag                      │   │
+ * │   │  - baseAlpha:Float       → Alpha when not selected (0.85)       │   │
+ * │   │  - selectedAlpha:Float   → Alpha when selected (1.0)            │   │
+ * │   │                                                                 │   │
+ * │   │  Methods:                                                       │   │
+ * │   │  - applySelectionVisual()  → Update sprite alpha                │   │
+ * │   │  - applyVisibility()       → Show/hide the sprite               │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
 class VisualComponent {
-    
     /**
      * The display object to render.
      */
@@ -38,18 +56,18 @@ class VisualComponent {
      * Optional: custom alpha when selected.
      */
     public var selectedAlpha:Float = 1.0;
-
+    
     public function new(sprite:Sprite) {
         this.sprite = sprite;
     }
-
+    
     /**
      * Apply selection visual.
      */
     public function applySelectionVisual():Void {
         sprite.alpha = isSelected ? selectedAlpha : baseAlpha;
     }
-
+    
     /**
      * Show/hide the sprite.
      */

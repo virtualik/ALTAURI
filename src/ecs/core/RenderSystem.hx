@@ -7,21 +7,46 @@ import openfl.display.Sprite;
 /**
  * RENDER SYSTEM v1.0
  * The ONLY place where all visual updates happen.
- * 
- * Benefits:
- * - Single cache-friendly pass over all nodes
- * - O(N) performance instead of scattered loops
- * - Easy to add zoom, selection, layers, wire batching
- * - Completely separate from core logic
- * - One function to profile
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   RenderSystem                                                          │
+ * │                                                                         │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  Main Loop (render()):                                          │   │
+ * │   │  ┌───────────────────────────────────────────────────────────┐  │   │
+ * │   │  │  1. Query.getRenderables(world)                           │  │   │
+ * │   │  │  2. For each renderable entity:                           │  │   │
+ * │   │  │     - Update sprite.x, sprite.y from PositionComponent    │  │   │
+ * │   │  │     - Update sprite.alpha from selection state            │  │   │
+ * │   │  └───────────────────────────────────────────────────────────┘  │   │
+ * │   │                                                                 │   │
+ * │   │  Batch Operations:                                              │   │
+ * │   │  - setSelectionBatch(ids, selected)  → Multi-select             │   │
+ * │   │  - clearAllSelections()              → Deselect all             │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   Benefits:                                                             │
+ * │   - Single cache-friendly pass over all nodes                           │
+ * │   - O(N) performance instead of scattered loops                         │
+ * │   - Easy to add zoom, selection, layers, wire batching                  │
+ * │   - Completely separate from core logic                                 │
+ * │   - One function to profile                                             │
+ * │                                                                         │
+ * │   Future Extensions:                                                    │
+ * │   - Zoom scale                                                          │
+ * │   - Layer ordering                                                      │
+ * │   - Visibility culling                                                  │
+ * │   - Port position updates                                               │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
 class RenderSystem {
-    
     public var enabled:Bool = true;
     public var world:World;
-
+    
     public function new() {}
-
+    
     /**
      * Main render method.
      * Call from World.render() every frame.
@@ -39,16 +64,9 @@ class RenderSystem {
             
             // === SELECTION VISUAL ===
             sprite.alpha = r.visual.isSelected ? 1.0 : 0.85;
-            
-            // === FUTURE EXTENSIONS ===
-            // Add here when needed:
-            // - Zoom scale
-            // - Layer ordering
-            // - Visibility culling
-            // - Port position updates
         }
     }
-
+    
     /**
      * Batch selection update.
      * More efficient than individual setSelected calls for multi-select.
@@ -58,7 +76,7 @@ class RenderSystem {
             world.setSelected(id, selected);
         }
     }
-
+    
     /**
      * Clear all selections.
      */

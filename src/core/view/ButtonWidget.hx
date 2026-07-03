@@ -9,7 +9,7 @@ import core.base.Atom;
 import core.base.Contact;
 
 /**
- * BUTTON WIDGET v1.1 (Databank Architecture)
+ * BUTTON WIDGET
  * Push button widget for sending impulses.
  *
  * Architecture:
@@ -24,32 +24,30 @@ import core.base.Contact;
  * │                                                                         │
  * │   Widget WRITES to atom's contact (user input → model)                  │
  * │   Widget DOES NOT store state - atom is the Databank                    │
- * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
-class ButtonWidget extends DeviceView {
-
+class ButtonWidget extends DeviceView 
+{
     // =========================================================================
     // UI COMPONENTS
     // =========================================================================
-
     private var _btn:Sprite;
     private var _labelField:TextField;
     private var _contact:Contact;
-
     private var _isPressed:Bool = false;
 
     // =========================================================================
     // CONFIGURATION
     // =========================================================================
-	
     // Widget dimensions
     public var widgetWidth:Float = 80;
     public var widgetHeight:Float = 40;
-	// widget size return (из за Reflect)
-	override public function getWidgetSize():{width:Float, height:Float} {
-		return {width: widgetWidth, height: widgetHeight};
-	}
+
+    // Widget size return (used by Reflect in DeviceView base class)
+    override public function getWidgetSize():{width:Float, height:Float} 
+    {
+        return {width: widgetWidth, height: widgetHeight};
+    }
 
     public var colorNormal:Int = 0x444455;
     public var colorPressed:Int = 0x4488AA;
@@ -60,8 +58,8 @@ class ButtonWidget extends DeviceView {
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
-
-    public function new(atom:Atom, ?contactName:String = "out") {
+    public function new(atom:Atom, ?contactName:String = "out") 
+    {
         super(atom);
         _contactName = contactName;
         findContact();
@@ -71,19 +69,22 @@ class ButtonWidget extends DeviceView {
     // =========================================================================
     // INITIALIZATION
     // =========================================================================
-
-    private function findContact():Void {
-        if (atom != null) {
+    private function findContact():Void 
+    {
+        if (atom != null) 
+        {
             _contact = atom.getOutput(_contactName);
             if (_contact == null) _contact = atom.getInput(_contactName);
         }
     }
 
-    override private function onActivate():Void {
+    override private function onActivate():Void 
+    {
         findContact();
     }
 
-    private function buildUI():Void {
+    private function buildUI():Void 
+    {
         _btn = new Sprite();
         _btn.buttonMode = true;
         _btn.useHandCursor = true;
@@ -98,12 +99,10 @@ class ButtonWidget extends DeviceView {
         _labelField.height = widgetHeight;
         _labelField.selectable = false;
         _labelField.mouseEnabled = false;
-
         var fmt = new TextFormat("_sans", 14, 0xFFFFFF, true);
         fmt.align = TextFormatAlign.CENTER;
         _labelField.defaultTextFormat = fmt;
         _labelField.text = label;
-
         addChild(_labelField);
 
         var nameField = new TextField();
@@ -112,12 +111,10 @@ class ButtonWidget extends DeviceView {
         nameField.y = widgetHeight + 5;
         nameField.selectable = false;
         nameField.mouseEnabled = false;
-
         var nameFmt = new TextFormat("_sans", 10, 0x888888);
         nameFmt.align = TextFormatAlign.CENTER;
         nameField.defaultTextFormat = nameFmt;
         nameField.text = atom != null ? atom.name : "Button";
-
         addChild(nameField);
 
         drawNormal();
@@ -126,46 +123,52 @@ class ButtonWidget extends DeviceView {
     // =========================================================================
     // EVENT HANDLERS
     // =========================================================================
-
-    private function onMouseDown(e:MouseEvent):Void {
+    private function onMouseDown(e:MouseEvent):Void 
+    {
         e.stopPropagation();
-
         _isPressed = true;
         drawPressed();
-
-        if (_contact != null) {
+        if (_contact != null) 
+        {
             _contact.value = true;
         }
     }
 
-    private function onMouseUp(e:MouseEvent):Void {
+    private function onMouseUp(e:MouseEvent):Void 
+    {
         e.stopPropagation();
-
-        if (_isPressed) {
+        if (_isPressed) 
+        {
             _isPressed = false;
             drawNormal();
-
-            if (_contact != null) {
+            if (_contact != null) 
+            {
                 _contact.value = false;
             }
         }
     }
 
-    private function onMouseOver(e:MouseEvent):Void {
-        if (!_isPressed) {
+    private function onMouseOver(e:MouseEvent):Void 
+    {
+        if (!_isPressed) 
+        {
             drawOver();
         }
     }
 
-    private function onMouseOut(e:MouseEvent):Void {
-        if (_isPressed) {
+    private function onMouseOut(e:MouseEvent):Void 
+    {
+        if (_isPressed) 
+        {
             _isPressed = false;
             drawNormal();
-
-            if (_contact != null) {
+            if (_contact != null) 
+            {
                 _contact.value = false;
             }
-        } else {
+        } 
+        else 
+        {
             drawNormal();
         }
     }
@@ -173,8 +176,8 @@ class ButtonWidget extends DeviceView {
     // =========================================================================
     // DRAWING
     // =========================================================================
-
-    private function drawNormal():Void {
+    private function drawNormal():Void 
+    {
         _btn.graphics.clear();
         _btn.graphics.beginFill(colorNormal);
         _btn.graphics.lineStyle(2, 0x666677);
@@ -182,7 +185,8 @@ class ButtonWidget extends DeviceView {
         _btn.graphics.endFill();
     }
 
-    private function drawPressed():Void {
+    private function drawPressed():Void 
+    {
         _btn.graphics.clear();
         _btn.graphics.beginFill(colorPressed);
         _btn.graphics.lineStyle(2, 0x88AACC);
@@ -190,7 +194,8 @@ class ButtonWidget extends DeviceView {
         _btn.graphics.endFill();
     }
 
-    private function drawOver():Void {
+    private function drawOver():Void 
+    {
         _btn.graphics.clear();
         _btn.graphics.beginFill(colorOver);
         _btn.graphics.lineStyle(2, 0x777788);
@@ -199,20 +204,21 @@ class ButtonWidget extends DeviceView {
     }
 
     // =========================================================================
-    // DATA HANDLING (Button is an INPUT device - usually doesn't need to react)
+    // DATA HANDLING
     // =========================================================================
-
-    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void {
-        // Button is an input device - normally doesn't react to contact changes
-        // But if needed for visual feedback from external source, implement here
+    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void 
+    {
+        // Button is an input device - normally doesn't react to contact changes.
+        // If visual feedback from an external source is needed, implement here.
     }
 
     // =========================================================================
     // DISPOSE
     // =========================================================================
-
-    override public function dispose():Void {
-        if (_btn != null) {
+    override public function dispose():Void 
+    {
+        if (_btn != null) 
+        {
             _btn.removeEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
             _btn.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
             _btn.removeEventListener(MouseEvent.MOUSE_OVER, onMouseOver);

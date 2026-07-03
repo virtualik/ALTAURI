@@ -12,98 +12,74 @@ import core.base.Contact;
 import library.electro.OscilloscopeAtom;
 
 /**
- * OSCILLOSCOPE WIDGET v3.0 (Display Shapes)
+ * OSCILLOSCOPE WIDGET
  * Real-time signal visualization widget.
  *
- * ═══════════════════════════════════════════════════════════════════════════
- * АРХИТЕКТУРА: "ATOM IS DATABANK & COMPUTE CORE"
- * ═══════════════════════════════════════════════════════════════════════════
+ * Architecture: "ATOM IS DATABANK & COMPUTE CORE"
  *
- * OscilloscopeWidget - это ЛИЦО (Face) OscilloscopeAtom.
+ * OscilloscopeWidget is the FACE of OscilloscopeAtom.
  *
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │   OscilloscopeWidget НЕ ХРАНИТ ДАННЫЕ!                                  │
+ * │   OscilloscopeWidget DOES NOT STORE DATA!                               │
  * │                                                                         │
  * │   OscilloscopeWidget:                                                   │
  * │   ┌─────────────────────────────────────────────────────────────────┐   │
- * │   │   ССЫЛКИ:                                                       │   │
- * │   │   - atom:OscilloscopeAtom  // Ссылка на Databank                │   │
- * │   │   - _oscAtom:OscilloscopeAtom  // Типизированная ссылка         │   │
+ * │   │   REFERENCES:                                                   │   │
+ * │   │   - atom:OscilloscopeAtom  // Reference to Databank             │   │
+ * │   │   - _oscAtom:OscilloscopeAtom  // Typed reference               │   │
  * │   │                                                                 │   │
- * │   │   UI КОМПОНЕНТЫ:                                                │   │
- * │   │   - _canvas:Sprite   // Область отрисовки                       │   │
- * │   │   - _grid:Sprite     // Сетка                                   │   │
- * │   │   - _label:TextField // Метка                                   │   │
- * │   │   - _debugLabel:TextField // Отладка                            │   │
+ * │   │   UI COMPONENTS:                                                │   │
+ * │   │   - _canvas:Sprite   // Drawing area                            │   │
+ * │   │   - _grid:Sprite     // Grid overlay                            │   │
+ * │   │   - _label:TextField // Bottom label                            │   │
+ * │   │   - _debugLabel:TextField // Debug info                         │   │
  * │   │                                                                 │   │
- * │   │   НАСТРОЙКИ:                                                    │   │
+ * │   │   CONFIGURATION:                                                │   │
  * │   │   - widgetWidth:Float = 300                                     │   │
  * │   │   - widgetHeight:Float = 150                                    │   │
  * │   │   - colorLine:Int = 0x00FF00                                    │   │
  * │   │                                                                 │   │
  * │   │   THROTTLING (UI-only state):                                   │   │
- * │   │   - _lastDrawTime:Float  // Для ограничения FPS отрисовки       │   │
+ * │   │   - _lastDrawTime:Float  // For FPS limiting                    │   │
  * │   │   - DRAW_INTERVAL:Float = 1/30   // 30 FPS max                  │   │
  * │   │                                                                 │   │
- * │   │   ЧТЕНИЕ ДАННЫХ:                                                │   │
+ * │   │   DATA READING:                                                 │   │
  * │   │   var buffer = _oscAtom.getBuffer();                            │   │
  * │   │   var idx = _oscAtom.getWriteIndex();                           │   │
  * │   │   var count = _oscAtom.getSamplesCollected();                   │   │
  * │   │   drawWave(buffer, idx, count);                                 │   │
  * │   └─────────────────────────────────────────────────────────────────┘   │
  * │                                                                         │
- * │   ИСТОЧНИК ДАННЫХ:                                                      │
- * │   ─────────────────                                                     │
- * │   OscilloscopeAtom._buffer → единственный источник истины               │
+ * │   DATA SOURCE:                                                          │
+ * │   ──────────────                                                        │
+ * │   OscilloscopeAtom._buffer → single source of truth                     │
  * │                                                                         │
  * │   HEADLESS MODE:                                                        │
  * │   ──────────────                                                        │
- * │   Атом продолжает работать, виджет не нужен.                            │
- * │   При создании виджета - он читает актуальное состояние атома.          │
+ * │   Atom continues working without widget.                                │
+ * │   When widget is created, it reads current atom state.                  │
  * │                                                                         │
  * │   SINGLETON:                                                            │
  * │   ──────────                                                            │
- * │   DeviceViewRegistry гарантирует один виджет на атом.                   │
- * │   Виджет перемещается между NodeView и DeviceWindow.                    │
+ * │   DeviceViewRegistry guarantees one widget per atom.                    │
+ * │   Widget moves between NodeView and DeviceWindow.                       │
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
- *
- * v2.0 Changes:
- * - COMPLETE REWRITE: Buffer moved to OscilloscopeAtom
- * - Widget reads from atom's Databank via getBuffer(), getWriteIndex()
- * - Multiple widgets see the SAME data (same atom = same buffer)
- * - Works with DeviceViewRegistry for singleton pattern
- * - Closing/reopening DeviceWindow preserves data (in atom)
- *
- * v5.1 (Old):
- * - Widget had its own buffer
- * - Data was lost when widget closed
- * - Multiple widgets had different buffers
- * 
- * v3.0 Changes:
- * - ADDED: Support for display shapes (Rectangular, Square, Circular).
- * - Circular shape uses a mask to clip the waveform.
- * - Square shape adjusts dimensions to be equal.
- *
- * v2.0 Changes:
- * - COMPLETE REWRITE: Buffer moved to OscilloscopeAtom
- * - Widget reads from atom's Databank via getBuffer(), getWriteIndex()
- * - Multiple widgets see the SAME data
  */
-
-class OscilloscopeWidget extends DeviceView {
-
+class OscilloscopeWidget extends DeviceView 
+{
     // =========================================================================
     // CONFIGURATION
     // =========================================================================
-
     // Widget dimensions
     public var widgetWidth:Float = 300;
     public var widgetHeight:Float = 100;
-	// widget size return (из за Reflect)
-	override public function getWidgetSize():{width:Float, height:Float} {
-		return {width: widgetWidth, height: widgetHeight};
-	}
+
+    // Widget size return (used by Reflect in DeviceView base class)
+    override public function getWidgetSize():{width:Float, height:Float} 
+    {
+        return {width: widgetWidth, height: widgetHeight};
+    }
 
     public var colorLine:Int = 0x00FF00;
     public var colorBg:Int = 0x0a0a12;
@@ -112,7 +88,6 @@ class OscilloscopeWidget extends DeviceView {
     // =========================================================================
     // UI COMPONENTS
     // =========================================================================
-
     private var _canvas:Sprite;
     private var _grid:Sprite;
     private var _mask:Shape;
@@ -122,36 +97,32 @@ class OscilloscopeWidget extends DeviceView {
     // =========================================================================
     // REFERENCE TO DATABANK
     // =========================================================================
-
     private var _oscAtom:OscilloscopeAtom;
 
     // =========================================================================
     // THROTTLING
     // =========================================================================
-
     private var _lastDrawTime:Float = 0;
     private static inline var DRAW_INTERVAL:Float = 1.0 / 60.0;
-
 
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
-
-    public function new(atom:Atom, contactName:String = "in") {
+    public function new(atom:Atom, contactName:String = "in") 
+    {
         super(atom);
-
-        if (Std.isOfType(atom, OscilloscopeAtom)) {
+        if (Std.isOfType(atom, OscilloscopeAtom)) 
+        {
             _oscAtom = cast(atom, OscilloscopeAtom);
         }
-
         buildUI();
     }
 
     // =========================================================================
     // UI CONSTRUCTION
     // =========================================================================
-
-    private function buildUI():Void {
+    private function buildUI():Void 
+    {
         // Determine initial size based on atom setting
         updateDimensions();
 
@@ -202,20 +173,24 @@ class OscilloscopeWidget extends DeviceView {
     /**
      * Update widget dimensions based on display shape.
      */
-    private function updateDimensions():Void {
+    private function updateDimensions():Void 
+    {
         if (_oscAtom == null) return;
 
         var shape = _oscAtom.getDisplayShape();
 
-        switch (shape) {
+        switch (shape) 
+        {
             case OscilloscopeAtom.SHAPE_SQUARE:
                 // Square: make width equal to height (200x200)
                 widgetWidth = 200;
                 widgetHeight = 200;
+
             case OscilloscopeAtom.SHAPE_CIRCULAR:
                 // Circular: fits in 200x200
                 widgetWidth = 200;
                 widgetHeight = 200;
+
             default:
                 // Rectangular: default 300x150
                 widgetWidth = 300;
@@ -223,42 +198,53 @@ class OscilloscopeWidget extends DeviceView {
         }
     }
 
-    private function drawBackground():Void {
+    private function drawBackground():Void 
+    {
         var shape = (_oscAtom != null) ? _oscAtom.getDisplayShape() : OscilloscopeAtom.SHAPE_RECTANGULAR;
 
         graphics.clear();
         graphics.beginFill(colorBg);
 
-        if (shape == OscilloscopeAtom.SHAPE_CIRCULAR) {
+        if (shape == OscilloscopeAtom.SHAPE_CIRCULAR) 
+        {
             graphics.drawCircle(widgetWidth / 2, widgetHeight / 2, widgetWidth / 2);
-        } else {
+        } 
+        else 
+        {
             graphics.drawRoundRect(0, 0, widgetWidth, widgetHeight, 5, 5);
         }
 
         graphics.endFill();
+
         graphics.lineStyle(3, 0x333355);
 
-        if (shape == OscilloscopeAtom.SHAPE_CIRCULAR) {
+        if (shape == OscilloscopeAtom.SHAPE_CIRCULAR) 
+        {
             graphics.drawCircle(widgetWidth / 2, widgetHeight / 2, widgetWidth / 2);
-        } else {
+        } 
+        else 
+        {
             graphics.drawRoundRect(0, 0, widgetWidth, widgetHeight, 5, 5);
         }
     }
 
-    private function drawGrid():Void {
+    private function drawGrid():Void 
+    {
         var g = _grid.graphics;
         g.clear();
         g.lineStyle(1, colorGrid, 0.5);
 
         var shape = (_oscAtom != null) ? _oscAtom.getDisplayShape() : OscilloscopeAtom.SHAPE_RECTANGULAR;
 
-        if (shape == OscilloscopeAtom.SHAPE_CIRCULAR) {
+        if (shape == OscilloscopeAtom.SHAPE_CIRCULAR) 
+        {
             // Circular grid: concentric circles
             var cx = widgetWidth / 2;
             var cy = widgetHeight / 2;
             var radius = widgetWidth / 2;
 
-            for (i in 1...6) {
+            for (i in 1...6) 
+            {
                 var r = radius * (i / 5.0);
                 g.drawCircle(cx, cy, r);
             }
@@ -268,16 +254,20 @@ class OscilloscopeWidget extends DeviceView {
             g.lineTo(cx + radius, cy);
             g.moveTo(cx, cy - radius);
             g.lineTo(cx, cy + radius);
-        } else {
+        } 
+        else 
+        {
             // Rectangular/Square grid
             var stepX = widgetWidth / 10;
-            for (i in 0...11) {
+            for (i in 0...11) 
+            {
                 g.moveTo(i * stepX, 0);
                 g.lineTo(i * stepX, widgetHeight);
             }
 
             var stepY = widgetHeight / 6;
-            for (i in 0...7) {
+            for (i in 0...7) 
+            {
                 g.moveTo(0, i * stepY);
                 g.lineTo(widgetWidth, i * stepY);
             }
@@ -287,30 +277,35 @@ class OscilloscopeWidget extends DeviceView {
             g.moveTo(0, widgetHeight / 2);
             g.lineTo(widgetWidth, widgetHeight / 2);
         }
-		// В drawGrid, после рисования сетки
-var triggerLevel = _oscAtom.getTriggerLevel();
-if (triggerLevel != 0) {
-    g.lineStyle(1, 0xFF8888, 0.8);
-    var y = (1 - triggerLevel) * widgetHeight / 2 + widgetHeight / 2;
-    g.moveTo(0, y);
-    g.lineTo(widgetWidth, y);
-}
+
+        // Draw trigger level indicator
+        var triggerLevel = _oscAtom.getTriggerLevel();
+        if (triggerLevel != 0) 
+        {
+            g.lineStyle(1, 0xFF8888, 0.8);
+            var y = (1 - triggerLevel) * widgetHeight / 2 + widgetHeight / 2;
+            g.moveTo(0, y);
+            g.lineTo(widgetWidth, y);
+        }
     }
 
     /**
      * Draw mask for circular shape.
      */
-    private function drawMask():Void {
+    private function drawMask():Void 
+    {
         var shape = (_oscAtom != null) ? _oscAtom.getDisplayShape() : OscilloscopeAtom.SHAPE_RECTANGULAR;
-
         var g = _mask.graphics;
         g.clear();
 
-        if (shape == OscilloscopeAtom.SHAPE_CIRCULAR) {
+        if (shape == OscilloscopeAtom.SHAPE_CIRCULAR) 
+        {
             g.beginFill(0xFFFFFF);
             g.drawCircle(widgetWidth / 2, widgetHeight / 2, widgetWidth / 2 - 2);
             g.endFill();
-        } else {
+        } 
+        else 
+        {
             // No mask needed for rect/square
         }
     }
@@ -318,15 +313,17 @@ if (triggerLevel != 0) {
     // =========================================================================
     // LIFECYCLE
     // =========================================================================
-
-    override private function onActivate():Void {
+    override private function onActivate():Void 
+    {
         syncFromAtom();
         debug('Activated');
     }
 
-    override private function syncFromAtom():Void {
+    override private function syncFromAtom():Void 
+    {
         // Check if shape changed and rebuild UI
-        if (_oscAtom != null) {
+        if (_oscAtom != null) 
+        {
             updateDimensions();
             drawBackground();
             drawGrid();
@@ -338,20 +335,26 @@ if (triggerLevel != 0) {
     // =========================================================================
     // DATA HANDLING
     // =========================================================================
-
-    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void {
+    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void 
+    {
         if (isDisposed || _oscAtom == null) return;
 
-		// Если изменился любой параметр (timeScale, triggerLevel, triggerEdge, triggerMode) — перерисовываем
-		if (contact.name != "in") {
-			redrawFromAtom();
-		} else {
-			var now = haxe.Timer.stamp();
-			if (now - _lastDrawTime < DRAW_INTERVAL) return;
-			_lastDrawTime = now;
-			redrawFromAtom();
-		}
-        if (_oscAtom.getTotalSamples() % 60 == 0) {
+        // If any parameter changed (timeScale, triggerLevel, etc.) — redraw
+        if (contact.name != "in") 
+        {
+            redrawFromAtom();
+        } 
+        else 
+        {
+            // Throttle drawing for input signal changes
+            var now = haxe.Timer.stamp();
+            if (now - _lastDrawTime < DRAW_INTERVAL) return;
+            _lastDrawTime = now;
+            redrawFromAtom();
+        }
+
+        if (_oscAtom.getTotalSamples() % 60 == 0) 
+        {
             debug('Sample #${_oscAtom.getTotalSamples()}');
         }
     }
@@ -359,7 +362,8 @@ if (triggerLevel != 0) {
     /**
      * Redraw the waveform from atom's Databank.
      */
-    private function redrawFromAtom():Void {
+    private function redrawFromAtom():Void 
+    {
         if (_oscAtom == null || _canvas == null) return;
 
         var buffer = _oscAtom.getBuffer();
@@ -367,16 +371,20 @@ if (triggerLevel != 0) {
         var samplesCollected = _oscAtom.getSamplesCollected();
         var totalSamples = _oscAtom.getTotalSamples();
 
-        if (samplesCollected < 2) {
+        if (samplesCollected < 2) 
+        {
             setLabel('Collecting: $samplesCollected / ${_oscAtom.getBufferSize()}');
             return;
         }
 
         var shape = _oscAtom.getDisplayShape();
 
-        if (shape == OscilloscopeAtom.SHAPE_CIRCULAR) {
+        if (shape == OscilloscopeAtom.SHAPE_CIRCULAR) 
+        {
             drawWaveCircular(buffer, writeIndex, samplesCollected);
-        } else {
+        } 
+        else 
+        {
             drawWaveLinear(buffer, writeIndex, samplesCollected);
         }
 
@@ -385,61 +393,61 @@ if (triggerLevel != 0) {
 
     /**
      * Draw linear waveform (rectangular or square display).
+     *
+     * Visual zoom is controlled by timeScale:
+     * - timeScale = 1.0 → show entire buffer (512 samples)
+     * - timeScale = 0.1 → show only 10% of buffer (51 samples) → Zoom IN
+     * - timeScale = 2.0 → show 2x buffer (stretch) → Zoom OUT
      */
-    /**
-     * Draw linear waveform (rectangular or square display).
-     */
-private function drawWaveLinear(buffer:Array<Float>, writeIndex:Int, count:Int):Void {
-    var g = _canvas.graphics;
-    g.clear();
-    
-    if (buffer == null || buffer.length == 0) return;
-    
-    var timeScale = _oscAtom.getTimeScale();
-    var totalSamples = buffer.length;
-    
-    // === FIX v4.1: Визуальный зум на основе timeScale ===
-    // timeScale = 1.0 → показываем весь буфер (512 сэмплов)
-    // timeScale = 0.1 → показываем только 10% буфера (51 сэмпл) → Zoom IN
-    // timeScale = 2.0 → показываем 2x буфера (растягиваем) → Zoom OUT
-    
-    // Вычисляем сколько сэмплов показывать на экране
-    var displayCount = Std.int(totalSamples * timeScale);
-    if (displayCount > totalSamples) displayCount = totalSamples;
-    if (displayCount < 2) displayCount = 2;
-    
-    // Вычисляем шаг по X - теперь он зависит от displayCount
-    var stepX = widgetWidth / displayCount;
-    
-    // Сколько точек реально рисуем
-    var countToDraw = count;
-    if (countToDraw > displayCount) countToDraw = displayCount;
-    if (countToDraw < 2) return;
-    
-    var centerY = widgetHeight / 2.0;
-    var scale = (widgetHeight / 2.0) * 0.9;
-    
-    // Индекс ПОСЛЕДНЕГО записанного сэмпла (самый свежий)
-    var lastIdx = (writeIndex - 1 + totalSamples) % totalSamples;
-    
-    g.lineStyle(1.5, colorLine, 1.0);
-    
-    // Всегда начинаем рисовать с ПРАВОГО края дисплея
-    g.moveTo(widgetWidth, centerY - buffer[lastIdx] * scale);
-    
-    // Двигаемся строго влево с фиксированным шагом
-    for (i in 1...countToDraw) {
-        var idx = (lastIdx - i + totalSamples) % totalSamples;
-        var x = widgetWidth - (i * stepX);
-        g.lineTo(x, centerY - buffer[idx] * scale);
+    private function drawWaveLinear(buffer:Array<Float>, writeIndex:Int, count:Int):Void 
+    {
+        var g = _canvas.graphics;
+        g.clear();
+
+        if (buffer == null || buffer.length == 0) return;
+
+        var timeScale = _oscAtom.getTimeScale();
+        var totalSamples = buffer.length;
+
+        // Calculate how many samples to display on screen
+        var displayCount = Std.int(totalSamples * timeScale);
+        if (displayCount > totalSamples) displayCount = totalSamples;
+        if (displayCount < 2) displayCount = 2;
+
+        // Calculate X step — now depends on displayCount
+        var stepX = widgetWidth / displayCount;
+
+        // How many points we actually draw
+        var countToDraw = count;
+        if (countToDraw > displayCount) countToDraw = displayCount;
+        if (countToDraw < 2) return;
+
+        var centerY = widgetHeight / 2.0;
+        var scale = (widgetHeight / 2.0) * 0.9;
+
+        // Index of the LAST written sample (most recent)
+        var lastIdx = (writeIndex - 1 + totalSamples) % totalSamples;
+
+        g.lineStyle(1.5, colorLine, 1.0);
+
+        // Always start drawing from the RIGHT edge of the display
+        g.moveTo(widgetWidth, centerY - buffer[lastIdx] * scale);
+
+        // Move strictly left with fixed step
+        for (i in 1...countToDraw) 
+        {
+            var idx = (lastIdx - i + totalSamples) % totalSamples;
+            var x = widgetWidth - (i * stepX);
+            g.lineTo(x, centerY - buffer[idx] * scale);
+        }
     }
-}
 
     /**
      * Draw circular waveform (spiral or polar).
      * For simplicity, we draw it as a radial graph where angle = time.
      */
-    private function drawWaveCircular(buffer:Array<Float>, writeIndex:Int, count:Int):Void {
+    private function drawWaveCircular(buffer:Array<Float>, writeIndex:Int, count:Int):Void 
+    {
         var g = _canvas.graphics;
         g.clear();
 
@@ -452,7 +460,8 @@ private function drawWaveLinear(buffer:Array<Float>, writeIndex:Int, count:Int):
 
         g.lineStyle(1.5, colorLine, 1.0);
 
-        for (i in 0...displayCount) {
+        for (i in 0...displayCount) 
+        {
             var idx = (startIdx + i) % buffer.length;
             var value = buffer[idx];
 
@@ -474,27 +483,33 @@ private function drawWaveLinear(buffer:Array<Float>, writeIndex:Int, count:Int):
     // =========================================================================
     // UI HELPERS
     // =========================================================================
-
-    private function setLabel(text:String):Void {
+    private function setLabel(text:String):Void 
+    {
         if (_label != null) _label.text = text;
     }
 
-    private function debug(msg:String):Void {
-        if (_debugLabel != null) {
+    private function debug(msg:String):Void 
+    {
+        if (_debugLabel != null) 
+        {
             _debugLabel.text = msg;
         }
     }
 
-    public function clearDisplay():Void {
-        if (_canvas != null) {
+    public function clearDisplay():Void 
+    {
+        if (_canvas != null) 
+        {
             _canvas.graphics.clear();
         }
         setLabel("Display Cleared");
         debug('Display cleared');
     }
 
-    public function clearAll():Void {
-        if (_oscAtom != null) {
+    public function clearAll():Void 
+    {
+        if (_oscAtom != null) 
+        {
             _oscAtom.clearBuffer();
         }
         clearDisplay();
@@ -504,15 +519,14 @@ private function drawWaveLinear(buffer:Array<Float>, writeIndex:Int, count:Int):
     // =========================================================================
     // DISPOSE
     // =========================================================================
-
-    override public function dispose():Void {
+    override public function dispose():Void 
+    {
         _canvas = null;
         _grid = null;
         _mask = null;
         _label = null;
         _debugLabel = null;
         _oscAtom = null;
-
         super.dispose();
     }
 }

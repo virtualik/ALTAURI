@@ -10,17 +10,34 @@ package ecs.components;
  *
  * Replaces old x/y fields in NodeView.
  * Cache-friendly when stored in ComponentStorage.
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   PositionComponent                                                     │
+ * │                                                                         │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  Data:                                                          │   │
+ * │   │  - x:Float  → X coordinate                                      │   │
+ * │   │  - y:Float  → Y coordinate                                      │   │
+ * │   │                                                                 │   │
+ * │   │  Methods:                                                       │   │
+ * │   │  - set(x, y)            → Set both coordinates                  │   │
+ * │   │  - translate(dx, dy)    → Add offset                            │   │
+ * │   │  - copyFrom(other)      → Copy from another position            │   │
+ * │   │  - clone()              → Create a copy                         │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
 class PositionComponent {
-
     public var x:Float;
     public var y:Float;
-
+    
     public function new(x:Float = 0, y:Float = 0) {
         this.x = x;
         this.y = y;
     }
-
+    
     /**
      * Set both coordinates at once.
      */
@@ -28,7 +45,7 @@ class PositionComponent {
         this.x = x;
         this.y = y;
     }
-
+    
     /**
      * Add offset.
      */
@@ -36,7 +53,7 @@ class PositionComponent {
         this.x += dx;
         this.y += dy;
     }
-
+    
     /**
      * Copy from another position.
      */
@@ -44,7 +61,7 @@ class PositionComponent {
         this.x = other.x;
         this.y = other.y;
     }
-
+    
     /**
      * Clone this component.
      */

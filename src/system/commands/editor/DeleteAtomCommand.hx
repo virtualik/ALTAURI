@@ -12,16 +12,57 @@ import core.base.ConductorPort;
 import core.base.IDisposable;
 import core.types.ContactType;
 import core.logic.Impulsys;
-import core.logic.EventType; // <--- IMPORT
+import core.logic.EventType;
 import core.base.AssemblyFactory;
 import library.AtomRegistry;
 
+/**
+ * DELETE ATOM COMMAND v1.0
+ * Deletes an atom and its connections from the assembly.
+ * Supports Undo/Redo with full snapshot restoration.
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   DeleteAtomCommand                                                     │
+ * │                                                                         │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  execute():                                                     │   │
+ * │   │  1. saveSnapshot() — capture atom definition and connections    │   │
+ * │   │  2. Remove connections from blueprint                           │   │
+ * │   │  3. Unlink physical connections between contacts                │   │
+ * │   │  4. Remove atom definition from blueprint                       │   │
+ * │   │  5. Dispose atom instance                                       │   │
+ * │   │  6. Remove instance from assembly                               │   │
+ * │   │  7. Emit ATOM_DELETED event                                     │   │
+ * │   │                                                                 │   │
+ * │   │  undo():                                                        │   │
+ * │   │  1. Restore atom definition to blueprint                        │   │
+ * │   │  2. Recreate atom instance via AssemblyFactory                  │   │
+ * │   │  3. Add instance to assembly                                    │   │
+ * │   │  4. Restore connections to blueprint                            │   │
+ * │   │  5. Emit ATOM_RESTORED event                                    │   │
+ * │   │  6. Delayed: restorePhysicalConnections()                       │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   Snapshot Data:                                                        │
+ * │   ────────────────                                                      │
+ * │   - _atomDef: AtomDef (position, type, values)                          │
+ * │   - _atomType: String (blueprint type ID)                               │
+ * │   - _connections: Array<ConnectionDef> (all connected wires)            │
+ * │   - _posX, _posY: Float (atom position)                                 │
+ * │                                                                         │
+ * │   ID Resolution:                                                        │
+ * │   ──────────────                                                        │
+ * │   - Runtime ID → Template ID via assembly.getTemplateId()               │
+ * │   - Template ID → Runtime ID via assembly.idMap                         │
+ * │   - Both IDs checked when matching connections                          │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ */
 class DeleteAtomCommand extends Command {
-
     private var _blueprint:Blueprint;
     private var _assembly:Assembly;
-    private var _atomId:String; // Это Runtime ID
-
+    private var _atomId:String; // Runtime ID
     private var _atomDef:AtomDef;
     private var _atomType:String;
     private var _connections:Array<ConnectionDef>;
@@ -38,6 +79,7 @@ class DeleteAtomCommand extends Command {
     override private function executeInternal():Void {
         saveSnapshot();
 
+        // Remove connections
         if (_connections != null) {
             for (conn in _connections) {
                 _blueprint.internalConnections.remove(conn);
@@ -47,12 +89,13 @@ class DeleteAtomCommand extends Command {
             }
         }
 
+        // Remove atom definition
         if (_atomDef != null) {
             _blueprint.internalAtoms.remove(_atomDef);
         }
 
+        // Remove atom instance
         var atomInstance = _assembly.internalAtoms.get(_atomId);
-
         if (atomInstance != null) {
             if (Std.isOfType(atomInstance, IDisposable)) {
                 try { cast(atomInstance, IDisposable).dispose(); } catch (e:Dynamic) { trace('Error disposing: $e'); }
@@ -65,10 +108,12 @@ class DeleteAtomCommand extends Command {
     }
 
     override public function undo():Void {
+        // Restore atom definition
         if (_atomDef != null) {
             _blueprint.internalAtoms.push(_atomDef);
         }
 
+        // Ensure blueprint exists in registry
         var bp = AtomRegistry.get(_atomType);
         if (bp == null) {
             if (_atomDef != null && _atomDef.typeId != null) {
@@ -77,11 +122,12 @@ class DeleteAtomCommand extends Command {
             }
         }
 
+        // Recreate atom instance
         var atom = AssemblyFactory.createAtom(_atomType, _atomId);
         if (atom == null) { trace('DeleteAtomCommand.undo: Failed to create $_atomType'); return; }
-
         _assembly.internalAtoms.set(_atomId, atom);
 
+        // Restore connections to blueprint
         if (_connections != null) {
             for (conn in _connections) {
                 _blueprint.internalConnections.push(conn);
@@ -96,6 +142,7 @@ class DeleteAtomCommand extends Command {
             atom: atom
         });
 
+        // Delayed physical connection restore
         haxe.Timer.delay(restorePhysicalConnections, 10);
     }
 
@@ -109,13 +156,16 @@ class DeleteAtomCommand extends Command {
         Impulsys.quickEmit(EventType.REDRAW_WIRES);
     }
 
+    /**
+     * Capture complete atom state for undo restoration.
+     */
     private function saveSnapshot():Void {
         if (_atomDef != null) return;
 
-        // ИСПРАВЛЕНИЕ: Находим Template ID через Assembly
+        // Find Template ID via Assembly
         var templateId = _assembly.getTemplateId(_atomId);
 
-        // 1. Ищем определение в Blueprint по TEMPLATE ID
+        // Find atom definition in Blueprint by TEMPLATE ID
         for (a in _blueprint.internalAtoms) {
             if (a.instanceId == templateId) {
                 _atomDef = a;
@@ -125,39 +175,40 @@ class DeleteAtomCommand extends Command {
 
         var atomInst = _assembly.internalAtoms.get(_atomId);
         if (atomInst != null) {
-            // Берем тип из определения, если есть, иначе из экземпляра
+            // Take type from definition if available, otherwise from instance
             if (_atomDef != null) _atomType = _atomDef.typeId;
             else _atomType = atomInst.type;
-
             _posX = (_atomDef != null && _atomDef.x != null) ? _atomDef.x : 0;
             _posY = (_atomDef != null && _atomDef.y != null) ? _atomDef.y : 0;
         }
 
         _connections = [];
 
-        // 2. При сохранении связей используем TEMPLATE ID
+        // Collect connections using TEMPLATE ID
         for (conn in _blueprint.internalConnections) {
-            // Проверяем связи, где участвует наш атом
-            // Надо сравнить conn.atomId с templateId (для загруженных) и с _atomId (для созданных)
+            // Check connections where our atom participates
+            // Compare conn.atomId with templateId (for loaded) and with _atomId (for created)
             var fromMatch = (conn.from.atomId == templateId || conn.from.atomId == _atomId);
             var toMatch = (conn.to.atomId == templateId || conn.to.atomId == _atomId);
-
             if (fromMatch || toMatch) {
                 _connections.push(conn);
             }
         }
     }
 
+    /**
+     * Resolve a contact by atom ID and contact name.
+     * Handles SELF (assembly ports) and regular atoms.
+     */
     private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact {
-        // Если atomId указывает на SELF
         if (atomId == "SELF") {
             var port:ConductorPort = _assembly.ports.get(contactName);
             if (port == null) return null;
             return port.internal;
         } else {
-            // ИСПРАВЛЕНИЕ: Преобразуем ID если это Template ID
+            // Convert Template ID to Runtime ID if needed
             var realAtomId = _assembly.idMap.get(atomId);
-            if (realAtomId == null) realAtomId = atomId; // Если нет в карте, значит это уже Runtime ID
+            if (realAtomId == null) realAtomId = atomId; // Already Runtime ID
 
             var atom = _assembly.internalAtoms.get(realAtomId);
             if (atom == null) return null;

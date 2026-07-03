@@ -12,7 +12,7 @@ import core.data.Blueprint.PinDef;
 import core.types.ContactType;
 
 /**
- * PANEL WIDGET v1.1 (Databank Architecture)
+ * PANEL WIDGET
  * Container widget for Assembly showing internal elements.
  *
  * Architecture:
@@ -31,15 +31,13 @@ import core.types.ContactType;
  * │   Widget READS port contact values (display only)                       │
  * │   Ports are part of Assembly Databank                                   │
  * │   Internal atoms have their own DeviceViews (managed by Registry)       │
- * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
-class PanelWidget extends DeviceView {
-
+class PanelWidget extends DeviceView 
+{
     // =========================================================================
     // UI COMPONENTS
     // =========================================================================
-
     private var _header:Sprite;
     private var _titleLabel:TextField;
     private var _content:Sprite;
@@ -49,40 +47,38 @@ class PanelWidget extends DeviceView {
     // =========================================================================
     // CONFIGURATION
     // =========================================================================
-
     // Widget dimensions
     public var panelWidth:Float = 200;
     public var panelHeight:Float = 150;
-	// widget size return (из за Reflect)
-	override public function getWidgetSize():{width:Float, height:Float} {
-		return {width: panelWidth, height: panelHeight};
-	}
-    
-	public var headerHeight:Float = 24;
+
+    // Widget size return (used by Reflect in DeviceView base class)
+    override public function getWidgetSize():{width:Float, height:Float} 
+    {
+        return {width: panelWidth, height: panelHeight};
+    }
+
+    public var headerHeight:Float = 24;
     public var portRadius:Float = 6;
     public var bgColor:Int = 0x2A2A3A;
     public var headerColor:Int = 0x3A3A4A;
     public var borderColor:Int = 0x4A4A6A;
 
-
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
-
-    public function new(asm:Assembly) {
+    public function new(asm:Assembly) 
+    {
         super(asm);
-
         _inputPorts = new Map();
         _outputPorts = new Map();
-
         buildUI();
     }
 
     // =========================================================================
     // UI CONSTRUCTION
     // =========================================================================
-
-    private function buildUI():Void {
+    private function buildUI():Void 
+    {
         // Background panel
         graphics.clear();
         graphics.beginFill(bgColor);
@@ -103,13 +99,9 @@ class PanelWidget extends DeviceView {
         _titleLabel.x = 5;
         _titleLabel.selectable = false;
         _titleLabel.mouseEnabled = false;
-
         var fmt = new TextFormat("_sans", 12, 0xFFFFFF, true);
         _titleLabel.defaultTextFormat = fmt;
-        _titleLabel.text = (assembly != null && assembly.blueprint != null)
-            ? assembly.blueprint.name
-            : "Panel";
-
+        _titleLabel.text = (assembly != null && assembly.blueprint != null) ? assembly.blueprint.name : "Panel";
         _header.addChild(_titleLabel);
 
         // Content area
@@ -124,39 +116,37 @@ class PanelWidget extends DeviceView {
     // =========================================================================
     // PORT CREATION
     // =========================================================================
-
-    private function createPorts():Void {
+    private function createPorts():Void 
+    {
         if (assembly == null || assembly.blueprint == null) return;
-
         var pins = assembly.blueprint.pins;
         if (pins == null) return;
 
         var inputs:Array<PinDef> = [];
         var outputs:Array<PinDef> = [];
 
-        for (pin in pins) {
+        for (pin in pins) 
+        {
             if (pin == null) continue;
-            if (pin.type == INPUT) {
+            if (pin.type == INPUT) 
+            {
                 inputs.push(pin);
-            } else if (pin.type == OUTPUT) {
+            } 
+            else if (pin.type == OUTPUT) 
+            {
                 outputs.push(pin);
             }
         }
 
         // Calculate step for port positioning
-        var inputStep = inputs.length > 0
-            ? (panelHeight - headerHeight - 20) / (inputs.length + 1)
-            : 0;
-
-        var outputStep = outputs.length > 0
-            ? (panelHeight - headerHeight - 20) / (outputs.length + 1)
-            : 0;
+        var inputStep = inputs.length > 0 ? (panelHeight - headerHeight - 20) / (inputs.length + 1) : 0;
+        var outputStep = outputs.length > 0 ? (panelHeight - headerHeight - 20) / (outputs.length + 1) : 0;
 
         // Create input ports (left side)
-        for (i in 0...inputs.length) {
+        for (i in 0...inputs.length) 
+        {
             var pin = inputs[i];
             if (pin == null || pin.name == null) continue;
-
             var port = createPortSprite(pin.name, true);
             port.x = -portRadius;
             port.y = headerHeight + inputStep * (i + 1);
@@ -165,10 +155,10 @@ class PanelWidget extends DeviceView {
         }
 
         // Create output ports (right side)
-        for (i in 0...outputs.length) {
+        for (i in 0...outputs.length) 
+        {
             var pin = outputs[i];
             if (pin == null || pin.name == null) continue;
-
             var port = createPortSprite(pin.name, false);
             port.x = panelWidth + portRadius;
             port.y = headerHeight + outputStep * (i + 1);
@@ -177,7 +167,8 @@ class PanelWidget extends DeviceView {
         }
     }
 
-    private function createPortSprite(name:String, isInput:Bool):Sprite {
+    private function createPortSprite(name:String, isInput:Bool):Sprite 
+    {
         var s = new Sprite();
         s.graphics.beginFill(isInput ? 0xFFAA00 : 0x00AAFF);
         s.graphics.drawCircle(0, 0, portRadius);
@@ -190,18 +181,19 @@ class PanelWidget extends DeviceView {
         label.height = 14;
         label.selectable = false;
         label.mouseEnabled = false;
-
         var fmt = new TextFormat("_sans", 9, 0xAAAAAA);
         label.defaultTextFormat = fmt;
         label.text = name != null ? name : "?";
-
-        if (isInput) {
+        
+        if (isInput) 
+        {
             label.x = portRadius + 3;
-        } else {
+        } 
+        else 
+        {
             label.x = -portRadius - 63;
         }
         label.y = -7;
-
         s.addChild(label);
 
         return s;
@@ -210,20 +202,18 @@ class PanelWidget extends DeviceView {
     // =========================================================================
     // DATA HANDLING
     // =========================================================================
-
-    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void {
+    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void 
+    {
         // Update port visual based on value
         // Could add highlighting for active ports
     }
 
-    /**
-     * Get position of a port for wire connection.
-     */
-    public function getPortPosition(name:String, isInput:Bool):{x:Float, y:Float} {
+    public function getPortPosition(name:String, isInput:Bool):{x:Float, y:Float} 
+    {
         var ports = isInput ? _inputPorts : _outputPorts;
         var port = ports.get(name);
-
-        if (port != null) {
+        if (port != null) 
+        {
             return {x: port.x, y: port.y};
         }
         return {x: 0, y: 0};
@@ -232,32 +222,37 @@ class PanelWidget extends DeviceView {
     // =========================================================================
     // DISPOSE
     // =========================================================================
-
-    override public function dispose():Void {
+    override public function dispose():Void 
+    {
         _header = null;
         _titleLabel = null;
         _content = null;
-
-        if (_inputPorts != null) {
-            for (name in _inputPorts.keys()) {
+        
+        if (_inputPorts != null) 
+        {
+            for (name in _inputPorts.keys()) 
+            {
                 var port = _inputPorts.get(name);
-                if (port != null && port.parent != null) {
+                if (port != null && port.parent != null) 
+                {
                     port.parent.removeChild(port);
                 }
             }
             _inputPorts.clear();
         }
-
-        if (_outputPorts != null) {
-            for (name in _outputPorts.keys()) {
+        
+        if (_outputPorts != null) 
+        {
+            for (name in _outputPorts.keys()) 
+            {
                 var port = _outputPorts.get(name);
-                if (port != null && port.parent != null) {
+                if (port != null && port.parent != null) 
+                {
                     port.parent.removeChild(port);
                 }
             }
             _outputPorts.clear();
         }
-
         super.dispose();
     }
 }

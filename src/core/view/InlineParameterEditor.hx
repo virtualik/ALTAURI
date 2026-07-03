@@ -1,5 +1,4 @@
 package core.view;
-
 import openfl.display.Sprite;
 import openfl.text.TextField;
 import openfl.text.TextFieldType;
@@ -13,39 +12,41 @@ import core.data.Blueprint.PinDef;
 
 /**
 * InlineParameterEditor v1.0 (v3.2)
-* Inline редактор значения контакта прямо на теле блока в Editor.
+* Inline contact value editor directly on node body in Editor.
 *
-* Логика:
-* - Если контакт имеет входящее соединение → редактор скрыт
-* - Иначе → показываем default значение из PinDef
-* - При изменении → записываем в contact.value
+* Logic:
+* - If contact has incoming connection → editor hidden
+* - Otherwise → show default value from PinDef
+* - On change → write to contact.value
 *
-* Архитектура:
+* Architecture:
 * ┌─────────────────────────────────────────────────────────────────┐
 * │  NodeView (Editor Mode)                                         │
 * │                                                                 │
 * │  INPUTS:                                                        │
-* │  ○ freq    [440.0]  ← InlineParameterEditor (если нет провода) │
-* │  ○ quantum [0.10]   ← InlineParameterEditor                    │
-* │  ○ in      ━━━━━━   ← только порт (провод подключен)           │
-* ─────────────────────────────────────────────────────────────────┘
+* │  ○ freq    [440.0]  ← InlineParameterEditor (if no wire)        │
+* │  ○ quantum [0.10]   ← InlineParameterEditor                     │
+* │  ○ in      ━━━━━━   ← port only (wire connected)                │
+* └─────────────────────────────────────────────────────────────────┘
 */
-class InlineParameterEditor extends Sprite {
+class InlineParameterEditor extends Sprite
+{
 	private var _contact:Contact;
 	private var _pinDef:PinDef;
 	private var _inputField:TextField;
 	private var _labelField:TextField;
 	private var _isEditing:Bool = false;
-	
-	public function new(contact:Contact, pinDef:PinDef) {
+	public function new(contact:Contact, pinDef:PinDef)
+	{
 		super();
 		_contact = contact;
 		_pinDef = pinDef;
-		
-		// === FIX: Защита от null pinDef ===
-		if (_pinDef == null) {
-			// Создаём минимальный pinDef для контакта
-			_pinDef = {
+// Protection against null pinDef
+		if (_pinDef == null)
+		{
+// Create minimal pinDef for contact
+			_pinDef =
+			{
 				name: contact.name,
 				type: contact.type,
 				defaultValue: contact.value,
@@ -55,14 +56,13 @@ class InlineParameterEditor extends Sprite {
 				editable: true
 			};
 		}
-		
 		buildUI();
 		subscribeToContact();
 		updateDisplay();
 	}
-	
-	private function buildUI():Void {
-		// Label (имя параметра)
+	private function buildUI():Void
+	{
+// Label (parameter name)
 		_labelField = new TextField();
 		_labelField.defaultTextFormat = new TextFormat("_sans", 9, 0x888888);
 		_labelField.text = (_pinDef.label != null) ? _pinDef.label : _pinDef.name;
@@ -71,8 +71,7 @@ class InlineParameterEditor extends Sprite {
 		_labelField.selectable = false;
 		_labelField.mouseEnabled = false;
 		addChild(_labelField);
-		
-		// Input field (редактор значения)
+// Input field (value editor)
 		_inputField = new TextField();
 		_inputField.type = TextFieldType.INPUT;
 		_inputField.defaultTextFormat = new TextFormat("_sans", 10, 0x00AAFF, true);
@@ -85,84 +84,94 @@ class InlineParameterEditor extends Sprite {
 		_inputField.backgroundColor = 0x1a1a24;
 		_inputField.selectable = true;
 		_inputField.mouseEnabled = true;
-		
-		// Устанавливаем default значение
-		if (_pinDef.defaultValue != null) {
+// Set default value
+		if (_pinDef.defaultValue != null)
+		{
 			_inputField.text = Std.string(_pinDef.defaultValue);
 		}
-		
 		_inputField.addEventListener(FocusEvent.FOCUS_IN, onFocusIn);
 		_inputField.addEventListener(FocusEvent.FOCUS_OUT, onFocusOut);
 		_inputField.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
 		addChild(_inputField);
 	}
-	
-	private function subscribeToContact():Void {
-		_contact.subscribe(function(v:Dynamic) {
-			if (!_isEditing) {
+	private function subscribeToContact():Void
+	{
+		_contact.subscribe(function(v:Dynamic)
+		{
+			if (!_isEditing)
+			{
 				updateDisplay();
 			}
 		});
 	}
-	
-	private function updateDisplay():Void {
-		if (_contact.value != null) {
+	private function updateDisplay():Void
+	{
+		if (_contact.value != null)
+		{
 			_inputField.text = Std.string(_contact.value);
-		} else if (_pinDef.defaultValue != null) {
+		}
+		else if (_pinDef.defaultValue != null)
+		{
 			_inputField.text = Std.string(_pinDef.defaultValue);
 		}
 	}
-	
-	private function onFocusIn(e:FocusEvent):Void {
+	private function onFocusIn(e:FocusEvent):Void
+	{
 		_isEditing = true;
 	}
-	
-	private function onFocusOut(e:FocusEvent):Void {
+	private function onFocusOut(e:FocusEvent):Void
+	{
 		_isEditing = false;
 		pushValue();
 	}
-	
-	private function onKeyDown(e:KeyboardEvent):Void {
-		if (e.keyCode == Keyboard.ENTER) {
+	private function onKeyDown(e:KeyboardEvent):Void
+	{
+		if (e.keyCode == Keyboard.ENTER)
+		{
 			pushValue();
 			if (stage != null) stage.focus = null;
 		}
 	}
-	
-	private function pushValue():Void {
+	private function pushValue():Void
+	{
 		var text = _inputField.text;
 		var floatVal = Std.parseFloat(text);
-		
-		if (!Math.isNaN(floatVal)) {
+		if (!Math.isNaN(floatVal))
+		{
 			_contact.value = floatVal;
-		} else if (text.toLowerCase() == "true") {
+		}
+		else if (text.toLowerCase() == "true")
+		{
 			_contact.value = true;
-		} else if (text.toLowerCase() == "false") {
+		}
+		else if (text.toLowerCase() == "false")
+		{
 			_contact.value = false;
-		} else {
+		}
+		else {
 			_contact.value = text;
 		}
 	}
-	
 	/**
-	 * Скрыть редактор (когда подключён провод).
-	 */
-	public function hideEditor():Void {
+	* Hide editor (when wire connected).
+	*/
+	public function hideEditor():Void
+	{
 		_inputField.visible = false;
 		_labelField.x = 0;
 	}
-	
 	/**
-	 * Показать редактор (когда провод отключён).
-	 */
-	public function showEditor():Void {
+	* Show editor (when wire disconnected).
+	*/
+	public function showEditor():Void
+	{
 		_inputField.visible = true;
 		_labelField.x = 0;
 		_inputField.x = 55;
 		updateDisplay();
 	}
-	
-	public function dispose():Void {
+	public function dispose():Void
+	{
 		_contact.unsubscribe(null);
 		_inputField.removeEventListener(FocusEvent.FOCUS_IN, onFocusIn);
 		_inputField.removeEventListener(FocusEvent.FOCUS_OUT, onFocusOut);

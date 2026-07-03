@@ -1,11 +1,32 @@
 package utils;
 
 /**
- * UID Generator v1.1
+ * UID GENERATOR v1.1
  * Generates unique identifiers for Atoms and Wires.
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   UID (Static)                                                          │
+ * │                                                                         │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  Methods:                                                       │   │
+ * │   │  - generate()      → "id_XXXXXXXX" (8 hex chars)                │   │
+ * │   │  - generateShort() → "XXXX" (4 hex chars)                       │   │
+ * │   │                                                                 │   │
+ * │   │  Format:                                                        │   │
+ * │   │  - Characters: 0-9, a-f (hexadecimal)                           │   │
+ * │   │  - Prefix: "id_" for full IDs                                   │   │
+ * │   │  - No prefix for short IDs                                      │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   Usage:                                                                │
+ * │   ───────                                                               │
+ * │   var atomId = UID.generate();       // "id_a3f7b2c1"                   │
+ * │   var shortId = UID.generateShort(); // "f2a1"                          │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
 class UID {
-
     /**
      * Generates a random unique ID string.
      * Format: "id_XXXXXXXX" (8 random hex chars)
@@ -18,7 +39,7 @@ class UID {
         }
         return str;
     }
-
+    
     /**
      * Generates a short ID (4 chars).
      * Format: "XXXX" (4 random hex chars)

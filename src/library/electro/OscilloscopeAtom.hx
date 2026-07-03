@@ -11,10 +11,10 @@ import system.managers.Driver;
  * OSCILLOSCOPE ATOM v4.0 (Time-Based Sampling)
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * АРХИТЕКТУРА: "ATOM IS DATABANK & COMPUTE CORE"
+ * ARCHITECTURE: "ATOM IS DATABANK & COMPUTE CORE"
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * OscilloscopeAtom - это активный атом-драйвер с тактированием от TickGenerator.
+ * OscilloscopeAtom is an active driver atom with timing from TickGenerator.
  *
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │   OscilloscopeAtom                                                      │
@@ -22,34 +22,34 @@ import system.managers.Driver;
  * │   А) COMPUTE MODULE:                                                    │
  * │   ─────────────────                                                     │
  * │   update(dt) {                                                          │
- * │       1. Аккумулируем время до следующего сэмпла                        │
- * │       2. Вычисляем интервал: sampleInterval = timeScale / BUFFER_SIZE   │
- * │       3. Если накопилось достаточно времени → takeSample()              │
- * │       4. takeSample() читает текущее значение входа "in"                │
- * │       5. Проверяем триггер и записываем в буфер                         │
+ * │       1. Accumulate time until next sample                              │
+ * │       2. Calculate interval: sampleInterval = timeScale / BUFFER_SIZE   │
+ * │       3. If enough time accumulated → takeSample()                      │
+ * │       4. takeSample() reads current "in" contact value                  │
+ * │       5. Check trigger and write to buffer                              │
  * │   }                                                                     │
  * │                                                                         │
  * │   Б) DATABANK:                                                          │
  * │   ─────────────                                                         │
- * │   private var _buffer:Array<Float>;        // Кольцевой буфер 512       │
- * │   private var _writeIndex:Int = 0;         // Текущая позиция записи    │
- * │   private var _samplesCollected:Int = 0;   // Сколько сэмплов собрано   │
- * │   private var _totalSamples:Int = 0;       // Общий счётчик             │
- * │   private var _sampleAccumulator:Float = 0;// Накопитель времени        │
- * │   private var _timeScale:Float = 1.0;      // секунд на весь экран      │
- * │   private var _triggerLevel:Float = 0.0;   // Уровень триггера          │
+ * │   private var _buffer:Array<Float>;        // Ring buffer 512           │
+ * │   private var _writeIndex:Int = 0;         // Current write position    │
+ * │   private var _samplesCollected:Int = 0;   // Samples collected count   │
+ * │   private var _totalSamples:Int = 0;       // Total counter             │
+ * │   private var _sampleAccumulator:Float = 0;// Time accumulator          │
+ * │   private var _timeScale:Float = 1.0;      // Seconds per full screen   │
+ * │   private var _triggerLevel:Float = 0.0;   // Trigger level             │
  * │   private var _triggerEdge:Int = 0;        // 0=rising, 1=falling       │
  * │   private var _triggerMode:Int = 0;        // 0=auto, 1=normal, 2=single│
- * │   private var _triggerArmed:Bool = true;   // вооружён ли триггер       │
+ * │   private var _triggerArmed:Bool = true;   // Is trigger armed          │
  * │                                                                         │
- * │   public function getBuffer():Array<Float>  // API для DeviceView       │
+ * │   public function getBuffer():Array<Float>  // API for DeviceView       │
  * │   public function getWriteIndex():Int                                   │
  * │   public function getSamplesCollected():Int                             │
- * │   public function getSamplingStatus() // Статус сэмплирования           │
+ * │   public function getSamplingStatus() // Sampling status                │
  * │                                                                         │
  * │   В) FACE (DeviceView):                                                 │
  * │   ──────────────────                                                    │
- * │   OscilloscopeWidget читает из Databank:                                │
+ * │   OscilloscopeWidget reads from Databank:                               │
  * │   ┌─────────────────────────────────────────────────────────────────┐   │
  * │   │ var buffer = oscAtom.getBuffer();                               │   │
  * │   │ var idx = oscAtom.getWriteIndex();                              │   │
@@ -58,35 +58,35 @@ import system.managers.Driver;
  * │                                                                         │
  * │   Headless Mode:                                                        │
  * │   ──────────────                                                        │
- * │   Атом работает автономно - сэмплирует вход по времени.                 │
- * │   DeviceView не нужен для работы.                                       │
- * │   Данные могут быть сохранены через getPersistentState().               │
+ * │   Atom works autonomously - samples input by time.                      │
+ * │   DeviceView not required for operation.                                │
+ * │   Data can be saved via getPersistentState().                           │
  * │                                                                         │
  * │   ═══════════════════════════════════════════════════════════════════   │
- * │   ТАКТИРОВАНИЕ ОТ TICKGENERATOR                                         │
+ * │   TIMING FROM TICKGENERATOR                                             │
  * │   ═══════════════════════════════════════════════════════════════════   │
  * │                                                                         │
  * │   TickGenerator (60 Hz)                                                 │
  * │        │                                                                │
- * │        ├──► SignalGenerator.update(dt) - генерирует сигнал              │
+ * │        ├──► SignalGenerator.update(dt) - generates signal               │
  * │        │                                                                │
- * │        └──► OscilloscopeAtom.update(dt) - сэмплирует вход               │
+ * │        └──► OscilloscopeAtom.update(dt) - samples input                 │
  * │                                                                         │
- * │   Оба используют один fixedDeltaTime для консистентного времени!        │
+ * │   Both use same fixedDeltaTime for consistent time!                     │
  * │                                                                         │
  * │   ═══════════════════════════════════════════════════════════════════   │
- * │   РАСЧЁТ ИНТЕРВАЛОВ                                                     │
+ * │   INTERVAL CALCULATION                                                  │
  * │   ═══════════════════════════════════════════════════════════════════   │
  * │                                                                         │
- * │   timeScale = 0.01 (10ms на экран)                                      │
+ * │   timeScale = 0.01 (10ms per screen)                                    │
  * │   BUFFER_SIZE = 512                                                     │
  * │   sampleInterval = 0.01 / 512 = 19.5μs                                  │
  * │   sampleRate = 512 / 0.01 = 51.2 kHz                                    │
  * │                                                                         │
- * │   Для синусоиды 440 Hz:                                                 │
- * │   - Период = 2.27ms                                                     │
- * │   - Сэмплов на период = 51.2kHz / 440Hz ≈ 116 сэмплов                   │
- * │   - Достаточно для плавной волны!                                       │
+ * │   For 440 Hz sine wave:                                                 │
+ * │   - Period = 2.27ms                                                     │
+ * │   - Samples per period = 51.2kHz / 440Hz ≈ 116 samples                  │
+ * │   - Enough for smooth wave!                                             │
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
@@ -98,75 +98,54 @@ import system.managers.Driver;
  * - Trigger logic works with time-based sampling
  * - Input contact ignores oscillation for fast signals
  * - Sampling status API for debugging
- *
- * v3.0 Changes:
- * - REMOVED: Double buffering (Input Buffer). No more waiting for 1024 samples.
- * - ARCHITECTURE: Direct write to ring buffer.
- * - RESULT: Instant visualization. Zero latency.
- * - EFFICIENCY: Single array allocation.
- *
- * v2.3 Changes (Performance & Stability):
- * - FIXED: Reduced INPUT_BUFFER_SIZE to 512 to match display buffer.
- * - FIXED: flushInputBufferToDisplay() loop now correctly copies exactly
- *   BUFFER_SIZE samples, preventing double-overwrite artifacts.
- * - IMPROVED: processInput() is more robust handling mixed data types.
- *
- * v2.2 Changes:
- * - ADDED: Display Shape property (RECTANGULAR, SQUARE, CIRCULAR).
- *
- * v2.1 Changes:
- * - FIXED: addSamples() now increments _totalSamples per sample added.
- * - FIXED: getPersistentState() merges with super result.
- * - FIXED: restoreState() calls super.restoreState() first.
- * - FIXED: processInput() comment clarifies Float/Int order.
  */
 class OscilloscopeAtom extends Atom implements Driver
 {
     // =========================================================================
     // CONFIGURATION
     // =========================================================================
-    // Размер буфера = ширина экрана осциллографа в пикселях.
-    // 512 точек достаточно для плавной линии.
+    // Buffer size = oscilloscope screen width in pixels.
+    // 512 points is enough for smooth line.
     private static inline var BUFFER_SIZE:Int = 512;
     
-    // Минимальный интервал сэмпла (защита от слишком высокой частоты)
+    // Minimum sample interval (protection from too high frequency)
     private static inline var MIN_SAMPLE_INTERVAL:Float = 0.00001; // 10μs
-    
+
     // =========================================================================
     // DISPLAY SHAPE ENUM
     // =========================================================================
     public static inline var SHAPE_RECTANGULAR:Int = 0;
     public static inline var SHAPE_SQUARE:Int = 1;
     public static inline var SHAPE_CIRCULAR:Int = 2;
-    
+
     // =========================================================================
     // DATABANK
     // =========================================================================
     private var _buffer:Array<Float>;
-    // Индекс записи в кольцевом буфере
+    // Write index in ring buffer
     private var _writeIndex:Int = 0;
-    // Счетчик собранных сэмплов (для логики "ожидание сигнала")
+    // Counter of collected samples (for "waiting for signal" logic)
     private var _samplesCollected:Int = 0;
     private var _totalSamples:Int = 0;
     private var _lastValue:Float = 0.0;
     private var _displayShape:Int = SHAPE_RECTANGULAR;
-    
+
     // =========================================================================
     // TIME BASE & TRIGGER
     // =========================================================================
-    private var _timeScale:Float = 1.0;      // секунд на весь экран (ширина буфера)
+    private var _timeScale:Float = 0.1;      // seconds per full screen (buffer width)
     private var _triggerLevel:Float = 0.0;
     private var _triggerEdge:Int = 0;        // 0=rising, 1=falling
     private var _triggerMode:Int = 0;        // 0=auto, 1=normal, 2=single
-    private var _triggerArmed:Bool = true;   // вооружён ли триггер (для single/normal)
-    
+    private var _triggerArmed:Bool = true;   // is trigger armed (for single/normal)
+
     // =========================================================================
     // SAMPLING STATE (v4.0)
     // =========================================================================
-    private var _sampleAccumulator:Float = 0.0;  // Накопитель времени для сэмплов
-    private var _lastInputValue:Float = 0.0;     // Последнее прочитанное значение входа
-    private var _isSampling:Bool = false;        // Флаг активного сэмплирования
-    
+    private var _sampleAccumulator:Float = 0.0;  // Time accumulator for samples
+    private var _lastInputValue:Float = 0.0;     // Last read input value
+    private var _isSampling:Bool = false;        // Active sampling flag
+
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
@@ -175,25 +154,25 @@ class OscilloscopeAtom extends Atom implements Driver
         super(
             [
                 new Contact(null, INPUT, "in"),
-                new Contact(1.0, INPUT, "timeScale"),
+                new Contact(0.1, INPUT, "timeScale"),
                 new Contact(0.0, INPUT, "triggerLevel"),
                 new Contact(0, INPUT, "triggerEdge"),
                 new Contact(0, INPUT, "triggerMode")
             ],
-            [], // нет выходов
+            [], // no outputs
             null,
             id,
             "Oscilloscope",
-            true  // v4.0: isActive = true (регистрируемся в DriverManager)
+            true  // v4.0: isActive = true (register in DriverManager)
         );
         
         var inContact = getInput("in");
         if (inContact != null) {
-            inContact.ignoreOscillation = true;  // v4.0: Игнорируем осцилляцию для быстрых сигналов
+            inContact.ignoreOscillation = true;  // v4.0: Ignore oscillation for fast signals
             inContact.resetOscillation();
         }
         
-        // Инициализация буфера нулями
+        // Initialize buffer with zeros
         _buffer = [];
         for (i in 0...BUFFER_SIZE) {
             _buffer.push(0.0);
@@ -201,12 +180,12 @@ class OscilloscopeAtom extends Atom implements Driver
         
         trace('OscilloscopeAtom: Created (id: $id, bufferSize: $BUFFER_SIZE, active: true)');
     }
-    
+
     // =========================================================================
     // LIFECYCLE - Driver Interface
     // =========================================================================
     /**
-     * Инициализация драйвера.
+     * Driver initialization.
      */
     override public function init():Void
     {
@@ -216,45 +195,45 @@ class OscilloscopeAtom extends Atom implements Driver
         _triggerArmed = true;
         trace('OscilloscopeAtom: Initialized (sampling active)');
     }
-    
+
     /**
-     * Обновление каждый кадр - основная логика сэмплирования.
-     * Вызывается из DriverManager.update().
-     * 
-     * v4.0: Time-based sampling вместо event-driven
-     * 
-     * @param dt Delta time в секундах
+     * Update every frame - main sampling logic.
+     * Called from DriverManager.update().
+     *
+     * v4.0: Time-based sampling instead of event-driven
+     *
+     * @param dt Delta time in seconds
      */
     override public function update(dt:Float):Void
     {
         if (_isDisposed || !_isSampling) return;
         
-        // 1. Считываем параметры (timeScale, trigger и т.д.)
+        // 1. Read parameters (timeScale, trigger, etc.)
         readParameters();
         
-        // 2. Вычисляем интервал сэмпла
+        // 2. Calculate sample interval
         var sampleInterval = _timeScale / BUFFER_SIZE;
         if (sampleInterval < MIN_SAMPLE_INTERVAL) {
             sampleInterval = MIN_SAMPLE_INTERVAL;
         }
         
-        // 3. Аккумулируем время
+        // 3. Accumulate time
         _sampleAccumulator += dt;
         
-        // 4. Если накопилось достаточно времени - берём сэмпл(ы)
+        // 4. If enough time accumulated - take sample(s)
         while (_sampleAccumulator >= sampleInterval) {
             takeSample();
             _sampleAccumulator -= sampleInterval;
         }
         
-        // 5. Авто-вооружение триггера в auto mode
+        // 5. Auto-arm trigger in auto mode
         if (_triggerMode == 0 && !_triggerArmed && _samplesCollected >= BUFFER_SIZE) {
             _triggerArmed = true;
         }
     }
-    
+
     /**
-     * Освобождение ресурсов.
+     * Free resources.
      */
     override public function dispose():Void
     {
@@ -263,12 +242,12 @@ class OscilloscopeAtom extends Atom implements Driver
         super.dispose();
         trace('OscilloscopeAtom: Disposed (total samples: $_totalSamples)');
     }
-    
+
     // =========================================================================
     // PARAMETER READING
     // =========================================================================
     /**
-     * Считать значения с входных контактов параметров.
+     * Read values from parameter input contacts.
      */
     private function readParameters():Void
     {
@@ -302,20 +281,20 @@ class OscilloscopeAtom extends Atom implements Driver
             if (_triggerMode == 2) _triggerArmed = true; // single mode: re-arm
         }
     }
-    
+
     // =========================================================================
     // EVENT HANDLING (for parameter changes only)
     // =========================================================================
     /**
-     * Обработка изменений контактов.
-     * v4.0: Только для параметров, не для сэмплирования!
+     * Handle contact changes.
+     * v4.0: Only for parameters, not for sampling!
      */
     override public function onContactChanged(c:Contact):Void
     {
         if (_isDisposed) return;
         
-        // v4.0: Игнорируем "in" для сэмплирования - оно происходит в update()
-        // Но обрабатываем изменения параметров
+        // v4.0: Ignore "in" for sampling - it happens in update()
+        // But process parameter changes
         switch (c.name) {
             case "timeScale":
                 _timeScale = _safeFloat(c.value, 1.0);
@@ -330,79 +309,79 @@ class OscilloscopeAtom extends Atom implements Driver
                 _triggerMode = _safeInt(c.value, 0);
                 if (_triggerMode == 2) _triggerArmed = true; // single mode: re-arm
             case "in":
-                // v4.0: Игнорируем для сэмплирования, но сохраняем последнее значение
-                // на случай если update() не успевает прочитать
+                // v4.0: Ignore for sampling, but save last value
+                // in case update() doesn't have time to read
                 if (c.value != null) {
                     _lastInputValue = _toFloat(c.value, 0.0);
                 }
         }
     }
-    
+
     // =========================================================================
     // SAMPLING LOGIC (v4.0)
     // =========================================================================
-/**
- * Взять один сэмпл с входа.
- * Вызывается из update() когда накопилось достаточно времени.
- * 
- * v4.1 FIX: Всегда пишем в буфер для непрерывной развёртки,
- * даже если триггер не сработал. Триггер только синхронизирует
- * начало отображения, но не останавливает сэмплирование.
- */
-private function takeSample():Void
-{
-    // 1. Читаем текущее значение входа
-    var inContact = getInput("in");
-    var currentValue:Float = 0.0;
-    if (inContact != null && inContact.value != null) {
-        currentValue = _toFloat(inContact.value, _lastInputValue);
-    } else {
-        currentValue = _lastInputValue;
-    }
-    
-    // Обновляем последнее значение
-    _lastInputValue = currentValue;
-    
-    // 2. === FIX v4.1: ВСЕГДА пишем в буфер (непрерывная развёртка) ===
-    _buffer[_writeIndex] = currentValue;
-    _writeIndex = (_writeIndex + 1) % BUFFER_SIZE;
-    if (_samplesCollected < BUFFER_SIZE) {
-        _samplesCollected++;
-    }
-    _totalSamples++;
-    
-    // 3. Логика триггера (только для синхронизации, не блокирует сэмплирование)
-    if (_triggerMode != 0 && !_triggerArmed) {
-        // Ждём срабатывания триггера
-        var triggered = false;
-        if (_triggerEdge == 0) { // rising
-            if (_lastValue < _triggerLevel && currentValue >= _triggerLevel) {
-                triggered = true;
-            }
-        } else { // falling
-            if (_lastValue > _triggerLevel && currentValue <= _triggerLevel) {
-                triggered = true;
-            }
+    /**
+     * Take one sample from input.
+     * Called from update() when enough time accumulated.
+     *
+     * v4.1 FIX: Always write to buffer for continuous sweep,
+     * even if trigger hasn't fired. Trigger only syncs display start,
+     * but doesn't stop sampling.
+     */
+    private function takeSample():Void
+    {
+        // 1. Read current input value
+        var inContact = getInput("in");
+        var currentValue:Float = 0.0;
+        if (inContact != null && inContact.value != null) {
+            currentValue = _toFloat(inContact.value, _lastInputValue);
+        } else {
+            currentValue = _lastInputValue;
         }
-        if (triggered) {
-            _triggerArmed = false;
-            // Сбрасываем writeIndex чтобы начать отображение с этого сэмпла
-            // Но НЕ очищаем буфер - просто меняем точку отсчёта
-            _writeIndex = 0;
-            _samplesCollected = 1;
+        
+        // Update last value
+        _lastInputValue = currentValue;
+        
+        // 2. === FIX v4.1: ALWAYS write to buffer (continuous sweep) ===
+        _buffer[_writeIndex] = currentValue;
+        _writeIndex = (_writeIndex + 1) % BUFFER_SIZE;
+        if (_samplesCollected < BUFFER_SIZE) {
+            _samplesCollected++;
         }
+        _totalSamples++;
+        
+        // 3. Trigger logic (only for sync, doesn't block sampling)
+        if (_triggerMode != 0 && !_triggerArmed) {
+            // Wait for trigger
+            var triggered = false;
+            if (_triggerEdge == 0) { // rising
+                if (_lastValue < _triggerLevel && currentValue >= _triggerLevel) {
+                    triggered = true;
+                }
+            } else { // falling
+                if (_lastValue > _triggerLevel && currentValue <= _triggerLevel) {
+                    triggered = true;
+                }
+            }
+            if (triggered) {
+                _triggerArmed = false;
+                // Reset writeIndex to start display from this sample
+                // But DON'T clear buffer - just change reference point
+                _writeIndex = 0;
+                _samplesCollected = 1;
+            }
+            _lastValue = currentValue;
+            return; // Exit, but buffer already written!
+        }
+        
+        // 4. Auto-arm trigger in auto mode
+        if (_triggerMode == 0 && !_triggerArmed && _samplesCollected >= BUFFER_SIZE) {
+            _triggerArmed = true;
+        }
+        
         _lastValue = currentValue;
-        return; // Выходим, но буфер уже записан!
     }
-    
-    // 4. Авто-вооружение триггера в auto mode
-    if (_triggerMode == 0 && !_triggerArmed && _samplesCollected >= BUFFER_SIZE) {
-        _triggerArmed = true;
-    }
-    
-    _lastValue = currentValue;
-}
-    
+
     // =========================================================================
     // PUBLIC API
     // =========================================================================
@@ -420,9 +399,9 @@ private function takeSample():Void
             _displayShape = shape;
         }
     }
-    
+
     /**
-     * v4.0: Статус сэмплирования для отладки
+     * v4.0: Sampling status for debugging
      */
     public function getSamplingStatus():{
         sampleRate:Float,
@@ -438,9 +417,9 @@ private function takeSample():Void
             accumulator: _sampleAccumulator
         };
     }
-    
+
     /**
-     * v4.0: Включить/выключить сэмплирование
+     * v4.0: Enable/disable sampling
      */
     public function setSampling(active:Bool):Void
     {
@@ -450,46 +429,42 @@ private function takeSample():Void
             _triggerArmed = true;
         }
     }
-    
+
     public function clearBuffer():Void
     {
         _writeIndex = 0;
         _samplesCollected = 0;
-        // _totalSamples не сбрасываем - это общая статистика
+        // Don't reset _totalSamples - this is overall statistics
         _lastValue = 0.0;
         for (i in 0...BUFFER_SIZE) {
             _buffer[i] = 0.0;
         }
     }
-    
+
     // =========================================================================
     // TIME SCALE & TRIGGER API
     // =========================================================================
     public function getTimeScale():Float return _timeScale;
-    public function setTimeScale(scale:Float):Void { 
-        _timeScale = Math.max(0.001, scale); 
+    public function setTimeScale(scale:Float):Void {
+        _timeScale = Math.max(0.001, scale);
     }
-    
     public function getTriggerLevel():Float return _triggerLevel;
-    public function setTriggerLevel(level:Float):Void { 
-        _triggerLevel = Math.max(-1.0, Math.min(1.0, level)); 
+    public function setTriggerLevel(level:Float):Void {
+        _triggerLevel = Math.max(-1.0, Math.min(1.0, level));
     }
-    
     public function getTriggerEdge():Int return _triggerEdge;
-    public function setTriggerEdge(edge:Int):Void { 
-        _triggerEdge = edge; 
+    public function setTriggerEdge(edge:Int):Void {
+        _triggerEdge = edge;
     }
-    
     public function getTriggerMode():Int return _triggerMode;
     public function setTriggerMode(mode:Int):Void {
         _triggerMode = mode;
         if (mode == 2) _triggerArmed = true;
     }
-    
-    public function rearm():Void { 
-        _triggerArmed = true; 
+    public function rearm():Void {
+        _triggerArmed = true;
     }
-    
+
     // =========================================================================
     // STATE SERIALIZATION
     // =========================================================================
@@ -509,12 +484,11 @@ private function takeSample():Void
         }
         return result;
     }
-    
+
     override public function restoreState(state:Dynamic):Void
     {
         if (state == null) return;
         super.restoreState(state);
-        
         if (state.timeScale != null) _timeScale = state.timeScale;
         if (state.triggerLevel != null) _triggerLevel = state.triggerLevel;
         if (state.triggerEdge != null) _triggerEdge = state.triggerEdge;
@@ -525,16 +499,15 @@ private function takeSample():Void
         if (state.displayShape != null) _displayShape = state.displayShape;
         if (state.totalSamples != null) _totalSamples = state.totalSamples;
         
-        // Повторно настраиваем контакт
+        // Reconfigure contact
         var inContact = getInput("in");
         if (inContact != null) {
             inContact.ignoreOscillation = true;
             inContact.resetOscillation();
         }
-        
         trace('OscilloscopeAtom: Restored state (timeScale: $_timeScale, totalSamples: $_totalSamples)');
     }
-    
+
     // =========================================================================
     // UTILITY FUNCTIONS
     // =========================================================================
@@ -548,7 +521,7 @@ private function takeSample():Void
         }
         return defaultVal;
     }
-    
+
     private function _safeInt(value:Dynamic, defaultVal:Int):Int {
         if (value == null) return defaultVal;
         if (Std.isOfType(value, Int)) return cast value;
@@ -559,7 +532,7 @@ private function takeSample():Void
         }
         return defaultVal;
     }
-    
+
     private function _toFloat(value:Dynamic, defaultVal:Float):Float {
         if (value == null) return defaultVal;
         if (Std.isOfType(value, Float)) return cast value;

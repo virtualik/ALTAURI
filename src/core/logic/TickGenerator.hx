@@ -6,92 +6,93 @@ import system.managers.DriverManager;
 
 /**
  * TICK GENERATOR v1.1 (Unified Clock & Queue + Thread Safety)
- * Единый центр управления симуляцией.
+ *
+ * The central hub for simulation control.
+ *
+ * Responsibilities:
+ * - Manages the fixed time-step simulation loop
+ * - Schedules and executes logic tasks (CRITICAL, NORMAL, BACKGROUND)
+ * - Provides thread-safe task queue for external threads (e.g., Audio)
+ *
+ * Architecture:
+ * ┌───────────────────────────────────────────────────────┐
+ * │ External Threads        Main Loop (Game Loop)         │
+ * │                                                       │
+ * │ ┌────────────────┐      ┌──────────────────────────┐  │
+ * │ │Audio Callback  │      │ onEnterFrame() {         │  │
+ * │ │scheduleNextTick│─SPSC─▶ TickGenerator.update(dt);│  │
+ * │ └────────────────Queue  │ }                        │  │
+ * │                         │                          │  │
+ * │ ┌────────────────       │ flushPendingInputs()     │  │
+ * │ │UI Input (Main) │─────▶│   ↓                      │  │
+ * │ │scheduleNextTick│(safe)│ performStep()            │  │
+ * │ └────────────────┘thread│ ├─►DriverManager.update()│  │
+ * │                         │ ├─►flushPendingInputs()  │  │
+ * │                         │ ├─►process()             │  │
+ * │                         │ └─►emitTick()            │  │
+ * └───────────────────────────────────────────────────────┘
  *
  * v1.1 Changes:
- * - FIXED: Заменен массив _pendingInputs на LockFreeQueue<Void->Void>.
- *   Это полностью устраняет Data Race при вызове scheduleNextTick()
- *   из сторонних потоков (например, Audio Thread в MiniAudioAtom).
- *
- * Архитектура:
- * ┌─────────────────────────────────────────────────────────────────────────┐
- * │   External Threads                  Main Loop (Game Loop)              │
- * │                                                                         │
- * │   ┌───────────────────┐             ┌─────────────────────────────────┐ │
- * │   │ Audio Callback    │             │  onEnterFrame() {              │ │
- * │   │ scheduleNextTick()│───SPSC────►│    TickGenerator.update(dt);   │ │
- * │   └───────────────────┘   Queue     │  }                              │ │
- * │                                         │                             │
- * │   ┌───────────────────┐                 ▼                             │
- * │   │ UI Input (Main)   │──────────► flushPendingInputs()              │
- * │   │ scheduleNextTick()│  (безопасно,│    │                            │
- * │   └───────────────────┘   тот поток) │    ▼                            │
- * │                                         performStep()                 │
- * │                                           ├─ DriverManager.update()   │
- * │                                           ├─ flushPendingInputs()     │
- * │                                           ├─ process()                │
- * │                                           └─ emitTick()               │
- * └─────────────────────────────────────────────────────────────────────────┘
+ * - Replaced _pendingInputs array with LockFreeQueue<Void->Void>.
+ *   This eliminates Data Race when calling scheduleNextTick() from
+ *   external threads (e.g., Audio Thread in MiniAudioAtom).
  */
 class TickGenerator
 {
-    private static var _instance:TickGenerator;
+    private static var _instance: TickGenerator;
 
     // =========================================================================
-    // CONFIGURATION (from SimulationClock)
+    // CONFIGURATION
     // =========================================================================
+    /** Simulation frequency in Hertz. */
+    public var targetHz(default, set): Int = 60;
 
-    /** Частота симуляции в Герцах. */
-    public var targetHz(default, set):Int = 60;
-    private function set_targetHz(value:Int):Int
+    private function set_targetHz(value: Int): Int
     {
         targetHz = Std.int(Math.max(1, value));
         fixedDeltaTime = 1.0 / targetHz;
         return targetHz;
     }
 
-    /** Фиксированный шаг времени в секундах. */
-    public var fixedDeltaTime(default, null):Float = 1.0 / 60.0;
+    /** Fixed time step in seconds. */
+    public var fixedDeltaTime(default, null): Float = 1.0 / 60.0;
 
-    /** Максимальное количество шагов за один кадр (защита от спирали смерти). */
-    public var maxStepsPerFrame:Int = 5;
-
-    // =========================================================================
-    // STATE (from Timebase & SignalQueue)
-    // =========================================================================
-
-    /** Глобальный такт (счетчик импульсов). */
-    public var currentTick(default, null):Int = 0;
-
-    /** Время старта текущего кадра (для профилирования). */
-    public var frameStartTime(default, null):Float = 0.0;
-
-    private var _accumulator:Float = 0.0;
-    private var _isPaused:Bool = false;
+    /** Maximum steps per frame (protection against "death spiral"). */
+    public var maxStepsPerFrame: Int = 5;
 
     // =========================================================================
-    // QUEUE SYSTEM (from SignalQueue)
+    // STATE
     // =========================================================================
+    /** Global tick counter (impulse count). */
+    public var currentTick(default, null): Int = 0;
 
-    private var _queuesWrite:Map<Priority, Array<Void -> Void>>;
-    private var _queuesRead:Map<Priority, Array<Void -> Void>>;
-    private var _isProcessing:Bool = false;
-    private var _suspended:Bool = false;
+    /** Start time of current frame (for profiling). */
+    public var frameStartTime(default, null): Float = 0.0;
 
-    // v1.1: Lock-free очередь для межпоточного обмена
-    private var _pendingQueue:LockFreeQueue<Void -> Void>;
-    
-    private var _blockedUntilNextFrame:Bool = false;
-    private var _iterationGuard:Int = 0;
-    private var _maxIterationsPerTick:Int = 5000;
+    private var _accumulator: Float = 0.0;
+    private var _isPaused: Bool = false;
+
+    // =========================================================================
+    // QUEUE SYSTEM
+    // =========================================================================
+    private var _queuesWrite: Map<Priority, Array<Void -> Void>>;
+    private var _queuesRead: Map<Priority, Array<Void -> Void>>;
+    private var _isProcessing: Bool = false;
+    private var _suspended: Bool = false;
+
+    /** v1.1: Lock-free queue for cross-thread communication. */
+    private var _pendingQueue: LockFreeQueue<Void -> Void>;
+
+    private var _blockedUntilNextFrame: Bool = false;
+    private var _iterationGuard: Int = 0;
+    private var _maxIterationsPerTick: Int = 5000;
 
     // =========================================================================
     // LISTENERS (Tick Event)
     // =========================================================================
+    private var _tickListeners: Array<Void -> Void> = [];
 
-    private var _tickListeners:Array<Void -> Void> = [];
-
-    public static function getInstance():TickGenerator
+    public static function getInstance(): TickGenerator
     {
         if (_instance == null) _instance = new TickGenerator();
         return _instance;
@@ -107,91 +108,95 @@ class TickGenerator
         _queuesRead.set(CRITICAL, []);
         _queuesRead.set(NORMAL, []);
         _queuesRead.set(BACKGROUND, []);
-        
-        // 4096 задач с запасом даже при самом агрессивном аудиопотоке
+
+        // 4096 tasks capacity - enough for aggressive audio streams
         _pendingQueue = new LockFreeQueue<Void -> Void>(4096);
     }
 
     // =========================================================================
-    // MAIN LOOP (from SimulationClock)
+    // MAIN LOOP
     // =========================================================================
-
     /**
-     * Главный метод обновления. Вызывается из Main.onMainLoop.
+     * Main update method. Called from Main.onMainLoop.
+     *
+     * @param realDt Real delta time in seconds
      */
-    public function update(realDt:Float):Void
+    public function update(realDt: Float): Void
     {
         if (_isPaused) return;
 
         frameStartTime = Timer.stamp();
 
-        // 1. Накапливаем время
+        // 1. Accumulate time
         _accumulator += realDt;
 
-        // 2. Защита от "Спирали смерти"
-        var maxAccum:Float = fixedDeltaTime * maxStepsPerFrame;
+        // 2. Protection against "Death Spiral"
+        // If accumulator grows too large (lag), clamp it to prevent freezing
+        var maxAccum: Float = fixedDeltaTime * maxStepsPerFrame;
         if (_accumulator > maxAccum)
         {
             _accumulator = maxAccum;
         }
 
-        // 3. Выполняем шаги симуляции
-        var stepsPerformed:Int = 0;
-
+        // 3. Perform simulation steps
+        var stepsPerformed: Int = 0;
         while (_accumulator >= fixedDeltaTime)
         {
             performStep(fixedDeltaTime);
             _accumulator -= fixedDeltaTime;
             stepsPerformed++;
-
             if (stepsPerformed >= maxStepsPerFrame) break;
         }
     }
 
     /**
-     * Один дискретный шаг симуляции.
+     * One discrete simulation step.
+     *
+     * Order of execution is critical:
+     * 1. Drivers (Analog/Generators) produce data FIRST
+     * 2. Logic (Digital) propagates data SECOND
      */
-    private function performStep(dt:Float):Void
+    private function performStep(dt: Float): Void
     {
-        // 1. Продвигаем глобальный счетчик тактов (Timebase)
+        // 1. Advance global tick counter (Timebase)
         currentTick++;
 
-        // 2. Обновляем ДРАЙВЕРЫ (Analog/Generators) — СНАЧАЛА!
-        // Генераторы создают данные в своих выходных контактах
+        // 2. Update DRIVERS (Analog/Generators) - FIRST!
+        // Generators create data in their output contacts
         DriverManager.getInstance().update(dt);
 
-        // 3. Запускаем ТАКТ ЛОГИКИ (Digital) — ПОТОМ!
-        // SignalQueue распространяет данные от генераторов к осциллографам
+        // 3. Run LOGIC TICK (Digital) - SECOND!
+        // SignalQueue propagates data from generators to oscilloscopes
         tick();
     }
 
     // =========================================================================
-    // TICK LOGIC (from SignalQueue + Event)
+    // TICK LOGIC
     // =========================================================================
-
     /**
-     * ТАКТ СИМУЛЯЦИИ
-     * Обрабатывает отложенные задачи и уведомляет слушателей.
+     * SIMULATION TICK
+     *
+     * Processes pending tasks and notifies listeners.
      */
-    public function tick():Void
+    public function tick(): Void
     {
-        // Сброс блокировок нового кадра
+        // Reset new frame locks
         _blockedUntilNextFrame = false;
 
-        // Внедряем запланированные входы (кнопки, инпуты, аудио данные)
+        // Inject pending inputs (buttons, inputs, audio data)
         flushPendingInputs();
 
-        // Запускаем распространение сигналов
+        // Launch signal propagation
         process();
 
-        // Уведомляем слушателей о завершении такта (для синхронизации UI или иных систем)
+        // Notify listeners about tick completion (for UI sync, etc.)
         emitTick();
     }
 
     /**
-     * Подписка на событие тика.
+     * Subscribe to tick event.
      */
-    public function addTickListener(listener:Void -> Void):Void
+    public function addTickListener(listener: Void -> Void): Void
     {
         if (listener != null && _tickListeners.indexOf(listener) == -1)
         {
@@ -199,14 +204,14 @@ class TickGenerator
         }
     }
 
-    public function removeTickListener(listener:Void -> Void):Void
+    public function removeTickListener(listener: Void -> Void): Void
     {
         _tickListeners.remove(listener);
     }
 
-    private function emitTick():Void
+    private function emitTick(): Void
     {
-        // Копируем массив для безопасной итерации (слушатель может отписаться)
+        // Copy array for safe iteration (listener may unsubscribe)
         var listeners = _tickListeners.copy();
         for (l in listeners)
         {
@@ -215,13 +220,15 @@ class TickGenerator
     }
 
     // =========================================================================
-    // SCHEDULING API (from SignalQueue)
+    // SCHEDULING API
     // =========================================================================
-
     /**
-     * Schedule a task for immediate execution within the current or next tick.
+     * Schedule a task for immediate execution within current or next tick.
+     *
+     * @param task     Task to execute
+     * @param priority Task priority (CRITICAL, NORMAL, BACKGROUND)
      */
-    public function schedule(task:Void -> Void, priority:Priority = NORMAL):Void
+    public function schedule(task: Void -> Void, priority: Priority = NORMAL): Void
     {
         if (_blockedUntilNextFrame) return;
 
@@ -230,8 +237,9 @@ class TickGenerator
         {
             queue.push(task);
         }
-        // Если мы не в процессе обработки и не в паузе, запускаем немедленно
-        // (но обычно все вызывается из update -> tick -> process)
+
+        // If not processing and not suspended, run immediately
+        // (usually called from update -> tick -> process)
         if (!_isProcessing && !_suspended)
         {
             process();
@@ -240,9 +248,12 @@ class TickGenerator
 
     /**
      * Schedule a task for execution at the START of the next tick.
-     * v1.1: ПОТОКОБЕЗОПАСНО. Можно вызывать из Audio Thread.
+     *
+     * v1.1: THREAD-SAFE. Can be called from Audio Thread.
+     *
+     * @param task Task to execute
      */
-    public function scheduleNextTick(task:Void -> Void):Void
+    public function scheduleNextTick(task: Void -> Void): Void
     {
         if (task != null)
         {
@@ -253,46 +264,49 @@ class TickGenerator
         }
     }
 
-    public function suspend():Void
+    public function suspend(): Void
     {
         _suspended = true;
     }
 
-    public function resume():Void
+    public function resume(): Void
     {
         if (!_suspended) return;
         _suspended = false;
         _blockedUntilNextFrame = false;
-
         flushPendingInputs();
         if (!_isProcessing && hasPendingTasks()) process();
     }
 
-    public function isSuspended():Bool return _suspended;
+    public function isSuspended(): Bool return _suspended;
 
-    public function hasPendingTasks():Bool
+    public function hasPendingTasks(): Bool
     {
         for (q in _queuesWrite) if (q != null && q.length > 0) return true;
         for (q in _queuesRead) if (q != null && q.length > 0) return true;
-        
-        // v1.1: проверка LockFreeQueue
+
+        // v1.1: Check LockFreeQueue
         var test = _pendingQueue.pop();
         if (test != null)
         {
-            // Если что-то есть, возвращаем обратно (через push, это безопасно из главного потока)
-            // В идеале для SPSC нужен peek(), но для проверки переполнения пойдёт так
+            // If something exists, put it back (via push, safe from main thread)
+            // Ideally SPSC needs peek(), but this works for overflow check
             _queuesWrite.get(NORMAL).push(test);
             return true;
         }
         return false;
     }
 
-    public function flushPendingInputs():Void
+    /**
+     * Flush tasks from lock-free queue to main queue.
+     * Called at start of each tick.
+     */
+    public function flushPendingInputs(): Void
     {
         var queue = _queuesWrite.get(NORMAL);
         if (queue == null) return;
 
-        // v1.1: Вытаскиваем задачи из lock-free очереди без аллокаций
+        // v1.1: Extract tasks from lock-free queue without allocations
         var task = _pendingQueue.pop();
         while (task != null)
         {
@@ -304,8 +318,7 @@ class TickGenerator
     // =========================================================================
     // CORE EXECUTION
     // =========================================================================
-
-    private function process():Void
+    private function process(): Void
     {
         if (_suspended || _blockedUntilNextFrame) return;
         if (_isProcessing) return;
@@ -314,18 +327,18 @@ class TickGenerator
         _iterationGuard = 0;
 
         do {
-            // Свап буферов
+            // Swap buffers
             var temp = _queuesRead;
             _queuesRead = _queuesWrite;
             _queuesWrite = temp;
 
-            // Очистка Write
+            // Clear Write buffers
             var clearQ = _queuesWrite.get(CRITICAL); if (clearQ != null) clearQ.resize(0);
             clearQ = _queuesWrite.get(NORMAL); if (clearQ != null) clearQ.resize(0);
             clearQ = _queuesWrite.get(BACKGROUND); if (clearQ != null) clearQ.resize(0);
 
-            // Выполнение задач
-            var order:Array<Priority> = [CRITICAL, NORMAL, BACKGROUND];
+            // Execute tasks in priority order
+            var order: Array<Priority> = [CRITICAL, NORMAL, BACKGROUND];
             for (p in order)
             {
                 var q = _queuesRead.get(p);
@@ -334,7 +347,6 @@ class TickGenerator
                     for (i in 0...q.length)
                     {
                         _iterationGuard++;
-
                         if (_iterationGuard > _maxIterationsPerTick)
                         {
                             _blockedUntilNextFrame = true;
@@ -347,27 +359,28 @@ class TickGenerator
                         if (task != null)
                         {
                             try { task(); }
-                            catch (e:Dynamic) { trace('TickGenerator: Error in task: $e'); }
+                            catch (e: Dynamic) { trace('TickGenerator: Error in task: $e'); }
                         }
                     }
                     q.resize(0);
                 }
             }
 
-            if (haxe.Timer.stamp() - frameStartTime > 0.1) break; // Hard timeout
+            // Hard timeout protection
+            if (haxe.Timer.stamp() - frameStartTime > 0.1) break;
         }
         while (hasPendingTasks() && !_blockedUntilNextFrame);
 
         _isProcessing = false;
     }
 
-    private function clearQueues():Void
+    private function clearQueues(): Void
     {
         for (q in _queuesWrite) if (q != null) q.resize(0);
         for (q in _queuesRead) if (q != null) q.resize(0);
     }
 
-    public function clear():Void
+    public function clear(): Void
     {
         clearQueues();
         _isProcessing = false;
@@ -375,7 +388,7 @@ class TickGenerator
         _blockedUntilNextFrame = false;
     }
 
-    public static function reset():Void
+    public static function reset(): Void
     {
         if (_instance != null)
         {
@@ -388,13 +401,12 @@ class TickGenerator
     // =========================================================================
     // PAUSE / CONTROL
     // =========================================================================
-
-    public function pause():Void
+    public function pause(): Void
     {
         _isPaused = true;
     }
 
-    public function resumeSimulation():Void
+    public function resumeSimulation(): Void
     {
         _isPaused = false;
         _accumulator = 0.0;

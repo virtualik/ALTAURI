@@ -1,8 +1,7 @@
+#if cpp
 package core.view;
 
-#if cpp
 import openfl.display.Sprite;
-import openfl.display.Shape;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
 import openfl.text.TextFormatAlign;
@@ -12,60 +11,80 @@ import core.base.Atom;
 import core.base.Contact;
 
 /**
- * SystemVUMeterWidget v2.0 — СТЕРЕО VU-метр
+ * SYSTEM VU METER WIDGET v2.0
+ * Stereo VU meter widget for visualizing system audio levels.
+ *
+ * Architecture: "ATOM IS DATABANK & COMPUTE CORE"
+ *
+ * SystemVUMeterWidget is the FACE of SystemVUMeterAtom.
  *
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │  ┌──────────────────────────────────────────────────────────────────┐   │
- * │  │  [Title: SYSTEM STEREO VU METER]                    [LED ●]     │   │
- * │  ├──────────────────────────────────────────────────────────────────┤   │
- * │  │                                                                  │   │
- * │  │  L ┌──────────────────────────────────────────────────┐  72%     │   │
- * │  │    │ ████████████████████░░░░░░░░░░░░░░░░░░░░░░░      │          │   │
- * │  │    └──────────────────────────────────────────────────┘          │   │
- * │  │                                                                  │   │
- * │  │  R ┌──────────────────────────────────────────────────┐  68%     │   │
- * │  │    │ ██████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░     │          │   │
- * │  │    └──────────────────────────────────────────────────┘          │   │
- * │  │                                                                  │   │
- * │  │  L: -2.8 dB   R: -3.4 dB   CH: 2 (Stereo)                      │   │
- * │  │                                                                  │   │
- * │  │  [CLIP L]  [CLIP R]                                             │   │
- * │  │                                                                  │   │
- * │  │  Source: [ Speakers ▼ ]   (выбор режима)                        │   │
- * │  │                                                                  │   │
- * │  └──────────────────────────────────────────────────────────────────┘   │
+ * │   SystemVUMeterWidget                                                   │
+ * │                                                                         │
+ * │   ┌───────────────────────────────────────────────────────────────┐     │
+ * │   │  [Title: SYSTEM STEREO VU]                        [LED ●]    │     │
+ * │   ├───────────────────────────────────────────────────────────────┤     │
+ * │   │                                                               │     │
+ * │   │  L ┌──────────────────────────────────────────────────┐  72%  │     │
+ * │   │    │ ████████████████████░░░░░░░░░░░░░░░░░░░░░░░      │        │     │
+ * │   │    └──────────────────────────────────────────────────┘        │     │
+ * │   │                                                               │     │
+ * │   │  R ┌──────────────────────────────────────────────────┐  68%  │     │
+ * │   │    │ ██████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░     │        │     │
+ * │   │    └──────────────────────────────────────────────────┘        │     │
+ * │   │                                                               │     │
+ * │   │  L: -2.8 dB   R: -3.4 dB   CH: 2 (Stereo)                    │     │
+ * │   │                                                               │     │
+ * │   │  [CLIP L]  [CLIP R]                                           │     │
+ * │   │                                                               │     │
+ * │   │  Source: [ Speakers ▼ ]   (mode selection)                    │     │
+ * │   │                                                               │     │
+ * │   └───────────────────────────────────────────────────────────────┘     │
+ * │                                                                         │
+ * │   Widget READS state from atom's contacts (Databank)                    │
+ * │   Atom updates contacts via WASAPI polling in update(dt)                │
+ * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * Features:
+ * 1. Stereo VU bars (Green/Yellow/Red gradient)
+ * 2. dBFS display for L/R channels
+ * 3. Clip indicators with auto-fade
+ * 4. Source mode selection (Speakers / Microphone)
+ * 5. Channel count display
  */
 class SystemVUMeterWidget extends DeviceView
 {
     // =========================================================================
-    // КОНСТАНТЫ
+    // CONSTANTS
     // =========================================================================
     private static inline var BAR_WIDTH:Float   = 200;
     private static inline var BAR_HEIGHT:Float  = 14;
     private static inline var CLIP_TIMEOUT:Float = 0.3;
 
     // =========================================================================
-    // UI КОМПОНЕНТЫ
+    // UI COMPONENTS
     // =========================================================================
+    // Widget dimensions
     public var widgetWidth:Float  = 280;
     public var widgetHeight:Float = 200;
 
-    override public function getWidgetSize():{width:Float, height:Float}
+    // Widget size return (used by Reflect in DeviceView base class)
+    override public function getWidgetSize():{width:Float, height:Float} 
     {
         return { width: widgetWidth, height: widgetHeight };
     }
 
-    // Фон и заголовок
+    // Background & Header
     private var _bg:Sprite;
     private var _header:Sprite;
     private var _titleLabel:TextField;
 
-    // LED
+    // LED indicator
     private var _statusLed:Sprite;
     private var _statusGlow:Sprite;
 
-    // СТЕРЕО бары
+    // STEREO bars
     private var _barBgL:Sprite;
     private var _barFillGreenL:Sprite;
     private var _barFillYellowL:Sprite;
@@ -80,14 +99,14 @@ class SystemVUMeterWidget extends DeviceView
     private var _barPercentLabelR:TextField;
     private var _barLabelR:TextField;
 
-    // Текстовые поля dB
+    // dB Text fields
     private var _dbLabelL:TextField;
     private var _dbValueL:TextField;
     private var _dbLabelR:TextField;
     private var _dbValueR:TextField;
     private var _channelsLabel:TextField;
 
-    // Clip индикаторы
+    // Clip indicators
     private var _clipIndicatorL:Sprite;
     private var _clipLabelL:TextField;
     private var _clipTimerL:Float = 0;
@@ -96,13 +115,13 @@ class SystemVUMeterWidget extends DeviceView
     private var _clipLabelR:TextField;
     private var _clipTimerR:Float = 0;
 
-    // Кнопки режима
+    // Mode buttons
     private var _btnSpeakers:Sprite;
     private var _btnMic:Sprite;
     private var _sourceLabel:TextField;
 
     // =========================================================================
-    // КОНТАКТЫ
+    // CONTACTS
     // =========================================================================
     private var _peakLContact:Contact;
     private var _peakRContact:Contact;
@@ -117,12 +136,12 @@ class SystemVUMeterWidget extends DeviceView
     private var _modeContact:Contact;
 
     // =========================================================================
-    // СОСТОЯНИЕ
+    // STATE
     // =========================================================================
     private var _currentMode:Int = 0;
 
     // =========================================================================
-    // ЦВЕТА
+    // COLORS
     // =========================================================================
     private var _colorBg:Int        = 0x1a1a24;
     private var _colorHeader:Int    = 0x2a2a3a;
@@ -138,9 +157,9 @@ class SystemVUMeterWidget extends DeviceView
     private var _colorBtnOff:Int    = 0x333344;
 
     // =========================================================================
-    // КОНСТРУКТОР
+    // CONSTRUCTOR
     // =========================================================================
-    public function new(atom:Atom)
+    public function new(atom:Atom) 
     {
         super(atom);
         findContacts();
@@ -149,9 +168,9 @@ class SystemVUMeterWidget extends DeviceView
     }
 
     // =========================================================================
-    // ИНИЦИАЛИЗАЦИЯ
+    // INITIALIZATION
     // =========================================================================
-    private function findContacts():Void
+    private function findContacts():Void 
     {
         if (atom == null) return;
         _peakLContact    = atom.getOutput("peakL");
@@ -167,24 +186,24 @@ class SystemVUMeterWidget extends DeviceView
         _modeContact     = atom.getInput("mode");
     }
 
-    override private function onActivate():Void
+    override private function onActivate():Void 
     {
         findContacts();
         syncFromAtom();
     }
 
     // =========================================================================
-    // ПОСТРОЕНИЕ UI
+    // UI CONSTRUCTION
     // =========================================================================
-    private function buildUI():Void
+    private function buildUI():Void 
     {
         var yPos:Float = 0;
 
-        // === ФОН ===
+        // === BACKGROUND ===
         _bg = new Sprite();
         addChild(_bg);
 
-        // === ЗАГОЛОВОК ===
+        // === HEADER ===
         _header = new Sprite();
         _header.y = yPos;
         addChild(_header);
@@ -215,10 +234,9 @@ class SystemVUMeterWidget extends DeviceView
         _statusLed.x = widgetWidth - 16;
         _statusLed.y = 13;
         _header.addChild(_statusLed);
-
         yPos += 30;
 
-        // === СТЕРЕО БАРЫ ===
+        // === STEREO BARS ===
         // --- LEFT CHANNEL ---
         _barLabelL = createLabel("L", 10, yPos + 2);
         addChild(_barLabelL);
@@ -256,7 +274,6 @@ class SystemVUMeterWidget extends DeviceView
         _barPercentLabelL.selectable = false;
         _barPercentLabelL.mouseEnabled = false;
         addChild(_barPercentLabelL);
-
         yPos += BAR_HEIGHT + 6;
 
         // --- RIGHT CHANNEL ---
@@ -296,10 +313,9 @@ class SystemVUMeterWidget extends DeviceView
         _barPercentLabelR.selectable = false;
         _barPercentLabelR.mouseEnabled = false;
         addChild(_barPercentLabelR);
-
         yPos += BAR_HEIGHT + 10;
 
-        // === dB ЗНАЧЕНИЯ ===
+        // === dB VALUES ===
         _dbLabelL = createLabel("L:", 10, yPos);
         addChild(_dbLabelL);
 
@@ -315,10 +331,9 @@ class SystemVUMeterWidget extends DeviceView
         _channelsLabel = createValueField("CH: --", 220, yPos);
         _channelsLabel.textColor = _colorMuted;
         addChild(_channelsLabel);
-
         yPos += 22;
 
-        // === CLIP ИНДИКАТОРЫ ===
+        // === CLIP INDICATORS ===
         var clipY:Float = yPos;
 
         _clipIndicatorL = new Sprite();
@@ -359,7 +374,7 @@ class SystemVUMeterWidget extends DeviceView
         _clipLabelR.mouseEnabled = false;
         addChild(_clipLabelR);
 
-        // === ВЫБОР ИСТОЧНИКА ===
+        // === SOURCE SELECTION ===
         _sourceLabel = new TextField();
         _sourceLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
         _sourceLabel.text = "Source:";
@@ -379,13 +394,13 @@ class SystemVUMeterWidget extends DeviceView
         _btnMic.addEventListener(MouseEvent.CLICK, onMicClick);
         addChild(_btnMic);
 
-        // Финальная отрисовка
+        // Final background rendering
         redrawBackground();
         updateBar(_barFillGreenL, _barFillYellowL, _barFillRedL, _barBgL, 0);
         updateBar(_barFillGreenR, _barFillYellowR, _barFillRedR, _barBgR, 0);
     }
 
-    private function redrawBackground():Void
+    private function redrawBackground():Void 
     {
         _bg.graphics.clear();
         _bg.graphics.beginFill(_colorBg, 0.95);
@@ -402,7 +417,7 @@ class SystemVUMeterWidget extends DeviceView
     // =========================================================================
     // UI HELPERS
     // =========================================================================
-    private function createLabel(text:String, x:Float, y:Float):TextField
+    private function createLabel(text:String, x:Float, y:Float):TextField 
     {
         var tf = new TextField();
         tf.defaultTextFormat = new TextFormat("_typewriter", 10, _colorMuted);
@@ -416,7 +431,7 @@ class SystemVUMeterWidget extends DeviceView
         return tf;
     }
 
-    private function createValueField(text:String, x:Float, y:Float):TextField
+    private function createValueField(text:String, x:Float, y:Float):TextField 
     {
         var tf = new TextField();
         tf.defaultTextFormat = new TextFormat("_typewriter", 10, _colorGreen, true);
@@ -430,7 +445,7 @@ class SystemVUMeterWidget extends DeviceView
         return tf;
     }
 
-    private function createModeButton(label:String, mode:Int, x:Float, y:Float):Sprite
+    private function createModeButton(label:String, mode:Int, x:Float, y:Float):Sprite 
     {
         var btn = new Sprite();
         btn.graphics.beginFill(_colorBtnOff);
@@ -451,180 +466,175 @@ class SystemVUMeterWidget extends DeviceView
         btn.buttonMode = true;
         btn.useHandCursor = true;
         btn.name = Std.string(mode);
-
         return btn;
     }
 
-	// =========================================================================
-	// СИНХРОНИЗАЦИЯ С АТОМОМ
-	// =========================================================================
-	override private function syncFromAtom():Void
-	{
-		trace('SystemVUMeterWidget: syncFromAtom called');
-		
-		if (_modeContact != null && _modeContact.value != null)
-		{
-			_currentMode = Std.int(_modeContact.value);
-			updateModeButtons();
-		}
-		
-		if (_channelsContact != null && _channelsContact.value != null)
-		{
-			var ch = Std.int(_channelsContact.value);
-			_channelsLabel.text = "CH: " + ch;
-		}
-		
-		// === ИСПРАВЛЕНИЕ: Принудительно читаем текущие значения ===
-		if (_percentLContact != null)
-		{
-			var percentL = (_percentLContact.value != null) ? Std.int(_percentLContact.value) : 0;
-			trace('SystemVUMeterWidget: Initial percentL = ${percentL}');
-			updateBar(_barFillGreenL, _barFillYellowL, _barFillRedL, _barBgL, percentL);
-			_barPercentLabelL.text = percentL + "%";
-		}
-		
-		if (_percentRContact != null)
-		{
-			var percentR = (_percentRContact.value != null) ? Std.int(_percentRContact.value) : 0;
-			trace('SystemVUMeterWidget: Initial percentR = ${percentR}');
-			updateBar(_barFillGreenR, _barFillYellowR, _barFillRedR, _barBgR, percentR);
-			_barPercentLabelR.text = percentR + "%";
-		}
-	}
-
-	override private function onContactChanged(contact:Contact, newValue:Dynamic):Void
-	{
-		if (isDisposed) return;
-		
-		trace('SystemVUMeterWidget: onContactChanged("${contact.name}") = ${newValue}');
-		
-		if (contact == _percentLContact)
-		{
-			var percent:Int = (newValue != null) ? Std.int(newValue) : 0;
-			trace('SystemVUMeterWidget: Updating L bar to ${percent}%');
-			updateBar(_barFillGreenL, _barFillYellowL, _barFillRedL, _barBgL, percent);
-			_barPercentLabelL.text = percent + "%";
-			updateBarColor(_barPercentLabelL, percent);
-		}
-		else if (contact == _percentRContact)
-		{
-			var percent:Int = (newValue != null) ? Std.int(newValue) : 0;
-			trace('SystemVUMeterWidget: Updating R bar to ${percent}%');
-			updateBar(_barFillGreenR, _barFillYellowR, _barFillRedR, _barBgR, percent);
-			_barPercentLabelR.text = percent + "%";
-			updateBarColor(_barPercentLabelR, percent);
-		}
-		else if (contact == _dB_LContact)
-		{
-			if (newValue != null)
-			{
-				var db:Float = newValue;
-				_dbValueL.text = (db <= -120) ? "-inf dB" : (Math.round(db * 10) / 10) + " dB";
-				updateDbColor(_dbValueL, db);
-			}
-		}
-		else if (contact == _dB_RContact)
-		{
-			if (newValue != null)
-			{
-				var db:Float = newValue;
-				_dbValueR.text = (db <= -120) ? "-inf dB" : (Math.round(db * 10) / 10) + " dB";
-				updateDbColor(_dbValueR, db);
-			}
-		}
-		else if (contact == _channelsContact)
-		{
-			if (newValue != null)
-			{
-				var ch = Std.int(newValue);
-				_channelsLabel.text = "CH: " + ch + ((ch >= 2) ? " Stereo" : " Mono");
-			}
-		}
-		else if (contact == _clipLContact)
-		{
-			if (newValue == true) triggerClipL();
-		}
-		else if (contact == _clipRContact)
-		{
-			if (newValue == true) triggerClipR();
-		}
-		else if (contact == _activeContact)
-		{
-			updateActiveLed(newValue == true);
-		}
-		else if (contact == _modeContact)
-		{
-			if (newValue != null)
-			{
-				_currentMode = Std.int(newValue);
-				updateModeButtons();
-			}
-		}
-	}
-
-// =========================================================================
-// ОБНОВЛЕНИЕ VU-БАРА (универсальное для L и R)
-// =========================================================================
-private function updateBar(green:Sprite, yellow:Sprite, red:Sprite, bg:Sprite, percent:Int):Void
-{
-    if (percent < 0) percent = 0;
-    if (percent > 100) percent = 100;
-
-    trace('SystemVUMeterWidget.updateBar: percent=${percent}, green=${green}, yellow=${yellow}, red=${red}');
-
-    // === Очищаем ВСЕ сегменты ===
-    green.graphics.clear();
-    yellow.graphics.clear();
-    red.graphics.clear();
-
-    // Зелёная часть: 0% .. 60%
-    var greenEnd:Int = Std.int(Math.min(percent, 60));
-    var greenWidth:Float = (greenEnd / 100.0) * BAR_WIDTH;
-
-    if (greenWidth > 0)
+    // =========================================================================
+    // ATOM SYNCHRONIZATION
+    // =========================================================================
+    override private function syncFromAtom():Void 
     {
-        green.graphics.beginFill(_colorGreen);
-        green.graphics.drawRect(0, 0, greenWidth, BAR_HEIGHT - 2);
-        green.graphics.endFill();
-        trace('SystemVUMeterWidget: Drew green bar, width=${greenWidth}');
+        //trace('SystemVUMeterWidget: syncFromAtom called');
+
+        if (_modeContact != null && _modeContact.value != null) 
+        {
+            _currentMode = Std.int(_modeContact.value);
+            updateModeButtons();
+        }
+
+        if (_channelsContact != null && _channelsContact.value != null) 
+        {
+            var ch = Std.int(_channelsContact.value);
+            _channelsLabel.text = "CH: " + ch;
+        }
+
+        // === FIX: Force read current values on initialization ===
+        if (_percentLContact != null) 
+        {
+            var percentL = (_percentLContact.value != null) ? Std.int(_percentLContact.value) : 0;
+            //trace('SystemVUMeterWidget: Initial percentL = ${percentL}');
+            updateBar(_barFillGreenL, _barFillYellowL, _barFillRedL, _barBgL, percentL);
+            _barPercentLabelL.text = percentL + "%";
+        }
+
+        if (_percentRContact != null) 
+        {
+            var percentR = (_percentRContact.value != null) ? Std.int(_percentRContact.value) : 0;
+            //trace('SystemVUMeterWidget: Initial percentR = ${percentR}');
+            updateBar(_barFillGreenR, _barFillYellowR, _barFillRedR, _barBgR, percentR);
+            _barPercentLabelR.text = percentR + "%";
+        }
     }
 
-    // Жёлтая часть: 60% .. 80%
-    if (percent > 60)
+    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void 
     {
-        var yellowEnd:Int = Std.int(Math.min(percent, 80));
-        var yellowWidth:Float = ((yellowEnd - 60) / 100.0) * BAR_WIDTH;
-        var yellowX:Float = (60.0 / 100.0) * BAR_WIDTH;
+        if (isDisposed) return;
 
-        yellow.x = yellowX;
-        yellow.graphics.beginFill(_colorYellow);
-        yellow.graphics.drawRect(0, 0, yellowWidth, BAR_HEIGHT - 2);
-        yellow.graphics.endFill();
-        trace('SystemVUMeterWidget: Drew yellow bar, width=${yellowWidth}, x=${yellowX}');
+        if (contact == _percentLContact) 
+        {
+            var percent:Int = (newValue != null) ? Std.int(newValue) : 0;
+            updateBar(_barFillGreenL, _barFillYellowL, _barFillRedL, _barBgL, percent);
+            _barPercentLabelL.text = percent + "%";
+            updateBarColor(_barPercentLabelL, percent);
+        } 
+        else if (contact == _percentRContact) 
+        {
+            var percent:Int = (newValue != null) ? Std.int(newValue) : 0;
+            updateBar(_barFillGreenR, _barFillYellowR, _barFillRedR, _barBgR, percent);
+            _barPercentLabelR.text = percent + "%";
+            updateBarColor(_barPercentLabelR, percent);
+        } 
+        else if (contact == _dB_LContact) 
+        {
+            if (newValue != null) 
+            {
+                var db:Float = newValue;
+                _dbValueL.text = (db <= -120) ? "-inf dB" : (Math.round(db * 10) / 10) + " dB";
+                updateDbColor(_dbValueL, db);
+            }
+        } 
+        else if (contact == _dB_RContact) 
+        {
+            if (newValue != null) 
+            {
+                var db:Float = newValue;
+                _dbValueR.text = (db <= -120) ? "-inf dB" : (Math.round(db * 10) / 10) + " dB";
+                updateDbColor(_dbValueR, db);
+            }
+        } 
+        else if (contact == _channelsContact) 
+        {
+            if (newValue != null) 
+            {
+                var ch = Std.int(newValue);
+                _channelsLabel.text = "CH: " + ch + ((ch >= 2) ? " Stereo" : " Mono");
+            }
+        } 
+        else if (contact == _clipLContact) 
+        {
+            if (newValue == true) triggerClipL();
+        } 
+        else if (contact == _clipRContact) 
+        {
+            if (newValue == true) triggerClipR();
+        } 
+        else if (contact == _activeContact) 
+        {
+            updateActiveLed(newValue == true);
+        } 
+        else if (contact == _modeContact) 
+        {
+            if (newValue != null) 
+            {
+                _currentMode = Std.int(newValue);
+                updateModeButtons();
+            }
+        }
     }
 
-    // Красная часть: 80% .. 100%
-    if (percent > 80)
+    // =========================================================================
+    // VU BAR UPDATE (universal for L and R)
+    // =========================================================================
+    /**
+     * Draws the 3-segment VU bar (Green 0-60%, Yellow 60-80%, Red 80-100%).
+     * Clears all segments first to prevent visual artifacts.
+     */
+    private function updateBar(green:Sprite, yellow:Sprite, red:Sprite, bg:Sprite, percent:Int):Void 
     {
-        var redWidth:Float = ((percent - 80) / 100.0) * BAR_WIDTH;
-        var redX:Float = (80.0 / 100.0) * BAR_WIDTH;
+        if (percent < 0) percent = 0;
+        if (percent > 100) percent = 100;
+        //trace('SystemVUMeterWidget.updateBar: percent=${percent}, green=${green}, yellow=${yellow}, red=${red}');
 
-        red.x = redX;
-        red.graphics.beginFill(_colorRed);
-        red.graphics.drawRect(0, 0, redWidth, BAR_HEIGHT - 2);
-        red.graphics.endFill();
-        trace('SystemVUMeterWidget: Drew red bar, width=${redWidth}, x=${redX}');
+        // === Clear ALL segments ===
+        green.graphics.clear();
+        yellow.graphics.clear();
+        red.graphics.clear();
+
+        // Green segment: 0% .. 60%
+        var greenEnd:Int = Std.int(Math.min(percent, 60));
+        var greenWidth:Float = (greenEnd / 100.0) * BAR_WIDTH;
+        if (greenWidth > 0) 
+        {
+            green.graphics.beginFill(_colorGreen);
+            green.graphics.drawRect(0, 0, greenWidth, BAR_HEIGHT - 2);
+            green.graphics.endFill();
+            //trace('SystemVUMeterWidget: Drew green bar, width=${greenWidth}');
+        }
+
+        // Yellow segment: 60% .. 80%
+        if (percent > 60) 
+        {
+            var yellowEnd:Int = Std.int(Math.min(percent, 80));
+            var yellowWidth:Float = ((yellowEnd - 60) / 100.0) * BAR_WIDTH;
+            var yellowX:Float = (60.0 / 100.0) * BAR_WIDTH;
+            yellow.x = yellowX;
+            yellow.graphics.beginFill(_colorYellow);
+            yellow.graphics.drawRect(0, 0, yellowWidth, BAR_HEIGHT - 2);
+            yellow.graphics.endFill();
+            //trace('SystemVUMeterWidget: Drew yellow bar, width=${yellowWidth}, x=${yellowX}');
+        }
+
+        // Red segment: 80% .. 100%
+        if (percent > 80) 
+        {
+            var redWidth:Float = ((percent - 80) / 100.0) * BAR_WIDTH;
+            var redX:Float = (80.0 / 100.0) * BAR_WIDTH;
+            red.x = redX;
+            red.graphics.beginFill(_colorRed);
+            red.graphics.drawRect(0, 0, redWidth, BAR_HEIGHT - 2);
+            red.graphics.endFill();
+            //trace('SystemVUMeterWidget: Drew red bar, width=${redWidth}, x=${redX}');
+        }
     }
-}
 
-    private function updateBarColor(tf:TextField, percent:Int):Void
+    private function updateBarColor(tf:TextField, percent:Int):Void 
     {
         if (percent >= 80) tf.textColor = _colorRed;
         else if (percent >= 60) tf.textColor = _colorYellow;
         else tf.textColor = _colorGreen;
     }
 
-    private function updateDbColor(tf:TextField, db:Float):Void
+    private function updateDbColor(tf:TextField, db:Float):Void 
     {
         if (db > -3) tf.textColor = _colorRed;
         else if (db > -12) tf.textColor = _colorYellow;
@@ -632,9 +642,9 @@ private function updateBar(green:Sprite, yellow:Sprite, red:Sprite, bg:Sprite, p
     }
 
     // =========================================================================
-    // CLIP ИНДИКАТОРЫ
+    // CLIP INDICATORS
     // =========================================================================
-    private function triggerClipL():Void
+    private function triggerClipL():Void 
     {
         _clipTimerL = CLIP_TIMEOUT;
         _clipIndicatorL.graphics.clear();
@@ -643,7 +653,7 @@ private function updateBar(green:Sprite, yellow:Sprite, red:Sprite, bg:Sprite, p
         _clipIndicatorL.graphics.endFill();
     }
 
-    private function triggerClipR():Void
+    private function triggerClipR():Void 
     {
         _clipTimerR = CLIP_TIMEOUT;
         _clipIndicatorR.graphics.clear();
@@ -652,7 +662,7 @@ private function updateBar(green:Sprite, yellow:Sprite, red:Sprite, bg:Sprite, p
         _clipIndicatorR.graphics.endFill();
     }
 
-    private function resetClipL():Void
+    private function resetClipL():Void 
     {
         _clipIndicatorL.graphics.clear();
         _clipIndicatorL.graphics.beginFill(_colorClipOff);
@@ -660,7 +670,7 @@ private function updateBar(green:Sprite, yellow:Sprite, red:Sprite, bg:Sprite, p
         _clipIndicatorL.graphics.endFill();
     }
 
-    private function resetClipR():Void
+    private function resetClipR():Void 
     {
         _clipIndicatorR.graphics.clear();
         _clipIndicatorR.graphics.beginFill(_colorClipOff);
@@ -669,19 +679,19 @@ private function updateBar(green:Sprite, yellow:Sprite, red:Sprite, bg:Sprite, p
     }
 
     // =========================================================================
-    // LED АКТИВНОСТИ
+    // ACTIVITY LED
     // =========================================================================
-    private function updateActiveLed(active:Bool):Void
+    private function updateActiveLed(active:Bool):Void 
     {
-        if (active)
+        if (active) 
         {
             _statusLed.graphics.clear();
             _statusLed.graphics.beginFill(_colorAccent);
             _statusLed.graphics.drawCircle(0, 0, 4);
             _statusLed.graphics.endFill();
             _statusGlow.visible = true;
-        }
-        else
+        } 
+        else 
         {
             _statusLed.graphics.clear();
             _statusLed.graphics.beginFill(0x003344);
@@ -692,9 +702,9 @@ private function updateBar(green:Sprite, yellow:Sprite, red:Sprite, bg:Sprite, p
     }
 
     // =========================================================================
-    // КНОПКИ РЕЖИМА
+    // MODE BUTTONS
     // =========================================================================
-    private function updateModeButtons():Void
+    private function updateModeButtons():Void 
     {
         _btnSpeakers.graphics.clear();
         _btnSpeakers.graphics.beginFill(_currentMode == 0 ? _colorBtnActive : _colorBtnOff);
@@ -707,55 +717,56 @@ private function updateBar(green:Sprite, yellow:Sprite, red:Sprite, bg:Sprite, p
         _btnMic.graphics.endFill();
     }
 
-    private function onSpeakersClick(e:MouseEvent):Void
+    private function onSpeakersClick(e:MouseEvent):Void 
     {
         if (_modeContact != null) _modeContact.value = 0;
     }
 
-    private function onMicClick(e:MouseEvent):Void
+    private function onMicClick(e:MouseEvent):Void 
     {
         if (_modeContact != null) _modeContact.value = 1;
     }
 
     // =========================================================================
-    // АНИМАЦИЯ
+    // ANIMATION
     // =========================================================================
-    override public function activate():Void
+    override public function activate():Void 
     {
         super.activate();
-        if (stage != null)
+        if (stage != null) 
         {
             stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
-        }
-        else
+        } 
+        else 
         {
             addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
         }
     }
 
-    override public function deactivate():Void
+    override public function deactivate():Void 
     {
         super.deactivate();
-        if (stage != null)
+        if (stage != null) 
         {
             stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
         }
     }
 
-    private function onAddedToStage(e:Event):Void
+    private function onAddedToStage(e:Event):Void 
     {
         removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
         stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
     }
 
-    private function onEnterFrame(e:Event):Void
+    private function onEnterFrame(e:Event):Void 
     {
-        if (_clipTimerL > 0)
+        // Clip indicator fade-out animation
+        if (_clipTimerL > 0) 
         {
             _clipTimerL -= 1.0 / 60.0;
             if (_clipTimerL <= 0) { _clipTimerL = 0; resetClipL(); }
         }
-        if (_clipTimerR > 0)
+        if (_clipTimerR > 0) 
         {
             _clipTimerR -= 1.0 / 60.0;
             if (_clipTimerR <= 0) { _clipTimerR = 0; resetClipR(); }
@@ -765,17 +776,15 @@ private function updateBar(green:Sprite, yellow:Sprite, red:Sprite, bg:Sprite, p
     // =========================================================================
     // DISPOSE
     // =========================================================================
-    override public function dispose():Void
+    override public function dispose():Void 
     {
-        if (stage != null)
+        if (stage != null) 
         {
             stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
         }
 
-        if (_btnSpeakers != null)
-            _btnSpeakers.removeEventListener(MouseEvent.CLICK, onSpeakersClick);
-        if (_btnMic != null)
-            _btnMic.removeEventListener(MouseEvent.CLICK, onMicClick);
+        if (_btnSpeakers != null) _btnSpeakers.removeEventListener(MouseEvent.CLICK, onSpeakersClick);
+        if (_btnMic != null) _btnMic.removeEventListener(MouseEvent.CLICK, onMicClick);
 
         _bg = null;
         _header = null;
@@ -806,7 +815,6 @@ private function updateBar(green:Sprite, yellow:Sprite, red:Sprite, bg:Sprite, p
         _btnSpeakers = null;
         _btnMic = null;
         _sourceLabel = null;
-
         _peakLContact = null;
         _peakRContact = null;
         _percentLContact = null;
@@ -818,7 +826,6 @@ private function updateBar(green:Sprite, yellow:Sprite, red:Sprite, bg:Sprite, p
         _clipLContact = null;
         _clipRContact = null;
         _modeContact = null;
-
         super.dispose();
     }
 }

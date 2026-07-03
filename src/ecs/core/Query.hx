@@ -9,14 +9,31 @@ import ecs.components.VisualComponent;
  * QUERY v1.0
  * Efficient, type-safe query system for the Hybrid Render ECS layer.
  *
- * Purpose:
- * - Find ALL entities that need rendering
- * - Return them in a clean array for RenderSystem
- * - O(N) performance (N = number of nodes, usually < 2000)
- * - No reflection, 100% type-safe
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   Query (Static)                                                        │
+ * │                                                                         │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  Methods:                                                       │   │
+ * │   │  - getRenderables(world) → Array<RenderableEntity>              │   │
+ * │   │    Finds ALL entities with PositionComponent AND VisualComponent│   │
+ * │   │                                                                 │   │
+ * │   │  - getSelected(world) → Array<String>                           │   │
+ * │   │    Returns IDs of selected entities                             │   │
+ * │   │                                                                 │   │
+ * │   │  - getInRect(world, x, y, w, h) → Array<String>                │   │
+ * │   │    Spatial query for lasso selection                            │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   Purpose:                                                              │
+ * │   - Find ALL entities that need rendering                               │
+ * │   - Return them in a clean array for RenderSystem                       │
+ * │   - O(N) performance (N = number of nodes, usually < 2000)              │
+ * │   - No reflection, 100% type-safe                                       │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
 class Query {
-
     /**
      * Get all renderable entities.
      * Entities must have BOTH PositionComponent AND VisualComponent.
@@ -25,14 +42,14 @@ class Query {
      */
     public static function getRenderables(world:World):Array<RenderableEntity> {
         var result:Array<RenderableEntity> = [];
-
+        
         var posStorage = world.getPositionStorage();
         var visStorage = world.getVisualStorage();
-
+        
         if (posStorage == null || visStorage == null) {
             return result;
         }
-
+        
         // Iterate over entities with Position
         for (entityId in posStorage.getAllEntityIds()) {
             // Check if they also have Visual
@@ -46,26 +63,26 @@ class Query {
                 });
             }
         }
-
+        
         return result;
     }
-
+    
     /**
      * Get all selected entities.
      */
     public static function getSelected(world:World):Array<String> {
         var result:Array<String> = [];
         var renderables = getRenderables(world);
-
+        
         for (r in renderables) {
             if (r.visual.isSelected) {
                 result.push(r.entityId);
             }
         }
-
+        
         return result;
     }
-
+    
     /**
      * Get entity IDs in a rectangle region.
      * Useful for lasso selection.
@@ -73,16 +90,16 @@ class Query {
     public static function getInRect(world:World, x:Float, y:Float, w:Float, h:Float):Array<String> {
         var result:Array<String> = [];
         var renderables = getRenderables(world);
-
+        
         for (r in renderables) {
             var px = r.position.x;
             var py = r.position.y;
-
+            
             if (px >= x && px <= x + w && py >= y && py <= y + h) {
                 result.push(r.entityId);
             }
         }
-
+        
         return result;
     }
 }

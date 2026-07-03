@@ -7,18 +7,50 @@ import core.base.Atom;
 import core.base.IDisposable;
 import core.base.AssemblyFactory;
 import core.logic.Impulsys;
-import core.logic.EventType; // <--- IMPORT
+import core.logic.EventType;
 
+/**
+ * CREATE ATOM COMMAND v1.0
+ * Creates a new atom instance in the assembly.
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   CreateAtomCommand                                                     │
+ * │                                                                         │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  execute():                                                     │   │
+ * │   │  - Generate instanceId if not provided (UID.generate())         │   │
+ * │   │  - Create AtomDef with position                                 │   │
+ * │   │  - Add AtomDef to blueprint.internalAtoms                       │   │
+ * │   │  - Create atom instance via AssemblyFactory                     │   │
+ * │   │  - Add instance to assembly.internalAtoms                       │   │
+ * │   │  - Emit ATOM_RESTORED event                                     │   │
+ * │   │                                                                 │   │
+ * │   │  undo():                                                        │   │
+ * │   │  - Remove AtomDef from blueprint                                │   │
+ * │   │  - Dispose atom instance                                        │   │
+ * │   │  - Remove instance from assembly                                │   │
+ * │   │  - Emit ATOM_DELETED event                                      │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   Atom Creation Flow:                                                   │
+ * │   ─────────────────────                                                 │
+ * │   1. Generate ID (if needed)                                            │
+ * │   2. Create AtomDef (data model)                                        │
+ * │   3. Add to blueprint (persistence)                                     │
+ * │   4. Create instance via Factory (runtime)                              │
+ * │   5. Add to assembly (execution)                                        │
+ * │   6. Emit event (UI update)                                             │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ */
 class CreateAtomCommand extends Command {
-
     private var _blueprint:Blueprint;
     private var _assembly:Assembly;
-
     private var _typeId:String;
     private var _instanceId:String;
     private var _posX:Float;
     private var _posY:Float;
-
     private var _atomDef:core.data.Blueprint.AtomDef;
     private var _atomInstance:Atom;
 

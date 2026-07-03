@@ -27,32 +27,32 @@ package system.managers;
  */
 interface Driver
 {
-
-	/**
-	 * Unique ID of the driver instance.
-	 */
-	public var id(get, never):String;
-
-	/**
-	 * Called once when the driver is registered.
-	 * Override to perform initialization.
-	 */
-	public function init():Void;
-
-	/**
-	 * Called periodically (every frame) to poll data or maintain connection.
-	 * @param dt Delta time in seconds.
-	 */
-	public function update(dt:Float):Void;
-
-	/**
-	 * Cleanup resources.
-	 * Called when driver is unregistered or on shutdown.
-	 */
-	public function dispose():Void;
+    /**
+     * Unique ID of the driver instance.
+     */
+    public var id(get, never):String;
+    
+    /**
+     * Called once when the driver is registered.
+     * Override to perform initialization.
+     */
+    public function init():Void;
+    
+    /**
+     * Called periodically (every frame) to poll data or maintain connection.
+     * @param dt Delta time in seconds.
+     */
+    public function update(dt:Float):Void;
+    
+    /**
+     * Cleanup resources.
+     * Called when driver is unregistered or on shutdown.
+     */
+    public function dispose():Void;
 }
+
 /**
- * Драйвера планируемые в первой очереди для создания:
+ * Planned drivers for future implementation:
  *
  * - TextFeild
  * - TextArea

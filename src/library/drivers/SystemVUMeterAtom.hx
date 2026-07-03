@@ -1,25 +1,26 @@
+#if cpp
 package library.drivers;
 
-#if cpp
 import core.base.Atom;
 import core.base.Contact;
 import core.types.ContactType.*;
 import system.managers.DriverManager;
 
 // ============================================================================
-// ЗАГОЛОВОК (HEADER)
+// HEADER
 // ============================================================================
-// ВНИМАНИЕ: Намеренно пусто! 
-// Мы НЕ включаем Windows.h и WASAPI заголовки сюда, чтобы их макросы 
-// (ERROR, interface, min, max) не утекли в __boot__.cpp и не сломали Lime/OpenAL.
+// INTENTIONALLY EMPTY!
+// We do NOT include Windows.h and WASAPI headers here to prevent their macros
+// (ERROR, interface, min, max) from leaking into __boot__.cpp and breaking
+// Lime/OpenAL compilation.
 @:headerCode('
 ')
 
 // ============================================================================
-// C++ РЕАЛИЗАЦИЯ (CPP FILE CODE)
+// C++ IMPLEMENTATION (CPP FILE CODE)
 // ============================================================================
 @:cppFileCode('
-// Защита от агрессивных макросов Windows
+// Protection from aggressive Windows macros
 #define WIN32_LEAN_AND_MEAN
 #define WIN32_NO_STATUS
 #define NOMINMAX
@@ -31,23 +32,23 @@ import system.managers.DriverManager;
 #include <map>
 
 // ============================================================================
-// C++ STATE STRUCT — хранит WASAPI объекты для каждого Haxe-инстанса
+// C++ STATE STRUCT — stores WASAPI objects for each Haxe instance
 // ============================================================================
 struct VuMeterState {
     IMMDeviceEnumerator* pEnumerator;
     IMMDevice* pDevice;
     IAudioMeterInformation* pMeter;
     
-    // Стерео пики
+    // Stereo peaks
     float peakL;
     float peakR;
     float peakMono;
     UINT32 channelCount;
-    
     bool isValid;
     bool comInitialized;
+    
     std::mutex mtx;
-
+    
     VuMeterState()
         : pEnumerator(nullptr)
         , pDevice(nullptr)
@@ -61,45 +62,45 @@ struct VuMeterState {
     {}
 };
 
-// Глобальная карта: Haxe-указатель → C++ состояние
+// Global map: Haxe pointer → C++ state
 static std::map<void*, VuMeterState*> _vumeter_map;
 static std::mutex _vumeter_map_mutex;
 
 // ============================================================================
-// ИНИЦИАЛИЗАЦИЯ WASAPI
+// WASAPI INITIALIZATION
 // ============================================================================
 static void _vumeter_init(void* haxePtr, int mode) {
     VuMeterState* st = new VuMeterState();
-
+    
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (SUCCEEDED(hr)) {
         st->comInitialized = true;
     } else if (hr == RPC_E_CHANGED_MODE) {
-        // COM уже инициализирован в другом потоке — это ОК для нас
+        // COM already initialized in another thread — OK for us
         st->comInitialized = false;
     } else {
         delete st;
         return;
     }
-
+    
     hr = CoCreateInstance(
         __uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
         __uuidof(IMMDeviceEnumerator),
         (void**)&st->pEnumerator
     );
-
+    
     if (FAILED(hr) || !st->pEnumerator) {
         if (st->comInitialized) CoUninitialize();
         delete st;
         return;
     }
-
+    
     EDataFlow flow = (mode == 1) ? eCapture : eRender;
-
+    
     hr = st->pEnumerator->GetDefaultAudioEndpoint(
         flow, eMultimedia, &st->pDevice
     );
-
+    
     if (FAILED(hr) || !st->pDevice) {
         st->pEnumerator->Release();
         st->pEnumerator = nullptr;
@@ -107,18 +108,18 @@ static void _vumeter_init(void* haxePtr, int mode) {
         delete st;
         return;
     }
-
+    
     hr = st->pDevice->Activate(
         __uuidof(IAudioMeterInformation), CLSCTX_ALL, NULL,
         (void**)&st->pMeter
     );
-
+    
     if (SUCCEEDED(hr) && st->pMeter) {
-        // Получаем количество каналов устройства
+        // Get device channel count
         st->pMeter->GetMeteringChannelCount(&st->channelCount);
         st->isValid = true;
     }
-
+    
     {
         std::lock_guard<std::mutex> lock(_vumeter_map_mutex);
         _vumeter_map[haxePtr] = st;
@@ -126,7 +127,7 @@ static void _vumeter_init(void* haxePtr, int mode) {
 }
 
 // ============================================================================
-// ОСВОБОЖДЕНИЕ WASAPI
+// WASAPI RELEASE
 // ============================================================================
 static void _vumeter_release(void* haxePtr) {
     VuMeterState* st = nullptr;
@@ -138,7 +139,7 @@ static void _vumeter_release(void* haxePtr) {
             _vumeter_map.erase(it);
         }
     }
-
+    
     if (st) {
         if (st->pMeter) { st->pMeter->Release(); st->pMeter = nullptr; }
         if (st->pDevice) { st->pDevice->Release(); st->pDevice = nullptr; }
@@ -151,7 +152,7 @@ static void _vumeter_release(void* haxePtr) {
 }
 
 // ============================================================================
-// ЧТЕНИЕ СТЕРЕО ПИКОВЫХ ЗНАЧЕНИЙ
+// STEREO PEAK VALUE READING
 // ============================================================================
 struct StereoPeakResult {
     float peakL;
@@ -172,15 +173,16 @@ static StereoPeakResult _vumeter_get_stereo_peak(void* haxePtr) {
             st = it->second;
         }
     }
-
+    
     if (!st || !st->isValid || !st->pMeter) return result;
-
+    
     result.channels = st->channelCount;
     
-    // Если устройство имеет 2 и более каналов — используем стерео-метод
+    // If device has 2+ channels — use stereo method
     if (st->channelCount >= 2) {
         float channelPeaks[2] = {0.0f, 0.0f};
         HRESULT hr = st->pMeter->GetChannelsPeakValues(2, channelPeaks);
+        
         if (SUCCEEDED(hr)) {
             std::lock_guard<std::mutex> lock(st->mtx);
             st->peakL = channelPeaks[0];
@@ -193,9 +195,10 @@ static StereoPeakResult _vumeter_get_stereo_peak(void* haxePtr) {
             result.valid = true;
         }
     } else {
-        // Моно-устройство — дублируем значение в оба канала
+        // Mono device — duplicate value to both channels
         float peak = 0.0f;
         HRESULT hr = st->pMeter->GetPeakValue(&peak);
+        
         if (SUCCEEDED(hr)) {
             std::lock_guard<std::mutex> lock(st->mtx);
             st->peakL = peak;
@@ -208,59 +211,117 @@ static StereoPeakResult _vumeter_get_stereo_peak(void* haxePtr) {
             result.valid = true;
         }
     }
-
+    
     return result;
 }
 ')
 
 /**
- * SystemVUMeterAtom — Аппаратный СТЕРЕО VU-метр от Windows WASAPI.
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * АРХИТЕКТУРА: "ATOM IS DATABANK & COMPUTE CORE"
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * ┌─────────────────────────────────────────────────────────────────────────┐
- * │   SystemVUMeterAtom                                                     │
- * │                                                                         │
- * │   А) COMPUTE MODULE:                                                    │
- * │      update(dt) → GetChannelsPeakValues() → setValueSilent()            │
- * │                                                                         │
- * │   Б) OUTPUTS:                                                           │
- * │      "peakL"    : Float  (0.0 .. 1.0) — левый канал                   │
- * │      "peakR"    : Float  (0.0 .. 1.0) — правый канал                  │
- * │      "peakMono" : Float  (0.0 .. 1.0) — максимум из L/R               │
- * │      "percentL" : Int    (0 .. 100)                                    │
- * │      "percentR" : Int    (0 .. 100)                                    │
- * │      "dB_L"     : Float  (-inf .. 0)                                   │
- * │      "dB_R"     : Float  (-inf .. 0)                                   │
- * │      "channels" : Int            — количество каналов (2=стерео)       │
- * │      "active"   : Bool                                                 │
- * │      "clipL"    : Bool           — пик L > 0.95                        │
- * │      "clipR"    : Bool           — пик R > 0.95                        │
- * │                                                                         │
- * └─────────────────────────────────────────────────────────────────────────┘
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║                     SYSTEM VU METER ATOM v1.0                             ║
+ * ║                     (Windows WASAPI Stereo Audio Meter)                   ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  Hardware STEREO VU meter from Windows WASAPI.                            ║
+ * ║  Reads real-time peak values from default audio endpoint.                 ║
+ * ║                                                                           ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                        ARCHITECTURE                                       ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │                     SystemVUMeterAtom                               │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  A) COMPUTE MODULE:                                                 │  ║
+ * ║  │     ─────────────────                                               │  ║
+ * ║  │     update(dt) → GetChannelsPeakValues() → setValueSilent()         │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  B) OUTPUTS:                                                        │  ║
+ * ║  │     ────────                                                        │  ║
+ * ║  │     "peakL"    : Float  (0.0 .. 1.0) — left channel                 │  ║
+ * ║  │     "peakR"    : Float  (0.0 .. 1.0) — right channel                │  ║
+ * ║  │     "peakMono" : Float  (0.0 .. 1.0) — max of L/R                   │  ║
+ * ║  │     "percentL" : Int    (0 .. 100)                                  │  ║
+ * ║  │     "percentR" : Int    (0 .. 100)                                  │  ║
+ * ║  │     "dB_L"     : Float  (-inf .. 0)                                 │  ║
+ * ║  │     "dB_R"     : Float  (-inf .. 0)                                 │  ║
+ * ║  │     "channels" : Int            — channel count (2=stereo)          │  ║
+ * ║  │     "active"   : Bool                                               │  ║
+ * ║  │     "clipL"    : Bool           — peak L > 0.95                     │  ║
+ * ║  │     "clipR"    : Bool           — peak R > 0.95                     │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  C) INPUTS:                                                         │  ║
+ * ║  │     ────────                                                        │  ║
+ * ║  │     "mode"     : Int    (0=Speakers, 1=Microphone)                  │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  D) FACE (DeviceView):                                              │  ║
+ * ║  │     ─────────────────                                               │  ║
+ * ║  │     SystemVUMeterWidget for stereo VU visualization                 │  ║
+ * ║  │                                                                     │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                      WASAPI FLOW                                          ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  init() → _initWasapi(mode)                                               ║
+ * ║           ├── CoInitializeEx()                                            ║
+ * ║           ├── CoCreateInstance(MMDeviceEnumerator)                        ║
+ * ║           ├── GetDefaultAudioEndpoint(flow)                               ║
+ * ║           ├── Activate(IAudioMeterInformation)                            ║
+ * ║           └── GetMeteringChannelCount()                                   ║
+ * ║                                                                           ║
+ * ║  update(dt) → _vumeter_get_stereo_peak()                                  ║
+ * ║               ├── GetChannelsPeakValues(2, peaks)  [if stereo]            ║
+ * ║               └── GetPeakValue(&peak)              [if mono]              ║
+ * ║                                                                           ║
+ * ║  dispose() → _releaseWasapi()                                             ║
+ * ║              ├── pMeter->Release()                                        ║
+ * ║              ├── pDevice->Release()                                       ║
+ * ║              ├── pEnumerator->Release()                                   ║
+ * ║              └── CoUninitialize()                                         ║
+ * ║                                                                           ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                    APPLICATION                                            ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  • Real-time system audio level monitoring                                ║
+ * ║  • Microphone input level visualization                                   ║
+ * ║  • Audio-driven signal generation                                         ║
+ * ║  • Voice activity detection                                               ║
+ * ║  • Stereo balance analysis                                                ║
+ * ║                                                                           ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 class SystemVUMeterAtom extends Atom implements system.managers.Driver
 {
     // =========================================================================
-    // КОНСТАНТЫ
+    // CONSTANTS
     // =========================================================================
     private static inline var MODE_SPEAKERS:Int = 0;
     private static inline var MODE_MIC:Int      = 1;
-
+    
+    /**
+     * Clip detection threshold.
+     * Peak values above this are considered clipping.
+     */
     private static inline var CLIP_THRESHOLD:Float = 0.95;
 
     // =========================================================================
-    // СОСТОЯНИЕ
+    // STATE
     // =========================================================================
     private var _mode:Int             = MODE_SPEAKERS;
     private var _lastMode:Int         = -1;
-    private var _isDeviceActive:Bool  = false; // Переименовано, чтобы не конфликтовать с Atom._isActive
+    
+    /**
+     * Renamed from _isActive to avoid conflict with Atom._isActive.
+     * Indicates whether WASAPI device is successfully initialized.
+     */
+    private var _isDeviceActive:Bool  = false;
     private var _channels:Int         = 0;
 
     // =========================================================================
-    // КОНСТРУКТОР
+    // CONSTRUCTOR
     // =========================================================================
     public function new(id:String)
     {
@@ -268,7 +329,7 @@ class SystemVUMeterAtom extends Atom implements system.managers.Driver
             [ // INPUTS
                 new Contact(MODE_SPEAKERS, INPUT, "mode")
             ],
-            [ // OUTPUTS — СТЕРЕО
+            [ // OUTPUTS — STEREO
                 new Contact(0.0,    OUTPUT, "peakL"),
                 new Contact(0.0,    OUTPUT, "peakR"),
                 new Contact(0.0,    OUTPUT, "peakMono"),
@@ -284,9 +345,9 @@ class SystemVUMeterAtom extends Atom implements system.managers.Driver
             null,
             id,
             "SystemVUMeterAtom",
-            true // isActive = true → регистрируемся в DriverManager
+            true // isActive = true → register in DriverManager
         );
-
+        
         init();
     }
 
@@ -298,11 +359,23 @@ class SystemVUMeterAtom extends Atom implements system.managers.Driver
         _initWasapi(_mode);
     }
 
+    /**
+     * Update every frame — main polling logic.
+     * Called from DriverManager.update().
+     *
+     * Pattern:
+     * 1. Check mode input — reinitialize WASAPI if changed
+     * 2. Poll WASAPI via C++ — get stereo peaks
+     * 3. Calculate derived values (percent, dB, clip)
+     * 4. Silent write + single propagate (batched update pattern)
+     *
+     * @param dt Delta time in seconds
+     */
     override public function update(dt:Float):Void
     {
         if (_isDisposed) return;
 
-        // 1. Читаем вход "mode" — если изменился, переинициализируем WASAPI
+        // 1. Read "mode" input — reinitialize WASAPI if changed
         var modeC = getInput("mode");
         if (modeC != null && modeC.value != null)
         {
@@ -314,15 +387,15 @@ class SystemVUMeterAtom extends Atom implements system.managers.Driver
             }
         }
 
-        // 2. Опрос WASAPI через C++ — СТЕРЕО
+        // 2. Poll WASAPI via C++ — STEREO
         var peakL:Float    = 0.0;
         var peakR:Float    = 0.0;
         var peakMono:Float = 0.0;
         var channels:Int   = 0;
         var valid:Bool     = false;
-        
-        // {0}..{4} — локальные переменные для записи результатов
-        // {5}      — this (Haxe object), у него есть .mPtr
+
+        // {0}..{4} — local variables for result writing
+        // {5}      — this (Haxe object), has .mPtr
         untyped __cpp__('
             StereoPeakResult _vu_result = _vumeter_get_stereo_peak((void*){5}.mPtr);
             {0} = _vu_result.peakL;
@@ -334,24 +407,18 @@ class SystemVUMeterAtom extends Atom implements system.managers.Driver
 
         _channels = channels;
 
-        // 3. Вычисляем производные значения
+        // 3. Calculate derived values
         var percentL:Int = clampPercent(peakL * 100);
         var percentR:Int = clampPercent(peakR * 100);
 
-		// === ВРЕМЕННО ДЛЯ ТЕСТА ===
-		// Если значения слишком маленькие, усиливаем их
-		//if (percentL < 50 && peakL > 0) percentL = Std.int(peakL * 1000);
-		//if (percentR < 50 && peakR > 0) percentR = Std.int(peakR * 1000);
-		// ==========================
-		
-		
         var dB_L:Float = (peakL > 0.0001) ? 20.0 * Math.log(peakL) / Math.log(10) : -120.0;
         var dB_R:Float = (peakR > 0.0001) ? 20.0 * Math.log(peakR) / Math.log(10) : -120.0;
 
         var clipL:Bool = peakL >= CLIP_THRESHOLD;
         var clipR:Bool = peakR >= CLIP_THRESHOLD;
 
-        // 4. Тихая запись + propagate (паттерн из MiniAudioAtom)
+        // 4. Silent write + propagate (pattern from MiniAudioAtom)
+        //    This reduces TickGenerator load during batched updates.
         var peakLC     = getOutput("peakL");
         var peakRC     = getOutput("peakR");
         var peakMonoC  = getOutput("peakMono");
@@ -364,6 +431,7 @@ class SystemVUMeterAtom extends Atom implements system.managers.Driver
         var clipLC     = getOutput("clipL");
         var clipRC     = getOutput("clipR");
 
+        // Silent writes — no propagation triggered
         if (peakLC    != null) peakLC.setValueSilent(peakL);
         if (peakRC    != null) peakRC.setValueSilent(peakR);
         if (peakMonoC != null) peakMonoC.setValueSilent(peakMono);
@@ -376,7 +444,7 @@ class SystemVUMeterAtom extends Atom implements system.managers.Driver
         if (clipLC    != null) clipLC.setValueSilent(clipL);
         if (clipRC    != null) clipRC.setValueSilent(clipR);
 
-        // 5. Одно распространение на каждый выход
+        // Single propagation per output — triggers downstream atoms once
         if (peakLC    != null) peakLC.propagateCurrentValue();
         if (peakRC    != null) peakRC.propagateCurrentValue();
         if (peakMonoC != null) peakMonoC.propagateCurrentValue();
@@ -390,6 +458,12 @@ class SystemVUMeterAtom extends Atom implements system.managers.Driver
         if (clipRC    != null) clipRC.propagateCurrentValue();
     }
 
+    /**
+     * Clamp percent value to 0..100 range.
+     *
+     * @param v Raw percent value
+     * @return Clamped integer value
+     */
     private function clampPercent(v:Float):Int
     {
         var i = Std.int(v);
@@ -408,24 +482,33 @@ class SystemVUMeterAtom extends Atom implements system.managers.Driver
     // =========================================================================
     // WASAPI INIT / RELEASE
     // =========================================================================
+    /**
+     * Initialize WASAPI device for specified mode.
+     * Releases previous device if any.
+     *
+     * @param mode 0 = Speakers (eRender), 1 = Microphone (eCapture)
+     */
     private function _initWasapi(mode:Int):Void
     {
         _releaseWasapi();
         _lastMode = mode;
-
+        
         untyped __cpp__('
             _vumeter_init((void*){0}.mPtr, {1});
         ', this, mode);
-
+        
         _isDeviceActive = true;
     }
 
+    /**
+     * Release WASAPI device and free COM resources.
+     */
     private function _releaseWasapi():Void
     {
         untyped __cpp__('
             _vumeter_release((void*){0}.mPtr);
         ', this);
-
+        
         _isDeviceActive = false;
     }
 
@@ -436,17 +519,21 @@ class SystemVUMeterAtom extends Atom implements system.managers.Driver
     {
         var base = super.getPersistentState();
         var result:Dynamic = { mode: _mode };
+        
         if (base != null && Reflect.hasField(base, "isLogic"))
         {
             Reflect.setField(result, "isLogic", Reflect.field(base, "isLogic"));
         }
+        
         return result;
     }
 
     override public function restoreState(state:Dynamic):Void
     {
         if (state == null) return;
+        
         super.restoreState(state);
+        
         if (state.mode != null)
         {
             _mode = Std.int(state.mode);

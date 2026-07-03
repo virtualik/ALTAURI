@@ -2,14 +2,19 @@ package core.logic;
 
 /**
  * EVENT TYPE v1.2 (Device Window Events)
+ *
  * Type-safe enumeration of all system events (Impulse types).
+ *
+ * Using abstract enum ensures:
+ * - Compile-time type checking
+ * - No string typos in event names
+ * - Efficient string representation at runtime
  *
  * v1.2 Changes:
  * - Added DEVICE_WINDOW_CHANGED for saving window position/size after interaction
  */
 abstract EventType(String) from String to String {
-
-    public inline function new(s:String) this = s;
+    public inline function new(s: String) this = s;
 
     // === SYSTEM & LIFECYCLE ===
     public static var ATOM_DELETED(default, never) = new EventType("ATOM_DELETED");

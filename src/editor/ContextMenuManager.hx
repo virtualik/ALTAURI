@@ -19,12 +19,37 @@ import system.commands.editor.GroupAtomsCommand;
 
 /**
  * CONTEXT MENU MANAGER v1.1 (Memory Leak Fix)
- * Отвечает за создание и обработку контекстных меню редактора.
- * Слушает импульсы от NodeEditor и управляет UI меню.
+ * Responsible for creating and handling editor context menus.
+ * Listens to impulses from NodeEditor and manages the menu UI.
  *
- * v1.1 Changes:
- * - Added dispose() method for proper cleanup
- * - Unsubscribes from all Impulsys events
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   ContextMenuManager                                                    │
+ * │                                                                         │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  Event Subscriptions:                                           │   │
+ * │   │  - CONTEXT_MENU_ACTION   → onMenuAction() (execute commands)    │   │
+ * │   │  - CLOSE_CONTEXT_MENU    → onCloseContextMenu() (hide menu)     │   │
+ * │   │  - NODE_RIGHT_CLICKED    → onNodeRightClick() (node menu)       │   │
+ * │   │  - WIRE_RIGHT_CLICKED    → onWireRightClick() (wire menu)       │   │
+ * │   │  - PORT_RIGHT_CLICKED    → onPortRightClick() (port menu)       │   │
+ * │   │  - CANVAS_RIGHT_CLICKED  → onCanvasRightClick() (atom menu)     │   │
+ * │   │                                                                 │   │
+ * │   │  Menu Actions:                                                  │   │
+ * │   │  - ADD_ATOM             → NodeEditor.createAtom()               │   │
+ * │   │  - DELETE_ALL_SELECTED  → MacroCommand[DeleteAtom+DeleteWires]  │   │
+ * │   │  - DELETE_SELECTED_ATOMS→ NodeEditor.deleteSelectedNodes()      │   │
+ * │   │  - DELETE_WIRES         → DeleteWiresCommand                    │   │
+ * │   │  - GROUP_ATOMS          → GroupAtomsCommand                     │   │
+ * │   │  - ADD_PORT             → AddPortCommand                        │   │
+ * │   │  - REMOVE_PORT          → RemovePortCommand                     │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   v1.1 Changes:                                                         │
+ * │   - Added dispose() method for proper cleanup                           │
+ * │   - Unsubscribes from all Impulsys events                               │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
 class ContextMenuManager {
 
@@ -32,20 +57,20 @@ class ContextMenuManager {
     private var _editor:NodeEditor;
     private var _assembly:Assembly;
 
-    // Ссылка на настройки (нужна для проверки allowAssembly)
+    // Reference to settings (needed for allowAssembly check)
     private var _settingsPanel:SettingsPanel;
 
-    // Временное состояние для передачи данных в action
+    // Temporary state for passing data to action
     private var _contextTargetId:String = null;
     
-    // Флаг для защиты от повторного dispose
+    // Flag to protect against repeated dispose
     private var _isDisposed:Bool = false;
 
     public function new(settingsPanel:SettingsPanel) {
         _settingsPanel = settingsPanel;
         _menu = new ContextMenu();
 
-        // Подписываемся на все нужные импульсы
+        // Subscribe to all required impulses
         Impulsys.subscribeToImpulse(EventType.CONTEXT_MENU_ACTION, onMenuAction);
         Impulsys.subscribeToImpulse(EventType.CLOSE_CONTEXT_MENU, onCloseContextMenu);
 
@@ -56,7 +81,7 @@ class ContextMenuManager {
     }
 
     /**
-     * Обновление контекста при смене редактора/сборки.
+     * Update context when switching editor/assembly.
      */
     public function setContext(editor:NodeEditor, assembly:Assembly):Void {
         _editor = editor;
@@ -64,14 +89,14 @@ class ContextMenuManager {
     }
 
     /**
-     * Возвращает визуальный компонент меню для добавления на сцену.
+     * Returns the visual menu component for adding to the scene.
      */
     public function getView():ContextMenu {
         return _menu;
     }
 
     // ========================================================================
-    // DISPOSE - v1.1新增
+    // DISPOSE - v1.1
     // ========================================================================
     
     /**
@@ -82,7 +107,7 @@ class ContextMenuManager {
         if (_isDisposed) return;
         _isDisposed = true;
         
-        // Отписываемся от всех импульсов
+        // Unsubscribe from all impulses
         Impulsys.removeImpulse(EventType.CONTEXT_MENU_ACTION, onMenuAction);
         Impulsys.removeImpulse(EventType.CLOSE_CONTEXT_MENU, onCloseContextMenu);
         Impulsys.removeImpulse(EventType.NODE_RIGHT_CLICKED, onNodeRightClick);
@@ -90,7 +115,7 @@ class ContextMenuManager {
         Impulsys.removeImpulse(EventType.PORT_RIGHT_CLICKED, onPortRightClick);
         Impulsys.removeImpulse(EventType.CANVAS_RIGHT_CLICKED, onCanvasRightClick);
         
-        // Очищаем ссылки
+        // Clear references
         if (_menu != null) {
             _menu.hide();
             _menu = null;
@@ -120,18 +145,18 @@ class ContextMenuManager {
         var view:NodeView = impulse.data.view;
         _contextTargetId = impulse.data.id;
 
-        // Логика выделения при ПКМ
-		// Если кликнули по невыбранному узлу - сбрасываем выделение и выбираем только его
+        // Selection logic on right-click
+        // If clicked on unselected node - reset selection and select only this one
         if (!_editor.isSelected(_contextTargetId)) {
-            // Узел не выделен: сбрасываем всё (узлы + провода) и выделяем этот узел
-			_editor.deselectAll();
+            // Node not selected: reset all (nodes + wires) and select this node
+            _editor.deselectAll();
             _editor.selectNode(_contextTargetId, view);
         } else {
-			// ИСПРАВЛЕНИЕ: Узел УЖЕ выделен.
-            // Мы оставляем выделение узлов (чтобы работало групповое удаление),
-            // но снимаем выделение проводов, чтобы избежать путаницы.
+            // FIX: Node is ALREADY selected.
+            // We keep node selection (for group delete to work),
+            // but clear wire selection to avoid confusion.
             _editor.clearWireSelection();
-		}
+        }
 
         resetMenu();
 
@@ -144,7 +169,7 @@ class ContextMenuManager {
             _menu.addItem("——————", "SEP");
         }
 
-        // Определяем тип выделенных объектов
+        // Determine type of selected objects
         var typeName = "Nodes";
         var allAssemblies = true;
         var allAtoms = true;
@@ -233,7 +258,7 @@ class ContextMenuManager {
                 return;
 
             case "DELETE_ATOM":
-                 // Этот кейс остался для совместимости или одиночного удаления
+                 // This case remains for compatibility or single deletion
                 if (_editor.getSelectedNodeCount() > 0) {
                     _editor.deleteSelectedNodes();
                 }
@@ -264,7 +289,7 @@ class ContextMenuManager {
                 return;
         }
 
-        // Добавление атома (Action: "ADD_ATOM")
+        // Adding an atom (Action: "ADD_ATOM")
         if (action == "ADD_ATOM") {
             if (data != null && data.typeId != null) {
                 _editor.createAtom(data.typeId, x, y);
@@ -283,7 +308,7 @@ class ContextMenuManager {
 
     private function resetMenu():Void {
         _menu.hide();
-        // Очистка меню
+        // Clear menu
         _menu.clear();
     }
 

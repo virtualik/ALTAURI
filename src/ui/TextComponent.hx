@@ -6,13 +6,30 @@ import openfl.text.TextFormat;
 import openfl.text.TextFormatAlign;
 import core.base.Contact;
 
+/**
+ * TEXT COMPONENT v1.0
+ * Simple text display bound to a Contact.
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   TextComponent                                                         │
+ * │                                                                         │
+ * │   ┌──────────────────────────────────┐                                  │
+ * │   │  Contact Value (text)            │  ← 200x50                        │
+ * │   └──────────────────────────────────┘                                  │
+ * │                                                                         │
+ * │   Subscribes to Contact changes and updates display.                    │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ */
 class TextComponent extends Sprite {
     private var _textField: TextField;
     private var _contact: Contact;
-
+    
     public function new(contact: Contact, ?width: Float = 200, ?height: Float = 50) {
         super();
         _contact = contact;
+        
         _textField = new TextField();
         var format = new TextFormat("_typewriter", 16, 0xE0E0E0);
         format.align = TextFormatAlign.CENTER;
@@ -23,13 +40,15 @@ class TextComponent extends Sprite {
         _textField.wordWrap = true;
         _textField.border = true;
         _textField.borderColor = 0x444444;
+        
         graphics.beginFill(0x1a1a24);
         graphics.drawRect(0, 0, width, height);
+        
         updateText(_contact.value);
         _contact.subscribe(onContactChange);
         addChild(_textField);
     }
-
+    
     private function onContactChange(newValue: Dynamic) { updateText(newValue); }
     private function updateText(value: Dynamic) { _textField.text = Std.string(value); }
     public function destroy() { _contact.unsubscribe(onContactChange); }

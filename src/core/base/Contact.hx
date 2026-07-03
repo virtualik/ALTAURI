@@ -1,98 +1,177 @@
 package core.base;
+
 import core.logic.TickGenerator;
 import core.types.ContactType;
 import core.types.ContactType.*;
 import utils.UID;
+
 /**
-* CONTACT v5.8 (Batched Driver Update & Stability Pass)
-*
-* v5.8 Changes:
-* - ADDED: setValueSilent() метод.
-*   Позволяет драйверам (Atom с isLogic=false) обновлять множество выходов
-*   без создания промежуточных задач в TickGenerator на каждый выход.
-*   Устраняет проблему "N лишних итераций process()" при пакетном обновлении.
-*
-* v3.2 Changes:
-* - ADDED: hasLinks() и getLinkCount() публичные методы.
-*   Позволяют NodeView проверять наличие соединений без доступа к приватному полю.
-*
-* Сравнение методов записи:
-* ┌────────────────────┬───────────────────────────────────────────────────────┐
-* │ Метод              │ Поведение                                             │
-* ├────────────────────┼───────────────────────────────────────────────────────┤
-* │ contact.value = x  │ Запись + schedule(_propagate) в TickGenerator         │
-* │                    │ (Триггерит пересчет downstream атомов)                │
-* ├────────────────────┼───────────────────────────────────────────────────────
-* │ setValueSilent(x)  │ ТОЛЬКО запись в _value. Ничего не триггерит.          │
-* │                    │ Используется драйверами для "тихой" подготовки данных │
-* ├────────────────────┼───────────────────────────────────────────────────────┤
-* │ propagateCurrent.. │ Вызывает _propagate() для текущего значения.          │
-* │ Value()            │ Вызывается драйверами ОДИН раз после Silent-записи    │
-* └────────────────────┴───────────────────────────────────────────────────────┘
-*/
+ * CONTACT v5.8 (Batched Driver Update & Stability Pass)
+ *
+ * A connection point that can be linked to other contacts.
+ * When value changes, it propagates to linked targets.
+ *
+ * Key Features:
+ * - Oscillation protection (prevents infinite loops)
+ * - Silent value setting (for batched driver updates)
+ * - Callback subscription (for widgets and DeviceViews)
+ *
+ * Comparison of Write Methods:
+ * ┌────────────────────┬───────────────────────────────────────────────────────┐
+ * │ Method             │ Behavior                                              │
+ * ├────────────────────┼───────────────────────────────────────────────────────┤
+ * │ contact.value = x  │ Write + schedule(_propagate) in TickGenerator         │
+ * │                    │ (Triggers downstream atom recalculation)              │
+ * ├────────────────────┼───────────────────────────────────────────────────────┤
+ * │ setValueSilent(x)  │ ONLY writes to _value. Does not trigger anything.     │
+ * │                    │ Used by drivers for "silent" data preparation         │
+ * ├────────────────────┼───────────────────────────────────────────────────────┤
+ * │ propagateCurrent.. │ Calls _propagate() for current value.                 │
+ * │ Value()            │ Called by drivers ONCE after Silent write             │
+ * └────────────────────┴───────────────────────────────────────────────────────┘
+ */
 class Contact
 {
-	public var id(default, null):String;
-	public var type(default, null):ContactType;
-	public var name(default, null):String;
-	public var owner:Atom;
-	public var value(get, set):Dynamic;
-	private var _value:Dynamic;
-	private var linkedTargets:Array<Contact>;
-	private var callbackTargets:Array<Dynamic -> Void>;
-	private var _isScheduled:Bool = false;
-	public var isDisposed(default, null):Bool = false;
-	
-	// === ЗАЩИТА ОТ РЕКУРСИИ ===
-	private static var _propagationDepth:Int = 0;
-	private static inline var MAX_PROPAGATION_DEPTH:Int = 100;
-	
-	// === ОБНАРУЖЕНИЕ ОСЦИЛЛЯЦИИ v5.7 ===
-	private var _lastChangeTime:Float = 0;
-	private var _changeCount:Int = 0;
-	private var _oscillationBlocked:Bool = false;
-	public var ignoreOscillation:Bool = false;
-	private static inline var CHANGES_PER_SECOND_LIMIT:Int = 600;
-	private static inline var OSCILLATION_WINDOW:Float = 1.0;
-	
-	public function new(initialValue:Dynamic = null, ?type:ContactType, ?name:String = "unnamed")
-	{
-		this.id = UID.generate();
-		this.type = (type == null) ? ContactType.UNDEFINED : type;
-		this.name = name;
-		this._value = initialValue;
-		this.linkedTargets = [];
-		this.callbackTargets = [];
-	}
-	
-	public function link(target:Contact, ?suppressPropagation:Bool = false):Void
-	{
-		if (target == null) return;
-		if (hasLink(target)) return;
-		linkedTargets.push(target);
-		if (_value != null && !suppressPropagation) target.value = _value;
-	}
-	
+    // ========================================================================
+    // PROPERTIES
+    // ========================================================================
+    
+    /** Unique identifier for this contact. */
+    public var id(default, null):String;
+    
+    /** Contact type (INPUT, OUTPUT, BIDIRECTIONAL, UNDEFINED). */
+    public var type(default, null):ContactType;
+    
+    /** Contact name (e.g., "in", "out", "freq"). */
+    public var name(default, null):String;
+    
+    /** Owner atom (who this contact belongs to). */
+    public var owner:Atom;
+    
+    /** Current value (getter/setter with propagation logic). */
+    public var value(get, set):Dynamic;
+    private var _value:Dynamic;
+    
+    /** Linked target contacts (for signal propagation). */
+    private var linkedTargets:Array<Contact>;
+    
+    /** Callback subscribers (widgets, DeviceViews). */
+    private var callbackTargets:Array<Dynamic -> Void>;
+    
+    /** Is propagation currently scheduled? */
+    private var _isScheduled:Bool = false;
+    
+    /** Is this contact disposed? */
+    public var isDisposed(default, null):Bool = false;
+    
+    // ========================================================================
+    // OSCILLATION PROTECTION
+    // ========================================================================
+    
+    /** Current propagation depth (prevents infinite recursion). */
+    private static var _propagationDepth:Int = 0;
+    
+    /** Maximum allowed propagation depth. */
+    private static inline var MAX_PROPAGATION_DEPTH:Int = 100;
+    
+    /** Time of last value change (for oscillation detection). */
+    private var _lastChangeTime:Float = 0;
+    
+    /** Number of changes in current window. */
+    private var _changeCount:Int = 0;
+    
+    /** Is oscillation currently blocked? */
+    private var _oscillationBlocked:Bool = false;
+    
+    /** Should this contact ignore oscillation detection? */
+    public var ignoreOscillation:Bool = false;
+    
+    /** Maximum changes per second before blocking. */
+    private static inline var CHANGES_PER_SECOND_LIMIT:Int = 600;
+    
+    /** Time window for oscillation detection (seconds). */
+    private static inline var OSCILLATION_WINDOW:Float = 1.0;
+    
+    // ========================================================================
+    // CONSTRUCTOR
+    // ========================================================================
+    
+    /**
+     * Create a new Contact.
+     * 
+     * @param initialValue Initial value
+     * @param type         Contact type
+     * @param name         Contact name
+     */
+    public function new(initialValue:Dynamic = null, ?type:ContactType, ?name:String = "unnamed")
+    {
+        this.id = UID.generate();
+        this.type = (type == null) ? ContactType.UNDEFINED : type;
+        this.name = name;
+        this._value = initialValue;
+        this.linkedTargets = [];
+        this.callbackTargets = [];
+    }
+    
+    // ========================================================================
+    // LINKING
+    // ========================================================================
+    
+    /**
+     * Link this contact to a target.
+     * 
+     * If this contact has a value, it propagates to the target immediately
+     * (unless suppressPropagation is true).
+     * 
+     * @param target              Target contact to link to
+     * @param suppressPropagation If true, do not propagate current value
+     */
+    public function link(target:Contact, ?suppressPropagation:Bool = false):Void
+    {
+        if (target == null) return;
+        if (hasLink(target)) return;
+        
+        linkedTargets.push(target);
+        
+        if (_value != null && !suppressPropagation)
+        {
+            target.value = _value;
+        }
+    }
+    
+    /**
+     * Propagate current value to all linked targets.
+     * 
+     * This method:
+     * 1. Notifies owner atom (onContactChanged)
+     * 2. Propagates to linked contacts
+     * 3. Notifies callback subscribers (widgets)
+     * 
+     * Used by drivers after setValueSilent() to trigger a single propagation.
+     */
     public function propagateCurrentValue():Void
     {
         if (_value == null || isDisposed) return;
         if (!canPropagate()) return;
-
-        // 1. Уведомляем владельца атома (как в _propagate)
+        
+        // 1. Notify owner atom (like in _propagate)
         if (owner != null) owner.onContactChanged(this);
-
-        // 2. Распространяем по проводам (linkedTargets)
+        
+        // 2. Propagate to linked targets (wires)
         if (linkedTargets != null)
         {
             for (target in linkedTargets)
             {
-                if (target != null && !target.isDisposed) target._receiveValue(_value);
+                if (target != null && !target.isDisposed)
+                {
+                    target._receiveValue(_value);
+                }
             }
         }
-
-        // 3. Уведомляем подписчиков (callbackTargets — виджеты, DeviceView)
-        // ИСПРАВЛЕНИЕ: Раньше этот блок отсутствовал, из-за чего виджеты 
-        // не получали обновления от драйверов, использующих setValueSilent.
+        
+        // 3. Notify callback subscribers (widgets, DeviceViews)
+        // FIX: This block was previously missing, causing widgets to not
+        // receive updates from drivers using setValueSilent.
         if (callbackTargets != null)
         {
             for (callback in callbackTargets)
@@ -101,186 +180,337 @@ class Contact
             }
         }
     }
-	
-	private function _receiveValue(newValue:Dynamic):Void
-	{
-		if (isDisposed) return;
-		if (_value == newValue) return;
-		if (_oscillationBlocked) return;
-		_value = newValue;
-		if (!_isScheduled)
-		{
-			_isScheduled = true;
-			TickGenerator.getInstance().schedule(_propagate, NORMAL);
-		}
-	}
-	
-	public function canPropagate():Bool
-	{
-		if (isDisposed) return false;
-		return true;
-	}
-	
-	public function unlink(target:Contact):Void
-	{
-		if (linkedTargets != null) linkedTargets.remove(target);
-	}
-	
-	public function hasLink(target:Contact):Bool
-	{
-		if (linkedTargets == null) return false;
-		return linkedTargets.indexOf(target) != -1;
-	}
-	
-	public function subscribe(callback:Dynamic -> Void):Void
-	{
-		if (callback == null) return;
-		if (hasCallback(callback)) return;
-		callbackTargets.push(callback);
-	}
-	
-	public function unsubscribe(callback:Dynamic -> Void):Void
-	{
-		if (callbackTargets != null) callbackTargets.remove(callback);
-	}
-	
-	private function hasCallback(callback:Dynamic -> Void):Bool
-	{
-		return callbackTargets != null && callbackTargets.indexOf(callback) != -1;
-	}
-	
-	private function set_value(newValue:Dynamic):Dynamic
-	{
-		if (isDisposed) return newValue;
-		if (_value == newValue && !Std.isOfType(newValue, Array)) return newValue;
-		var currentTime = haxe.Timer.stamp();
-		var elapsed = currentTime - _lastChangeTime;
-		if (elapsed >= OSCILLATION_WINDOW)
-		{
-			_changeCount = 0;
-			_oscillationBlocked = false;
-		}
-		_lastChangeTime = currentTime;
-		_changeCount++;
-		if (!ignoreOscillation && _changeCount > CHANGES_PER_SECOND_LIMIT)
-		{
-			_oscillationBlocked = true;
-			return newValue;
-		}
-		if (_propagationDepth >= MAX_PROPAGATION_DEPTH) return newValue;
-		_propagationDepth++;
-		try
-		{
-			_value = newValue;
-			if (!_isScheduled)
-			{
-				_isScheduled = true;
-				TickGenerator.getInstance().schedule(_propagate, NORMAL);
-			}
-		}
-		catch (e:Dynamic) { }
-		_propagationDepth--;
-		return newValue;
-	}
-	
-	/**
-	* v5.8: Тихая запись значения без создания задач в TickGenerator.
-	* Существенно снижает нагрузку на планировщик при пакетных обновлениях.
-	*/
-	public function setValueSilent(newValue:Dynamic):Void
-	{
-		if (isDisposed) return;
-		_value = newValue;
-	}
-	
-	public function resetOscillation():Void
-	{
-		_oscillationBlocked = false;
-		_changeCount = 0;
-		_lastChangeTime = 0.0;
-	}
-	
-	private function get_value():Dynamic return _value;
-	
-	private function _propagate():Void
-	{
-		if (isDisposed) { _isScheduled = false; return; }
-		_isScheduled = false;
-		if (!canPropagate()) return;
-		if (_oscillationBlocked) return;
-		if (owner != null) owner.onContactChanged(this);
-		if (linkedTargets != null)
-		{
-			for (target in linkedTargets)
-			{
-				if (target != null && !target.isDisposed) target.value = this._value;
-			}
-		}
-		if (callbackTargets != null)
-		{
-			for (callback in callbackTargets)
-			{
-				if (callback != null) callback(this._value);
-			}
-		}
-	}
-	
-	public function getValue():Dynamic { return _value; }
-	public function setValueDirect(value:Dynamic):Void { _value = value; }
-	
-	public function getValueType():String
-	{
-		if (_value == null) return "null";
-		if (Std.isOfType(_value, Bool)) return "bool";
-		if (Std.isOfType(_value, Int)) return "int";
-		if (Std.isOfType(_value, Float)) return "float";
-		if (Std.isOfType(_value, String)) return "string";
-		if (Std.isOfType(_value, Array)) return "array";
-		if (Reflect.isObject(_value)) return "object";
-		return "unknown";
-	}
-	
-	// =========================================================================
-	// LINK QUERY HELPERS (v3.2)
-	// =========================================================================
-	
-	/**
-	 * Check if this contact has any incoming or outgoing links.
-	 * Used by NodeView to determine if inline editor should be shown.
-	 */
-	public function hasLinks():Bool {
-		return linkedTargets != null && linkedTargets.length > 0;
-	}
-	
-	/**
-	 * Get the number of linked targets.
-	 */
-	public function getLinkCount():Int {
-		return linkedTargets != null ? linkedTargets.length : 0;
-	}
-	
-	// =========================================================================
-	// DISPOSE
-	// =========================================================================
-	
-	public function dispose():Void
-	{
-		if (isDisposed) return;
-		isDisposed = true;
-		if (linkedTargets != null)
-		{
-			for (target in linkedTargets)
-			{
-				if (target != null && !target.isDisposed) target.unlink(this);
-			}
-			linkedTargets.resize(0);
-			linkedTargets = null;
-		}
-		if (callbackTargets != null)
-		{
-			callbackTargets.resize(0);
-			callbackTargets = null;
-		}
-		owner = null;
-	}
+    
+    /**
+     * Receive a value from a linked contact.
+     * 
+     * Schedules propagation if not already scheduled.
+     * 
+     * @param newValue New value to receive
+     */
+    private function _receiveValue(newValue:Dynamic):Void
+    {
+        if (isDisposed) return;
+        if (_value == newValue) return;
+        if (_oscillationBlocked) return;
+        
+        _value = newValue;
+        
+        if (!_isScheduled)
+        {
+            _isScheduled = true;
+            TickGenerator.getInstance().schedule(_propagate, NORMAL);
+        }
+    }
+    
+    /**
+     * Check if this contact can propagate.
+     * 
+     * @return true if not disposed
+     */
+    public function canPropagate():Bool
+    {
+        if (isDisposed) return false;
+        return true;
+    }
+    
+    /**
+     * Unlink a target contact.
+     * 
+     * @param target Target to unlink
+     */
+    public function unlink(target:Contact):Void
+    {
+        if (linkedTargets != null) linkedTargets.remove(target);
+    }
+    
+    /**
+     * Check if this contact is linked to a target.
+     * 
+     * @param target Target to check
+     * @return true if linked
+     */
+    public function hasLink(target:Contact):Bool
+    {
+        if (linkedTargets == null) return false;
+        return linkedTargets.indexOf(target) != -1;
+    }
+    
+    // ========================================================================
+    // SUBSCRIPTION (for widgets)
+    // ========================================================================
+    
+    /**
+     * Subscribe a callback to value changes.
+     * 
+     * Used by DeviceViews to receive updates when contact value changes.
+     * 
+     * @param callback Function to call on value change (receives new value)
+     */
+    public function subscribe(callback:Dynamic -> Void):Void
+    {
+        if (callback == null) return;
+        if (hasCallback(callback)) return;
+        
+        callbackTargets.push(callback);
+    }
+    
+    /**
+     * Unsubscribe a callback.
+     * 
+     * @param callback Function to remove
+     */
+    public function unsubscribe(callback:Dynamic -> Void):Void
+    {
+        if (callbackTargets != null) callbackTargets.remove(callback);
+    }
+    
+    /**
+     * Check if a callback is already subscribed.
+     * 
+     * @param callback Function to check
+     * @return true if subscribed
+     */
+    private function hasCallback(callback:Dynamic -> Void):Bool
+    {
+        return callbackTargets != null && callbackTargets.indexOf(callback) != -1;
+    }
+    
+    // ========================================================================
+    // VALUE GETTER/SETTER
+    // ========================================================================
+    
+    /**
+     * Set value with propagation logic.
+     * 
+     * This setter:
+     * 1. Checks for oscillation
+     * 2. Checks propagation depth
+     * 3. Schedules propagation via TickGenerator
+     * 
+     * @param newValue New value to set
+     * @return The value that was set
+     */
+    private function set_value(newValue:Dynamic):Dynamic
+    {
+        if (isDisposed) return newValue;
+        if (_value == newValue && !Std.isOfType(newValue, Array)) return newValue;
+        
+        // Oscillation detection
+        var currentTime = haxe.Timer.stamp();
+        var elapsed = currentTime - _lastChangeTime;
+        
+        if (elapsed >= OSCILLATION_WINDOW)
+        {
+            _changeCount = 0;
+            _oscillationBlocked = false;
+        }
+        
+        _lastChangeTime = currentTime;
+        _changeCount++;
+        
+        if (!ignoreOscillation && _changeCount > CHANGES_PER_SECOND_LIMIT)
+        {
+            _oscillationBlocked = true;
+            return newValue;
+        }
+        
+        // Recursion protection
+        if (_propagationDepth >= MAX_PROPAGATION_DEPTH) return newValue;
+        
+        _propagationDepth++;
+        
+        try
+        {
+            _value = newValue;
+            
+            if (!_isScheduled)
+            {
+                _isScheduled = true;
+                TickGenerator.getInstance().schedule(_propagate, NORMAL);
+            }
+        }
+        catch (e:Dynamic) { }
+        
+        _propagationDepth--;
+        
+        return newValue;
+    }
+    
+    /**
+     * v5.8: Silent value write without scheduling propagation.
+     * 
+     * Significantly reduces TickGenerator load during batched updates.
+     * Used by drivers (e.g., MiniAudioAtom, SignalGenerator) to prepare
+     * multiple output values before triggering a single propagation.
+     * 
+     * @param newValue New value to set (no propagation triggered)
+     */
+    public function setValueSilent(newValue:Dynamic):Void
+    {
+        if (isDisposed) return;
+        _value = newValue;
+    }
+    
+    /**
+     * Reset oscillation detection state.
+     * 
+     * Call this when you want to clear the change counter.
+     */
+    public function resetOscillation():Void
+    {
+        _oscillationBlocked = false;
+        _changeCount = 0;
+        _lastChangeTime = 0.0;
+    }
+    
+    /**
+     * Get current value.
+     * 
+     * @return Current value
+     */
+    private function get_value():Dynamic return _value;
+    
+    /**
+     * Internal propagation method.
+     * 
+     * Called by TickGenerator when scheduled.
+     * Propagates value to all linked targets and callbacks.
+     */
+    private function _propagate():Void
+    {
+        if (isDisposed)
+        {
+            _isScheduled = false;
+            return;
+        }
+        
+        _isScheduled = false;
+        
+        if (!canPropagate()) return;
+        if (_oscillationBlocked) return;
+        
+        // Notify owner atom
+        if (owner != null) owner.onContactChanged(this);
+        
+        // Propagate to linked contacts
+        if (linkedTargets != null)
+        {
+            for (target in linkedTargets)
+            {
+                if (target != null && !target.isDisposed)
+                {
+                    target.value = this._value;
+                }
+            }
+        }
+        
+        // Notify callbacks
+        if (callbackTargets != null)
+        {
+            for (callback in callbackTargets)
+            {
+                if (callback != null) callback(this._value);
+            }
+        }
+    }
+    
+    // ========================================================================
+    // UTILITY
+    // ========================================================================
+    
+    /**
+     * Get current value (alternative to .value getter).
+     * 
+     * @return Current value
+     */
+    public function getValue():Dynamic { return _value; }
+    
+    /**
+     * Set value directly without any propagation logic.
+     * 
+     * USE WITH CAUTION - bypasses all safety checks.
+     * 
+     * @param value Value to set
+     */
+    public function setValueDirect(value:Dynamic):Void { _value = value; }
+    
+    /**
+     * Get type name of current value.
+     * 
+     * @return Type name ("bool", "int", "float", "string", "array", "object", "unknown")
+     */
+    public function getValueType():String
+    {
+        if (_value == null) return "null";
+        if (Std.isOfType(_value, Bool)) return "bool";
+        if (Std.isOfType(_value, Int)) return "int";
+        if (Std.isOfType(_value, Float)) return "float";
+        if (Std.isOfType(_value, String)) return "string";
+        if (Std.isOfType(_value, Array)) return "array";
+        if (Reflect.isObject(_value)) return "object";
+        return "unknown";
+    }
+    
+    // ========================================================================
+    // LINK QUERY HELPERS (v3.2)
+    // ========================================================================
+    
+    /**
+     * Check if this contact has any incoming or outgoing links.
+     * 
+     * Used by NodeView to determine if inline editor should be shown.
+     * 
+     * @return true if has links
+     */
+    public function hasLinks():Bool {
+        return linkedTargets != null && linkedTargets.length > 0;
+    }
+    
+    /**
+     * Get the number of linked targets.
+     * 
+     * @return Number of links
+     */
+    public function getLinkCount():Int {
+        return linkedTargets != null ? linkedTargets.length : 0;
+    }
+    
+    // ========================================================================
+    // DISPOSE
+    // ========================================================================
+    
+    /**
+     * Dispose contact and clean up all references.
+     * 
+     * Called when owner atom is destroyed.
+     */
+    public function dispose():Void
+    {
+        if (isDisposed) return;
+        isDisposed = true;
+        
+        // Unlink all targets
+        if (linkedTargets != null)
+        {
+            for (target in linkedTargets)
+            {
+                if (target != null && !target.isDisposed)
+                {
+                    target.unlink(this);
+                }
+            }
+            linkedTargets.resize(0);
+            linkedTargets = null;
+        }
+        
+        // Clear callbacks
+        if (callbackTargets != null)
+        {
+            callbackTargets.resize(0);
+            callbackTargets = null;
+        }
+        
+        owner = null;
+    }
 }

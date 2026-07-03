@@ -8,20 +8,45 @@ import openfl.display.Sprite;
 /**
  * RENDER WORLD v1.0 (Hybrid ECS)
  * Minimal World ONLY for rendering layer.
- * 
- * IMPORTANT:
- * - Does NOT touch your core logic (Atom/Contact/SignalQueue/Assembly)
- * - One instance per NodeEditor
- * - All rendering goes through here
- * 
- * Benefits:
- * - Cache-friendly sprite updates
- * - Single render pass per frame
- * - Easy profiling (one function to measure)
- * - Can be disabled/enabled instantly
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   World (Singleton)                                                     │
+ * │                                                                         │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  Component Storages (sparse-set, cache-friendly):               │   │
+ * │   │  - _positionStorage:ComponentStorage<PositionComponent>         │   │
+ * │   │  - _visualStorage:ComponentStorage<VisualComponent>             │   │
+ * │   │                                                                 │   │
+ * │   │  Systems:                                                       │   │
+ * │   │  - _systems:Array<RenderSystem>                                 │   │
+ * │   │                                                                 │   │
+ * │   │  Entity Registration:                                           │   │
+ * │   │  - registerEntity(atomId, sprite, x, y)  → Create entity        │   │
+ * │   │  - unregisterEntity(atomId)              → Remove entity        │   │
+ * │   │                                                                 │   │
+ * │   │  Component Updates:                                             │   │
+ * │   │  - updatePosition(atomId, x, y)  → Update position              │   │
+ * │   │  - setSelected(atomId, selected) → Update selection             │   │
+ * │   │                                                                 │   │
+ * │   │  Main Render Call:                                              │   │
+ * │   │  - render()  → Execute all registered systems                   │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   IMPORTANT:                                                            │
+ * │   - Does NOT touch core logic (Atom/Contact/SignalQueue/Assembly)       │
+ * │   - One instance per NodeEditor                                         │
+ * │   - All rendering goes through here                                     │
+ * │                                                                         │
+ * │   Benefits:                                                             │
+ * │   - Cache-friendly sprite updates                                       │
+ * │   - Single render pass per frame                                        │
+ * │   - Easy profiling (one function to measure)                            │
+ * │   - Can be disabled/enabled instantly                                   │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
 class World {
-    
     private static var _instance:World;
     
     // Component storages (sparse-set, cache-friendly)
@@ -33,7 +58,7 @@ class World {
     
     // State
     public var enabled:Bool = true;
-
+    
     /**
      * Get singleton instance.
      */
@@ -41,21 +66,20 @@ class World {
         if (_instance == null) _instance = new World();
         return _instance;
     }
-
+    
     private function new() {
         _positionStorage = new ComponentStorage<PositionComponent>();
         _visualStorage = new ComponentStorage<VisualComponent>();
         _systems = [];
     }
-
+    
     // =========================================================================
     // ENTITY REGISTRATION
     // =========================================================================
-
     /**
      * Register a renderable entity (atom/node).
      * Call this when creating a NodeView.
-     * 
+     *
      * @param atomId    Unique atom ID from your core
      * @param sprite    OpenFL sprite to render
      * @param x         Initial X position
@@ -64,11 +88,10 @@ class World {
     public function registerEntity(atomId:String, sprite:Sprite, x:Float, y:Float):Void {
         var pos = new PositionComponent(x, y);
         var vis = new VisualComponent(sprite);
-        
         _positionStorage.add(atomId, pos);
         _visualStorage.add(atomId, vis);
     }
-
+    
     /**
      * Unregister entity (when atom deleted).
      */
@@ -76,11 +99,10 @@ class World {
         _positionStorage.remove(atomId);
         _visualStorage.remove(atomId);
     }
-
+    
     // =========================================================================
     // COMPONENT UPDATES
     // =========================================================================
-
     /**
      * Update position of an entity.
      * Call this on mouse drag instead of directly updating sprite.x/y.
@@ -92,7 +114,7 @@ class World {
             pos.y = y;
         }
     }
-
+    
     /**
      * Set selection state.
      */
@@ -102,7 +124,7 @@ class World {
             vis.isSelected = selected;
         }
     }
-
+    
     /**
      * Check if entity is selected.
      */
@@ -110,11 +132,10 @@ class World {
         var vis = _visualStorage.get(atomId);
         return vis != null ? vis.isSelected : false;
     }
-
+    
     // =========================================================================
     // SYSTEMS
     // =========================================================================
-
     /**
      * Register a render system.
      */
@@ -122,68 +143,64 @@ class World {
         _systems.push(system);
         system.world = this;
     }
-
+    
     /**
      * Main render call.
      * Call this once per frame from NodeEditor.
      */
     public function render():Void {
         if (!enabled) return;
-        
         for (sys in _systems) {
             if (sys.enabled) {
                 sys.render();
             }
         }
     }
-
+    
     // =========================================================================
     // STORAGE ACCESS (for Query)
     // =========================================================================
-
     /**
      * Get position storage. Used by Query.
      */
     public function getPositionStorage():ComponentStorage<PositionComponent> {
         return _positionStorage;
     }
-
+    
     /**
      * Get visual storage. Used by Query.
      */
     public function getVisualStorage():ComponentStorage<VisualComponent> {
         return _visualStorage;
     }
-
+    
     // =========================================================================
     // QUICK ACCESS
     // =========================================================================
-
     /**
      * Get visual component directly.
      */
     public function getVisual(atomId:String):VisualComponent {
         return _visualStorage.get(atomId);
     }
-
+    
     /**
      * Get position component directly.
      */
     public function getPosition(atomId:String):PositionComponent {
         return _positionStorage.get(atomId);
     }
-
+    
     // =========================================================================
     // UTILITY
     // =========================================================================
-
     /**
      * Get total entity count.
      */
     public function getEntityCount():Int {
         return _positionStorage.count();
     }
-
+    
     /**
      * Clear everything. Call on reset.
      */
@@ -191,7 +208,7 @@ class World {
         _positionStorage.clear();
         _visualStorage.clear();
     }
-
+    
     /**
      * Reset singleton (for testing or hard reset).
      */

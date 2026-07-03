@@ -1,5 +1,5 @@
-package library.drivers;
 #if cpp
+package library.drivers;
 
 import core.base.Atom;
 import core.base.Contact;
@@ -7,8 +7,8 @@ import core.types.ContactType.*;
 import system.managers.DriverManager;
 
 @:headerCode('
-// НЕ включаем windows.h в header!
-// Все Windows-типы доступны только в .cpp через @:cppFileCode и __cpp__()
+// DO NOT include windows.h in header!
+// All Windows types are available only in .cpp via @:cppFileCode and __cpp__()
 #include <string>
 #include <thread>
 #include <mutex>
@@ -17,24 +17,22 @@ import system.managers.DriverManager;
 
 @:cppFileCode('
 #ifdef _WIN32
-    #define WIN32_LEAN_AND_MEAN
-    #define NOGDI
-    #include <windows.h>
-    #pragma comment(lib, "advapi32.lib")
+#define WIN32_LEAN_AND_MEAN
+#define NOGDI
+#include <windows.h>
+#pragma comment(lib, "advapi32.lib")
 #endif
 
 // ================================================================
-// C++ СТРУКТУРА СОСТОЯНИЯ ПОРТА
+// C++ PORT STATE STRUCTURE
 // ================================================================
 struct ComPortState {
     HANDLE hComm;
     std::thread* readThread;
     volatile bool isRunning;
-    
     char rxBuffer[1024];
     bool hasRxData;
     std::mutex rxMutex;
-    
     char errBuffer[256];
     bool hasError;
     std::mutex errMutex;
@@ -44,16 +42,16 @@ static std::map<void*, ComPortState*> _com_states_map;
 static std::mutex _com_map_mutex;
 
 // ================================================================
-// ФОНОВЫЙ ПОТОК ЧТЕНИЯ (Rx)
+// BACKGROUND READ THREAD (Rx)
 // ================================================================
-// ИСПРАВЛЕНО: правильная обработка ReadFile при таймауте
+// FIXED: Proper ReadFile handling on timeout
 //
-// Когда COMMTIMEOUTS настроены и данных нет, ReadFile может:
-//   а) вернуть FALSE + GetLastError() == ERROR_TIMEOUT  → НЕ ошибка!
-//   б) вернуть TRUE  + bytesRead == 0                    → НЕ ошибка!
-//   в) вернуть FALSE + GetLastError() == ERROR_OPERATION_ABORTED → порт закрыт
-//   г) вернуть TRUE  + bytesRead > 0                     → есть данные!
-//   д) вернуть FALSE + другой код ошибки                 → реальная ошибка
+// When COMMTIMEOUTS are configured and no data is available, ReadFile can:
+//   a) return FALSE + GetLastError() == ERROR_TIMEOUT  → NOT an error!
+//   b) return TRUE  + bytesRead == 0                    → NOT an error!
+//   c) return FALSE + GetLastError() == ERROR_OPERATION_ABORTED → port closed
+//   d) return TRUE  + bytesRead > 0                     → data available!
+//   e) return FALSE + other error code                  → real error
 //
 static void _altauri_com_reader_loop(void* haxePtr) {
     ComPortState* st = nullptr;
@@ -63,86 +61,171 @@ static void _altauri_com_reader_loop(void* haxePtr) {
         if (it == _com_states_map.end()) return;
         st = it->second;
     }
-    
+
     st->isRunning = true;
+
     char tempBuf[1024];
     DWORD bytesRead;
-    
+
     while (st->isRunning) {
-        #ifdef _WIN32
+#ifdef _WIN32
         bytesRead = 0;
         BOOL bResult = ReadFile(st->hComm, tempBuf, sizeof(tempBuf) - 1, &bytesRead, NULL);
-        
+
         if (bResult && bytesRead > 0) {
-            // ── СЛУЧАЙ (г): Получены данные ──
+            // ── CASE (d): Data received ──
             tempBuf[bytesRead] = 0;
-            
             std::lock_guard<std::mutex> rxLock(st->rxMutex);
             strncpy(st->rxBuffer, tempBuf, sizeof(st->rxBuffer) - 1);
             st->rxBuffer[sizeof(st->rxBuffer) - 1] = 0;
             st->hasRxData = true;
         }
         else if (bResult && bytesRead == 0) {
-            // ── СЛУЧАЙ (б): Таймаут, данных нет — продолжаем ──
+            // ── CASE (b): Timeout, no data — continue ──
             continue;
         }
         else {
-            // ── ReadFile вернул FALSE ──
+            // ── ReadFile returned FALSE ──
             DWORD lastError = GetLastError();
-            
+
             if (lastError == ERROR_TIMEOUT) {
-                // ── СЛУЧАЙ (а): Таймаут — НЕ ошибка, продолжаем ──
+                // ── CASE (a): Timeout — NOT an error, continue ──
                 continue;
             }
-            
+
             if (lastError == ERROR_OPERATION_ABORTED || !st->isRunning) {
-                // ── СЛУЧАЙ (в): Порт закрывается — штатный выход ──
+                // ── CASE (c): Port closing — normal exit ──
                 break;
             }
-            
-            // ── СЛУЧАЙ (д): Реальная ошибка ──
+
+            // ── CASE (e): Real error ──
             std::lock_guard<std::mutex> errLock(st->errMutex);
             sprintf(st->errBuffer, "Rx Err:%lu", lastError);
             st->hasError = true;
             break;
         }
-        #endif
+#endif
     }
+
     st->isRunning = false;
 }
 ')
+
+/**
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║                     COM PORT ATOM v1.0                                    ║
+ * ║                     (Serial Communication Driver)                         ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  Serial port driver with background read thread.                          ║
+ * ║  Supports COM1-COM256, configurable baud rate, DTR control.               ║
+ * ║                                                                           ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                        ARCHITECTURE                                       ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │                     ComPortAtom                                     │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  A) COMPUTE MODULE:                                                 │  ║
+ * ║  │     ─────────────────                                               │  ║
+ * ║  │     Background Thread (C++):                                        │  ║
+ * ║  │       1. ReadFile() from COM port                                   │  ║
+ * ║  │       2. Handle timeouts and errors                                 │  ║
+ * ║  │       3. Write to rxBuffer (thread-safe with mutex)                 │  ║
+ * ║  │                                                                     │  ║
+ * ║  │     update(dt) {                                                    │  ║
+ * ║  │       1. Poll C++ buffer for new data                               │  ║
+ * ║  │       2. Write to output contacts (silent + propagate)              │  ║
+ * ║  │       3. Read inputs and control port                               │  ║
+ * ║  │       4. Update pulse timers                                        │  ║
+ * ║  │     }                                                               │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  B) DATABANK:                                                       │  ║
+ * ║  │     ─────────────                                                   │  ║
+ * ║  │     _lastTxData:String   - Last transmitted data                    │  ║
+ * ║  │     _lastDTR:Bool        - Last DTR state                           │  ║
+ * ║  │     _isOpenFlag:Bool     - Port open status                         │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  C) INPUTS:                                                         │  ║
+ * ║  │     ────────                                                        │  ║
+ * ║  │     "portName"  - Port name (String, e.g., "COM1")                  │  ║
+ * ║  │     "baudRate"  - Baud rate (Int, e.g., 9600)                       │  ║
+ * ║  │     "open"      - Open trigger (Bool)                               │  ║
+ * ║  │     "close"     - Close trigger (Bool)                              │  ║
+ * ║  │     "send"      - Send trigger (Bool)                               │  ║
+ * ║  │     "txData"    - Data to transmit (String)                         │  ║
+ * ║  │     "setDTR"    - DTR control (Bool)                                │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  D) OUTPUTS:                                                        │  ║
+ * ║  │     ────────                                                        │  ║
+ * ║  │     "isOpen"    - Port open status (Bool)                           │  ║
+ * ║  │     "rxData"    - Received data (String)                            │  ║
+ * ║  │     "rxTick"    - Receive pulse (Bool, short-lived)                 │  ║
+ * ║  │     "txTick"    - Transmit pulse (Bool, short-lived)                │  ║
+ * ║  │     "error"     - Error message (String)                            │  ║
+ * ║  │     "errorTick" - Error pulse (Bool, short-lived)                   │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  E) FACE (DeviceView):                                              │  ║
+ * ║  │     ─────────────────                                               │  ║
+ * ║  │     ComPortWidget for interactive control                           │  ║
+ * ║  │                                                                     │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                      THREAD SAFETY                                        ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  Background Thread (C++) ──► Pending Fields ──► Main Thread (Haxe)        ║
+ * ║                                                                           ║
+ * ║  Pattern:                                                                 ║
+ * ║  1. Background thread writes to rxBuffer/errBuffer with mutex             ║
+ * ║  2. Main thread polls in update() and copies to pending fields            ║
+ * ║  3. Main thread writes to output contacts                                 ║
+ * ║                                                                           ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                    APPLICATION                                            ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  • Serial communication with microcontrollers (Arduino, ESP32)            ║
+ * ║  • Industrial equipment control (PLC, CNC)                                ║
+ * ║  • Modem/AT command interface                                             ║
+ * ║  • GPS receiver data acquisition                                          ║
+ * ║  • Custom protocol communication                                          ║
+ * ║                                                                           ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
+ */
 class ComPortAtom extends Atom implements system.managers.Driver
 {
     // =========================================================================
-    // КОНСТАНТЫ
+    // CONSTANTS
     // =========================================================================
     private static inline var PULSE_DURATION:Float = 0.05;
-    
+
     // =========================================================================
-    // ПАРАМЕТРЫ И ВХОДЫ
+    // PARAMETERS AND INPUTS
     // =========================================================================
     private var _lastTxData:String = "";
     private var _lastDTR:Bool = false;
     private var _isOpenFlag:Bool = false;
 
     // =========================================================================
-    // PENDING-ПОЛЯ
+    // PENDING FIELDS
     // =========================================================================
     @:volatile private var _hasPendingRx:Bool = false;
     @:volatile private var _hasPendingErr:Bool = false;
-    
     private var _pendingRxStr:String = "";
     private var _pendingErrStr:String = "";
 
     // =========================================================================
-    // PULSE ТАЙМЕРЫ
+    // PULSE TIMERS
     // =========================================================================
     private var _rxTimer:Float = 0.0;
     private var _txTimer:Float = 0.0;
     private var _errTimer:Float = 0.0;
 
     // =========================================================================
-    // КОНСТРУКТОР
+    // CONSTRUCTOR
     // =========================================================================
     public function new(id:String)
     {
@@ -178,14 +261,14 @@ class ComPortAtom extends Atom implements system.managers.Driver
     // =========================================================================
     override public function init():Void
     {
-        // Порт открывается по триггеру "open"
+        // Port opens on "open" trigger
     }
 
     override public function update(dt:Float):Void
     {
         if (_isDisposed) return;
 
-        // 1. ОПРОС C++ БУФЕРА
+        // 1. POLL C++ BUFFER
         untyped __cpp__('
             ComPortState* _cps_stPtr = nullptr;
             {
@@ -215,7 +298,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
             }
         ', this);
 
-        // 2. ОБРАБОТКА PENDING ДАННЫХ
+        // 2. PROCESS PENDING DATA
         if (_hasPendingRx)
         {
             _hasPendingRx = false;
@@ -240,10 +323,10 @@ class ComPortAtom extends Atom implements system.managers.Driver
             if (errTick != null) { errTick.value = true; _errTimer = PULSE_DURATION; }
         }
 
-        // 3. ЧТЕНИЕ ВХОДОВ И УПРАВЛЕНИЕ
+        // 3. READ INPUTS AND CONTROL
         readInputs();
-        
-        // 4. ОБНОВЛЕНИЕ ТАЙМЕРОВ ИМПУЛЬСОВ
+
+        // 4. UPDATE PULSE TIMERS
         updatePulseTimers(dt);
     }
 
@@ -255,7 +338,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
     }
 
     // =========================================================================
-    // ЧТЕНИЕ ВХОДОВ
+    // INPUT READING
     // =========================================================================
     private function readInputs():Void
     {
@@ -269,7 +352,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
             openDevice();
             openC.value = false;
         }
-        
+
         if (closeC != null && closeC.value == true) {
             closeDevice();
             closeC.value = false;
@@ -294,12 +377,12 @@ class ComPortAtom extends Atom implements system.managers.Driver
     }
 
     // =========================================================================
-    // РАБОТА С УСТРОЙСТВОМ
+    // DEVICE OPERATION
     // =========================================================================
     private function openDevice():Void
     {
         if (_isOpenFlag) closeDevice();
-        
+
         var portNameStr:String = getInput("portName").value;
         var baudRateInt:Int = Std.int(getInput("baudRate").value);
 
@@ -313,80 +396,83 @@ class ComPortAtom extends Atom implements system.managers.Driver
             st->rxBuffer[0] = 0;
             st->errBuffer[0] = 0;
 
-            #ifdef _WIN32
-                // Форматируем имя порта (поддержка COM10+)
-                // Всегда добавляем dot-slash префикс для любого COM порта
-                // charCodeAt ненадёжен в __cpp__, проверяем через C-строку
-                char fullPortName[20] = "";
-                ::String portStr = {1};
-                const char* _cps_rawName = portStr.c_str();
-                if (_cps_rawName[0] == (char)92) {
-                    // Уже содержит префикс path - используем как есть
-                    strncpy(fullPortName, _cps_rawName, sizeof(fullPortName) - 1);
-                } else {
-                    // Добавляем префикс path
-                    fullPortName[0] = (char)92;  // backslash
-                    fullPortName[1] = (char)92;  // backslash
-                    fullPortName[2] = (char)46;  // dot
-                    fullPortName[3] = (char)92;  // backslash
-                    strncpy(fullPortName + 4, _cps_rawName, sizeof(fullPortName) - 5);
-                }
-                fullPortName[sizeof(fullPortName) - 1] = 0;
+#ifdef _WIN32
+            // Format port name (support for COM10+)
+            // Always add dot-slash prefix for any COM port
+            // charCodeAt is unreliable in __cpp__, check via C-string
+            char fullPortName[20] = "";
+            ::String portStr = {1};
+            const char* _cps_rawName = portStr.c_str();
 
-                // Открываем порт
-                st->hComm = CreateFileA(fullPortName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-                if (st->hComm == INVALID_HANDLE_VALUE) {
+            if (_cps_rawName[0] == (char)92) {
+                // Already contains path prefix - use as is
+                strncpy(fullPortName, _cps_rawName, sizeof(fullPortName) - 1);
+            } else {
+                // Add path prefix
+                fullPortName[0] = (char)92;  // backslash
+                fullPortName[1] = (char)92;  // backslash
+                fullPortName[2] = (char)46;  // dot
+                fullPortName[3] = (char)92;  // backslash
+                strncpy(fullPortName + 4, _cps_rawName, sizeof(fullPortName) - 5);
+            }
+            fullPortName[sizeof(fullPortName) - 1] = 0;
+
+            // Open port
+            st->hComm = CreateFileA(fullPortName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+
+            if (st->hComm == INVALID_HANDLE_VALUE) {
+                DWORD err = GetLastError();
+                sprintf(st->errBuffer, "Open Failed:%lu", err);
+                st->hasError = true;
+            } else {
+                // ── Set buffer sizes (reduces latency) ──
+                SetupComm(st->hComm, 4096, 4096);
+
+                // ── Configure DCB (speed, 8-N-1) ──
+                DCB dcbSerialParams;
+                memset(&dcbSerialParams, 0, sizeof(DCB));
+                dcbSerialParams.DCBlength = sizeof(DCB);
+                GetCommState(st->hComm, &dcbSerialParams);
+
+                dcbSerialParams.BaudRate = (DWORD){2};
+                dcbSerialParams.ByteSize = 8;
+                dcbSerialParams.StopBits = ONESTOPBIT;
+                dcbSerialParams.Parity = NOPARITY;
+
+                // Explicitly control DTR/RTS — prevent driver from toggling lines
+                dcbSerialParams.fDtrControl = DTR_CONTROL_ENABLE;
+                dcbSerialParams.fRtsControl = RTS_CONTROL_ENABLE;
+
+                if (!SetCommState(st->hComm, &dcbSerialParams)) {
                     DWORD err = GetLastError();
-                    sprintf(st->errBuffer, "Open Failed:%lu", err);
+                    sprintf(st->errBuffer, "SetCommState:%lu", err);
                     st->hasError = true;
+                    CloseHandle(st->hComm);
+                    st->hComm = INVALID_HANDLE_VALUE;
                 } else {
-                    // ── Устанавливаем размеры буферов (уменьшает задержки) ──
-                    SetupComm(st->hComm, 4096, 4096);
+                    // ── Configure timeouts ──
+                    // ReadIntervalTimeout = MAXDWORD + ReadTotalTimeout = 0
+                    // → ReadFile returns IMMEDIATELY with whatever is in the buffer
+                    // This is the best pattern for non-blocking reads
+                    COMMTIMEOUTS timeouts;
+                    memset(&timeouts, 0, sizeof(COMMTIMEOUTS));
+                    timeouts.ReadIntervalTimeout = MAXDWORD;
+                    timeouts.ReadTotalTimeoutMultiplier = 0;
+                    timeouts.ReadTotalTimeoutConstant = 0;
+                    timeouts.WriteTotalTimeoutMultiplier = 10;
+                    timeouts.WriteTotalTimeoutConstant = 100;
+                    SetCommTimeouts(st->hComm, &timeouts);
 
-                    // ── Настраиваем DCB (скорость, 8-N-1) ──
-                    DCB dcbSerialParams;
-                    memset(&dcbSerialParams, 0, sizeof(DCB));
-                    dcbSerialParams.DCBlength = sizeof(DCB);
-                    GetCommState(st->hComm, &dcbSerialParams);
-                    
-                    dcbSerialParams.BaudRate = (DWORD){2};
-                    dcbSerialParams.ByteSize = 8;
-                    dcbSerialParams.StopBits = ONESTOPBIT;
-                    dcbSerialParams.Parity = NOPARITY;
-                    // Явно управляем DTR/RTS — не даём драйверу дёргать линии
-                    dcbSerialParams.fDtrControl = DTR_CONTROL_ENABLE;
-                    dcbSerialParams.fRtsControl = RTS_CONTROL_ENABLE;
-                    
-                    if (!SetCommState(st->hComm, &dcbSerialParams)) {
-                        DWORD err = GetLastError();
-                        sprintf(st->errBuffer, "SetCommState:%lu", err);
-                        st->hasError = true;
-                        CloseHandle(st->hComm);
-                        st->hComm = INVALID_HANDLE_VALUE;
-                    } else {
-                        // ── Настраиваем таймауты ──
-                        // ReadIntervalTimeout = MAXDWORD + ReadTotalTimeout = 0
-                        // → ReadFile возвращается НЕМЕДЛЕННО с тем что есть в буфере
-                        // Это лучший паттерн для неблокирующего чтения
-                        COMMTIMEOUTS timeouts;
-                        memset(&timeouts, 0, sizeof(COMMTIMEOUTS));
-                        timeouts.ReadIntervalTimeout = MAXDWORD;
-                        timeouts.ReadTotalTimeoutMultiplier = 0;
-                        timeouts.ReadTotalTimeoutConstant = 0;
-                        timeouts.WriteTotalTimeoutMultiplier = 10;
-                        timeouts.WriteTotalTimeoutConstant = 100;
-                        SetCommTimeouts(st->hComm, &timeouts);
-                        
-                        // ── Очищаем буферы от мусора ──
-                        PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
-                        
-                        // ── Запускаем фоновый поток чтения ──
-                        st->readThread = new std::thread(_altauri_com_reader_loop, (void*){0}.mPtr);
-                    }
+                    // ── Clear buffers from garbage ──
+                    PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
+
+                    // ── Start background read thread ──
+                    st->readThread = new std::thread(_altauri_com_reader_loop, (void*){0}.mPtr);
                 }
-            #endif
+            }
+#endif
 
-            // Сохраняем указатель в карту и проверяем успешность
+            // Save pointer to map and check success
             {
                 std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
                 _com_states_map[(void*){0}.mPtr] = st;
@@ -402,9 +488,9 @@ class ComPortAtom extends Atom implements system.managers.Driver
     {
         if (!_isOpenFlag) return;
 
-        // Сначала извлекаем указатель из карты (кратко локаем),
-        // потом освобождаем ресурсы БЕЗ удержания мьютекса —
-        // чтобы не висеть на join() с замком
+        // First extract pointer from map (brief lock),
+        // then free resources WITHOUT holding the mutex —
+        // to avoid hanging on join() with lock held
         untyped __cpp__('
             ComPortState* st = nullptr;
             {
@@ -415,30 +501,29 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     _com_states_map.erase(_cps_it);
                 }
             }
-            
+
             if (st) {
-                #ifdef _WIN32
-                    // Сигналим потоку остановиться
-                    st->isRunning = false;
-                    
-                    // Отменяем ожидающий ReadFile
-                    if (st->hComm != INVALID_HANDLE_VALUE) {
-                        CancelIoEx(st->hComm, NULL);
-                    }
-                    
-                    // Ждём завершения потока (уже без мьютекса!)
-                    if (st->readThread && st->readThread->joinable()) {
-                        st->readThread->join();
-                    }
-                    delete st->readThread;
-                    
-                    // Закрываем порт
-                    if (st->hComm != INVALID_HANDLE_VALUE) {
-                        PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
-                        CloseHandle(st->hComm);
-                    }
-                #endif
-                
+#ifdef _WIN32
+                // Signal thread to stop
+                st->isRunning = false;
+
+                // Cancel pending ReadFile
+                if (st->hComm != INVALID_HANDLE_VALUE) {
+                    CancelIoEx(st->hComm, NULL);
+                }
+
+                // Wait for thread completion (already without mutex!)
+                if (st->readThread && st->readThread->joinable()) {
+                    st->readThread->join();
+                }
+                delete st->readThread;
+
+                // Close port
+                if (st->hComm != INVALID_HANDLE_VALUE) {
+                    PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
+                    CloseHandle(st->hComm);
+                }
+#endif
                 delete st;
             }
         ', this);
@@ -459,15 +544,16 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     _cps_stPtr = _cps_it->second;
                 }
             }
+
             if (_cps_stPtr) {
-                #ifdef _WIN32
-                    if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
-                        const char* buffer = {1}.c_str();
-                        DWORD bytesToWrite = (DWORD)strlen(buffer);
-                        DWORD bytesWritten;
-                        WriteFile(_cps_stPtr->hComm, buffer, bytesToWrite, &bytesWritten, NULL);
-                    }
-                #endif
+#ifdef _WIN32
+                if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
+                    const char* buffer = {1}.c_str();
+                    DWORD bytesToWrite = (DWORD)strlen(buffer);
+                    DWORD bytesWritten;
+                    WriteFile(_cps_stPtr->hComm, buffer, bytesToWrite, &bytesWritten, NULL);
+                }
+#endif
             }
         ', this, data);
     }
@@ -483,22 +569,23 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     _cps_stPtr = _cps_it->second;
                 }
             }
+
             if (_cps_stPtr) {
-                #ifdef _WIN32
-                    if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
-                        if ({1}) {
-                            EscapeCommFunction(_cps_stPtr->hComm, SETDTR);
-                        } else {
-                            EscapeCommFunction(_cps_stPtr->hComm, CLRDTR);
-                        }
+#ifdef _WIN32
+                if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
+                    if ({1}) {
+                        EscapeCommFunction(_cps_stPtr->hComm, SETDTR);
+                    } else {
+                        EscapeCommFunction(_cps_stPtr->hComm, CLRDTR);
                     }
-                #endif
+                }
+#endif
             }
         ', this, state);
     }
 
     // =========================================================================
-    // PULSE ТАЙМЕРЫ
+    // PULSE TIMERS
     // =========================================================================
     private function updatePulseTimers(dt:Float):Void
     {

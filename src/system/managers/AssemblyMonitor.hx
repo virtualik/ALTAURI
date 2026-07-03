@@ -1,6 +1,3 @@
-// ============================================================================
-// system/managers/AssemblyMonitor.hx - НОВЫЙ ФАЙЛ
-// ============================================================================
 package system.managers;
 
 import core.base.Assembly;
@@ -8,12 +5,45 @@ import core.logic.Impulsys;
 import core.logic.EventType;
 
 /**
- * Монитор для обнаружения проблемных Сборок
+ * ASSEMBLY MONITOR v1.0
+ * Monitor for detecting problematic assemblies.
+ * Tracks tick counts and execution times to identify suspicious activity.
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   AssemblyMonitor (Singleton)                                           │
+ * │                                                                         │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  Statistics:                                                    │   │
+ * │   │  - _assemblyStats:Map<String, AssemblyStats>                    │   │
+ * │   │    - tickCount: Int          → Number of ticks executed         │   │
+ * │   │    - lastTickTime: Float     → Timestamp of last tick           │   │
+ * │   │    - avgTickTime: Float      → Average execution time           │   │
+ * │   │    - isSuspicious: Bool      → Flagged as suspicious            │   │
+ * │   │                                                                 │   │
+ * │   │  Thresholds:                                                    │   │
+ * │   │  - _suspiciousThreshold = 100 ticks without state change        │   │
+ * │   │  - _maxTickTime = 50ms per tick                                 │   │
+ * │   │                                                                 │   │
+ * │   │  Methods:                                                       │   │
+ * │   │  - recordTick(id)         → Record tick for assembly            │   │
+ * │   │  - checkAllAssemblies()   → Check all for suspicious activity   │   │
+ * │   │  - reset()                → Clear all statistics                │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   Usage:                                                                │
+ * │   ───────                                                               │
+ * │   var monitor = AssemblyMonitor.getInstance();                          │
+ * │   monitor.recordTick(assemblyId);                                       │
+ * │   monitor.checkAllAssemblies();                                         │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
-class AssemblyMonitor {
+class AssemblyMonitor 
+{
     private static var _instance:AssemblyMonitor;
     
-    // Статистика по сборкам
+    /** Assembly statistics map: assemblyId → stats */
     private var _assemblyStats:Map<String, {
         tickCount:Int,
         lastTickTime:Float,
@@ -21,24 +51,41 @@ class AssemblyMonitor {
         isSuspicious:Bool
     }>;
     
-    private var _suspiciousThreshold:Int = 100; // Тиков без изменения состояния
-    private var _maxTickTime:Float = 0.050; // 50ms на тик
+    /** Number of ticks without state change before flagging as suspicious */
+    private var _suspiciousThreshold:Int = 100;
     
-    public static function getInstance():AssemblyMonitor {
+    /** Maximum allowed tick time in seconds (50ms) */
+    private var _maxTickTime:Float = 0.050;
+    
+    /**
+     * Get singleton instance.
+     */
+    public static function getInstance():AssemblyMonitor 
+    {
         if (_instance == null) _instance = new AssemblyMonitor();
         return _instance;
     }
     
-    private function new() {
+    private function new() 
+    {
         _assemblyStats = new Map();
+        
+        // Subscribe to atom restoration events
         Impulsys.subscribeToImpulse(EventType.ATOM_RESTORED, onAtomRestored);
     }
     
-    private function onAtomRestored(impulse:core.logic.Impulse):Void {
+    /**
+     * Handler for atom restoration events.
+     * Initializes statistics for newly restored atoms.
+     */
+    private function onAtomRestored(impulse:core.logic.Impulse):Void 
+    {
         if (impulse.data == null) return;
+        
         var id:String = impulse.data.id;
         if (id == null) return;
         
+        // Initialize statistics for this assembly
         _assemblyStats.set(id, {
             tickCount: 0,
             lastTickTime: 0,
@@ -48,36 +95,49 @@ class AssemblyMonitor {
     }
     
     /**
-     * Отметить тик для сборки
+     * Record a tick for the specified assembly.
+     * Increments tick count and checks for suspicious activity.
+     *
+     * @param assemblyId Assembly ID to record tick for
      */
-    public function recordTick(assemblyId:String):Void {
+    public function recordTick(assemblyId:String):Void 
+    {
         if (!_assemblyStats.exists(assemblyId)) return;
         
         var stats = _assemblyStats.get(assemblyId);
         stats.tickCount++;
         
-        if (stats.tickCount > _suspiciousThreshold && !stats.isSuspicious) {
+        // Flag as suspicious if threshold exceeded
+        if (stats.tickCount > _suspiciousThreshold && !stats.isSuspicious) 
+        {
             stats.isSuspicious = true;
             trace('⚠️  AssemblyMonitor: ${assemblyId} is suspicious (${stats.tickCount} ticks)');
         }
     }
     
     /**
-     * Проверить все сборки на подозрительную активность
+     * Check all assemblies for suspicious activity.
+     * Logs warnings for flagged assemblies.
      */
-    public function checkAllAssemblies():Void {
-        for (id in _assemblyStats.keys()) {
+    public function checkAllAssemblies():Void 
+    {
+        for (id in _assemblyStats.keys()) 
+        {
             var stats = _assemblyStats.get(id);
-            if (stats.isSuspicious) {
+            
+            if (stats.isSuspicious) 
+            {
                 trace('🚨 AssemblyMonitor: ${id} flagged as suspicious');
             }
         }
     }
     
     /**
-     * Сбросить статистику
+     * Reset all statistics.
+     * Clears the entire statistics map.
      */
-    public function reset():Void {
+    public function reset():Void 
+    {
         _assemblyStats.clear();
     }
 }

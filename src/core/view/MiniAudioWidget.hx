@@ -10,64 +10,65 @@ import openfl.events.Event;
 import openfl.events.MouseEvent;
 
 /**
- * MINI AUDIO WIDGET v1.0
- * Специфическое "Лицо" для MiniAudioAtom.
+ * MINI AUDIO WIDGET
+ * Specific "Face" (DeviceView) for the MiniAudioAtom.
  *
- * Отвечает за:
- * - Визуализацию уровня сигнала (VU Meter по RMS)
- * - Отображение тревог (Clip)
- * - Управление параметрами (Gain, Quantum)
- * - Перезапуск устройства (Restart)
+ * Architecture: "ATOM IS DATABANK & COMPUTE CORE"
  *
- * Архитектура подписки:
+ * Responsibilities:
+ * - Visualize signal level (VU Meter based on RMS)
+ * - Display clipping alerts
+ * - Control parameters (Gain, Quantum)
+ * - Restart the audio device
+ *
+ * Subscription Architecture:
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │   MiniAudioAtom (Данные)                                               │
- * │     ├─ out("rms") ────subscribe()────► VU Meter Bar (Обновление UI)   │
- * │     ├─ out("level") ─subscribe()────► dBFS Text (Обновление UI)      │
- * │     └─ out("clip") ───subscribe()────► Clip Indicator (Обновление UI) │
+ * │   MiniAudioAtom (Databank)                                              │
+ * │     ├─ out("rms")   ──subscribe()──► VU Meter Bar (UI Update)           │
+ * │     ├─ out("level") ──subscribe()──► dBFS Text (UI Update)              │
+ * │     └─ out("clip")  ──subscribe()──► Clip Indicator (UI Update)         │
  * │                                                                         │
- * │   MiniAudioWidget (Управление)                                         │
- * │     ├─ Gain Input ─────value=────────► in("gain") (Атом читает в update)│
- * │     └─ Restart Btn ───restart()─────► MiniAudioAtom.restart()         │
+ * │   MiniAudioWidget (Control)                                             │
+ * │     ├─ Gain Input   ───value=──────► in("gain") (Atom reads in update)  │
+ * │     └─ Restart Btn  ───restart()───► MiniAudioAtom.restart()            │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
 class MiniAudioWidget extends DeviceView
 {
-	private var _atom:Atom;
+    private var _atom:Atom;
+
     // =========================================================================
-    // UI ЭЛЕМЕНТЫ
+    // UI COMPONENTS
     // =========================================================================
-	
-	// Widget dimensions
-	public var widgetWidth:Float = 240;
-	public var widgetHeight:Float = 150;
-	// widget size return (из за Reflect)
-	override public function getWidgetSize():{width:Float, height:Float} {
-		return {width: widgetWidth, height: widgetHeight};
-	}
-	
-	private var _vuMeterBg:Sprite;
+    // Widget dimensions
+    public var widgetWidth:Float = 240;
+    public var widgetHeight:Float = 150;
+
+    // Widget size return (used by Reflect in DeviceView base class)
+    override public function getWidgetSize():{width:Float, height:Float} 
+    {
+        return {width: widgetWidth, height: widgetHeight};
+    }
+
+    private var _vuMeterBg:Sprite;
     private var _vuMeterFg:Sprite;
     private var _clipIndicator:Sprite;
-    
     private var _levelText:TextField;
     private var _deviceText:TextField;
-    
     private var _gainInput:TextField;
     private var _quantumInput:TextField;
     private var _restartBtn:Sprite;
     private var _restartLabel:TextField;
 
     // =========================================================================
-    // СОСТОЯНИЕ
+    // STATE
     // =========================================================================
     private var _maxVUWidth:Float = 150;
     private var _clipTimeout:haxe.Timer;
 
-
     public function new(atom:Atom)
     {
-		_atom = atom;
+        _atom = atom;
         super(atom);
         buildUI();
         subscribeToOutputs();
@@ -75,20 +76,20 @@ class MiniAudioWidget extends DeviceView
     }
 
     // =========================================================================
-    // ПОСТРОЕНИЕ UI
+    // UI CONSTRUCTION
     // =========================================================================
     private function buildUI():Void
     {
         var y:Float = 0;
         var padX:Float = 5;
 
-        // --- Заголовок ---
+        // --- Title ---
         var title = createLabel("AUDIO CAPTURE", 0xFFAA00, 12, true);
         title.x = padX; title.y = y;
         addChild(title);
         y += 20;
 
-        // --- Имя устройства ---
+        // --- Device Name ---
         _deviceText = createLabel("Device: ---", 0x888888, 10);
         _deviceText.x = padX; _deviceText.y = y;
         addChild(_deviceText);
@@ -107,13 +108,13 @@ class MiniAudioWidget extends DeviceView
 
         _vuMeterFg = new Sprite();
         _vuMeterFg.graphics.beginFill(0x00FF00);
-        _vuMeterFg.graphics.drawRect(0, 0, 1, 12); // Начальная ширина 1
+        _vuMeterFg.graphics.drawRect(0, 0, 1, 12); // Initial width 1
         _vuMeterFg.graphics.endFill();
         _vuMeterFg.x = _vuMeterBg.x + 1; _vuMeterFg.y = y + 1;
         addChild(_vuMeterFg);
         y += 20;
 
-        // --- dBFS и Clip ---
+        // --- dBFS and Clip ---
         _levelText = createLabel("-inf dBFS", 0xAAAAAA, 10);
         _levelText.x = padX + 35; _levelText.y = y;
         addChild(_levelText);
@@ -126,7 +127,7 @@ class MiniAudioWidget extends DeviceView
         addChild(_clipIndicator);
         y += 20;
 
-        // --- Настройки (Простые TextField для ввода) ---
+        // --- Settings (Simple TextFields for input) ---
         var gainLabel = createLabel("Gain:", 0xFFFFFF, 10);
         gainLabel.x = padX; gainLabel.y = y + 2;
         addChild(gainLabel);
@@ -147,7 +148,7 @@ class MiniAudioWidget extends DeviceView
         addChild(_quantumInput);
         y += 25;
 
-        // --- Кнопка Restart ---
+        // --- Restart Button ---
         _restartBtn = new Sprite();
         _restartBtn.graphics.lineStyle(1, 0xFF6666);
         _restartBtn.graphics.beginFill(0x442222);
@@ -161,47 +162,47 @@ class MiniAudioWidget extends DeviceView
         _restartLabel.x = padX + 15; _restartLabel.y = y + 5;
         addChild(_restartLabel);
 
-        // Слушатели
+        // Event Listeners
         _restartBtn.addEventListener(MouseEvent.CLICK, onRestartClick);
         _gainInput.addEventListener(Event.CHANGE, onGainChanged);
         _quantumInput.addEventListener(Event.CHANGE, onQuantumChanged);
     }
 
     // =========================================================================
-    // ПОДПИСКА НА ВЫХОДЫ АТОМА
+    // ATOM OUTPUT SUBSCRIPTION
     // =========================================================================
     private function subscribeToOutputs():Void
     {
         var rms = _atom.getOutput("rms");
         if (rms != null) rms.subscribe(onRmsUpdate);
-
+        
         var level = _atom.getOutput("level");
         if (level != null) level.subscribe(onLevelUpdate);
-
+        
         var clip = _atom.getOutput("clip");
         if (clip != null) clip.subscribe(onClipUpdate);
-
+        
         var device = _atom.getOutput("device");
         if (device != null) device.subscribe(onDeviceUpdate);
     }
 
     // =========================================================================
-    // ОБРАБОТЧИКИ ДАННЫХ ОТ АТОМА
+    // ATOM DATA HANDLERS
     // =========================================================================
     private function onRmsUpdate(val:Dynamic):Void
     {
         if (val == null) return;
         var rms:Float = val;
-        
-        // Обновляем ширину полоски
+
+        // Update bar width
         var newWidth = Math.max(1, rms * _maxVUWidth);
         _vuMeterFg.graphics.clear();
-        
-        // Цвет: Зеленый -> Желтый -> Красный
+
+        // Color gradient: Green -> Yellow -> Red
         var color:Int = 0x00FF00;
         if (rms > 0.8) color = 0xFF0000;
         else if (rms > 0.5) color = 0xFFFF00;
-        
+
         _vuMeterFg.graphics.beginFill(color);
         _vuMeterFg.graphics.drawRect(0, 0, newWidth, 12);
         _vuMeterFg.graphics.endFill();
@@ -212,7 +213,7 @@ class MiniAudioWidget extends DeviceView
         if (val == null) return;
         var db:Float = val;
         _levelText.text = (db <= -120) ? "-inf dBFS" : (Math.round(db * 10) / 10) + " dBFS";
-        
+
         var color:Int = 0x00FF00;
         if (db > -3) color = 0xFF0000;
         else if (db > -12) color = 0xFFFF00;
@@ -227,8 +228,8 @@ class MiniAudioWidget extends DeviceView
             _clipIndicator.graphics.beginFill(0xFF0000);
             _clipIndicator.graphics.drawCircle(10, 6, 6);
             _clipIndicator.graphics.endFill();
-            
-            // Гасим через 100мс
+
+            // Fade out after 100ms
             if (_clipTimeout != null) _clipTimeout.stop();
             _clipTimeout = haxe.Timer.delay(function() {
                 _clipIndicator.graphics.clear();
@@ -245,7 +246,7 @@ class MiniAudioWidget extends DeviceView
     }
 
     // =========================================================================
-    // УПРАВЛЕНИЕ АТОМОМ ИЗ ВИДЖЕТА
+    // ATOM CONTROL FROM WIDGET
     // =========================================================================
     private function onGainChanged(e:Event):Void
     {
@@ -265,11 +266,11 @@ class MiniAudioWidget extends DeviceView
 
     private function onRestartClick(e:MouseEvent):Void
     {
-        // Пишем текущие значения из полей в атом ПЕРЕД перезапуском
+        // Write current field values to the atom BEFORE restarting
         onGainChanged(null);
         onQuantumChanged(null);
 
-        // Вызываем переинициализацию железа
+        // Trigger hardware re-initialization
         if (Std.isOfType(_atom, MiniAudioAtom))
         {
             cast(_atom, MiniAudioAtom).restart();
@@ -277,12 +278,12 @@ class MiniAudioWidget extends DeviceView
     }
 
     // =========================================================================
-    // СТАРТОВЫЕ ЗНАЧЕНИЯ
+    // DEFAULT VALUES INITIALIZATION
     // =========================================================================
     private function applyDefaults():Void
     {
-        // При создании виджета читаем текущие значения из атома 
-        // (на случай если они уже заданы в Blueprint)
+        // On widget creation, read current values from the atom
+        // (in case they are already set in the Blueprint)
         var gainC = _atom.getInput("gain");
         if (gainC != null && gainC.value != null) _gainInput.text = Std.string(gainC.value);
         
@@ -291,7 +292,7 @@ class MiniAudioWidget extends DeviceView
     }
 
     // =========================================================================
-    // УТИЛИТЫ UI
+    // UI UTILITIES
     // =========================================================================
     private function createLabel(text:String, color:Int, size:Int = 10, bold:Bool = false):TextField
     {
@@ -306,7 +307,6 @@ class MiniAudioWidget extends DeviceView
         tf.defaultTextFormat = fmt;
         tf.setTextFormat(fmt);
         #end
-        
         return tf;
     }
 
@@ -325,12 +325,11 @@ class MiniAudioWidget extends DeviceView
         #if openfl
         tf.defaultTextFormat = new openfl.text.TextFormat("_sans", 10);
         #end
-        
         return tf;
     }
 
     // =========================================================================
-    // ОЧИСТКА
+    // DISPOSE
     // =========================================================================
     override public function dispose():Void
     {
@@ -340,12 +339,12 @@ class MiniAudioWidget extends DeviceView
         _gainInput.removeEventListener(Event.CHANGE, onGainChanged);
         _quantumInput.removeEventListener(Event.CHANGE, onQuantumChanged);
 
-        // Отписываемся от контактов (очень важно!)
+        // Unsubscribe from contacts (crucial for cleanup!)
         var rms = _atom.getOutput("rms"); if (rms != null) rms.unsubscribe(onRmsUpdate);
         var level = _atom.getOutput("level"); if (level != null) level.unsubscribe(onLevelUpdate);
         var clip = _atom.getOutput("clip"); if (clip != null) clip.unsubscribe(onClipUpdate);
         var device = _atom.getOutput("device"); if (device != null) device.unsubscribe(onDeviceUpdate);
-
+        
         super.dispose();
     }
 }

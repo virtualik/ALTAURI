@@ -9,29 +9,67 @@ import core.types.ContactType;
 import utils.UID;
 import library.AtomRegistry;
 import system.managers.DriverManager;
-import core.logic.TickGenerator; // CHANGED SignalQueue
+import core.logic.TickGenerator;
 import core.logic.Impulsys;
 import core.logic.EventType;
 
 /**
-* ASSEMBLY v5.8 (TickGenerator Integration)
-* Universal base class for ALL nodes.
-*
-* v5.8 Changes:
-* - Migrated from SignalQueue to TickGenerator.
-*/
+ * ASSEMBLY
+ * 
+ * Universal base class for ALL nodes in the system.
+ * 
+ * An Assembly is a composite Atom that can contain internal atoms
+ * and expose them through gateway ports (inputs/outputs).
+ * 
+ * Key Responsibilities:
+ * - Manages internal atom instances
+ * - Routes signals between internal atoms and external ports
+ * - Supports Logic Mode (digital, tick-delayed) and Analog Mode (immediate)
+ * - Handles hot-start initialization without signal oscillation
+ */
 class Assembly extends Atom
 {
+    // ========================================================================
+    // CONFIGURATION
+    // ========================================================================
+    
+    /** Maximum number of input ports allowed. */
     public static inline var MAX_INPUT_PORTS:Int = 20;
+    
+    /** Maximum number of output ports allowed. */
     public static inline var MAX_OUTPUT_PORTS:Int = 20;
+    
+    // ========================================================================
+    // PROPERTIES
+    // ========================================================================
+    
+    /** Blueprint definition for this assembly. */
     public var blueprint:Blueprint;
+    
+    /** Map of port name to ConductorPort instance. */
     public var ports(default, null):Map<String, ConductorPort>;
+    
+    /** Map of runtime ID to internal atom instance. */
     public var internalAtoms(default, null):Map<String, Dynamic>;
+    
+    /** Getter for external input contacts (convenience). */
     public var inputs(get, null):Map<String, Contact>;
+    
+    /** Getter for external output contacts (convenience). */
     public var outputs(get, null):Map<String, Contact>;
+    
+    /** Map from template ID (Blueprint) to runtime ID (instance). */
     private var _idMap:Map<String, String>;
+    
+    /** Public getter for ID map (read-only). */
     public var idMap(get, never):Map<String, String>;
+    
     private function get_idMap():Map<String, String> return _idMap;
+    
+    /**
+     * Get template ID from runtime ID.
+     * Used to resolve Blueprint definitions from live instances.
+     */
     public function getTemplateId(runtimeId:String):String
     {
         for (templateId => rId in _idMap)
@@ -40,6 +78,7 @@ class Assembly extends Atom
         }
         return runtimeId;
     }
+    
     private function get_inputs():Map<String, Contact>
     {
         var map = new Map<String, Contact>();
@@ -52,6 +91,7 @@ class Assembly extends Atom
         }
         return map;
     }
+    
     private function get_outputs():Map<String, Contact>
     {
         var map = new Map<String, Contact>();
@@ -64,11 +104,14 @@ class Assembly extends Atom
         }
         return map;
     }
-
-// =========================================================================
-// LOGIC MODE SWITCH v5.3
-// =========================================================================
+    
+    // ========================================================================
+    // LOGIC MODE SWITCH
+    // ========================================================================
+    
+    /** Map of port name to callback function for logic mode. */
     private var _portCallbacks:Map<String, Dynamic -> Void>;
+    
     override private function set_isLogic(value:Bool):Bool
     {
         if (_isLogic != value)
@@ -78,22 +121,35 @@ class Assembly extends Atom
         }
         return _isLogic;
     }
-
-// ============================================================================
-// ИНИЦИАЛИЗАЦИЯ v5.8 - Протокол горячего старта
-// ============================================================================
-    // isInitializing наследуется от Atom.
-    // Мы используем его напрямую (isInitializing = true/false).
-
+    
+    // ========================================================================
+    // QUARANTINE SYSTEM
+    // ========================================================================
+    
+    /** Reason for quarantine (if any). */
     private var _quarantineReason:String = null;
+    
+    /** Is this assembly in quarantine state? */
     private var _isInQuarantine:Bool = false;
-
+    
+    /**
+     * Put this assembly into quarantine.
+     * 
+     * Quarantine isolates the assembly:
+     * - Unlinks all port connections
+     * - Unsubscribes all port callbacks
+     * - Emits ATOM_DELETED event
+     * 
+     * Used when assembly is corrupted or needs to be safely removed.
+     */
     public function quarantine(reason:String):Void
     {
         if (_isInQuarantine) return;
         _isInQuarantine = true;
         _quarantineReason = reason;
         trace('🚨 ASSEMBLY QUARANTINE: ${this.id} - ${reason}');
+        
+        // Unlink all port connections
         for (name in ports.keys())
         {
             var port = ports.get(name);
@@ -109,6 +165,8 @@ class Assembly extends Atom
                 }
             }
         }
+        
+        // Unsubscribe all callbacks
         for (name in _portCallbacks.keys())
         {
             var port = ports.get(name);
@@ -118,18 +176,28 @@ class Assembly extends Atom
             }
         }
         _portCallbacks.clear();
+        
+        // Notify system
         Impulsys.quickEmit(EventType.ATOM_DELETED, {
             assemblyId: this.id,
             id: this.id,
             reason: reason
         });
     }
+    
     public function isInQuarantine():Bool return _isInQuarantine;
     public function getQuarantineReason():String return _quarantineReason;
-
-// ============================================================================
-// Assembly.hx - КОНСТРУКТОР (v5.8 - ИСПРАВЛЕНО)
-// ============================================================================
+    
+    // ========================================================================
+    // CONSTRUCTOR
+    // ========================================================================
+    
+    /**
+     * Create a new Assembly instance.
+     * 
+     * @param id        Runtime instance ID
+     * @param blueprint Blueprint definition
+     */
     public function new(id:String, blueprint:Blueprint)
     {
         this.blueprint = blueprint;
@@ -137,12 +205,14 @@ class Assembly extends Atom
         this.internalAtoms = new Map();
         _idMap = new Map();
         _portCallbacks = new Map();
-
-        // === FIX v5.7: Устанавливаем флаг инициализации САМЫМ ПЕРВЫМ ===
-        // (используем поле унаследованное от Atom)
+        
+        // Set initialization flag FIRST to prevent premature signal propagation
         isInitializing = true;
-
+        
+        // Create gateway ports from blueprint
         _createInterface();
+        
+        // Collect external contacts for parent Atom constructor
         var inputsArr:Array<Contact> = [];
         var outputsArr:Array<Contact> = [];
         var ordered = _getOrderedPortDefs();
@@ -155,28 +225,30 @@ class Assembly extends Atom
                 else if (p.type != null) outputsArr.push(p.external);
             }
         }
+        
         var typeName = blueprint != null ? blueprint.name : "Assembly";
         super(inputsArr, outputsArr, blueprint.logic, id, typeName, false);
-
+        
+        // Force logic mode if assembly has internal atoms
         if (blueprint != null && blueprint.internalAtoms != null && blueprint.internalAtoms.length > 0)
         {
             if (!_isLogic)
             {
-                // trace('Assembly($id): Forcing isLogic=true for stability');
                 _isLogic = true;
             }
         }
-
+        
+        // Initialize internal structure
         if (blueprint.logic == null && blueprint.internalAtoms != null && blueprint.internalAtoms.length > 0)
         {
-            TickGenerator.getInstance().suspend(); // CHANGED
+            // Suspend tick generator during initialization
+            TickGenerator.getInstance().suspend();
+            
             try
             {
-                _createInternalInstances(); // Создаем с isInitializing=true
+                _createInternalInstances();
                 _createInternalConnections();
-
                 _initializeLogicState();
-
                 _updatePortLinks();
             }
             catch (e:Dynamic)
@@ -184,27 +256,32 @@ class Assembly extends Atom
                 trace('ERROR during Assembly($id) initialization: $e');
                 trace('  Stack: ${haxe.CallStack.toString(haxe.CallStack.exceptionStack())}');
             }
-
-            // === CRITICAL FIX v5.7: Снимаем флаг с САМОЙ СБОРКИ ===
-            // Внутренние атомы остаются "заморожены" до _processPendingSignals
+            
+            // Unfreeze this assembly (internal atoms remain frozen until _processPendingSignals)
             isInitializing = false;
-
-            TickGenerator.getInstance().resume(); // CHANGED
-
-            _processPendingSignals(); // Здесь разморозим атомы
+            TickGenerator.getInstance().resume();
+            _processPendingSignals();
         }
         else
         {
             isInitializing = false;
         }
     }
-
-// =========================================================================
-// ИНИЦИАЛИЗАЦИЯ ЛОГИЧЕСКОГО СОСТОЯНИЯ v5.5 (без изменений логики, только вызовы)
-// =========================================================================
+    
+    // ========================================================================
+    // LOGIC STATE INITIALIZATION
+    // ========================================================================
+    
+    /**
+     * Initialize logic state for all contacts and internal atoms.
+     * 
+     * Sets default values:
+     * - Inputs: true (high by default)
+     * - Outputs: false (low by default)
+     */
     private function _initializeLogicState():Void
     {
-        // Устанавливаем определенные начальные значения для всех контактов
+        // Set defined initial values for all ports
         for (name in ports.keys())
         {
             var port = ports.get(name);
@@ -234,7 +311,8 @@ class Assembly extends Atom
                 }
             }
         }
-
+        
+        // Recursively initialize nested assemblies
         for (runtimeId in internalAtoms.keys())
         {
             var obj = internalAtoms.get(runtimeId);
@@ -248,9 +326,14 @@ class Assembly extends Atom
                 }
             }
         }
+        
+        // Perform initial calculation
         _performInitialCalculation();
     }
-
+    
+    /**
+     * Perform initial calculation for all internal atoms.
+     */
     private function _performInitialCalculation():Void
     {
         for (runtimeId in internalAtoms.keys())
@@ -272,7 +355,10 @@ class Assembly extends Atom
         }
         _syncExternalOutputs();
     }
-
+    
+    /**
+     * Sync internal output values to external ports.
+     */
     private function _syncExternalOutputs():Void
     {
         for (name in ports.keys())
@@ -287,26 +373,30 @@ class Assembly extends Atom
             }
         }
     }
-
-// =========================================================================
-// ОБРАБОТКА ОТЛОЖЕННЫХ СИГНАЛОВ v5.7 (Hot Start)
-// =========================================================================
+    
+    // ========================================================================
+    // HOT START (Pending Signal Processing)
+    // ========================================================================
+    
     /**
-     * Запускает начальное распространение сигналов после инициализации.
-     * v5.7: Размораживает атомы только ПОСЛЕ обновления значений.
+     * Process pending signals after initialization.
+     * 
+     * This method:
+     * 1. Forces memory atoms (Toggle, etc.) to propagate their current state
+     * 2. Syncs assembly output ports
+     * 3. Unfreezes all internal atoms
+     * 
+     * This prevents "cold start" issues where atoms start with null values.
      */
     private function _processPendingSignals():Void
     {
-        // 1. Принудительно обновляем значения на выходах памяти (Toggle)
-        // и синхронизируем порты сборки.
+        // 1. Force propagate current values from memory atoms
         for (runtimeId in internalAtoms.keys())
         {
             var obj = internalAtoms.get(runtimeId);
             if (obj != null)
             {
                 var atom:Atom = cast obj;
-
-                // Для обычных атомов (не сборок) с памятью, принудительно шлем сигнал
                 for (output in atom.getOutputs())
                 {
                     if (output != null && output.value != null)
@@ -316,13 +406,12 @@ class Assembly extends Atom
                 }
             }
         }
-
-        // Синхронизируем порты СБОРКИ (выходы)
+        
+        // Sync assembly outputs
         _syncExternalOutputs();
-
-        // 2. РАЗМОРОЗКА АТОМОВ
-        // Теперь, когда все сигналы прошли, атомы могут начать реагировать
-        // на новые изменения (например, пользовательский ввод).
+        
+        // 2. UNFREEZE ALL ATOMS
+        // Now that all signals have propagated, atoms can react to new changes
         for (runtimeId in internalAtoms.keys())
         {
             var obj = internalAtoms.get(runtimeId);
@@ -330,20 +419,31 @@ class Assembly extends Atom
             {
                 var atom:Atom = cast obj;
                 atom.isInitializing = false;
-
                 if (Std.isOfType(atom, Assembly))
                 {
                     cast(atom, Assembly)._processPendingSignals();
                 }
             }
         }
-
+        
         trace('Assembly($id): Hot Start complete. Signals propagated, atoms unfrozen.');
     }
-
-// =========================================================================
-// PORT LINKING LOGIC v5.8 (TickGenerator Integration)
-// =========================================================================
+    
+    // ========================================================================
+    // PORT LINKING LOGIC
+    // ========================================================================
+    
+    /**
+     * Update port links based on logic mode.
+     * 
+     * Logic Mode (isLogic = true):
+     * - Input ports: external → internal (direct link)
+     * - Output ports: internal subscribes → callback schedules on next tick
+     * 
+     * Analog Mode (isLogic = false):
+     * - Input ports: external → internal (direct link)
+     * - Output ports: internal → external (direct link)
+     */
     private function _updatePortLinks():Void
     {
         for (name in ports.keys())
@@ -353,28 +453,31 @@ class Assembly extends Atom
             if (port.type == null) continue;
             if (port.external == null) continue;
             if (port.internal == null) continue;
-
+            
+            // Remove existing links
             if (port.external.hasLink(port.internal)) port.external.unlink(port.internal);
             if (port.internal.hasLink(port.external)) port.internal.unlink(port.external);
-
+            
+            // Remove existing callbacks
             if (_portCallbacks.exists(name))
             {
                 port.internal.unsubscribe(_portCallbacks.get(name));
                 _portCallbacks.remove(name);
             }
-
+            
             if (this.isLogic)
             {
                 if (port.type == INPUT)
                 {
+                    // Input: direct link
                     port.external.link(port.internal);
                 }
                 else
                 {
+                    // Output: schedule changes on next tick (unit delay)
                     var callback = function(v:Dynamic)
                     {
                         var targetPort = port;
-                        // CHANGED SignalQueue -> TickGenerator
                         TickGenerator.getInstance().scheduleNextTick(function()
                         {
                             if (!_isDisposed && targetPort != null && !isInitializing)
@@ -400,20 +503,33 @@ class Assembly extends Atom
             }
         }
     }
-
-// =========================================================================
-// HOT RELOAD SUPPORT
-// =========================================================================
+    
+    // ========================================================================
+    // HOT RELOAD SUPPORT
+    // ========================================================================
+    
+    /**
+     * Update assembly from new blueprint (hot reload).
+     * 
+     * - Removes ports that no longer exist
+     * - Adds new ports from blueprint
+     * - Preserves existing connections where possible
+     */
     public function updateFromBlueprint(newBp:Blueprint):Void
     {
         if (newBp.id != this.blueprint.id) return;
+        
         this.name = newBp.name;
+        
+        // Find ports to remove
         var currentPortNames = [for (name in ports.keys()) name];
         var targetPinNames = new Map<String, Bool>();
         for (pin in newBp.pins)
         {
             targetPinNames.set(pin.name, true);
         }
+        
+        // Remove obsolete ports
         for (name in currentPortNames)
         {
             if (!targetPinNames.exists(name))
@@ -435,6 +551,8 @@ class Assembly extends Atom
                 }
             }
         }
+        
+        // Add new ports
         for (pin in newBp.pins)
         {
             var port = ports.get(pin.name);
@@ -461,17 +579,25 @@ class Assembly extends Atom
                 }
             }
         }
+        
         this.blueprint = newBp;
         _updatePortLinks();
         Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
     }
-
-// ============================================================================
-// _createInterface() с конвертацией String → ContactType
-// ============================================================================
+    
+    // ========================================================================
+    // INTERFACE CREATION
+    // ========================================================================
+    
+    /**
+     * Create gateway ports from blueprint pin definitions.
+     * 
+     * Handles type conversion from String to ContactType for compatibility.
+     */
     private function _createInterface():Void
     {
         if (blueprint == null || blueprint.pins == null) return;
+        
         for (pinDef in blueprint.pins)
         {
             if (pinDef == null)
@@ -484,7 +610,8 @@ class Assembly extends Atom
                 trace('ERROR: PinDef.name is null in Blueprint(${blueprint.id})');
                 continue;
             }
-// === FIX: Конвертация типа ДО создания ConductorPort ===
+            
+            // Convert type if needed (String → ContactType)
             var portType:ContactType = pinDef.type;
             if (pinDef.type == null)
             {
@@ -510,35 +637,54 @@ class Assembly extends Atom
                 trace('ERROR: PinDef "${pinDef.name}" has invalid type: ${pinDef.type}');
                 portType = ContactType.UNDEFINED;
             }
+            
             var port = new ConductorPort(pinDef.name, portType, pinDef.defaultValue);
             ports.set(pinDef.name, port);
         }
+        
         _updatePortLinks();
     }
-
+    
+    // ========================================================================
+    // INTERNAL ATOM INSTANTIATION
+    // ========================================================================
+    
+    /**
+     * Create internal atom instances from blueprint.
+     * 
+     * Atoms are created in frozen state (isInitializing = true)
+     * and unfrozen later by _processPendingSignals().
+     */
     private function _createInternalInstances():Void
     {
         if (blueprint == null || blueprint.internalAtoms == null) return;
+        
         for (atomDef in blueprint.internalAtoms)
         {
+            // Prevent recursive instantiation
             if (atomDef.typeId == this.blueprint.id)
             {
                 trace('WARN: Skipped recursive instantiation of ${atomDef.typeId} inside itself.');
                 continue;
             }
+            
             var newInstanceID = UID.generate();
             _idMap.set(atomDef.instanceId, newInstanceID);
+            
             var instance = AssemblyFactory.createAtom(atomDef.typeId, newInstanceID);
             if (instance != null)
             {
-                // === FIX v5.7: Замораживаем атом при создании ===
+                // Freeze atom during creation
                 instance.isInitializing = true;
-
                 internalAtoms.set(newInstanceID, instance);
+                
+                // Restore saved state
                 if (atomDef.values != null)
                 {
                     instance.restoreState(atomDef.values);
                 }
+                
+                // Register active drivers
                 var bpDef = AtomRegistry.get(atomDef.typeId);
                 if (bpDef != null && bpDef.isActive && !bpDef.isNative)
                 {
@@ -547,17 +693,26 @@ class Assembly extends Atom
             }
         }
     }
-
-// ============================================================================
-// _createInternalConnections() с полной защитой
-// ============================================================================
+    
+    // ========================================================================
+    // INTERNAL CONNECTIONS
+    // ========================================================================
+    
+    /**
+     * Create internal connections between atoms.
+     * 
+     * Uses suppressPropagation=true to prevent oscillation during initialization.
+     * Connections are later activated by _processPendingSignals().
+     */
     private function _createInternalConnections():Void
     {
         if (blueprint == null || blueprint.internalConnections == null) return;
+        
         for (conn in blueprint.internalConnections)
         {
             var fromContact = resolveContact(conn.from);
             var toContact = resolveContact(conn.to);
+            
             if (fromContact == null)
             {
                 trace('ERROR: Assembly(${this.id}): fromContact NULL for ${conn.from.atomId}.${conn.from.contactName}');
@@ -584,15 +739,27 @@ class Assembly extends Atom
                 trace('  Contact owner: ${toContact.owner != null ? toContact.owner.id : "null"}');
                 continue;
             }
-            // === FIX v5.5: Передаем suppressPropagation=true для предотвращения осцилляции ===
-            // Но запоминаем связь для последующего распространения
+            
+            // Link with suppressed propagation (prevents oscillation during init)
             fromContact.link(toContact, true);
         }
     }
-
-// ============================================================================
-// resolveContact() С ПОЛНОЙ ОБРАБОТКОЙ ASSEMBLY АТОМОВ
-// ============================================================================
+    
+    // ========================================================================
+    // CONTACT RESOLUTION
+    // ========================================================================
+    
+    /**
+     * Resolve a ConnectionPoint to a Contact instance.
+     * 
+     * Handles three cases:
+     * 1. SELF → returns assembly port's internal contact
+     * 2. Nested Assembly → returns external contact (parent connects to child's outside)
+     * 3. Simple Atom → returns getInput/getOutput
+     * 
+     * @param point Connection point definition
+     * @return Contact instance or null if not found
+     */
     private function resolveContact(point:ConnectionPoint):Contact
     {
         if (point == null)
@@ -600,6 +767,7 @@ class Assembly extends Atom
             trace('ERROR: resolveContact received null point');
             return null;
         }
+        
         if (point.atomId == "SELF")
         {
             var port = ports.get(point.contactName);
@@ -608,8 +776,7 @@ class Assembly extends Atom
                 trace('WARN: Port "${point.contactName}" not found in Assembly(${this.id})');
                 return null;
             }
-            // Для SELF (себя) мы возвращаем внутренний контакт,
-            // так как внутренние атомы подключаются к внутренней стороне границы сборки.
+            // For SELF, return internal contact (internal atoms connect to inside)
             var contact = port.internal;
             if (contact == null)
             {
@@ -618,7 +785,8 @@ class Assembly extends Atom
             }
             return contact;
         }
-        else {
+        else
+        {
             var realAtomId = _idMap.get(point.atomId);
             if (realAtomId == null)
             {
@@ -633,14 +801,15 @@ class Assembly extends Atom
                     return null;
                 }
             }
+            
             var obj = internalAtoms.get(realAtomId);
             if (obj == null)
             {
                 trace('WARN: Instance "${realAtomId}" is null in Assembly(${this.id})');
                 return null;
             }
+            
             var atom:Atom = cast obj;
-
             if (Std.isOfType(atom, Assembly))
             {
                 var asm = cast(atom, Assembly);
@@ -651,17 +820,13 @@ class Assembly extends Atom
                     trace('  Available ports: ${[for(k in asm.ports.keys()) k]}');
                     return null;
                 }
-
-                // === ИСПРАВЛЕНИЕ: Для вложенных сборок используем ВНЕШНИЙ контакт ===
-                // Внешний мир (родительская сборка) должен подключаться к внешней стороне порта.
+                // For nested assemblies, use EXTERNAL contact (parent connects to outside)
                 var contact:Contact = port.external;
-
                 if (contact == null)
                 {
                     trace('ERROR: External contact from port "${point.contactName}" is null!');
                     return null;
                 }
-
                 if (contact.type == null)
                 {
                     trace('ERROR: Contact "${point.contactName}" has NULL type!');
@@ -671,8 +836,9 @@ class Assembly extends Atom
                 }
                 return contact;
             }
-            else {
-                // Обычный атом (NAND, etc.) - используем getInput/getOutput
+            else
+            {
+                // Simple atom - use getInput/getOutput
                 var c = atom.getInput(point.contactName);
                 if (c == null) c = atom.getOutput(point.contactName);
                 if (c == null)
@@ -689,13 +855,17 @@ class Assembly extends Atom
             }
         }
     }
-
+    
+    // ========================================================================
+    // PORT HELPERS
+    // ========================================================================
+    
     private function _getOrderedPortDefs():Array<PinDef>
     {
         if (blueprint == null || blueprint.pins == null) return [];
         return blueprint.pins.copy();
     }
-
+    
     public function getOrderedPorts(type:ContactType):Array<ConductorPort>
     {
         var result:Array<ConductorPort> = [];
@@ -710,7 +880,7 @@ class Assembly extends Atom
         }
         return result;
     }
-
+    
     public function addPort(name:String, type:ContactType, defaultValue:Dynamic = null):ConductorPort
     {
         var currentCount = 0;
@@ -726,29 +896,35 @@ class Assembly extends Atom
             trace('ERROR: Port name "$name" already exists');
             return null;
         }
+        
         var pinDef:PinDef = { name: name, type: type, defaultValue: defaultValue };
         if (blueprint.pins != null) blueprint.pins.push(pinDef);
+        
         var port = new ConductorPort(name, type, defaultValue);
         ports.set(name, port);
+        
         if (type == INPUT)
         {
             _inputs.push(port.external);
             port.external.owner = this;
             while (_inputCache.length < _inputs.length) _inputCache.push(null);
         }
-        else {
+        else
+        {
             _outputs.push(port.external);
             port.external.owner = this;
         }
+        
         _updatePortLinks();
         Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
         return port;
     }
-
+    
     public function removePort(name:String):Void
     {
         var port = ports.get(name);
         if (port == null) return;
+        
         var pinToRemove:PinDef = null;
         if (blueprint.pins != null)
         {
@@ -766,22 +942,26 @@ class Assembly extends Atom
                 blueprint.pins.remove(pinToRemove);
             }
         }
+        
         if (port.type == INPUT)
         {
             _inputs.remove(port.external);
             if (_inputCache.length > _inputs.length) _inputCache.pop();
         }
-        else {
+        else
+        {
             _outputs.remove(port.external);
         }
+        
         port.dispose();
         ports.remove(name);
         Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
     }
-
-// =========================================================================
-// STATE SERIALIZATION v5.0
-// =========================================================================
+    
+    // ========================================================================
+    // STATE SERIALIZATION
+    // ========================================================================
+    
     override public function getPersistentState():Dynamic
     {
         var states:Dynamic = {};
@@ -800,12 +980,14 @@ class Assembly extends Atom
                 }
             }
         }
+        
         var hasStates = false;
         for (field in Reflect.fields(states))
         {
             hasStates = true;
             break;
         }
+        
         var baseState = super.getPersistentState();
         if (hasStates || (baseState != null && baseState.isLogic == true))
         {
@@ -817,10 +999,11 @@ class Assembly extends Atom
         }
         return null;
     }
-
+    
     override public function restoreState(state:Dynamic):Void
     {
         if (state == null) return;
+        
         if (blueprint != null && blueprint.internalAtoms != null && blueprint.internalAtoms.length > 0)
         {
             var wasLogic = _isLogic;
@@ -839,6 +1022,7 @@ class Assembly extends Atom
                 _updatePortLinks();
             }
         }
+        
         if (internalAtoms != null && Reflect.hasField(state, "internalStates"))
         {
             var states = Reflect.field(state, "internalStates");
@@ -856,12 +1040,14 @@ class Assembly extends Atom
             }
         }
     }
-
-// =========================================================================
-// DISPOSE
-// =========================================================================
+    
+    // ========================================================================
+    // DISPOSE
+    // ========================================================================
+    
     override public function dispose():Void
     {
+        // Dispose internal atoms
         var keys = [for (k in internalAtoms.keys()) k];
         for (key in keys)
         {
@@ -877,6 +1063,8 @@ class Assembly extends Atom
         }
         internalAtoms.clear();
         internalAtoms = null;
+        
+        // Dispose ports
         var portKeys = [for (k in ports.keys()) k];
         for (key in portKeys)
         {
@@ -885,6 +1073,7 @@ class Assembly extends Atom
         }
         ports.clear();
         ports = null;
+        
         super.dispose();
     }
 }

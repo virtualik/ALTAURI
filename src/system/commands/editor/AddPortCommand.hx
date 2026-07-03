@@ -4,15 +4,38 @@ import system.commands.base.Command;
 import core.base.Assembly;
 import core.types.ContactType;
 import core.logic.Impulsys;
-import core.logic.EventType; // <--- IMPORT
+import core.logic.EventType;
 
 /**
- * ADD PORT COMMAND
+ * ADD PORT COMMAND v1.0
  * Adds a new gateway port to an Assembly.
  * Supports Undo/Redo.
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   AddPortCommand                                                        │
+ * │                                                                         │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  execute():                                                     │   │
+ * │   │  - Generate port name if not provided (In_1, Out_1, etc.)       │   │
+ * │   │  - Check for name conflicts in ports and blueprint.pins         │   │
+ * │   │  - Call assembly.addPort()                                      │   │
+ * │   │  - Emit ASSEMBLY_PORTS_CHANGED event                            │   │
+ * │   │                                                                 │   │
+ * │   │  undo():                                                        │   │
+ * │   │  - Remove connected wires from blueprint                        │   │
+ * │   │  - Call assembly.removePort()                                   │   │
+ * │   │  - Emit ASSEMBLY_PORTS_CHANGED event                            │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   Port Naming:                                                          │
+ * │   - INPUT ports: In_1, In_2, In_3...                                    │
+ * │   - OUTPUT ports: Out_1, Out_2, Out_3...                                │
+ * │   - Auto-increment to avoid conflicts                                   │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
 class AddPortCommand extends Command {
-
     private var _assembly:Assembly;
     private var _type:ContactType;
     private var _name:String;
@@ -31,15 +54,12 @@ class AddPortCommand extends Command {
         if (_name == null) {
             var prefix = (_type == INPUT) ? "In_" : "Out_";
             var count = 0;
-
             // Count existing ports of this type
             for (p in _assembly.ports) {
                 if (p.type == _type) count++;
             }
-
             var candidate = prefix + Std.string(count + 1);
-
-            // ИСПРАВЛЕНИЕ: Проверять и в ports, и в blueprint.pins
+            // FIX: Check both in ports and in blueprint.pins
             while (_assembly.ports.exists(candidate) || isPinInBlueprint(candidate)) {
                 count++;
                 candidate = prefix + Std.string(count + 1);
@@ -48,20 +68,17 @@ class AddPortCommand extends Command {
         }
 
         var port = _assembly.addPort(_name, _type, _defaultValue);
-
         if (port != null) {
             Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });
         } else {
             trace("AddPortCommand failed: could not create port (limit reached?).");
         }
-
         complete();
     }
 
     private function isPinInBlueprint(name:String):Bool {
         var bp = _assembly.blueprint;
         if (bp == null || bp.pins == null) return false;
-
         for (pin in bp.pins) {
             if (pin.name == name) return true;
         }
@@ -72,7 +89,6 @@ class AddPortCommand extends Command {
         if (_name != null) {
             // Before removing port, we should remove connected wires to keep Blueprint clean
             removeConnectedWires(_name);
-
             _assembly.removePort(_name);
             Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });
         }
@@ -81,12 +97,10 @@ class AddPortCommand extends Command {
     private function removeConnectedWires(portName:String):Void {
         var bp = _assembly.blueprint;
         var toRemove = [];
-
         for (conn in bp.internalConnections) {
             if (conn.from.atomId == "SELF" && conn.from.contactName == portName) toRemove.push(conn);
             if (conn.to.atomId == "SELF" && conn.to.contactName == portName) toRemove.push(conn);
         }
-
         for (conn in toRemove) {
             bp.internalConnections.remove(conn);
         }

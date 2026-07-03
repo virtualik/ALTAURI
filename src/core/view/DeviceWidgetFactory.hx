@@ -1,78 +1,73 @@
 package core.view;
-
 import core.base.Atom;
 import core.base.Assembly;
 import core.data.Blueprint;
-
 #if cpp
 	import core.view.MiniAudioWidget;
 	import core.view.ComPortWidget;
 	import core.view.ComEnumeratorWidget;
 	import core.view.SystemVUMeterWidget;
 #end
+
 /**
- * DEVICE WIDGET FACTORY v1.1
- * Фабрика для создания DeviceView (Лица Атома).
- *
- * Полностью отделена от логики Атома.
- * Определяет какой виджет создать на основе типа атома или Blueprint.
- *
- * Архитектура "Atom is Databank & Compute Core":
- * ┌─────────────────────────────────────────────────────────────────────────┐
- * │   Атом (Databank + Compute)                                             │
- * │         │                                                               │
- * │         │ DeviceWidgetFactory.create(atom)                              │
- * │         ▼                                                               │
- * │   ┌─────────────────────────────────────────────────────────────────┐   │
- * │   │ DeviceWidgetFactory                                             │   │
- * │   │                                                                 │   │
- * │   │ switch (atom.type) {                                            │   │
- * │   │     case "Oscilloscope": return new OscilloscopeWidget(atom);   │   │
- * │   │     case "Button": return new ButtonWidget(atom);               │   │
- * │   │     case "Toggle": return new ToggleWidget(atom);               │   │
- * │   │     case "LED": return new LEDWidget(atom);                     │   │
- * │   │     case "TextInput": return new TextInputWidget(atom);         │   │
- * │   │     case "AudioIn": return new OscilloscopeWidget(atom, "samples"); │
- * │   │     default: return new TextWidget(atom);                       │   │
- * │   │ }                                                               │   │
- * │   └─────────────────────────────────────────────────────────────────┘   │
- * │         │                                                               │
- * │         ▼                                                               │
- * │   DeviceView (Лицо Атома)                                               │
- * │   - Подписывается на Contact атома                                      │
- * │   - Отображает данные из Databank атома                                 │
- * │   - НЕ хранит бизнес-данные                                             │
- * └─────────────────────────────────────────────────────────────────────────┘
- */
+* DEVICE WIDGET FACTORY v1.1
+* Factory for creating DeviceView (Atom's Face).
+*
+* Completely separated from Atom logic.
+* Determines which widget to create based on atom type or Blueprint.
+*
+* Architecture "Atom is Databank & Compute Core":
+* ┌─────────────────────────────────────────────────────────────────────────┐
+* │   Atom (Databank + Compute)                                             │
+* │         │                                                               │
+* │         │ DeviceWidgetFactory.create(atom)                              │
+* │         ▼                                                               │
+* │   ┌─────────────────────────────────────────────────────────────────┐   │
+* │   │ DeviceWidgetFactory                                             │   │
+* │   │                                                                 │   │
+* │   │ switch (atom.type) {                                            │   │
+* │   │     case "Oscilloscope": return new OscilloscopeWidget(atom);   │   │
+* │   │     case "Button": return new ButtonWidget(atom);               │   │
+* │   │     case "Toggle": return new ToggleWidget(atom);               │   │
+* │   │     case "LED": return new LEDWidget(atom);                     │   │
+* │   │     case "TextInput": return new TextInputWidget(atom);         │   │
+* │   │     case "AudioIn": return new OscilloscopeWidget(atom, "samples"); │
+* │   │     default: return new TextWidget(atom);                       │   │
+* │   │ }                                                               │   │
+* │   └─────────────────────────────────────────────────────────────────┘   │
+* │         │                                                               │
+* │         ▼                                                               │
+* │   DeviceView (Atom's Face)                                              │
+* │   - Subscribes to Atom's Contact                                        │
+* │   - Displays data from Atom's Databank                                  │
+* │   - DOES NOT store business data                                        │
+* └─────────────────────────────────────────────────────────────────────────┘
+*/
 class DeviceWidgetFactory
 {
-
 	/**
-	 * Создать DeviceView для атома.
-	 *
-	 * Это ТОЧКА ВХОДА для создания Лица Атома.
-	 *
-	 * ПРИНЦИП: Один атом = один виджет.
-	 * Используйте DeviceViewRegistry.getOrCreate() вместо прямого вызова этого метода.
-	 *
-	 * @param atom Атом для которого создаётся виджет
-	 * @return DeviceView или null если атом null или тип не поддерживается
-	 */
+	* Create DeviceView for atom.
+	*
+	* This is the ENTRY POINT for creating Atom's Face.
+	*
+	* PRINCIPLE: One atom = one widget.
+	* Use DeviceViewRegistry.getOrCreate() instead of calling this method directly.
+	*
+	* @param atom Atom for which widget is created
+	* @return DeviceView or null if atom null or type not supported
+	*/
 	public static function create(atom:Atom):DeviceView
 	{
 		if (atom == null) return null;
-
 		try {
-			// 1. Сначала проверяем Assembly (это предотвращает рекурсию)
+// 1. First check Assembly (this prevents recursion)
 			if (Std.isOfType(atom, Assembly))
 			{
 				var asm:Assembly = cast(atom, Assembly);
 				return createForAssembly(asm);
 			}
-
-			// 2. Нативные атомы - по типу
+// 2. Native atoms - by type
 			return createByAtomType(atom);
-
 		}
 		catch (e:Dynamic)
 		{
@@ -80,137 +75,105 @@ class DeviceWidgetFactory
 			return null;
 		}
 	}
-
 	/**
-	 * Создать виджет для Assembly по blueprint.deviceType.
-	 */
+	* Create widget for Assembly by blueprint.deviceType.
+	*/
 	private static function createForAssembly(asm:Assembly):DeviceView
 	{
 		if (asm == null || asm.blueprint == null) return null;
-
 		var bp = asm.blueprint;
 		var deviceType:String = bp.deviceType;
-
-		// Если deviceType не указан - PanelWidget (контейнер)
+// If deviceType not specified - PanelWidget (container)
 		if (deviceType == null || deviceType == "")
 		{
 			return new PanelWidget(asm);
 		}
-
-		// Определяем по deviceType
+// Determine by deviceType
 		return switch (deviceType.toLowerCase())
 		{
 			case "led", "indicator", "light":
 				new LEDWidget(asm, getContactName(bp, "in"));
-
 			case "toggle", "switch":
 				new ToggleWidget(asm, getContactName(bp, "out"));
-
 			case "button", "push":
 				new ButtonWidget(asm, getContactName(bp, "out"));
-
 			case "text", "display", "label":
 				new TextWidget(asm, getContactName(bp, "value"));
-
 			case "panel", "container", "group":
 				new PanelWidget(asm);
-
 			case "oscilloscope", "scope":
 				new OscilloscopeWidget(asm, "in");
-
 			case "textinput":
 				new TextInputWidget(asm);
-
 				#if cpp
 			case "miniaudioatom", "mini audio capture":
 				new MiniAudioWidget(asm);
 				#end
-
 			case "signalgenerator":
 				new SignalGeneratorWidget(asm);
-
 				#if cpp
 			case "comport", "com port":
 				new ComPortWidget(asm);
-
 			case "comenumerator", "com enumerator":
 				new ComEnumeratorWidget(asm);
 				#end
-
 			default:
-				// Пробуем найти класс по имени
+// Try to find class by name
 				createByClassName(deviceType, asm);
 		}
 	}
-
 	/**
-	 * Создать виджет по типу атома (для нативных атомов).
-	 */
+	* Create widget by atom type (for native atoms).
+	*/
 	private static function createByAtomType(atom:Atom):DeviceView
 	{
 		if (atom == null) return null;
-
 		var type = atom.type.toLowerCase();
-
 		return switch (type)
 		{
 			case "led", "led indicator":
 				new LEDWidget(atom, "in");
-
 			case "button", "push button":
 				new ButtonWidget(atom, "out");
-
 			case "toggle", "switch":
 				new ToggleWidget(atom, "out");
-
 			case "oscilloscope":
 				new OscilloscopeWidget(atom, "in");
-
 			case "textinput":
 				new TextInputWidget(atom);
-
 			case "audioin", "audioinput", "audio":
 				new OscilloscopeWidget(atom, "samples");
-			
-			#if cpp
+				#if cpp
 			case "systemvumeteratom", "system vu meter", "vumeter":
 				new SystemVUMeterWidget(atom);
-			#end
-			
+				#end
 			case "relay":
-				// Показываем выход "out"
+// Show output "out"
 				new TextWidget(atom, "out", false);
-
 			case "signalgenerator":
 				new SignalGeneratorWidget(atom);
-
-			#if cpp
+				#if cpp
 			case "comportatom", "com port":
 				new ComPortWidget(atom);
-
 			case "comenumeratoratom", "com enumerator":
 				new ComEnumeratorWidget(atom);
-			#end
-
+				#end
 				#if cpp
 			case "miniaudioatom", "mini audio capture":
 				new MiniAudioWidget(atom);
 				#end
-
 			default:
-				// Универсальный виджет - текстовое отображение
+// Universal widget - text display
 				new TextWidget(atom);
 		}
 	}
-
 	/**
-	 * Попытка создать виджет по имени класса.
-	 * Позволяет расширять систему без изменения Factory.
-	 */
+	* Attempt to create widget by class name.
+	* Allows extending system without changing Factory.
+	*/
 	private static function createByClassName(className:String, atom:Atom):DeviceView
 	{
 		var fullClassName = "core.view." + className;
-
 		try {
 			var cls = Type.resolveClass(fullClassName);
 			if (cls != null)
@@ -224,55 +187,46 @@ class DeviceWidgetFactory
 		}
 		catch (e:Dynamic)
 		{
-			// Игнорируем ошибки - вернём fallback
+// Ignore errors - return fallback
 		}
-
-		// Fallback - универсальный виджет
+// Fallback - universal widget
 		return new TextWidget(atom);
 	}
-
 	/**
-	 * Найти имя контакта в Blueprint.
-	 * Используется для определения контакта для отображения.
-	 */
+	* Find contact name in Blueprint.
+	* Used to determine contact for display.
+	*/
 	private static function getContactName(bp:Blueprint, defaultName:String):String
 	{
 		if (bp == null || bp.pins == null) return defaultName;
-
-		// Ищем точное совпадение
+// Search exact match
 		for (pin in bp.pins)
 		{
 			if (pin.name == defaultName) return pin.name;
 		}
-
-		// Берём первый попавшийся
+// Take first available
 		for (pin in bp.pins)
 		{
 			if (pin.name != null) return pin.name;
 		}
-
 		return defaultName;
 	}
-
 	/**
-	 * Проверить поддерживается ли тип атома.
-	 */
+	* Check if atom type is supported.
+	*/
 	public static function isSupported(atomType:String):Bool
 	{
 		if (atomType == null) return false;
-
 		var type = atomType.toLowerCase();
-
 		return switch (type)
 		{
 			case "led" | "button" | "toggle" | "oscilloscope" | "textinput" |
 					"audioin" | "audioinput" | "relay" | "conductor" |
 					"universalgen" | "signalgen" | "fpsmonitor" | "frametime":
 				true;
-
 			default:
-				// Проверяем Assembly
-				true; // PanelWidget как fallback
+// Check Assembly
+				true; // PanelWidget as fallback
 		}
 	}
 }

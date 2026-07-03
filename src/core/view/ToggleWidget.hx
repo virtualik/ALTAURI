@@ -10,14 +10,14 @@ import core.base.Contact;
 import library.electro.ToggleAtom;
 
 /**
- * TOGGLE WIDGET v2.1 (Set Input Support)
+ * TOGGLE WIDGET
  * Toggle switch widget with two states.
  *
  * Architecture:
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │   ToggleAtom (Databank)                                                 │
  * │                                                                         │
- * │   Contact "out" ◄──► ToggleWidget                                       │
+ * │   Contact "out"  ◄──► ToggleWidget                                      │
  * │   Contact "rst"  ◄─── (Wired externally)                                │
  * │   Contact "set"  ◄─── (Wired externally)                                │
  * │                    ┌─────────────────────────────────────────────────┐  │
@@ -29,37 +29,34 @@ import library.electro.ToggleAtom;
  * │   Widget READS atom's contact state (for display)                       │
  * │   Widget WRITES to atom's contact (user input)                          │
  * │   Atom is the Databank - single source of truth                         │
- * │                                                                         │
- * │   v2.1: Added _setContact reference for consistency.                    │
- * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
-class ToggleWidget extends DeviceView {
-
+class ToggleWidget extends DeviceView 
+{
     // =========================================================================
     // UI COMPONENTS
     // =========================================================================
-
     private var _btn:Sprite;
     private var _labelField:TextField;
     private var _stateField:TextField;
-    
+
     // Atom Contacts References
     private var _outContact:Contact;
     private var _rstContact:Contact;
-    private var _setContact:Contact; // Added in v2.1
+    private var _setContact:Contact;
 
     // =========================================================================
     // CONFIGURATION
     // =========================================================================
-
-    // Widget dimensions    
-	public var widgetWidth:Float = 80;
+    // Widget dimensions
+    public var widgetWidth:Float = 80;
     public var widgetHeight:Float = 30;
-	// widget size return (из за Reflect)
-	override public function getWidgetSize():{width:Float, height:Float} {
-		return {width: widgetWidth, height: widgetHeight};
-	}
+
+    // Widget size return (used by Reflect in DeviceView base class)
+    override public function getWidgetSize():{width:Float, height:Float} 
+    {
+        return {width: widgetWidth, height: widgetHeight};
+    }
 
     public var colorOn:Int = 0x448844;
     public var colorOff:Int = 0x444444;
@@ -72,8 +69,8 @@ class ToggleWidget extends DeviceView {
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
-
-    public function new(atom:Atom, contactName:String = "out") {
+    public function new(atom:Atom, contactName:String = "out") 
+    {
         super(atom);
         _contactName = contactName;
         findContacts();
@@ -83,24 +80,26 @@ class ToggleWidget extends DeviceView {
     // =========================================================================
     // INITIALIZATION
     // =========================================================================
-
-    private function findContacts():Void {
-        if (atom != null) {
+    private function findContacts():Void 
+    {
+        if (atom != null) 
+        {
             _outContact = atom.getOutput(_contactName);
             if (_outContact == null) _outContact = atom.getOutput("out");
-
             _rstContact = atom.getInput("rst");
-            _setContact = atom.getInput("set"); // Find the new input
+            _setContact = atom.getInput("set");
         }
     }
 
-    override private function onActivate():Void {
+    override private function onActivate():Void 
+    {
         findContacts();
         // Sync visual with current Databank state
         updateVisual();
     }
 
-    private function buildUI():Void {
+    private function buildUI():Void 
+    {
         _btn = new Sprite();
         _btn.buttonMode = true;
         _btn.useHandCursor = true;
@@ -114,7 +113,6 @@ class ToggleWidget extends DeviceView {
         _stateField.height = widgetHeight;
         _stateField.selectable = false;
         _stateField.mouseEnabled = false;
-
         var fmt = new TextFormat("_sans", 14, 0xFFFFFF, true);
         fmt.align = TextFormatAlign.CENTER;
         _stateField.defaultTextFormat = fmt;
@@ -126,12 +124,10 @@ class ToggleWidget extends DeviceView {
         _labelField.y = widgetHeight + 5;
         _labelField.selectable = false;
         _labelField.mouseEnabled = false;
-
         var fmt2 = new TextFormat("_sans", 10, 0x888888);
         fmt2.align = TextFormatAlign.CENTER;
         _labelField.defaultTextFormat = fmt2;
         _labelField.text = atom != null ? atom.name : "Toggle";
-
         addChild(_labelField);
 
         updateVisual();
@@ -140,41 +136,41 @@ class ToggleWidget extends DeviceView {
     // =========================================================================
     // EVENT HANDLERS
     // =========================================================================
-
-    /**
-     * Reaction to contact change.
-     * v2.1: Updates visual if "out" changes.
-     */
-    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void {
-        if (contact == _outContact) {
+    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void 
+    {
+        if (contact == _outContact) 
+        {
             updateVisual();
-        } else if (contact == _rstContact || contact == _setContact) {
+        } 
+        else if (contact == _rstContact || contact == _setContact) 
+        {
             // If rst or set changes, the output might change, but usually
             // the output change event fires separately.
-            // We can force a visual update here just in case.
+            // Force a visual update here just in case.
             updateVisual();
         }
     }
 
-    /**
-     * Click - toggle state.
-     * v2.1: Delegates logic to Atom.
-     */
-    private function onClick(e:MouseEvent):Void {
+    private function onClick(e:MouseEvent):Void 
+    {
         // Read current state FROM CONTACT
         var currentState = (_outContact != null && _outContact.value == true);
         var newState = !currentState;
 
         // Use the Atom's API to ensure immunity timer is set correctly
-        if (atom != null && Std.isOfType(atom, library.electro.ToggleAtom)) {
-            cast(atom, library.electro.ToggleAtom).setState(newState);
-        } else if (_outContact != null) {
+        if (atom != null && Std.isOfType(atom, ToggleAtom)) 
+        {
+            cast(atom, ToggleAtom).setState(newState);
+        } 
+        else if (_outContact != null) 
+        {
             // Fallback: direct write
             _outContact.value = newState;
         }
     }
 
-    private function onOver(e:MouseEvent):Void {
+    private function onOver(e:MouseEvent):Void 
+    {
         _btn.graphics.clear();
         _btn.graphics.beginFill(colorOver);
         _btn.graphics.lineStyle(2, 0x666666);
@@ -182,15 +178,13 @@ class ToggleWidget extends DeviceView {
         _btn.graphics.endFill();
     }
 
-    private function onOut(e:MouseEvent):Void {
+    private function onOut(e:MouseEvent):Void 
+    {
         updateVisual();
     }
 
-    /**
-     * Update visual representation.
-     * Reads state DIRECTLY from contact.
-     */
-    private function updateVisual():Void {
+    private function updateVisual():Void 
+    {
         // Read from contact
         var isOn = (_outContact != null && _outContact.value == true);
         var color = isOn ? colorOn : colorOff;
@@ -204,28 +198,26 @@ class ToggleWidget extends DeviceView {
         _stateField.text = isOn ? labelOn : labelOff;
     }
 
-    /**
-     * Get current toggle state.
-     */
-    public function getState():Bool {
+    public function getState():Bool 
+    {
         return (_outContact != null && _outContact.value == true);
     }
 
-    /**
-     * Set state programmatically.
-     */
-    public function setState(value:Bool):Void {
-        if (atom != null && Std.isOfType(atom, library.electro.ToggleAtom)) {
-            cast(atom, library.electro.ToggleAtom).setState(value);
+    public function setState(value:Bool):Void 
+    {
+        if (atom != null && Std.isOfType(atom, ToggleAtom)) 
+        {
+            cast(atom, ToggleAtom).setState(value);
         }
     }
 
     // =========================================================================
     // DISPOSE
     // =========================================================================
-
-    override public function dispose():Void {
-        if (_btn != null) {
+    override public function dispose():Void 
+    {
+        if (_btn != null) 
+        {
             _btn.removeEventListener(MouseEvent.CLICK, onClick);
             _btn.removeEventListener(MouseEvent.MOUSE_OVER, onOver);
             _btn.removeEventListener(MouseEvent.MOUSE_OUT, onOut);

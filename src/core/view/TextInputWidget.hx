@@ -15,7 +15,7 @@ import core.logic.Impulsys;
 import core.logic.EventType;
 
 /**
- * TEXT INPUT WIDGET v1.2 (Focus-aware Keyboard Handling)
+ * TEXT INPUT WIDGET
  * Text input field widget for entering values into TextInputAtom.
  *
  * Architecture:
@@ -34,20 +34,13 @@ import core.logic.EventType;
  * │   Widget READS atom's contact value (display only)                      │
  * │   Widget WRITES to atom's "out" contact on user input                   │
  * │   Atom is the Databank - single source of truth                         │
- * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
- *
- * v1.2 Changes:
- * - FIXED: stopImmediatePropagation() on ALL key events when the input
- *   field is focused. This prevents the global keyboard handler in Main
- *   from intercepting keys like 'D' (delete) while the user is typing.
  */
-class TextInputWidget extends DeviceView {
-
+class TextInputWidget extends DeviceView 
+{
     // =========================================================================
     // UI COMPONENTS
     // =========================================================================
-
     private var _inputField:TextField;
     private var _outputContact:Contact;
     private var _setContact:Contact;
@@ -55,32 +48,33 @@ class TextInputWidget extends DeviceView {
     // Widget dimensions
     private var widgetWidth:Float = 120;
     private var widgetHeight:Float = 24;
-	// widget size return (из за Reflect)
-	override public function getWidgetSize():{width:Float, height:Float} {
-		return {width: widgetWidth, height: widgetHeight};
-	}
+
+    // Widget size return (used by Reflect in DeviceView base class)
+    override public function getWidgetSize():{width:Float, height:Float} 
+    {
+        return {width: widgetWidth, height: widgetHeight};
+    }
 
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
-
-    public function new(atom:Atom) {
+    public function new(atom:Atom) 
+    {
         super(atom);
-
         // Find contacts
-        if (atom != null) {
+        if (atom != null) 
+        {
             _outputContact = atom.getOutput("out");
             _setContact = atom.getInput("set");
         }
-
         buildUI();
     }
 
     // =========================================================================
     // UI CONSTRUCTION
     // =========================================================================
-
-    private function buildUI():Void {
+    private function buildUI():Void 
+    {
         graphics.beginFill(0x222233);
         graphics.lineStyle(1, 0x00AAFF);
         graphics.drawRoundRect(0, 0, widgetWidth, widgetHeight, 4, 4);
@@ -101,12 +95,14 @@ class TextInputWidget extends DeviceView {
         _inputField.defaultTextFormat = fmt;
 
         // Set initial value
-        if (_outputContact != null && _outputContact.value != null) {
+        if (_outputContact != null && _outputContact.value != null) 
+        {
             _inputField.text = Std.string(_outputContact.value);
-        } else {
+        } 
+        else 
+        {
             _inputField.text = "";
         }
-
         addChild(_inputField);
 
         // Events
@@ -117,31 +113,32 @@ class TextInputWidget extends DeviceView {
     // =========================================================================
     // EVENT HANDLERS
     // =========================================================================
-
-    override private function onActivate():Void {
+    override private function onActivate():Void 
+    {
         // Read current state from atom
-        if (_outputContact != null && _outputContact.value != null) {
+        if (_outputContact != null && _outputContact.value != null) 
+        {
             _inputField.text = Std.string(_outputContact.value);
         }
     }
 
-    private function onFocusOut(e:FocusEvent):Void {
+    private function onFocusOut(e:FocusEvent):Void 
+    {
         pushValue();
     }
 
-    private function onKeyDown(e:KeyboardEvent):Void {
-        // === BUG 2 FIX: Stop ALL key events from propagating when the ===
-        // input field is focused. This prevents Main.onKeyDown() from
-        // intercepting single-key shortcuts (like 'D' for delete) while
-        // the user is typing in this field.
+    private function onKeyDown(e:KeyboardEvent):Void 
+    {
+        // Stop ALL key events from propagating when the input field is focused.
+        // This prevents the global keyboard handler (Main.onKeyDown) from
+        // intercepting single-key shortcuts (like 'D' for delete) while typing.
         e.stopImmediatePropagation();
 
-        if (e.keyCode == Keyboard.ENTER) {
+        if (e.keyCode == Keyboard.ENTER) 
+        {
             pushValue();
-
             // Remove focus
             if (stage != null) stage.focus = null;
-
             // Signal to save project
             Impulsys.quickEmit(EventType.VALUE_COMMITTED);
         }
@@ -150,29 +147,32 @@ class TextInputWidget extends DeviceView {
     // =========================================================================
     // DATA HANDLING
     // =========================================================================
-
-    /**
-     * Push entered value to atom's output contact.
-     */
-    private function pushValue():Void {
-        if (_outputContact != null) {
+    private function pushValue():Void 
+    {
+        if (_outputContact != null) 
+        {
             var txt = _inputField.text;
-
             // Try to parse number
             var f = Std.parseFloat(txt);
-            if (!Math.isNaN(f) && (txt.indexOf(".") != -1 || Std.parseInt(txt) != null && txt.length > 0 && !Math.isNaN(f))) {
+            if (!Math.isNaN(f) && (txt.indexOf(".") != -1 || Std.parseInt(txt) != null && txt.length > 0 && !Math.isNaN(f))) 
+            {
                 _outputContact.value = f;
-            } else {
+            } 
+            else 
+            {
                 _outputContact.value = txt;
             }
         }
     }
 
-    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void {
+    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void 
+    {
         // React to changes in "set" or "out" contact
-        if ((contact == _outputContact || contact == _setContact) && newValue != null) {
+        if ((contact == _outputContact || contact == _setContact) && newValue != null) 
+        {
             var str = Std.string(newValue);
-            if (_inputField.text != str) {
+            if (_inputField.text != str) 
+            {
                 _inputField.text = str;
             }
         }
@@ -181,9 +181,10 @@ class TextInputWidget extends DeviceView {
     // =========================================================================
     // DISPOSE
     // =========================================================================
-
-    override public function dispose():Void {
-        if (_inputField != null) {
+    override public function dispose():Void 
+    {
+        if (_inputField != null) 
+        {
             _inputField.removeEventListener(FocusEvent.FOCUS_OUT, onFocusOut);
             _inputField.removeEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
         }
