@@ -94,6 +94,15 @@ class AssemblyFactory
                 case "COMENUMERATOR":
                     normalizedTypeId = "ComEnumeratorAtom";
                 
+				// ─────────────────────────────────────────────────────────────
+				// NET RADIO PLAYER — Internet radio metadata driver
+				// ─────────────────────────────────────────────────────────────
+				case "NETRADIOPLAYERATOM":
+				case "NETRADIOPLAYER":
+				case "NET RADIO PLAYER":
+				case "NETRADIO":
+					normalizedTypeId = "NETRadioPlayerAtom";
+				
                 // ─────────────────────────────────────────────────────────────
                 // === ELECTRO / UI ATOMS ===
                 // ─────────────────────────────────────────────────────────────
@@ -151,6 +160,17 @@ class AssemblyFactory
                 trace('🔍 AssemblyFactory: Created ComEnumeratorAtom...');
                 #end
             
+			// =============================================================
+			// NET RADIO PLAYER — internet radio metadata extraction
+			// =============================================================
+			case "NETRadioPlayerAtom":
+				#if cpp
+				atom = new library.drivers.NETRadioPlayerAtom(id);
+				trace('📻 AssemblyFactory: Created NETRadioPlayerAtom...');
+				#else
+				trace('⚠️ NETRadioPlayerAtom requires C++ target');
+				#end
+				
             // =============================================================
             // SYSTEM VU METER — Windows WASAPI audio meter
             // =============================================================

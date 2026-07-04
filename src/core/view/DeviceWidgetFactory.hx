@@ -6,6 +6,7 @@ import core.data.Blueprint;
 	import core.view.MiniAudioWidget;
 	import core.view.ComPortWidget;
 	import core.view.ComEnumeratorWidget;
+	import core.view.NETRadioPlayerWidget;
 	import core.view.SystemVUMeterWidget;
 #end
 
@@ -116,6 +117,8 @@ class DeviceWidgetFactory
 				new ComPortWidget(asm);
 			case "comenumerator", "com enumerator":
 				new ComEnumeratorWidget(asm);
+			case "netradio", "netradioplayer":
+				new NETRadioPlayerWidget(asm);
 				#end
 			default:
 // Try to find class by name
@@ -148,7 +151,7 @@ class DeviceWidgetFactory
 				new SystemVUMeterWidget(atom);
 				#end
 			case "relay":
-// Show output "out"
+			// Show output "out"
 				new TextWidget(atom, "out", false);
 			case "signalgenerator":
 				new SignalGeneratorWidget(atom);
@@ -157,8 +160,8 @@ class DeviceWidgetFactory
 				new ComPortWidget(atom);
 			case "comenumeratoratom", "com enumerator":
 				new ComEnumeratorWidget(atom);
-				#end
-				#if cpp
+			case "netradioplayeratom", "net radio player":
+				new NETRadioPlayerWidget(atom);
 			case "miniaudioatom", "mini audio capture":
 				new MiniAudioWidget(atom);
 				#end

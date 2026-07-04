@@ -197,6 +197,19 @@ class AtomRegistry
             {name: "ports", type: OUTPUT, dataType: "string", priority: CRITICAL}
         ], null, "comenumerator", true, true);
         
+		reg("NETRadioPlayerAtom", "NET Radio Player", [
+			{name: "stream_url",    type: INPUT,  dataType: "string",  priority: IMPORTANT, label: "URL"},
+			{name: "poll_interval", type: INPUT,  defaultValue: 5.0,   dataType: "float",   priority: OPTIONAL, label: "Poll (s)"},
+			{name: "playCtrl",      type: INPUT,  defaultValue: false,  dataType: "bool",    priority: CRITICAL, label: "Play"},
+			{name: "title",         type: OUTPUT, dataType: "string",  priority: IMPORTANT, label: "Title"},
+			{name: "artist",        type: OUTPUT, dataType: "string",  priority: IMPORTANT, label: "Artist"},
+			{name: "track",         type: OUTPUT, dataType: "string",  priority: IMPORTANT, label: "Track"},
+			{name: "raw_metadata",  type: OUTPUT, dataType: "string",  priority: INTERNAL},
+			{name: "updated",       type: OUTPUT, dataType: "bool",    priority: OPTIONAL},
+			{name: "state",         type: OUTPUT, dataType: "bool",    priority: OPTIONAL, label: "Error"},
+			{name: "error",         type: OUTPUT, dataType: "string",  priority: OPTIONAL, label: "Error Msg"}
+		], null, "netradio", true, true);
+
         // =================================================================
         // PASSIVE DISPLAYS (no active processing)
         // =================================================================
