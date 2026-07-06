@@ -166,7 +166,7 @@ class AssemblyFactory
 			case "NETRadioPlayerAtom":
 				#if cpp
 				atom = new library.drivers.NETRadioPlayerAtom(id);
-				trace('📻 AssemblyFactory: Created NETRadioPlayerAtom...');
+				trace('📻 AssemblyFactory: Created NETRadioPlayerAtom v2.0...');
 				#else
 				trace('⚠️ NETRadioPlayerAtom requires C++ target');
 				#end

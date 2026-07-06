@@ -201,6 +201,7 @@ class AtomRegistry
 			{name: "stream_url",    type: INPUT,  dataType: "string",  priority: IMPORTANT, label: "URL"},
 			{name: "poll_interval", type: INPUT,  defaultValue: 5.0,   dataType: "float",   priority: OPTIONAL, label: "Poll (s)"},
 			{name: "playCtrl",      type: INPUT,  defaultValue: false,  dataType: "bool",    priority: CRITICAL, label: "Play"},
+			{name: "volume",        type: INPUT,  defaultValue: 1.0,   dataType: "float",   priority: IMPORTANT, label: "Volume"},
 			{name: "title",         type: OUTPUT, dataType: "string",  priority: IMPORTANT, label: "Title"},
 			{name: "artist",        type: OUTPUT, dataType: "string",  priority: IMPORTANT, label: "Artist"},
 			{name: "track",         type: OUTPUT, dataType: "string",  priority: IMPORTANT, label: "Track"},
