@@ -765,7 +765,6 @@ class Main extends Sprite
         addChild(_uiLayer);
         
         _settingsLayer = new Sprite();
-        _settingsLayer.mouseEnabled = false;
         addChild(_settingsLayer);
     }
     
@@ -860,6 +859,46 @@ class Main extends Sprite
         };
         
         _devicePanel.onGetAssemblyList = getAllDevicesRecursive;
+		
+		// v3.5: Flicker-free window drag — absolute position model
+		var _dragWindowStartX:Int = 0;
+		var _dragWindowStartY:Int = 0;
+
+		_devicePanel.onWindowDragStart = function()
+		{
+			var win = Lib.current.stage.window;
+			if (win != null)
+			{
+				_dragWindowStartX = win.x;
+				_dragWindowStartY = win.y;
+			}
+		};
+
+		_devicePanel.onWindowDrag = function(dx:Float, dy:Float)
+		{
+			var win = Lib.current.stage.window;
+			if (win != null)
+			{
+				// v3.5: Absolute position = start + delta
+				// No accumulation of rounding errors!
+				win.x = _dragWindowStartX + Std.int(dx);
+				win.y = _dragWindowStartY + Std.int(dy);
+			}
+		};
+		// DevicePanel app close callback
+		_devicePanel.onCloseApp = function() {
+			onCloseClicked();  // using existing closing method
+		};
+		// v3.4: Move main window when dragging DevicePanel header
+		_devicePanel.onWindowDrag = function(dx:Float, dy:Float)
+		{
+			var win = Lib.current.stage.window;
+			if (win != null)
+			{
+				win.x = Std.int(win.x + dx);
+				win.y = Std.int(win.y + dy);
+			}
+		};
     }
     
     /**
@@ -876,6 +915,7 @@ class Main extends Sprite
         }
         
         updateButtonStates();
+		updateSettingsStats(); 
     }
     
     /**
@@ -1161,29 +1201,32 @@ class Main extends Sprite
      */
     private function onMainWindowClose():Void
     {
-        _popup.showConfirm("Exit", "Do You want to close Editor?", function(confirmed:Bool)
-        {
-            if (confirmed)
-            {
-                saveOnExit();
+                 saveOnExit();
                 System.exit(0);
-            }
-        });
-    }
+				
+    //   _popup.showConfirm("Exit", "Do You want to close Editor?", function(confirmed:Bool)
+    //    {
+    //        if (confirmed)
+    //        {
+    //        }
+    //    });
+    
+	}
     
     /**
      * Close button clicked.
      */
     private function onCloseClicked():Void
     {
-        _popup.showConfirm("Exit", "Do You want to close Editor?", function(confirmed:Bool)
-        {
-            if (confirmed)
-            {
-                saveOnExit();
+                 saveOnExit();
                 System.exit(0);
-            }
-        });
+				
+    //   _popup.showConfirm("Exit", "Do You want to close Editor?", function(confirmed:Bool)
+    //    {
+    //        if (confirmed)
+    //        {
+    //        }
+    //    });
     }
     
     /**
