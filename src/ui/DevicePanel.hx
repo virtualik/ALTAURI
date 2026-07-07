@@ -13,743 +13,1281 @@ import core.logic.EventType;
 import core.logic.Impulse;
 import ui.ButtonComponent;
 
-// =========================================================================
-// v3.6: NATIVE WINDOWS DRAG (OS-Level Smoothness)
-// =========================================================================
-// Uses Win32 SendMessage to simulate title-bar click, letting the OS
-// compositor handle window movement with zero frame lag.
-// Falls back to Haxe-side absolute-position drag on non-Windows platforms.
 #if windows
+@:headerCode('
+#ifdef _WIN32
+extern "C" {
+    bool _dp_nativeStartDrag();
+    void _dp_registerDragTick(void* inTick);
+}
+#endif
+')
 @:cppFileCode('
-			  #ifdef _WIN32
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+// wglGetCurrentDC is in opengl32.dll — declare manually since WIN32_LEAN_AND_MEAN excludes GL headers
+extern "C" __declspec(dllimport) HDC __stdcall wglGetCurrentDC(void);
+#pragma comment(lib, "opengl32.lib")
+// =========================================================================
+// v3.7: TICK INJECTION DURING NATIVE DRAG
+// =========================================================================
+typedef void (*DragTickFn)();
+static DragTickFn   _dp_dragTickFn   = NULL;
+static const UINT_PTR DP_DRAG_TIMER_ID = 0xD4A6;
+static const UINT     DP_DRAG_TIMER_MS = 15; // ~60 Hz
 
-			  static HWND _dp_findMainWindow() {
-			  DWORD pid = GetCurrentProcessId();
-			  HWND best = NULL;
-			  HWND hWnd = GetTopWindow(NULL);
-			  while (hWnd != NULL) {
-			  DWORD wpid = 0;
-			  GetWindowThreadProcessId(hWnd, &wpid);
-			  if (wpid == pid) {
-			  LONG style = GetWindowLong(hWnd, GWL_STYLE);
-			  if ((style & WS_VISIBLE)) {
-			  HWND owner = GetWindow(hWnd, GW_OWNER);
-			  if (owner == NULL) {
-			  char cls[256] = {0};
-			  GetClassNameA(hWnd, cls, 255);
-			  if (strstr(cls, "SDL") || strstr(cls, "HXCPP") || strstr(cls, "OpenFL")) {
-			  return hWnd;
-			  }
-			  if (best == NULL) best = hWnd;
-			  }
-			  }
-			  }
-			  hWnd = GetNextWindow(hWnd, GW_HWNDNEXT);
-			  }
-			  return best;
-			  }
-			  #endif
-			  ')
+// Called directly by DispatchMessage INSIDE the modal drag loop,
+// on the same thread as SendMessage - reentrancy is safe.
+static VOID CALLBACK _dp_DragTimerProc(HWND hWnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime)
+{
+    if (_dp_dragTickFn != NULL)
+    {
+        _dp_dragTickFn();
+    }
+}
+
+// Find the main Haxe/OpenFL window by process ID.
+static HWND _dp_findMainWindow() {
+    DWORD pid = GetCurrentProcessId();
+    HWND best = NULL;
+    HWND hWnd = GetTopWindow(NULL);
+    while (hWnd != NULL) {
+        DWORD wpid = 0;
+        GetWindowThreadProcessId(hWnd, &wpid);
+        if (wpid == pid) {
+            LONG style = GetWindowLong(hWnd, GWL_STYLE);
+            if ((style & WS_VISIBLE)) {
+                HWND owner = GetWindow(hWnd, GW_OWNER);
+                if (owner == NULL) {
+                    char cls[256] = {0};
+                    GetClassNameA(hWnd, cls, 255);
+                    if (strstr(cls, "SDL") || strstr(cls, "HXCPP") || strstr(cls, "OpenFL")) {
+                        return hWnd;
+                    }
+                    if (best == NULL) best = hWnd;
+                }
+            }
+        }
+        hWnd = GetNextWindow(hWnd, GW_HWNDNEXT);
+    }
+    return best;
+}
+
+// =========================================================================
+// EXTERN "C" API — called from Haxe via untyped __cpp__()
+// =========================================================================
+extern "C" {
+
+// Start native drag. Blocks until mouse-up.
+// Returns true if drag was performed, false if failed.
+bool _dp_nativeStartDrag() {
+    HWND hWnd = _dp_findMainWindow();
+    if (hWnd == NULL) return false;
+
+    // Set timer with callback - fires from nested message loop
+    SetTimer(hWnd, DP_DRAG_TIMER_ID, DP_DRAG_TIMER_MS, _dp_DragTimerProc);
+
+    ReleaseCapture();
+    SendMessage(hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0); // blocks until mouse-up
+
+    KillTimer(hWnd, DP_DRAG_TIMER_ID);
+    return true;
+}
+
+// Register Haxe tick callback.
+// inTick is a function pointer passed from Haxe via cpp.Function.fromStaticFunction.
+void _dp_registerDragTick(void* inTick) {
+    _dp_dragTickFn = (DragTickFn)inTick;
+}
+
+} // extern "C"
+#endif
+')
 #end
 
 /**
-* DEVICE PANEL v3.5 (Flicker-Free Window Drag)
-* Full-size device display panel inside the Main Window.
-*
-* Architecture: "ATOM IS DATABANK & COMPUTE CORE"
-*
-* DevicePanel — built-in device dashboard inside the main window.
-* An alternative to the separate DeviceWindow.
-*
-* ┌─────────────────────────────────────────────────────────────────────────┐
-* │   SCHEMATIC                         DEVICE PANEL                        │
-* │                                                                         │
-* │   [Hidden]                          ┌────────────────────────────┐      │
-* │                                     │       DevicePanel          │      │
-* │                                     │   ┌────────────────────┐   │      │
-* │                                     │   │   DeviceCard       │   │      │
-* │                                     │   │ ┌────────────────┐ │   │      │
-* │                                     │   │ │   DeviceView   │ │   │      │
-* │                                     │   │ └────────────────┘ │   │      │
-* │                                     │   └────────────────────┘   │      │
-* │                                     │                            │      │
-* │                                     │   [E]  [C]          [X]    │      │
-* │                                     │                   ↑ 40x40  │      │
-* │                                     │              Editor-style  │      │
-* │                                     └────────────────────────────┘      │
-* │                                              │                          │
-* │                                              │                          │
-* │                                              ▼                          │
-* │                               Main Window Color - DEVICE_CANVAS_BG_COLOR│
-* └─────────────────────────────────────────────────────────────────────────┘
-*
-* v3.5 Changes:
-* - FIXED: Window drag flicker/doubling issue.
-*   Replaced incremental delta updates with absolute position calculation.
-*   Now uses onWindowDragStart() to capture initial window position,
-*   and onWindowDrag(dx, dy) receives delta from START position (not previous frame).
-*   This eliminates accumulated rounding errors that caused 30-50px jitter.
-*
-* v3.4 Changes:
-* - ADDED: Editor-style close button (ButtonComponent 40x40) in the same
-*   position as Main.hx: x = stageWidth - 45, y = 5 (top-right corner).
-* - ADDED: Button triggers application close with save confirmation.
-* - SHIFTED: [E] and [C] buttons moved left to avoid overlap with the
-*   large close button.
-* - ADDED: Proper resize handling for close button position.
-* - ADDED: Header drag functionality for moving the main application window.
-*
-* v3.3 Changes:
-* - FIXED: Header buttons [E], [C] now stop MOUSE_DOWN propagation to prevent
-*   them from interfering with any parent mouse handlers.
-*/
+ * DEVICE PANEL v3.7.2 (Native Drag + Tick Injection + Force Render)
+ * Full-size device display panel inside the Main Window.
+ *
+ * Architecture: "ATOM IS DATABANK & COMPUTE CORE"
+ *
+ * DevicePanel — built-in device dashboard inside the main window.
+ * An alternative to the separate DeviceWindow.
+ *
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   SCHEMATIC                         DEVICE PANEL                        │
+ * │                                                                         │
+ * │   [Editor Hidden]                   ┌────────────────────────────┐      │
+ * │                                     │       DevicePanel          │      │
+ * │                                     │   ┌────────────────────┐   │      │
+ * │                                     │   │   DeviceCard       │   │      │
+ * │                                     │   │ ┌────────────────┐ │   │      │
+ * │                                     │   │ │   DeviceView   │ │   │      │
+ * │                                     │   │ │   (Widget)     │ │   │      │
+ * │                                     │   │ └────────────────┘ │   │      │
+ * │                                     │   └────────────────────┘   │      │
+ * │                                     │                            │      │
+ * │                                     │   [E] [C]          [X]     │      │
+ * │                                     │    ↑   ↑            ↑      │      │
+ * │                                     │  Editor Clear     Close    │      │
+ * │                                     │  Mode   All      (40x40)   │      │
+ * │                                     └────────────────────────────┘      │
+ * │                                              │                          │
+ * │                                              │                          │
+ * │                                              ▼                          │
+ * │                               Main Window Color - DEVICE_CANVAS_BG_COLOR│
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * NATIVE DRAG ARCHITECTURE (v3.6+)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   User clicks header → onHeaderMouseDown()                              │
+ * │                                                                         │
+ * │   ┌──────────────────────────────────────────────────────────────────┐  │
+ * │   │  Windows Platform:                                               │  │
+ * │   │                                                                  │  │
+ * │   │  1. _nativeStartDrag()                                           │  │
+ * │   │     ├── SetTimer(15ms) → _dp_DragTimerProc                       │  │
+ * │   │     ├── ReleaseCapture()                                         │  │
+ * │   │     └── SendMessage(WM_NCLBUTTONDOWN, HTCAPTION)                 │  │
+ * │   │              │                                                   │  │
+ * │   │              ▼                                                   │  │
+ * │   │         [BLOCKS Haxe Thread]                                     │  │
+ * │   │              │                                                   │  │
+ * │   │              ├── Every 15ms: TimerProc fires                     │  │
+ * │   │              │    └── _onDragTick()                              │  │
+ * │   │              │         ├── app.onUpdate.dispatch(15)             │  │
+ * │   │              │         ├── stage.__renderDirty = true            │  │
+ * │   │              │         ├── win.onRender.dispatch(ctx)            │  │
+ * │   │              │         └── SwapBuffers(wglGetCurrentDC())        │  │
+ * │   │              │                                                   │  │
+ * │   │              └── User releases mouse                             │  │
+ * │   │                   └── KillTimer() + return                       │  │
+ * │   │                                                                  │  │
+ * │   │  Result: Perfect 1:1 cursor tracking, UI stays animated          │  │
+ * │   └──────────────────────────────────────────────────────────────────┘  │
+ * │                                                                         │
+ * │   ┌──────────────────────────────────────────────────────────────────┐  │
+ * │   │  Non-Windows / Native Failed:                                    │  │
+ * │   │                                                                  │  │
+ * │   │  1. Store start position: _mouseStartX/Y = e.stageX/Y            │  │
+ * │   │  2. Call onWindowDragStart() → Main.hx captures window pos       │  │
+ * │   │  3. On MOUSE_MOVE: compute delta from START (not previous frame) │  │
+ * │   │  4. Call onWindowDrag(dx, dy) → Main.hx moves window             │  │
+ * │   │                                                                  │  │
+ * │   │  Result: Smooth drag without accumulated rounding errors         │  │
+ * │   └──────────────────────────────────────────────────────────────────┘  │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * VERSION HISTORY
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * v3.7.2 Changes:
+ * - ADDED: Force render via stage.__renderDirty + stage.__clearDirty flags
+ * - ADDED: Direct win.onRender.dispatch(ctx) to trigger GL back buffer draw
+ * - ADDED: SwapBuffers via wglGetCurrentDC() for correct OpenGL context
+ * - FIXED: UI animations now work during native drag (VU meters, LEDs, etc.)
+ *
+ * v3.7.1 Changes:
+ * - ADDED: Tick injection during native Windows drag via SetTimer
+ * - ADDED: _onDragTick() called ~60 times/second during drag modal loop
+ * - ADDED: app.onUpdate.dispatch(15) to run Lime logic cycle
+ * - FIXED: Window content no longer freezes during drag
+ *
+ * v3.7 Changes:
+ * - ADDED: Native Windows drag via SendMessage(WM_NCLBUTTONDOWN, HTCAPTION)
+ * - ADDED: C++ bridge functions _dp_nativeStartDrag() and _dp_registerDragTick()
+ * - ADDED: @:headerCode and @:cppFileCode for Win32 API integration
+ * - FIXED: Perfect 1:1 cursor tracking with zero Haxe frame lag
+ * - ADDED: Fallback to Haxe-side drag on non-Windows platforms
+ *
+ * v3.6 Changes:
+ * - ADDED: Header drag functionality for moving the main application window
+ * - ADDED: Absolute position model to prevent flicker (delta from START)
+ * - ADDED: onWindowDragStart and onWindowDrag callbacks for Main.hx
+ * - FIXED: Button click detection to prevent unwanted drag initiation
+ *
+ * v3.5 Changes:
+ * - ADDED: Editor-style close button (ButtonComponent 40x40) in top-right
+ * - ADDED: Button triggers application close with save confirmation
+ * - SHIFTED: [E] and [C] buttons moved left to avoid overlap with [X]
+ * - ADDED: Proper resize handling for close button position
+ * - ADDED: Proper cleanup in dispose() method
+ *
+ * v3.4 Changes:
+ * - FIXED: Header buttons [E], [C] now stop MOUSE_DOWN propagation
+ * - FIXED: Prevents buttons from interfering with header drag
+ *
+ * v3.3 Changes:
+ * - ADDED: Context menu for adding devices via right-click
+ * - ADDED: Device list from onGetAssemblyList callback
+ * - ADDED: Auto-positioning with findFreePosition()
+ *
+ * v3.2 Changes:
+ * - ADDED: DEVICE_WINDOW_CHANGED event emission on add/remove
+ * - ADDED: State persistence support via Main.hx cache sync
+ *
+ * v3.1 Changes:
+ * - ADDED: clearDevices() method for bulk removal
+ * - FIXED: Event emission control to prevent cache wipe during mode switch
+ *
+ * v3.0 Changes:
+ * - Initial implementation of DevicePanel as Main Window embedded panel
+ * - Alternative to separate DeviceWindow for better UX
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * USAGE EXAMPLE
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * // In Main.hx:
+ * _devicePanel = new DevicePanel();
+ * _devicePanel.visible = false;
+ * addChild(_devicePanel);
+ *
+ * _devicePanel.onShowEditor = function() {
+ *     if (_isPanelMode) onToggleView();
+ * };
+ *
+ * _devicePanel.onGetAssemblyList = getAllDevicesRecursive;
+ *
+ * _devicePanel.onCloseApp = function() {
+ *     onCloseClicked();
+ * };
+ *
+ * _devicePanel.onWindowDragStart = function() {
+ *     var win = Lib.current.stage.window;
+ *     if (win != null) {
+ *         _dragWindowStartX = win.x;
+ *         _dragWindowStartY = win.y;
+ *     }
+ * };
+ *
+ * _devicePanel.onWindowDrag = function(dx:Float, dy:Float) {
+ *     var win = Lib.current.stage.window;
+ *     if (win != null) {
+ *         win.x = _dragWindowStartX + Std.int(dx);
+ *         win.y = _dragWindowStartY + Std.int(dy);
+ *     }
+ * };
+ *
+ * @author ALTAURI Team
+ * @version 3.7.2
+ * @since 3.0
+ */
 class DevicePanel extends Sprite
 {
-	// =========================================================================
-	// CALLBACKS
-	// =========================================================================
-	/**
-	* Callback to request switching back to Editor Mode.
-	* Called when [E] button is pressed.
-	*/
-	public var onShowEditor:Void -> Void;
-	/**
-	* Callback to get the list of available devices.
-	* Used to populate the context menu.
-	*/
-	public var onGetAssemblyList:Void -> Array< {id:String, name:String, atom:Atom}>;
-	/**
-	* Callback for closing the application.
-	* Called when [X] button is pressed.
-	*/
-	public var onCloseApp:Void -> Void;
-	/**
-	* v3.5: Called when drag starts. Main.hx must capture current window position.
-	*/
-	public var onWindowDragStart:Void -> Void;
-	/**
-	* v3.5: Called during drag with DELTA from START position (not previous frame).
-	* @param dx Delta X from drag start (stage coordinates)
-	* @param dy Delta Y from drag start (stage coordinates)
-	*/
-	public var onWindowDrag:Float -> Float -> Void;
+    // =========================================================================
+    // CALLBACKS
+    // =========================================================================
+    
+    /**
+     * Callback to request switching back to Editor Mode.
+     * Called when [E] button is pressed.
+     * 
+     * Usage: Main.hx assigns onToggleView() to switch from Device Panel to Editor.
+     */
+    public var onShowEditor:Void -> Void;
+    
+    /**
+     * Callback to get the list of available devices.
+     * Used to populate the context menu when user right-clicks.
+     * 
+     * Returns: Array of {id, name, atom} objects representing available atoms.
+     * 
+     * Usage: Main.hx assigns getAllDevicesRecursive() to provide device list.
+     */
+    public var onGetAssemblyList:Void -> Array< {id:String, name:String, atom:Atom}>;
+    
+    /**
+     * Callback for closing the application.
+     * Called when [X] button is pressed.
+     * 
+     * Usage: Main.hx assigns onCloseClicked() to show save confirmation dialog.
+     */
+    public var onCloseApp:Void -> Void;
+    
+    /**
+     * v3.6: Called when drag starts.
+     * Main.hx must capture current window position for absolute delta calculation.
+     * 
+     * Usage: Main.hx stores win.x and win.y in _dragWindowStartX/Y.
+     */
+    public var onWindowDragStart:Void -> Void;
+    
+    /**
+     * v3.6: Called during drag with DELTA from START position (not previous frame).
+     * 
+     * @param dx Delta X from drag start (stage coordinates)
+     * @param dy Delta Y from drag start (stage coordinates)
+     * 
+     * Usage: Main.hx computes win.x = startX + dx, win.y = startY + dy
+     * 
+     * Why absolute delta: Prevents accumulated rounding errors that cause flicker.
+     */
+    public var onWindowDrag:Float -> Float -> Void;
 
-	// =========================================================================
-	// PRIVATE FIELDS
-	// =========================================================================
-	private var _assembly:Assembly;
-	private var _deviceCards:Array<DeviceCard>;
-	private var _header:Sprite;
-	private var _titleLabel:TextField;
-	private var _contextMenu:Sprite;
-	private var _menuVisible:Bool = false;
-	private var _bg:Sprite;
-	private var _theme:EditorTheme;
+    // =========================================================================
+    // PRIVATE FIELDS
+    // =========================================================================
+    
+    /** Current assembly context (set via setContext()) */
+    private var _assembly:Assembly;
+    
+    /** Array of all DeviceCard instances currently displayed */
+    private var _deviceCards:Array<DeviceCard>;
+    
+    /** Header bar sprite (contains title and buttons) */
+    private var _header:Sprite;
+    
+    /** Title text field showing "Device Panel: [assembly name]" */
+    private var _titleLabel:TextField;
+    
+    /** Context menu sprite (shown on right-click) */
+    private var _contextMenu:Sprite;
+    
+    /** Flag indicating if context menu is currently visible */
+    private var _menuVisible:Bool = false;
+    
+    /** Background sprite (drawn with DEVICE_CANVAS_BG_COLOR) */
+    private var _bg:Sprite;
+    
+    /** Reference to EditorTheme singleton for color constants */
+    private var _theme:EditorTheme;
 
-	// =========================================================================
-	// v3.4: EDITOR-STYLE CLOSE BUTTON
-	// =========================================================================
-	/**
-	 * Large close button (40x40) in the top-right corner.
-	 * Same style and position as Main.hx _btnClose.
-	 * Triggers application close with save confirmation.
-	 */
-	private var _btnClose:ButtonComponent;
+    // =========================================================================
+    // v3.5: EDITOR-STYLE CLOSE BUTTON
+    // =========================================================================
+    
+    /**
+     * Large close button (40x40) in the top-right corner.
+     * Same style and position as Main.hx _btnClose.
+     * Triggers application close with save confirmation via onCloseApp callback.
+     * 
+     * Position: x = stageWidth - 45, y = 5
+     * Size: 40x40 pixels (ButtonComponent standard)
+     */
+    private var _btnClose:ButtonComponent;
 
-	// =========================================================================
-	// v3.5: DRAG STATE (Absolute Position Model)
-	// =========================================================================
-	/**
-	 * Drag state for header movement.
-	 * Uses absolute position model to prevent flicker:
-	 * - _mouseStartX/Y: Mouse position at drag start (stage coords)
-	 * - _dragging: Is drag active?
-	 *
-	 * The window's initial position is stored in Main.hx via onWindowDragStart.
-	 * On each mouse move, we compute: windowPos = startPos + (currentMouse - startMouse)
-	 * This avoids accumulated rounding errors.
-	 */
-	private var _dragging:Bool = false;
-	private var _mouseStartX:Float = 0;
-	private var _mouseStartY:Float = 0;
+    // =========================================================================
+    // v3.6: DRAG STATE (Absolute Position Model)
+    // =========================================================================
+    
+    /**
+     * Drag state for header movement (Haxe-side fallback).
+     * 
+     * Uses absolute position model to prevent flicker:
+     * - _mouseStartX/Y: Mouse position at drag start (stage coords)
+     * - _dragging: Is drag active?
+     * 
+     * The window's initial position is stored in Main.hx via onWindowDragStart.
+     * On each mouse move, we compute: windowPos = startPos + (currentMouse - startMouse)
+     * This avoids accumulated rounding errors that cause visual jitter.
+     * 
+     * Note: On Windows, native drag is used instead (see _nativeStartDrag).
+     * This fallback is only used on non-Windows platforms or if native drag fails.
+     */
+    private var _dragging:Bool = false;
+    private var _mouseStartX:Float = 0;
+    private var _mouseStartY:Float = 0;
 
-	// =========================================================================
-	// v3.6: NATIVE DRAG BRIDGE
-	// =========================================================================
-	/**
-	 * Attempt to start native OS-level window drag.
-	 * On Windows, uses SendMessage(WM_NCLBUTTONDOWN, HTCAPTION) to hand
-	 * control to the DWM compositor — achieving perfect 1:1 cursor tracking
-	 * with zero Haxe frame lag.
-	 *
-	 * SendMessage is SYNCHRONOUS: it blocks the Haxe thread until the user
-	 * releases the mouse button. This means no Haxe code runs during drag,
-	 * eliminating all sources of jitter.
-	 *
-	 * @return true if native drag was performed, false if fallback needed
-	 */
-	#if windows
-	@:functionCode('
-				   #ifdef _WIN32
-				   HWND hWnd = _dp_findMainWindow();
-				   if (hWnd == NULL) return false;
-				   ReleaseCapture();
-				   SendMessage(hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-				   return true;
-				   #else
-				   return false;
-				   #endif
-				   ')
-	private static function _nativeStartDrag():Bool { return false; }
-	#else
-	private static function _nativeStartDrag():Bool { return false; }
-	#end
+    // =========================================================================
+    // v3.7: NATIVE DRAG STATE
+    // =========================================================================
+    
+    /**
+     * Flag indicating whether drag tick callback has been registered.
+     * Ensures registration happens only once per application lifetime.
+     * 
+     * Static because the C++ callback is global (not per-instance).
+     */
+    private static var _dragTickRegistered:Bool = false;
 
-	// =========================================================================
-	// CONSTRUCTOR
-	// =========================================================================
-	public function new()
-	{
-		super();
-		_deviceCards = new Array();
-		_theme = EditorTheme.getInstance();
-		addEventListener(Event.ADDED_TO_STAGE, onAdded);
-	}
+    // =========================================================================
+    // CONSTRUCTOR
+    // =========================================================================
+    
+    /**
+     * Create a new DevicePanel instance.
+     * 
+     * Initializes:
+     * - Empty device cards array
+     * - EditorTheme reference
+     * - Native drag tick registration (Windows only)
+     * - ADDED_TO_STAGE listener for deferred UI setup
+     */
+    public function new()
+    {
+        super();
+        _deviceCards = new Array();
+        _theme = EditorTheme.getInstance();
+        
+        #if windows
+        _ensureDragTickRegistered();
+        #end
+        
+        addEventListener(Event.ADDED_TO_STAGE, onAdded);
+    }
 
-	private function onAdded(e:Event):Void
-	{
-		removeEventListener(Event.ADDED_TO_STAGE, onAdded);
-		setupUI();
-	}
+    /**
+     * Called when panel is added to stage.
+     * Removes listener and calls setupUI() to build visual elements.
+     */
+    private function onAdded(e:Event):Void
+    {
+        removeEventListener(Event.ADDED_TO_STAGE, onAdded);
+        setupUI();
+    }
 
-	// =========================================================================
-	// PUBLIC API
-	// =========================================================================
-	/**
-	 * Resize the panel to fit the stage.
-	 */
-	public function setSize(w:Float, h:Float):Void
-	{
-		drawBackground(w, h);
-		// Resize header
-		if (_header != null)
-		{
-			_header.graphics.clear();
-			_header.graphics.beginFill(0x2a2a34);
-			_header.graphics.drawRect(0, 0, w, 30);
-			_header.graphics.endFill();
+    // =========================================================================
+    // v3.7: DRAG TICK REGISTRATION
+    // =========================================================================
+    
+    /**
+     * Register the drag tick callback with C++ layer.
+     * Called once per application lifetime (static flag prevents duplicates).
+     * 
+     * Process:
+     * 1. Check if already registered (_dragTickRegistered flag)
+     * 2. Convert Haxe function to C++ function pointer via cpp.Function.fromStaticFunction
+     * 3. Pass pointer to C++ via _registerDragTickBridge (untyped __cpp__)
+     * 4. C++ stores pointer in _dp_dragTickFn for later use in TimerProc
+     * 
+     * Windows only: Wrapped in #if windows conditional compilation.
+     */
+    private static function _ensureDragTickRegistered():Void
+    {
+        #if windows
+        if (_dragTickRegistered) return;
+        _dragTickRegistered = true;
+        _registerDragTickBridge(untyped __cpp__('(void*){0}', cpp.Function.fromStaticFunction(_onDragTick)));
+        #end
+    }
 
-			// =========================================================================
-			// v3.4: REPOSITION BUTTONS ON RESIZE
-			// =========================================================================
-			// Keep buttons in the same positions as Main.hx
-			if (_btnClose != null)
-			{
-				_btnClose.x = w - 45;
-				_btnClose.y = 5;
-			}
+    /**
+     * Called ~60 times/second WHILE native drag is active.
+     * 
+     * This function is invoked by Windows TimerProc inside the modal drag loop.
+     * It forces OpenFL to update logic and render a new frame, preventing UI freeze.
+     * 
+     * Execution flow:
+     * 1. Force Lime to run logic cycle (app.onUpdate.dispatch)
+     * 2. Mark stage as dirty (stage.__renderDirty = true)
+     * 3. Force OpenFL to draw to GL back buffer (win.onRender.dispatch)
+     * 4. Swap buffers to present frame (SwapBuffers via wglGetCurrentDC)
+     * 
+     * Why this works:
+     * - SendMessage blocks Haxe thread, but Windows still dispatches WM_TIMER
+     * - TimerProc runs on same thread (reentrant), so it's safe
+     * - We manually trigger the render pipeline that would normally run in ENTER_FRAME
+     * 
+     * Performance: ~60 FPS (15ms interval), sufficient for smooth UI updates.
+     */
+    private static function _onDragTick():Void
+    {
+        var stage = openfl.Lib.current.stage;
+        if (stage == null) return;
 
-			// Recalculate positions for [E] and [C]
-			var btnX = w - 45; // Start from close button position
-			for (i in 0..._header.numChildren)
-			{
-				var child = _header.getChildAt(_header.numChildren - 1 - i);
-				if (Std.isOfType(child, Sprite) && child != _titleLabel && child != _btnClose)
-				{
-					btnX -= (child.width + 10);
-					child.x = btnX;
-				}
-			}
-		}
-	}
+        // 1. Force Lime to run logic cycle (Event.ENTER_FRAME equivalent)
+        try {
+            var app = lime.app.Application.current;
+            if (app != null && app.onUpdate != null) {
+                untyped app.onUpdate.dispatch(15); // 15 ms ~ 60 FPS
+            }
+        } catch(e:Dynamic) {}
 
-	/**
-	 * Set the current assembly context.
-	 * Updates the title.
-	 */
-	public function setContext(assembly:Assembly):Void
-	{
-		_assembly = assembly;
-		_titleLabel.text = "  Device Panel: " + assembly.blueprint.name;
-	}
+        // 2. Mark stage as dirty to force render
+        // Without this, OpenFL sees no changes and skips rendering
+        try {
+            untyped stage.__renderDirty = true;
+            untyped stage.__clearDirty = true; // Forces clear of old frame in buffer
+            stage.invalidate();
+        } catch(e:Dynamic) {}
 
-	/**
-	 * Add a device (atom) to the panel.
-	 * v3.2: Emits DEVICE_WINDOW_CHANGED to save state.
-	 */
-	public function addDevice(atom:Atom, ?x:Float = null, ?y:Float = null):Void
-	{
-		if (atom == null) return;
-		// Avoid duplicates
-		for (card in _deviceCards)
-		{
-			if (card.atom == atom) return;
-		}
-		var card = new DeviceCard(atom, this);
-		_deviceCards.push(card);
-		addChild(card);
-		if (x != null && y != null)
-		{
-			card.x = x;
-			card.y = y;
-		}
-		else {
-			var pos = findFreePosition(card);
-			card.x = pos.x;
-			card.y = pos.y;
-		}
-		// v3.2: Emit save signal when adding a new device
-		Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
-	}
+        // 3. Force OpenFL to physically draw new frame to BACK buffer
+        try {
+            var win = stage.window;
+            // Try to get correct rendering context
+            var ctx = untyped win.context;
+            if (ctx == null) ctx = untyped stage.__context;
+            
+            if (win != null && ctx != null) {
+                // Call Lime render event that OpenFL listens to
+                untyped win.onRender.dispatch(ctx);
+            }
+        } catch(e:Dynamic) {}
 
-	/**
-	 * Remove a device card from the panel.
-	 */
-	public function removeDevice(card:DeviceCard):Void
-	{
-		if (_deviceCards.remove(card))
-		{
-			if (this.contains(card)) removeChild(card);
-			card.dispose();
-			Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
-		}
-	}
-
-	/**
-	 * Remove all devices.
-	 *
-	 * v3.1 NOTE: Does NOT emit DEVICE_WINDOW_CHANGED.
-	 * If called during mode switch (after syncing cache), emitting here
-	 * would cause the cache to be wiped immediately.
-	 * Emission is handled manually in the [C] button callback for explicit clears.
-	 */
-	public function clearDevices():Void
-	{
-		while (_deviceCards.length > 0)
-		{
-			var card = _deviceCards.pop();
-			if (this.contains(card)) removeChild(card);
-			card.dispose();
-		}
-		// Do NOT emit event here to prevent cache wipe during mode switch
-	}
-
-	/**
-	 * Returns the list of current device cards.
-	 * Used by Main.hx to sync state to cache.
-	 */
-	public function getDeviceCards():Array<DeviceCard>
-	{
-		return _deviceCards;
-	}
-
-	// =========================================================================
-	// SETUP UI
-	// =========================================================================
-	private function setupUI():Void
-	{
-		drawBackground(800, 600);
-		createHeader();
-		// Listeners
-		stage.addEventListener(MouseEvent.CLICK, onStageClick);
-		stage.addEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
-		Impulsys.subscribeToImpulse(EventType.ATOM_DELETED, onAtomDeleted);
-	}
-
-	private function drawBackground(w:Float, h:Float):Void
-	{
-		graphics.clear();
-		// Alpha = 0 makes the background transparent!
-		graphics.beginFill(_theme.DEVICE_CANVAS_BG_COLOR, 1.0);
-		graphics.drawRect(0, 0, w, h);
-		graphics.endFill();
-	}
-
-	private function createHeader():Void
-	{
-		var headerWidth = (stage != null) ? stage.stageWidth : 800;
-
-		_header = new Sprite();
-		_header.graphics.beginFill(0x2a2a34);
-		_header.graphics.drawRect(0, 0, headerWidth, 30);
-		_header.graphics.endFill();
-		addChild(_header);
-
-		_titleLabel = new TextField();
-		_titleLabel.defaultTextFormat = new TextFormat("_typewriter", 12, 0xFFFFFF, true);
-		_titleLabel.text = "  Device Panel";
-		_titleLabel.width = 300;
-		_titleLabel.height = 30;
-		_titleLabel.selectable = false;
-		_titleLabel.mouseEnabled = false;
-		_header.addChild(_titleLabel);
-
-		// =========================================================================
-		// v3.4: SHIFTED BUTTONS — moved left to avoid overlap with large [X]
-		// Large close button occupies x: headerWidth-45 .. headerWidth-5
-		// [C] button: headerWidth-90 .. headerWidth-62 (safe gap)
-		// [E] button: headerWidth-120 .. headerWidth-92 (safe gap)
-		// =========================================================================
-
-		// Button [E] - Editor Mode
-		var editorBtn = createHeaderButton("E", 0x005500, function(_)
-		{
-			if (onShowEditor != null) onShowEditor();
-		});
-		editorBtn.x = headerWidth - 120;  // v3.4: shifted from 760
-		_header.addChild(editorBtn);
-
-		// Button [C] - Clear
-		// v3.1: Explicitly emit event after clearing so the empty state is saved.
-		var clearBtn = createHeaderButton("C", 0x555500, function(_)
-		{
-			clearDevices();
-			Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
-		});
-		clearBtn.x = headerWidth - 90;    // v3.4: shifted from 720
-		_header.addChild(clearBtn);
-
-		// =========================================================================
-		// v3.4: CREATE EDITOR-STYLE CLOSE BUTTON
-		// =========================================================================
-		// Same position as Main.hx: x = stageWidth - 45, y = 5
-		// Added to _header so it sits on top of the header background.
-		_btnClose = new ButtonComponent("X", function()
-		{
-			if (onCloseApp != null) onCloseApp();
-		});
-		_btnClose.x = headerWidth - 45;
-		_btnClose.y = 5;
-		_header.addChild(_btnClose);
-		// =========================================================================
-
-		// =========================================================================
-		// v3.4: HEADER DRAG FUNCTIONALITY
-		// =========================================================================
-		_header.addEventListener(MouseEvent.MOUSE_DOWN, onHeaderMouseDown);
-		_header.buttonMode = true;
-	}
-
-	/**
-	 * BUG 1 FIX: Header buttons now stop MOUSE_DOWN propagation.
-	 * This prevents the MOUSE_DOWN event from bubbling up from the button
-	 * to any parent container that might start an unwanted drag.
-	 */
-	private function createHeaderButton(label:String, color:Int, onClick:MouseEvent->Void):Sprite
-	{
-		var btn = new Sprite();
-		btn.graphics.beginFill(color);
-		btn.graphics.drawRect(0, 0, 28, 26);
-		btn.graphics.endFill();
-		var txt = new TextField();
-		txt.text = label;
-		txt.width = 28;
-		txt.height = 26;
-		txt.selectable = false;
-		txt.mouseEnabled = false;
-		txt.defaultTextFormat = new TextFormat("_sans", 11, 0xFFFFFF, true, null, null, null, null, "center");
-		btn.addChild(txt);
-		btn.buttonMode = true;
-		btn.addEventListener(MouseEvent.CLICK, onClick);
-		// === BUG 1 FIX: Stop MOUSE_DOWN from propagating ===
-		btn.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent) e.stopPropagation());
-		return btn;
-	}
-
-	// =========================================================================
-	// v3.6: HEADER DRAG HANDLERS (Native-First with Haxe Fallback)
-	// =========================================================================
-	/**
-	* Start dragging the MAIN WINDOW via DevicePanel header.
-	*
-	* v3.6 Strategy:
-	*   1. Try native OS drag first (SendMessage on Windows) — perfect smoothness
-	*   2. If native drag fails or on non-Windows — fall back to absolute-position Haxe drag
-	*
-	* Native drag blocks the thread until mouse-up, so no Haxe listeners are needed.
-	*/
-	private function onHeaderMouseDown(e:MouseEvent):Void
-	{
-		if (_dragging) return;
-
-		// Check if click was on a button
-		var targetObj:openfl.display.DisplayObject = cast e.target;
-		while (targetObj != null && targetObj != _header)
-		{
-			if (Std.isOfType(targetObj, Sprite))
-			{
-				var s = cast(targetObj, Sprite);
-				if (s.buttonMode && targetObj.parent == _header) return;
-			}
-			targetObj = targetObj.parent;
-		}
-
-		// =========================================================================
-		// v3.6: TRY NATIVE OS DRAG FIRST
-		// =========================================================================
-		// On Windows, SendMessage(WM_NCLBUTTONDOWN, HTCAPTION) hands control
-		// to the OS compositor. It BLOCKS until mouse-up — zero Haxe lag.
-		// If it succeeds, we return immediately (no Haxe drag state needed).
-		if (_nativeStartDrag())
-		{
-			// Native drag completed (user released mouse).
-			// Window is now at its final position. Done.
-			return;
-		}
-		//	MOUSE_DOWN
-		//	  │
-		//	  ▼
-		//_nativeStartDrag()
-		//	  │
-		//	  ├── SendMessage(WM_NCLBUTTONDOWN, HTCAPTION)
-		//	  │       │
-		//	  │       ├── Windows OS берёт управление
-		//	  │       ├── DWM compositor двигает окно (0 задержка)
-		//	  │       ├── Haxe thread ЗАБЛОКИРОВАН (не тратит CPU)
-		//	  │       └── Возврат только после MOUSE_UP
-		//	  │
-		//	  ▼
-		//return;  // ← управление возвращается уже после завершения drag
-
-		// =========================================================================
-
-		// =========================================================================
-		// FALLBACK: Haxe-side absolute-position drag (non-Windows or native failed)
-		// =========================================================================
-		_dragging = true;
-		// v3.5: Store START mouse position (absolute, not delta)
-		_mouseStartX = e.stageX;
-		_mouseStartY = e.stageY;
-
-		// v3.5: Notify Main.hx to capture current window position
-		if (onWindowDragStart != null) onWindowDragStart();
-
-		if (stage != null)
-		{
-			stage.addEventListener(MouseEvent.MOUSE_MOVE, onHeaderMouseMove);
-			stage.addEventListener(MouseEvent.MOUSE_UP, onHeaderMouseUp);
-		}
-
+        // 4. Swap buffers (present back buffer to screen)
+        #if windows
+        untyped __cpp__('
+            HDC hDC = wglGetCurrentDC();
+            if (hDC != NULL) {
+                SwapBuffers(hDC);
+            } else {
+                HWND hWnd = _dp_findMainWindow();
+                if (hWnd != NULL) {
+                    hDC = GetDC(hWnd);
+                    if (hDC != NULL) {
+                        SwapBuffers(hDC);
+                        ReleaseDC(hWnd, hDC);
+                    }
+                }
+            }
+        ');
+        #end
+    }
 	
-	}
+    // =========================================================================
+    // PUBLIC API
+    // =========================================================================
+    
+    /**
+     * Resize the panel to fit the stage.
+     * 
+     * Called by Main.hx on:
+     * - Initial setup (after ADDED_TO_STAGE)
+     * - Window resize events (Event.RESIZE)
+     * - Mode switch (Editor ↔ Device Panel)
+     * 
+     * Process:
+     * 1. Redraw background with new dimensions
+     * 2. Resize header bar
+     * 3. Reposition buttons ([X] at right edge, [E] and [C] shifted left)
+     * 
+     * @param w New width (typically stage.stageWidth)
+     * @param h New height (typically stage.stageHeight)
+     */
+    public function setSize(w:Float, h:Float):Void
+    {
+        drawBackground(w, h);
+        
+        // Resize header
+        if (_header != null)
+        {
+            _header.graphics.clear();
+            _header.graphics.beginFill(0x2a2a34);
+            _header.graphics.drawRect(0, 0, w, 30);
+            _header.graphics.endFill();
+            
+            // =========================================================================
+            // v3.5: REPOSITION BUTTONS ON RESIZE
+            // =========================================================================
+            // Keep buttons in the same positions as Main.hx
+            if (_btnClose != null)
+            {
+                _btnClose.x = w - 45;
+                _btnClose.y = 5;
+            }
+            
+            // Recalculate positions for [E] and [C]
+            var btnX = w - 45; // Start from close button position
+            for (i in 0..._header.numChildren)
+            {
+                var child = _header.getChildAt(_header.numChildren - 1 - i);
+                if (Std.isOfType(child, Sprite) && child != _titleLabel && child != _btnClose)
+                {
+                    btnX -= (child.width + 10);
+                    child.x = btnX;
+                }
+            }
+        }
+    }
 
-	/**
-	* Move the MAIN APPLICATION WINDOW during drag.
-	* Computes delta from START position (not previous frame).
-	*
-	* v3.5: This eliminates accumulated rounding errors that caused flicker.
-	* Main.hx computes: window.x = windowStartX + (currentMouseX - mouseStartX)
-	*/
-	private function onHeaderMouseMove(e:MouseEvent):Void
-	{
-		if (!_dragging) return;
+    /**
+     * Set the current assembly context.
+     * Updates the title to show "Device Panel: [assembly name]".
+     * 
+     * Called by Main.hx when switching to Device Panel mode.
+     * 
+     * @param assembly The assembly to display devices from
+     */
+    public function setContext(assembly:Assembly):Void
+    {
+        _assembly = assembly;
+        _titleLabel.text = "  Device Panel: " + assembly.blueprint.name;
+    }
 
-		// v3.5: Delta from START position (absolute model)
-		var dx = e.stageX - _mouseStartX;
-		var dy = e.stageY - _mouseStartY;
+    /**
+     * Add a device (atom) to the panel.
+     * 
+     * Process:
+     * 1. Check for duplicates (same atom already added)
+     * 2. Create DeviceCard wrapping the atom
+     * 3. Add to _deviceCards array
+     * 4. Position card (use provided x/y or auto-find free position)
+     * 5. Emit DEVICE_WINDOW_CHANGED for state persistence
+     * 
+     * @param atom The atom to display (must have a DeviceView widget)
+     * @param x Optional X position (if null, auto-positioned)
+     * @param y Optional Y position (if null, auto-positioned)
+     * 
+     * Emits: DEVICE_WINDOW_CHANGED (for Main.hx cache sync)
+     */
+    public function addDevice(atom:Atom, ?x:Float = null, ?y:Float = null):Void
+    {
+        if (atom == null) return;
+        
+        // Avoid duplicates
+        for (card in _deviceCards)
+        {
+            if (card.atom == atom) return;
+        }
+        
+        var card = new DeviceCard(atom, this);
+        _deviceCards.push(card);
+        addChild(card);
+        
+        if (x != null && y != null)
+        {
+            card.x = x;
+            card.y = y;
+        }
+        else {
+            var pos = findFreePosition(card);
+            card.x = pos.x;
+            card.y = pos.y;
+        }
+        
+        // Emit save signal when adding a new device
+        Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
+    }
 
-		// Notify Main.hx with absolute delta
-		if (onWindowDrag != null)
-		{
-			onWindowDrag(dx, dy);
-		}
-	}
+    /**
+     * Remove a device card from the panel.
+     * 
+     * Process:
+     * 1. Remove from _deviceCards array
+     * 2. Remove from display list
+     * 3. Dispose card (releases widget back to registry)
+     * 4. Emit DEVICE_WINDOW_CHANGED for state persistence
+     * 
+     * @param card The DeviceCard to remove
+     * 
+     * Emits: DEVICE_WINDOW_CHANGED (for Main.hx cache sync)
+     */
+    public function removeDevice(card:DeviceCard):Void
+    {
+        if (_deviceCards.remove(card))
+        {
+            if (this.contains(card)) removeChild(card);
+            card.dispose();
+            Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
+        }
+    }
 
-	/**
-	* End dragging.
-	*/
-	private function onHeaderMouseUp(e:MouseEvent):Void
-	{
-		_dragging = false;
+    /**
+     * Remove all devices from the panel.
+     * 
+     * IMPORTANT: Does NOT emit DEVICE_WINDOW_CHANGED.
+     * 
+     * Reason: If called during mode switch (after syncing cache), emitting here
+     * would cause the cache to be wiped immediately. Emission is handled manually
+     * in the [C] button callback for explicit clears.
+     * 
+     * Usage:
+     * - Mode switch: Main.hx calls clearDevices() then syncs cache manually
+     * - [C] button: Calls clearDevices() then emits DEVICE_WINDOW_CHANGED
+     */
+    public function clearDevices():Void
+    {
+        while (_deviceCards.length > 0)
+        {
+            var card = _deviceCards.pop();
+            if (this.contains(card)) removeChild(card);
+            card.dispose();
+        }
+        // Do NOT emit event here to prevent cache wipe during mode switch
+    }
 
-		if (stage != null)
-		{
-			stage.removeEventListener(MouseEvent.MOUSE_MOVE, onHeaderMouseMove);
-			stage.removeEventListener(MouseEvent.MOUSE_UP, onHeaderMouseUp);
-		}
-	}
+    /**
+     * Returns the list of current device cards.
+     * Used by Main.hx to sync state to cache before saving.
+     * 
+     * @return Array of DeviceCard instances
+     */
+    public function getDeviceCards():Array<DeviceCard>
+    {
+        return _deviceCards;
+    }
 
-	// =========================================================================
-	// CONTEXT MENU
-	// =========================================================================
-	private function onRightClick(e:MouseEvent):Void
-	{
-		if (_menuVisible) hideContextMenu();
-		else showContextMenu(e.stageX, e.stageY);
-	}
+    // =========================================================================
+    // SETUP UI
+    // =========================================================================
+    
+    /**
+     * Initialize UI elements and event listeners.
+     * Called once when panel is added to stage.
+     * 
+     * Creates:
+     * - Background (drawBackground)
+     * - Header with title and buttons (createHeader)
+     * 
+     * Listeners:
+     * - CLICK on stage → hide context menu
+     * - RIGHT_CLICK on stage → show context menu
+     * - ATOM_DELETED impulse → remove deleted atom's card
+     */
+    private function setupUI():Void
+    {
+        drawBackground(800, 600);
+        createHeader();
+        
+        // Listeners
+        stage.addEventListener(MouseEvent.CLICK, onStageClick);
+        stage.addEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
+        Impulsys.subscribeToImpulse(EventType.ATOM_DELETED, onAtomDeleted);
+    }
 
-	private function showContextMenu(x:Float, y:Float):Void
-	{
-		hideContextMenu(); // Clean previous
-		_contextMenu = new Sprite();
-		var yPos = 5;
-		var headerItem = createMenuItem("Add Device:", null, true);
-		headerItem.y = yPos;
-		_contextMenu.addChild(headerItem);
-		yPos += 28;
-		// Get list from Main
-		var devices = (onGetAssemblyList != null) ? onGetAssemblyList() : [];
-		devices = [for (d in devices) if (d.id != "selfrun") d];
-		if (devices.length == 0)
-		{
-			var emptyItem = createMenuItem("(No devices)", null, true);
-			emptyItem.y = yPos;
-			_contextMenu.addChild(emptyItem);
-			yPos += 26;
-		}
-		else {
-			for (item in devices)
-			{
-				var displayName = item.atom.displayName != null ? item.atom.displayName : item.atom.name;
-				var menuItem = createMenuItem(displayName, item.atom, false);
-				menuItem.y = yPos;
-				_contextMenu.addChild(menuItem);
-				yPos += 26;
-			}
-		}
-		// Draw background
-		_contextMenu.graphics.beginFill(0x333344, 0.98);
-		_contextMenu.graphics.lineStyle(1, 0x555566);
-		_contextMenu.graphics.drawRoundRect(0, 0, 190, yPos + 10, 6, 6);
-		_contextMenu.graphics.endFill();
-		_contextMenu.x = Math.min(x, stage.stageWidth - 200);
-		_contextMenu.y = Math.min(Math.max(y - 30, 0), stage.stageHeight - yPos - 20);
-		addChild(_contextMenu);
-		_menuVisible = true;
-	}
+    /**
+     * Draw the panel background.
+     * Uses DEVICE_CANVAS_BG_COLOR from EditorTheme.
+     * 
+     * @param w Width to draw
+     * @param h Height to draw
+     */
+    private function drawBackground(w:Float, h:Float):Void
+    {
+        graphics.clear();
+        graphics.beginFill(_theme.DEVICE_CANVAS_BG_COLOR, 1.0);
+        graphics.drawRect(0, 0, w, h);
+        graphics.endFill();
+    }
 
-	private function hideContextMenu():Void
-	{
-		if (_contextMenu != null && _contextMenu.parent != null)
-		{
-			removeChild(_contextMenu);
-		}
-		_contextMenu = null;
-		_menuVisible = false;
-	}
+    /**
+     * Create the header bar with title and control buttons.
+     * 
+     * Layout (right to left):
+     * - [X] Close button (40x40, ButtonComponent) at x = stageWidth - 45
+     * - [C] Clear button (28x26) at x = stageWidth - 90
+     * - [E] Editor button (28x26) at x = stageWidth - 120
+     * - Title text field (left-aligned)
+     * 
+     * All buttons stop MOUSE_DOWN propagation to prevent unwanted drag.
+     */
+    private function createHeader():Void
+    {
+        var headerWidth = (stage != null) ? stage.stageWidth : 800;
 
-	private function onStageClick(e:MouseEvent):Void
-	{
-		if (_menuVisible && _contextMenu != null)
-		{
-			if (!_contextMenu.hitTestPoint(e.stageX, e.stageY))
-			{
-				hideContextMenu();
-			}
-		}
-	}
+        _header = new Sprite();
+        _header.graphics.beginFill(0x2a2a34);
+        _header.graphics.drawRect(0, 0, headerWidth, 30);
+        _header.graphics.endFill();
+        addChild(_header);
 
-	private function createMenuItem(label:String, atom:Atom, disabled:Bool):Sprite
-	{
-		var item = new Sprite();
-		item.graphics.beginFill(disabled ? 0x333344 : 0x444455);
-		item.graphics.drawRect(0, 0, 180, 24);
-		item.graphics.endFill();
-		var txt = new TextField();
-		txt.defaultTextFormat = new TextFormat("_typewriter", 11, disabled ? 0x777788 : 0xFFFFFF);
-		txt.text = (disabled || atom == null) ? label : "+ " + label;
-		txt.width = 170;
-		txt.height = 24;
-		txt.x = 8;
-		txt.selectable = false;
-		txt.mouseEnabled = false;
-		item.addChild(txt);
-		if (!disabled && atom != null)
-		{
-			item.buttonMode = true;
-			final capturedAtom = atom;
-			item.addEventListener(MouseEvent.CLICK, function(e:MouseEvent)
-			{
-				addDevice(capturedAtom);
-				hideContextMenu();
-				// Save state when adding via context menu
-				// Note: addDevice() already emits DEVICE_WINDOW_CHANGED in v3.2
-			});
-			item.addEventListener(MouseEvent.MOUSE_OVER, function(e:MouseEvent)
-			{
-				item.graphics.clear();
-				item.graphics.beginFill(0x556677);
-				item.graphics.drawRect(0, 0, 180, 24);
-				item.graphics.endFill();
-			});
-			item.addEventListener(MouseEvent.MOUSE_OUT, function(e:MouseEvent)
-			{
-				item.graphics.clear();
-				item.graphics.beginFill(0x444455);
-				item.graphics.drawRect(0, 0, 180, 24);
-				item.graphics.endFill();
-			});
-		}
-		return item;
-	}
+        _titleLabel = new TextField();
+        _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 12, 0xFFFFFF, true);
+        _titleLabel.text = "  Device Panel";
+        _titleLabel.width = 300;
+        _titleLabel.height = 30;
+        _titleLabel.selectable = false;
+        _titleLabel.mouseEnabled = false;
+        _header.addChild(_titleLabel);
 
-	// =========================================================================
-	// EVENTS & HELPERS
-	// =========================================================================
-	private function onAtomDeleted(impulse:Impulse):Void
-	{
-		if (impulse.data == null) return;
-		var deletedId:String = impulse.data.id;
-		var toRemove:Array<DeviceCard> = [];
-		for (card in _deviceCards)
-		{
-			if (card.atom != null && card.atom.id == deletedId)
-			{
-				toRemove.push(card);
-			}
-		}
-		for (card in toRemove)
-		{
-			removeDevice(card);
-		}
-	}
+        // =========================================================================
+        // v3.5: SHIFTED BUTTONS — moved left to avoid overlap with large [X]
+        // =========================================================================
+        // Large close button occupies x: headerWidth-45 .. headerWidth-5
+        // [C] button: headerWidth-90 .. headerWidth-62 (safe gap)
+        // [E] button: headerWidth-120 .. headerWidth-92 (safe gap)
 
-	private function findFreePosition(card:DeviceCard): {x:Float, y:Float}
-	{
-		var startX = 10;
-		var startY = 50; // Below header
-		var stepX = 120;
-		var stepY = 100;
-		for (y in 0...10)
-		{
-			for (x in 0...5)
-			{
-				var px = startX + x * stepX;
-				var py = startY + y * stepY;
-				if (isPositionFree(px, py)) return {x: px, y: py};
-			}
-		}
-		return {x: startX + Math.random() * 200, y: startY + Math.random() * 150};
-	}
+        // Button [E] - Editor Mode
+        var editorBtn = createHeaderButton("E", 0x005500, function(_)
+        {
+            if (onShowEditor != null) onShowEditor();
+        });
+        editorBtn.x = headerWidth - 120;
+        _header.addChild(editorBtn);
 
-	private function isPositionFree(x:Float, y:Float):Bool
-	{
-		for (card in _deviceCards)
-		{
-			if (Math.abs(card.x - x) < 100 && Math.abs(card.y - y) < 80) return false;
-		}
-		return true;
-	}
+        // Button [C] - Clear
+        var clearBtn = createHeaderButton("C", 0x555500, function(_)
+        {
+            clearDevices();
+            Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
+        });
+        clearBtn.x = headerWidth - 90;
+        _header.addChild(clearBtn);
 
-	public function dispose():Void
-	{
-		clearDevices();
-		// =========================================================================
-		// v3.4: CLEANUP CLOSE BUTTON
-		// =========================================================================
-		if (_btnClose != null)
-		{
-			if (_btnClose.parent != null)
-			{
-				_btnClose.parent.removeChild(_btnClose);
-			}
-			_btnClose = null;
-		}
-		// =========================================================================
-		stage.removeEventListener(MouseEvent.CLICK, onStageClick);
-		stage.removeEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
-		Impulsys.removeImpulse(EventType.ATOM_DELETED, onAtomDeleted);
-	}
+        // =========================================================================
+        // v3.5: CREATE EDITOR-STYLE CLOSE BUTTON
+        // =========================================================================
+        // Same position as Main.hx: x = stageWidth - 45, y = 5
+        _btnClose = new ButtonComponent("X", function()
+        {
+            if (onCloseApp != null) onCloseApp();
+        });
+        _btnClose.x = headerWidth - 45;
+        _btnClose.y = 5;
+        _header.addChild(_btnClose);
+
+        // =========================================================================
+        // v3.6: HEADER DRAG FUNCTIONALITY
+        // =========================================================================
+        _header.addEventListener(MouseEvent.MOUSE_DOWN, onHeaderMouseDown);
+        _header.buttonMode = true;
+    }
+
+    /**
+     * Create a header button with label and click handler.
+     * 
+     * IMPORTANT: Stops MOUSE_DOWN propagation to prevent bubbling to header,
+     * which would trigger unwanted drag initiation.
+     * 
+     * @param label Button text (single character: "E", "C", etc.)
+     * @param color Background color (hex)
+     * @param onClick Click handler function
+     * @return Sprite containing button graphics and text
+     */
+    private function createHeaderButton(label:String, color:Int, onClick:MouseEvent->Void):Sprite
+    {
+        var btn = new Sprite();
+        btn.graphics.beginFill(color);
+        btn.graphics.drawRect(0, 0, 28, 26);
+        btn.graphics.endFill();
+        
+        var txt = new TextField();
+        txt.text = label;
+        txt.width = 28;
+        txt.height = 26;
+        txt.selectable = false;
+        txt.mouseEnabled = false;
+        txt.defaultTextFormat = new TextFormat("_sans", 11, 0xFFFFFF, true, null, null, null, null, "center");
+        btn.addChild(txt);
+        
+        btn.buttonMode = true;
+        btn.addEventListener(MouseEvent.CLICK, onClick);
+        
+        // Stop MOUSE_DOWN from propagating to header (prevents unwanted drag)
+        btn.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent) e.stopPropagation());
+        
+        return btn;
+    }
+
+    // =========================================================================
+    // v3.7: NATIVE DRAG BRIDGE
+    // =========================================================================
+    
+    /**
+     * Start native OS-level window drag (Windows only).
+     * 
+     * Uses SendMessage(WM_NCLBUTTONDOWN, HTCAPTION) to hand control to DWM compositor.
+     * Achieves perfect 1:1 cursor tracking with zero Haxe frame lag.
+     * 
+     * Process:
+     * 1. SetTimer(15ms) → registers _dp_DragTimerProc callback
+     * 2. ReleaseCapture() → releases mouse capture from Haxe
+     * 3. SendMessage(WM_NCLBUTTONDOWN, HTCAPTION) → starts native drag
+     *    - BLOCKS Haxe thread until user releases mouse
+     *    - Windows dispatches WM_TIMER every 15ms during drag
+     *    - TimerProc calls _onDragTick() to update UI
+     * 4. KillTimer() → unregisters callback after drag ends
+     * 
+     * @return true if native drag was performed, false if failed or non-Windows
+     * 
+     * Implementation: Uses untyped __cpp__() to call global extern "C" function
+     * declared in @:cppFileCode, avoiding namespace resolution issues.
+     */
+    private static function _nativeStartDrag():Bool
+    {
+        #if windows
+        var result:Bool = false;
+        untyped __cpp__('{0} = (bool)::_dp_nativeStartDrag();', result);
+        return result;
+        #else
+        return false;
+        #end
+    }
+
+    /**
+     * Register Haxe function pointer with C++ layer.
+     * Called once during initialization via _ensureDragTickRegistered().
+     * 
+     * @param inTick Function pointer to _onDragTick (converted via cpp.Function.fromStaticFunction)
+     * 
+     * Implementation: Uses untyped __cpp__() to call global extern "C" function
+     * declared in @:cppFileCode, avoiding namespace resolution issues.
+     */
+    private static function _registerDragTickBridge(inTick:cpp.RawPointer<cpp.Void>):Void
+    {
+        #if windows
+        untyped __cpp__('::_dp_registerDragTick((void*){0});', inTick);
+        #end
+    }
+
+    // =========================================================================
+    // v3.6: HEADER DRAG HANDLERS
+    // =========================================================================
+    
+    /**
+     * Handle MOUSE_DOWN on header to initiate window drag.
+     * 
+     * Strategy:
+     * 1. Check if click was on a button (skip drag if so)
+     * 2. Try native OS drag first (Windows only) — perfect smoothness
+     * 3. If native drag fails or non-Windows — fall back to Haxe-side drag
+     * 
+     * Native drag blocks the thread until mouse-up, so no Haxe listeners are needed.
+     * Haxe-side drag uses absolute position model to prevent flicker.
+     * 
+     * @param e Mouse event containing click coordinates
+     */
+    private function onHeaderMouseDown(e:MouseEvent):Void
+    {
+        if (_dragging) return;
+
+        // Check if click was on a button (walk up display list)
+        var targetObj:openfl.display.DisplayObject = cast e.target;
+        while (targetObj != null && targetObj != _header)
+        {
+            if (Std.isOfType(targetObj, Sprite))
+            {
+                var s = cast(targetObj, Sprite);
+                if (s.buttonMode && targetObj.parent == _header) return; // Clicked button, skip drag
+            }
+            targetObj = targetObj.parent;
+        }
+
+        // =========================================================================
+        // v3.7: TRY NATIVE OS DRAG FIRST (Windows only)
+        // =========================================================================
+        if (_nativeStartDrag())
+        {
+            // Native drag completed (user released mouse).
+            // Window is now at its final position. Done.
+            return;
+        }
+
+        // =========================================================================
+        // FALLBACK: Haxe-side absolute-position drag (non-Windows or native failed)
+        // =========================================================================
+        _dragging = true;
+        
+        // Store START mouse position (absolute, not delta)
+        _mouseStartX = e.stageX;
+        _mouseStartY = e.stageY;
+
+        // Notify Main.hx to capture current window position
+        if (onWindowDragStart != null) onWindowDragStart();
+
+        if (stage != null)
+        {
+            stage.addEventListener(MouseEvent.MOUSE_MOVE, onHeaderMouseMove);
+            stage.addEventListener(MouseEvent.MOUSE_UP, onHeaderMouseUp);
+        }
+    }
+
+    /**
+     * Handle MOUSE_MOVE during Haxe-side drag.
+     * Computes delta from START position (not previous frame) to prevent flicker.
+     * 
+     * @param e Mouse event containing current coordinates
+     */
+    private function onHeaderMouseMove(e:MouseEvent):Void
+    {
+        if (!_dragging) return;
+
+        // Delta from START position (absolute model)
+        var dx = e.stageX - _mouseStartX;
+        var dy = e.stageY - _mouseStartY;
+
+        // Notify Main.hx with absolute delta
+        if (onWindowDrag != null)
+        {
+            onWindowDrag(dx, dy);
+        }
+    }
+
+    /**
+     * Handle MOUSE_UP to end Haxe-side drag.
+     * Removes move/up listeners and resets _dragging flag.
+     * 
+     * @param e Mouse event (unused)
+     */
+    private function onHeaderMouseUp(e:MouseEvent):Void
+    {
+        _dragging = false;
+
+        if (stage != null)
+        {
+            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onHeaderMouseMove);
+            stage.removeEventListener(MouseEvent.MOUSE_UP, onHeaderMouseUp);
+        }
+    }
+
+    // =========================================================================
+    // CONTEXT MENU
+    // =========================================================================
+    
+    /**
+     * Handle RIGHT_CLICK to show/hide context menu.
+     * Toggles menu visibility at click coordinates.
+     * 
+     * @param e Mouse event containing click coordinates
+     */
+    private function onRightClick(e:MouseEvent):Void
+    {
+        if (_menuVisible) hideContextMenu();
+        else showContextMenu(e.stageX, e.stageY);
+    }
+
+    /**
+     * Show context menu with list of available devices.
+     * 
+     * Process:
+     * 1. Hide any existing menu
+     * 2. Create new menu sprite
+     * 3. Add "Add Device:" header
+     * 4. Get device list from onGetAssemblyList callback
+     * 5. Filter out "selfrun" (root assembly)
+     * 6. Create menu items for each device
+     * 7. Position menu at click coordinates (clamped to stage bounds)
+     * 
+     * @param x X coordinate for menu position
+     * @param y Y coordinate for menu position
+     */
+    private function showContextMenu(x:Float, y:Float):Void
+    {
+        hideContextMenu(); // Clean previous
+        
+        _contextMenu = new Sprite();
+        var yPos = 5;
+        
+        var headerItem = createMenuItem("Add Device:", null, true);
+        headerItem.y = yPos;
+        _contextMenu.addChild(headerItem);
+        yPos += 28;
+        
+        // Get list from Main
+        var devices = (onGetAssemblyList != null) ? onGetAssemblyList() : [];
+        devices = [for (d in devices) if (d.id != "selfrun") d];
+        
+        if (devices.length == 0)
+        {
+            var emptyItem = createMenuItem("(No devices)", null, true);
+            emptyItem.y = yPos;
+            _contextMenu.addChild(emptyItem);
+            yPos += 26;
+        }
+        else {
+            for (item in devices)
+            {
+                var displayName = item.atom.displayName != null ? item.atom.displayName : item.atom.name;
+                var menuItem = createMenuItem(displayName, item.atom, false);
+                menuItem.y = yPos;
+                _contextMenu.addChild(menuItem);
+                yPos += 26;
+            }
+        }
+        
+        // Draw background
+        _contextMenu.graphics.beginFill(0x333344, 0.98);
+        _contextMenu.graphics.lineStyle(1, 0x555566);
+        _contextMenu.graphics.drawRoundRect(0, 0, 190, yPos + 10, 6, 6);
+        _contextMenu.graphics.endFill();
+        
+        // Clamp to stage bounds
+        _contextMenu.x = Math.min(x, stage.stageWidth - 200);
+        _contextMenu.y = Math.min(Math.max(y - 30, 0), stage.stageHeight - yPos - 20);
+        
+        addChild(_contextMenu);
+        _menuVisible = true;
+    }
+
+    /**
+     * Hide and remove context menu from display list.
+     */
+    private function hideContextMenu():Void
+    {
+        if (_contextMenu != null && _contextMenu.parent != null)
+        {
+            removeChild(_contextMenu);
+        }
+        _contextMenu = null;
+        _menuVisible = false;
+    }
+
+    /**
+     * Handle CLICK on stage to hide context menu if clicked outside.
+     * 
+     * @param e Mouse event containing click coordinates
+     */
+    private function onStageClick(e:MouseEvent):Void
+    {
+        if (_menuVisible && _contextMenu != null)
+        {
+            if (!_contextMenu.hitTestPoint(e.stageX, e.stageY))
+            {
+                hideContextMenu();
+            }
+        }
+    }
+
+    /**
+     * Create a context menu item with label and optional atom reference.
+     * 
+     * @param label Display text
+     * @param atom Atom to add when clicked (null for disabled items)
+     * @param disabled If true, item is non-interactive (grayed out)
+     * @return Sprite containing menu item graphics and text
+     */
+    private function createMenuItem(label:String, atom:Atom, disabled:Bool):Sprite
+    {
+        var item = new Sprite();
+        item.graphics.beginFill(disabled ? 0x333344 : 0x444455);
+        item.graphics.drawRect(0, 0, 180, 24);
+        item.graphics.endFill();
+        
+        var txt = new TextField();
+        txt.defaultTextFormat = new TextFormat("_typewriter", 11, disabled ? 0x777788 : 0xFFFFFF);
+        txt.text = (disabled || atom == null) ? label : "+ " + label;
+        txt.width = 170;
+        txt.height = 24;
+        txt.x = 8;
+        txt.selectable = false;
+        txt.mouseEnabled = false;
+        item.addChild(txt);
+        
+        if (!disabled && atom != null)
+        {
+            item.buttonMode = true;
+            final capturedAtom = atom;
+            
+            item.addEventListener(MouseEvent.CLICK, function(e:MouseEvent)
+            {
+                addDevice(capturedAtom);
+                hideContextMenu();
+            });
+            
+            item.addEventListener(MouseEvent.MOUSE_OVER, function(e:MouseEvent)
+            {
+                item.graphics.clear();
+                item.graphics.beginFill(0x556677);
+                item.graphics.drawRect(0, 0, 180, 24);
+                item.graphics.endFill();
+            });
+            
+            item.addEventListener(MouseEvent.MOUSE_OUT, function(e:MouseEvent)
+            {
+                item.graphics.clear();
+                item.graphics.beginFill(0x444455);
+                item.graphics.drawRect(0, 0, 180, 24);
+                item.graphics.endFill();
+            });
+        }
+        
+        return item;
+    }
+
+    // =========================================================================
+    // EVENTS & HELPERS
+    // =========================================================================
+    
+    /**
+     * Handle ATOM_DELETED impulse to remove deleted atom's card.
+     * 
+     * Called automatically when an atom is deleted from the assembly.
+     * Finds and removes all DeviceCards referencing the deleted atom.
+     * 
+     * @param impulse Impulse containing {id: String} of deleted atom
+     */
+    private function onAtomDeleted(impulse:Impulse):Void
+    {
+        if (impulse.data == null) return;
+        var deletedId:String = impulse.data.id;
+        
+        var toRemove:Array<DeviceCard> = [];
+        for (card in _deviceCards)
+        {
+            if (card.atom != null && card.atom.id == deletedId)
+            {
+                toRemove.push(card);
+            }
+        }
+        
+        for (card in toRemove)
+        {
+            removeDevice(card);
+        }
+    }
+
+    /**
+     * Find a free position for a new device card.
+     * Uses grid-based search with fallback to random position.
+     * 
+     * Grid parameters:
+     * - Start: (10, 50) — below header
+     * - Step: (120, 100) — card width + gap, card height + gap
+     * - Search: 10 rows × 5 columns
+     * 
+     * @param card The card to position (used for size reference)
+     * @return {x: Float, y: Float} position coordinates
+     */
+    private function findFreePosition(card:DeviceCard):{x:Float, y:Float}
+    {
+        var startX = 10;
+        var startY = 50; // Below header
+        var stepX = 120;
+        var stepY = 100;
+        
+        for (y in 0...10)
+        {
+            for (x in 0...5)
+            {
+                var px = startX + x * stepX;
+                var py = startY + y * stepY;
+                if (isPositionFree(px, py)) return {x: px, y: py};
+            }
+        }
+        
+        // Fallback: random position
+        return {x: startX + Math.random() * 200, y: startY + Math.random() * 150};
+    }
+
+    /**
+     * Check if a position is free (no overlapping cards).
+     * 
+     * @param x X coordinate to check
+     * @param y Y coordinate to check
+     * @return true if position is free, false if occupied
+     */
+    private function isPositionFree(x:Float, y:Float):Bool
+    {
+        for (card in _deviceCards)
+        {
+            if (Math.abs(card.x - x) < 100 && Math.abs(card.y - y) < 80) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Clean up all resources and event listeners.
+     * 
+     * Process:
+     * 1. Clear all device cards (clearDevices)
+     * 2. Remove close button from display list
+     * 3. Remove stage event listeners
+     * 4. Unsubscribe from ATOM_DELETED impulse
+     * 
+     * Called by Main.hx when switching modes or shutting down.
+     */
+    public function dispose():Void
+    {
+        clearDevices();
+        
+        // Cleanup close button
+        if (_btnClose != null)
+        {
+            if (_btnClose.parent != null)
+            {
+                _btnClose.parent.removeChild(_btnClose);
+            }
+            _btnClose = null;
+        }
+        
+        stage.removeEventListener(MouseEvent.CLICK, onStageClick);
+        stage.removeEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
+        Impulsys.removeImpulse(EventType.ATOM_DELETED, onAtomDeleted);
+    }
 }
