@@ -12,7 +12,7 @@
 			 antialiasing="4"
 			 allow-high-dpi="false"
 			 width="1024" height="800"
-			 fps="60"
+			 fps="120"
 			 background="#FF00FF"
 			 transparent="true">
 	</window>/>
@@ -21,8 +21,8 @@
 	<setenv name="LIME_RENDER_CONTEXT" value="opengl" />
 	
 	<source path="src" />
-
-	<haxelib name="openfl" />
+	
+	<haxelib name="openfl" version="9.5.1"/>
 	<haxelib name="hxcpp" if="cpp" />
 	<haxedef name="utf8" />
 	<icon path="assets/openfl.svg" />
