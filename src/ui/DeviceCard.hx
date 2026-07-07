@@ -128,7 +128,7 @@ class DeviceCard extends Sprite {
         
         _titleLabel = new TextField();
         _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 10, 0xFFFFFF);
-        _titleLabel.text = " " + (atom != null ? atom.name : "Device");
+		_titleLabel.text = " " + (atom != null ? (atom.displayName != null ? atom.displayName : atom.name) : "Device");
         _titleLabel.width = viewWidth;
         _titleLabel.height = 20;
         _titleLabel.selectable = false;

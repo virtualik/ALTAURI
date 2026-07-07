@@ -64,39 +64,42 @@ class CreateAtomCommand extends Command {
         _posY = y;
     }
 
-    override private function executeInternal():Void {
-        if (_instanceId == null) {
-            _instanceId = utils.UID.generate();
-        }
+	override private function executeInternal():Void
+	{
+		if (_instanceId == null) {
+			_instanceId = utils.UID.generate();
+		}
+		if (_atomDef == null) {
+			_atomDef = { instanceId: _instanceId, typeId: _typeId, x: _posX, y: _posY };
+		}
+		if (!_blueprint.internalAtoms.contains(_atomDef)) {
+			_blueprint.internalAtoms.push(_atomDef);
+		}
+		if (_atomInstance == null) {
+			_atomInstance = AssemblyFactory.createAtom(_typeId, _instanceId);
+			if (_atomInstance == null) {
+				trace('CreateAtomCommand ERROR: Factory failed to create $_typeId');
+				return;
+			}
+		}
 
-        if (_atomDef == null) {
-            _atomDef = { instanceId: _instanceId, typeId: _typeId, x: _posX, y: _posY };
-        }
+		// === v1.1: Generate unique display name for NEW atoms ===
+		// Only for newly created atoms (not restored from save).
+		// Restored atoms get their displayName from initialState via restoreState().
+		if (_atomInstance.displayName == null || _atomInstance.displayName == _atomInstance.type) {
+			_atomInstance.displayName = AssemblyFactory.generateUniqueDisplayName(_typeId, _assembly);
+		}
 
-        if (!_blueprint.internalAtoms.contains(_atomDef)) {
-            _blueprint.internalAtoms.push(_atomDef);
-        }
-
-        if (_atomInstance == null) {
-            _atomInstance = AssemblyFactory.createAtom(_typeId, _instanceId);
-            if (_atomInstance == null) {
-                trace('CreateAtomCommand ERROR: Factory failed to create $_typeId');
-                return;
-            }
-        }
-
-        _assembly.internalAtoms.set(_instanceId, _atomInstance);
-
-        Impulsys.quickEmit(EventType.ATOM_RESTORED, {
-            assemblyId: _assembly.id,
-            id: _instanceId,
-            x: _posX,
-            y: _posY,
-            atom: _atomInstance
-        });
-
-        complete();
-    }
+		_assembly.internalAtoms.set(_instanceId, _atomInstance);
+		Impulsys.quickEmit(EventType.ATOM_RESTORED, {
+			assemblyId: _assembly.id,
+			id: _instanceId,
+			x: _posX,
+			y: _posY,
+			atom: _atomInstance
+		});
+		complete();
+	}
 
     override public function undo():Void {
         _blueprint.internalAtoms.remove(_atomDef);

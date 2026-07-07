@@ -185,27 +185,24 @@ class ToggleAtom extends Atom
      *
      * Merges with super result to preserve base class fields (isLogic).
      */
-    override public function getPersistentState():Dynamic
-    {
-        var base = super.getPersistentState();
-        var currentState = false;
-        
-        if (_outputs != null && _outputs.length > 0)
-        {
-            currentState = _outputs[0].value == true;
-        }
-        
-        var result:Dynamic = { state: currentState };
-        
-        if (base != null)
-        {
-            if (Reflect.hasField(base, "isLogic"))
-            {
-                Reflect.setField(result, "isLogic", Reflect.field(base, "isLogic"));
-            }
-        }
-        return result;
-    }
+	override public function getPersistentState():Dynamic
+	{
+		var base = super.getPersistentState();
+		var currentState = false;
+		if (_outputs != null && _outputs.length > 0)
+		{
+			currentState = _outputs[0].value == true;
+		}
+		var result:Dynamic = { state: currentState };
+		if (base != null)
+		{
+			for (field in Reflect.fields(base))
+			{
+				Reflect.setField(result, field, Reflect.field(base, field));
+			}
+		}
+		return result;
+	}
 
     /**
      * Restore toggle state from saved data.

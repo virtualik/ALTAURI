@@ -515,18 +515,19 @@ class SystemVUMeterAtom extends Atom implements system.managers.Driver
     // =========================================================================
     // STATE SERIALIZATION
     // =========================================================================
-    override public function getPersistentState():Dynamic
-    {
-        var base = super.getPersistentState();
-        var result:Dynamic = { mode: _mode };
-        
-        if (base != null && Reflect.hasField(base, "isLogic"))
-        {
-            Reflect.setField(result, "isLogic", Reflect.field(base, "isLogic"));
-        }
-        
-        return result;
-    }
+	override public function getPersistentState():Dynamic
+	{
+		var base = super.getPersistentState();
+		var result:Dynamic = { mode: _mode };
+		if (base != null)
+		{
+			for (field in Reflect.fields(base))
+			{
+				Reflect.setField(result, field, Reflect.field(base, field));
+			}
+		}
+		return result;
+	}
 
     override public function restoreState(state:Dynamic):Void
     {

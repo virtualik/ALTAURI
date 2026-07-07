@@ -24,6 +24,6 @@
 
 	<haxelib name="openfl" />
 	<haxelib name="hxcpp" if="cpp" />
-	
+	<haxedef name="utf8" />
 	<icon path="assets/openfl.svg" />
 </project>

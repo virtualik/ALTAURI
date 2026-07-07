@@ -329,14 +329,18 @@ class NodeEditor extends Sprite
         }
     }
 
-    private function createViewForAtom(atom:Atom, id:String, x:Float, y:Float):Void
-    {
-        if (_nodes.exists(id)) return;
-        var view:NodeView = new NodeView(atom, id);
-        view.setPosition(x, y);
-        _canvas.addChild(view);
-        _nodes.set(id, view);
-    }
+	private function createViewForAtom(atom:Atom, id:String, x:Float, y:Float):Void
+	{
+		if (_nodes.exists(id)) return;
+		var view:NodeView = new NodeView(atom, id);
+		view.setPosition(x, y);
+		
+		// === v3.3: Pass parent Assembly for name uniqueness check ===
+		view.setParentAssembly(_assembly);
+		
+		_canvas.addChild(view);
+		_nodes.set(id, view);
+	}
 
     public function createAtom(typeId:String, posX:Float, posY:Float):Atom
     {

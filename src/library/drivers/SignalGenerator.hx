@@ -739,29 +739,26 @@ class SignalGenerator extends Atom implements system.managers.Driver
     /**
      * Save state for persistence.
      */
-    override public function getPersistentState():Dynamic
-    {
-        var base = super.getPersistentState();
-        var result:Dynamic = {
-            frequency: _frequency,
-            quantumStep: _quantumStep,
-            mode: _mode,
-            phase: _currentPhase,
-            lastQuantum: _lastQuantum,
-            pulseCount: _pulseCount
-        };
-        
-        // Add base class fields
-        if (base != null)
-        {
-            if (Reflect.hasField(base, "isLogic"))
-            {
-                Reflect.setField(result, "isLogic", Reflect.field(base, "isLogic"));
-            }
-        }
-        
-        return result;
-    }
+	override public function getPersistentState():Dynamic
+	{
+		var base = super.getPersistentState();
+		var result:Dynamic = {
+			frequency: _frequency,
+			quantumStep: _quantumStep,
+			mode: _mode,
+			phase: _currentPhase,
+			lastQuantum: _lastQuantum,
+			pulseCount: _pulseCount
+		};
+		if (base != null)
+		{
+			for (field in Reflect.fields(base))
+			{
+				Reflect.setField(result, field, Reflect.field(base, field));
+			}
+		}
+		return result;
+	}
 
     /**
      * Restore state from saved data.

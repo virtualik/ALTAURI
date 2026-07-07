@@ -468,22 +468,26 @@ class OscilloscopeAtom extends Atom implements Driver
     // =========================================================================
     // STATE SERIALIZATION
     // =========================================================================
-    override public function getPersistentState():Dynamic
-    {
-        var base = super.getPersistentState();
-        var result = {
-            displayShape: _displayShape,
-            timeScale: _timeScale,
-            triggerLevel: _triggerLevel,
-            triggerEdge: _triggerEdge,
-            triggerMode: _triggerMode,
-            totalSamples: _totalSamples
-        };
-        if (base != null && Reflect.hasField(base, "isLogic")) {
-            Reflect.setField(result, "isLogic", Reflect.field(base, "isLogic"));
-        }
-        return result;
-    }
+	override public function getPersistentState():Dynamic
+	{
+		var base = super.getPersistentState();
+		var result = {
+			displayShape: _displayShape,
+			timeScale: _timeScale,
+			triggerLevel: _triggerLevel,
+			triggerEdge: _triggerEdge,
+			triggerMode: _triggerMode,
+			totalSamples: _totalSamples
+		};
+		if (base != null)
+		{
+			for (field in Reflect.fields(base))
+			{
+				Reflect.setField(result, field, Reflect.field(base, field));
+			}
+		}
+		return result;
+	}
 
     override public function restoreState(state:Dynamic):Void
     {

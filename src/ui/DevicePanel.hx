@@ -332,7 +332,8 @@ class DevicePanel extends Sprite
         else {
             for (item in devices)
             {
-                var menuItem = createMenuItem(item.name, item.atom, false);
+                var displayName = item.atom.displayName != null ? item.atom.displayName : item.atom.name;
+				var menuItem = createMenuItem(displayName, item.atom, false);
                 menuItem.y = yPos;
                 _contextMenu.addChild(menuItem);
                 yPos += 26;
