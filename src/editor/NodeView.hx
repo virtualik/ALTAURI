@@ -25,9 +25,15 @@ import core.data.Blueprint.PinDef;
 import core.data.Blueprint.ParameterPriority;
 
 /**
-* NODE VIEW v3.3 (Inline Name Editing)
+* NODE VIEW v3.4 (Interactive Target Guard + Cleanup)
 *
 * Visual representation of an Atom (node) on the schematic canvas.
+*
+* v3.4 Changes:
+* - ADDED: isInteractiveTarget() guard to prevent node drag when clicking
+*   on widgets (Button, TextInput, Toggle, etc.) or InlineParameterEditors.
+* - FIXED: Removed erroneous _input field reference (copy-paste artifact).
+* - All comments translated to English.
 *
 * v3.3 Changes:
 * - ADDED: Inline name editing via double-click on title bar
@@ -76,12 +82,15 @@ class NodeView extends Sprite
 	public static inline var WIDGET_PADDING:Float = 12;
 	public static inline var TITLE_HEIGHT:Float = 22;
 	public static inline var PORT_RADIUS:Float = 7;
-	public static inline var PORT_SPACING:Float = 22;
+	public static inline var PORT_SPACING:Float = 32;
+	public static inline var INLINE_EDITOR_X_OFFSET:Float = 24;
+
 // =========================================================================
 // DYNAMIC SIZE (v3.0)
 // =========================================================================
 	private var _nodeWidth:Float = MIN_WIDTH;
 	private var _nodeHeight:Float = MIN_BODY_HEIGHT + TITLE_HEIGHT;
+
 // =========================================================================
 // REFERENCES
 // =========================================================================
@@ -89,14 +98,17 @@ class NodeView extends Sprite
 	public var assembly(default, null):Assembly;
 	public var deviceView(default, null):DeviceView;
 	public var nodeId(default, null):String;
+
 // =========================================================================
 // PORTS
 // =========================================================================
 	public var inputPorts(default, null):Map<String, Sprite>;
 	public var outputPorts(default, null):Map<String, Sprite>;
+
 // =========================================================================
 // STATE
 // =========================================================================
+	private var _inlineEditors:Map<String, InlineParameterEditor> = new Map();
 	public var selected(default, set):Bool = false;
 	private function set_selected(value:Bool):Bool
 	{
@@ -108,6 +120,7 @@ class NodeView extends Sprite
 	private function get_isSelected():Bool return selected;
 	private function set_isSelected(value:Bool):Bool { selected = value; return value; }
 	public var hasWidget(default, null):Bool = false;
+
 // =========================================================================
 // INLINE NAME EDITING (v3.3)
 // =========================================================================
@@ -117,6 +130,7 @@ class NodeView extends Sprite
 	private var _isEditingName:Bool = false;
 	/** Reference to parent Assembly for uniqueness check */
 	private var _parentAssembly:Assembly = null;
+
 // =========================================================================
 // VISUAL COMPONENTS
 // =========================================================================
@@ -127,17 +141,20 @@ class NodeView extends Sprite
 	private var _selectionHighlight:Sprite;
 	private var _settingsButton:Sprite;
 	private var _theme:EditorTheme;
+
 // =========================================================================
 // DRAG STATE
 // =========================================================================
 	private var _isDragging:Bool = false;
 	private var _dragOffsetX:Float = 0;
 	private var _dragOffsetY:Float = 0;
+
 // =========================================================================
 // CALLBACKS
 // =========================================================================
 	public var onOpenDeviceWindow:NodeView -> Void;
 	public var onSelect:NodeView -> Void;
+
 // =========================================================================
 // CONSTRUCTOR
 // =========================================================================
@@ -163,6 +180,7 @@ class NodeView extends Sprite
 		Impulsys.subscribeToImpulse(EventType.REDRAW_WIRES, onWiresRedrawn);
 		//trace('NodeView: Created for atom "${atom.displayName}" (id: ${nodeId})');
 	}
+
 // =========================================================================
 // PARENT ASSEMBLY (v3.3 — for name uniqueness check)
 // =========================================================================
@@ -177,6 +195,7 @@ class NodeView extends Sprite
 	{
 		_parentAssembly = asm;
 	}
+
 // =========================================================================
 // DYNAMIC SIZING (v3.0)
 // =========================================================================
@@ -205,12 +224,14 @@ class NodeView extends Sprite
 		_nodeWidth = bodyWidth;
 		_nodeHeight = TITLE_HEIGHT + bodyHeight;
 	}
+
 	private function updateLayout():Void
 	{
 		recalcSize();
 		redraw();
 		createPorts();
 	}
+
 // =========================================================================
 // UI CONSTRUCTION
 // =========================================================================
@@ -228,14 +249,14 @@ class NodeView extends Sprite
 		_titleLabel.x = 5;
 		_titleLabel.y = 2;
 		_titleLabel.selectable = false;
-// === v3.3 FIX: Enable mouse events on title label ===
-// Required for double-click detection on the text itself.
+		// === v3.3 FIX: Enable mouse events on title label ===
+		// Required for double-click detection on the text itself.
 		_titleLabel.mouseEnabled = true;
 		_titleLabel.doubleClickEnabled = true;
 		_titleLabel.defaultTextFormat = new TextFormat(
 			"_sans", 11, _theme.NODE_TEXT_COLOR, true, null, null, null, null, "left"
 		);
-// === v3.3: Use displayName instead of name ===
+		// === v3.3: Use displayName instead of name ===
 		_titleLabel.text = atom != null ? (atom.displayName != null ? atom.displayName : atom.name) : "Node";
 		_titleBar.addChild(_titleLabel);
 		_settingsButton = new Sprite();
@@ -265,7 +286,10 @@ class NodeView extends Sprite
 		redraw();
 		centerPreviewContainer();
 		setupInteraction();
+		// NOTE: Inline editors handle their own mouse events via isInteractiveTarget() guard.
+		// No need to add listeners here — the guard in onMouseDown() checks the display hierarchy.
 	}
+
 	private function centerPreviewContainer():Void
 	{
 		if (deviceView == null)
@@ -281,6 +305,7 @@ class NodeView extends Sprite
 		_previewContainer.x = (bodyWidth - scaledW) / 2;
 		_previewContainer.y = _nodeHeight - scaledH - WIDGET_PADDING;
 	}
+
 	public function redraw():Void
 	{
 		recalcSize();
@@ -328,7 +353,7 @@ class NodeView extends Sprite
 		tg.endFill();
 		_titleLabel.width = w - 30;
 		_settingsButton.x = w - 15;
-// === v3.3: Update name input width if visible ===
+		// === v3.3: Update name input width if visible ===
 		if (_nameInput != null && _nameInput.visible)
 		{
 			_nameInput.width = w - 50;
@@ -367,12 +392,14 @@ class NodeView extends Sprite
 			}
 		}
 	}
+
 	private function updateSelectionVisual():Void
 	{
 		_selectionHighlight.visible = selected;
 		redraw();
 		ECS.setSelected(nodeId, selected);
 	}
+
 // =========================================================================
 // PORTS CREATION
 // =========================================================================
@@ -436,6 +463,7 @@ class NodeView extends Sprite
 		}
 		//trace('NodeView: Created ${Lambda.count(inputPorts)} input ports, ${Lambda.count(outputPorts)} output ports');
 	}
+
 	private function createPortSprite(name:String, isInput:Bool):Sprite
 	{
 		var port = new Sprite();
@@ -499,12 +527,13 @@ class NodeView extends Sprite
 		});
 		return port;
 	}
+
 // =========================================================================
 // INLINE EDITORS (v3.3)
 // =========================================================================
-	private var _inlineEditors:Map<String, InlineParameterEditor> = new Map();
 	private function createInlineEditors():Void
 	{
+		// Clean up old editors
 		for (name in _inlineEditors.keys())
 		{
 			var editor = _inlineEditors.get(name);
@@ -515,13 +544,16 @@ class NodeView extends Sprite
 			}
 		}
 		_inlineEditors.clear();
+		
 		var inputs = atom.getInputs();
 		if (inputs == null) return;
+		
 		var yPos:Float = TITLE_HEIGHT + 10;
 		for (contact in inputs)
 		{
 			if (contact == null) continue;
 			if (contact.hasLinks()) continue;
+			
 			var pinDef = getPinDefForContact(contact);
 			var shouldShow:Bool = false;
 			if (pinDef != null)
@@ -534,14 +566,32 @@ class NodeView extends Sprite
 				shouldShow = true;
 			}
 			if (!shouldShow) continue;
+			
 			var editor = new InlineParameterEditor(contact, pinDef);
-			editor.x = PORT_RADIUS * 2 + 5;
+			// === Fixed position from left edge ===
+			editor.x = INLINE_EDITOR_X_OFFSET;
 			editor.y = yPos;
 			addChild(editor);
 			_inlineEditors.set(contact.name, editor);
+			
+			// Hide port label for this contact
+			var port = inputPorts.get(contact.name);
+			if (port != null)
+			{
+				for (i in 0...port.numChildren)
+				{
+					var child = port.getChildAt(i);
+					if (Std.isOfType(child, TextField))
+					{
+						child.visible = false;
+					}
+				}
+			}
+			
 			yPos += 30;
 		}
 	}
+
 	private function getPinDefForContact(contact:Contact):PinDef
 	{
 		if (atom == null || !(Std.isOfType(atom, Assembly))) return null;
@@ -553,6 +603,7 @@ class NodeView extends Sprite
 		}
 		return null;
 	}
+
 	public function updateInlineEditorsVisibility():Void
 	{
 		var inputs = atom.getInputs();
@@ -563,10 +614,58 @@ class NodeView extends Sprite
 			var editor = _inlineEditors.get(contact.name);
 			if (editor == null) continue;
 			var hasConnection = contact.hasLinks();
-			if (hasConnection) editor.hideEditor();
-			else editor.showEditor();
+			var port = inputPorts.get(contact.name);
+			if (hasConnection)
+			{
+				editor.hideEditor();
+				// Show port label
+				if (port != null)
+				{
+					for (i in 0...port.numChildren)
+					{
+						var child = port.getChildAt(i);
+						if (Std.isOfType(child, TextField))
+						{
+							child.visible = true;
+						}
+					}
+				}
+			}
+			else
+			{
+				editor.showEditor();
+				// Hide port label
+				if (port != null)
+				{
+					for (i in 0...port.numChildren)
+					{
+						var child = port.getChildAt(i);
+						if (Std.isOfType(child, TextField))
+						{
+							child.visible = false;
+						}
+					}
+				}
+			}
+		}
+		alignInlineEditors();
+	}
+	
+// =========================================================================
+// Forces all inline editors to be left-aligned.
+// Call after any operations that might disrupt positioning.
+// =========================================================================
+	private function alignInlineEditors():Void
+	{
+		for (editor in _inlineEditors)
+		{
+			if (editor != null)
+			{
+				editor.x = INLINE_EDITOR_X_OFFSET;
+			}
 		}
 	}
+
 // =========================================================================
 // PREVIEW WIDGET MANAGEMENT
 // =========================================================================
@@ -588,6 +687,7 @@ class NodeView extends Sprite
 		}
 		addWidgetToPreview();
 	}
+
 	private function addWidgetToPreview():Void
 	{
 		if (deviceView == null) return;
@@ -601,6 +701,7 @@ class NodeView extends Sprite
 		DeviceViewRegistry.getInstance().setContainer(atom.id, DeviceViewRegistry.CONTAINER_NODE_VIEW);
 		if (!deviceView.isActive) deviceView.activate();
 		hasWidget = true;
+		alignInlineEditors();
 		updateLayout();
 		if (stage != null)
 		{
@@ -611,6 +712,7 @@ class NodeView extends Sprite
 		}
 		//trace('NodeView: Widget added for ${atom.id} (scale: ${deviceView.scaleX})');
 	}
+
 	private function _centerAfterFrame(e:openfl.events.Event):Void
 	{
 		if (stage != null)
@@ -619,6 +721,7 @@ class NodeView extends Sprite
 		}
 		centerPreviewContainer();
 	}
+
 	private function enableDoubleClickRecursive(obj:DisplayObjectContainer):Void
 	{
 		if (obj == null) return;
@@ -630,6 +733,7 @@ class NodeView extends Sprite
 			else if (Std.isOfType(child, InteractiveObject)) cast(child, InteractiveObject).doubleClickEnabled = true;
 		}
 	}
+
 	public function releaseWidget():DeviceView
 	{
 		if (deviceView == null || !hasWidget) return null;
@@ -639,6 +743,7 @@ class NodeView extends Sprite
 		//trace('NodeView: Released widget for ${atom.id}');
 		return deviceView;
 	}
+
 	public function acceptWidget():Void
 	{
 		if (deviceView == null)
@@ -656,9 +761,57 @@ class NodeView extends Sprite
 		}
 		trace('NodeView: Accepted widget back for ${atom.id}');
 	}
+
 // =========================================================================
 // INTERACTION
 // =========================================================================
+
+// =========================================================================
+// INTERACTIVE TARGET GUARD (v3.4)
+// =========================================================================
+
+/**
+ * v3.4: Walks up the display list from event target to this NodeView,
+ * checking if any ancestor is an interactive element that should NOT
+ * trigger node drag.
+ *
+ * Protected types:
+ *   - DeviceView (any widget: Button, Toggle, TextInput, Oscilloscope...)
+ *   - InlineParameterEditor (contact parameter fields)
+ *   - TextField with type = INPUT (any text input)
+ *
+ * This is the PRIMARY defense. It catches ALL interactive elements
+ * by walking up the display hierarchy, regardless of how deeply
+ * the click target is nested inside a widget.
+ *
+ * @param target The original event target (e.target)
+ * @return true if the click originated from an interactive element
+ */
+	private function isInteractiveTarget(target:DisplayObject):Bool
+	{
+		var current:DisplayObject = target;
+		
+		while (current != null && current != this)
+		{
+			// Guard A: Any DeviceView (widget preview)
+			if (Std.isOfType(current, DeviceView)) return true;
+			
+			// Guard B: Any InlineParameterEditor
+			if (Std.isOfType(current, InlineParameterEditor)) return true;
+			
+			// Guard C: Any INPUT TextField (catches future editors too)
+			if (Std.isOfType(current, TextField))
+			{
+				var tf:TextField = cast current;
+				if (tf.type == TextFieldType.INPUT) return true;
+			}
+			
+			current = current.parent;
+		}
+		
+		return false;
+	}
+
 	private function setupInteraction():Void
 	{
 		mouseEnabled = true;
@@ -670,6 +823,7 @@ class NodeView extends Sprite
 		addEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
 		addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
 	}
+
 	/**
 	* v3.3: Double-click handler with name editing support.
 	*
@@ -681,20 +835,20 @@ class NodeView extends Sprite
 	*/
 	private function onDoubleClick(e:MouseEvent):Void
 	{
-// Check if click was on a port
+		// Check if click was on a port
 		if (Std.isOfType(e.target, Sprite))
 		{
 			var target:Sprite = cast e.target;
 			if (inputPorts.exists(target.name) || outputPorts.exists(target.name)) return;
 		}
-// Check if click was on settings button
+		// Check if click was on settings button
 		var targetObj:DisplayObject = cast e.target;
 		while (targetObj != null && targetObj != this)
 		{
 			if (targetObj == _settingsButton) return;
 			targetObj = targetObj.parent;
 		}
-// === v3.3: Check if double-click was in title bar area ===
+		// === v3.3: Check if double-click was in title bar area ===
 		var localPoint = globalToLocal(new Point(e.stageX, e.stageY));
 		if (localPoint.y >= 0 && localPoint.y < TITLE_HEIGHT && localPoint.x < _nodeWidth - 30)
 		{
@@ -702,7 +856,7 @@ class NodeView extends Sprite
 			startNameEditing();
 			return;
 		}
-// Otherwise — existing logic (open Assembly)
+		// Otherwise — existing logic (open Assembly)
 		e.stopPropagation();
 		if (Std.isOfType(atom, Assembly))
 		{
@@ -712,6 +866,7 @@ class NodeView extends Sprite
 		}
 		trace('NodeView: Double-click on simple atom ${atom.id} (ignored)');
 	}
+
 	private function onClick(e:MouseEvent):Void
 	{
 		if (Std.isOfType(e.target, Sprite))
@@ -723,30 +878,122 @@ class NodeView extends Sprite
 		Impulsys.quickEmit(EventType.NODE_CLICKED, { view: this, id: nodeId, ctrlKey: e.ctrlKey });
 		e.stopPropagation();
 	}
+
 	private function onRightClick(e:MouseEvent):Void
 	{
 		Impulsys.quickEmit(EventType.NODE_RIGHT_CLICKED, { view: this, id: nodeId, x: e.stageX, y: e.stageY });
 		e.stopPropagation();
 	}
+
 	private function onSettingsClick(e:MouseEvent):Void
 	{
 		e.stopPropagation();
 		Impulsys.quickEmit(EventType.ATOM_PROPERTIES_REQUEST, { atom: atom, view: this });
 	}
+
+	// ┌─────────────────────────────────────────────────────────────────────┐
+	// │                     MOUSE_DOWN Event Flow                           │
+	// │                                                                     │
+	// │  User clicks on ButtonWidget._btn                                   │
+	// │                                                                     │
+	// │  ┌───────────────────────────────────────────────────────────┐      │
+	// │  │ Level 3: DeviceView.onWidgetMouseDown()                   │      │
+	// │  │   → e.stopPropagation()                                   │      │
+	// │  │   → Event STOPS here ✓                                    │      │
+	// │  └───────────────────────────────────────────────────────────┘      │
+	// │                                                                     │
+	// │  If Level 3 somehow missed (e.g., direct TextField click):          │
+	// │                                                                     │
+	// │  ┌───────────────────────────────────────────────────────────┐      │
+	// │  │ Level 2: InlineParameterEditor.onInputMouseDown()         │      │
+	// │  │   → e.stopPropagation()                                   │      │
+	// │  │   → Event STOPS here ✓                                    │      │
+	// │  └───────────────────────────────────────────────────────────┘      │
+	// │                                                                     │
+	// │  If Levels 2+3 both missed (shouldn't happen, but just in case):    │
+	// │                                                                     │
+	// │  ┌───────────────────────────────────────────────────────────┐      │
+	// │  │ Level 1: NodeView.onMouseDown()                           │      │
+	// │  │   → isInteractiveTarget(e.target)                         │      │
+	// │  │   → walks up: TextField? DeviceView? InlineEditor?        │      │
+	// │  │   → found DeviceView → return (NO DRAG) ✓                 │      │
+	// │  └───────────────────────────────────────────────────────────┘      │
+	// │                                                                     │
+	// │  Result: Node NEVER drags when clicking interactive elements ✓      │
+	// └─────────────────────────────────────────────────────────────────────┘
 	/**
-	* v3.3: Mouse-down handler with name editing protection.
-	*/
+	 * v3.4: Mouse-down handler with full interactive element protection.
+	 *
+	 * Order of guards:
+	 *   1. Name editing in progress
+	 *   2. Interactive element (widget / inline editor / input field)
+	 *   3. Port click
+	 *   4. Settings button click
+	 *   5. → Start drag
+	 *
+	 * ─────────────────────────────────────────────────────────────────────
+	 * Scenario 1: User clicks on TextField inside TextInputWidget
+	 * ─────────────────────────────────────────────────────────────────────
+	 *
+	 *	User clicks on TextField inside TextInputWidget
+	 *		│
+	 *		▼
+	 *	onMouseDown() is called on NodeView
+	 *		│
+	 *		├── Guard 1: _isEditingName? → NO
+	 *		│
+	 *		├── Guard 2: isInteractiveTarget(TextField)?
+	 *		│       │
+	 *		│       ├── current = TextField → not DeviceView, not InlineEditor
+	 *		│       │   but tf.type == INPUT → return TRUE ✓
+	 *		│       │
+	 *		│       └── onMouseDown() → return (NO DRAG!) ✓
+	 *		│
+	 *		▼
+	 *	Node does NOT move. TextField receives click normally.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────
+	 * Scenario 2: User clicks on empty node background
+	 * ─────────────────────────────────────────────────────────────────────
+	 *
+	 *	User clicks on node background (empty area)
+	 *		│
+	 *		▼
+	 *	onMouseDown() is called on NodeView
+	 *		│
+	 *		├── Guard 1: _isEditingName? → NO
+	 *		│
+	 *		├── Guard 2: isInteractiveTarget(Background Sprite)?
+	 *		│       │
+	 *		│       ├── current = Sprite → not DeviceView, not InlineEditor
+	 *		│       ├── current = Sprite → not TextField
+	 *		│       ├── current = NodeView (this) → loop ends
+	 *		│       └── return FALSE
+	 *		│
+	 *		├── Guard 3: Port? → NO
+	 *		├── Guard 4: Settings? → NO
+	 *		│
+	 *		└── → Start drag ✓ (node is being dragged)
+	 */
 	private function onMouseDown(e:MouseEvent):Void
 	{
-// === v3.3: Don't start drag if editing name ===
+		// === Guard 1: Name editing in progress ===
 		if (_isEditingName) return;
-// Check 1: Port click
+		
+		// === Guard 2 (v3.4): Interactive element ===
+		// Prevents node drag when user clicks on widgets (ButtonWidget,
+		// TextInputWidget, ToggleWidget, etc.) or InlineParameterEditors.
+		if (isInteractiveTarget(cast e.target)) return;
+		
+		// === Guard 3: Port click ===
 		if (Std.isOfType(e.target, Sprite))
 		{
 			var target:Sprite = cast e.target;
-			if (inputPorts.exists(target.name) || outputPorts.exists(target.name)) return;
+			if (inputPorts.exists(target.name) || outputPorts.exists(target.name))
+				return;
 		}
-// Check 2: Settings button click
+		
+		// === Guard 4: Settings button click ===
 		var targetObj:DisplayObject = cast e.target;
 		while (targetObj != null && targetObj != this)
 		{
@@ -757,7 +1004,8 @@ class NodeView extends Sprite
 			}
 			targetObj = targetObj.parent;
 		}
-// Check 3: Start drag
+		
+		// === All guards passed → Start drag ===
 		_dragOffsetX = e.localX;
 		_dragOffsetY = e.localY;
 		if (parent != null) parent.addChild(this);
@@ -768,6 +1016,7 @@ class NodeView extends Sprite
 		}
 		e.stopPropagation();
 	}
+
 	private function onMouseMoveDrag(e:MouseEvent):Void
 	{
 		var parentPos = parent.globalToLocal(new Point(e.stageX, e.stageY));
@@ -783,6 +1032,7 @@ class NodeView extends Sprite
 			Impulsys.quickEmit(EventType.EDITOR_NODE_MOVED, { id: this.nodeId, view: this, dx: dx, dy: dy });
 		}
 	}
+
 	private function onMouseUpDrag(e:MouseEvent):Void
 	{
 		if (stage != null)
@@ -792,6 +1042,7 @@ class NodeView extends Sprite
 		}
 		Impulsys.quickEmit(EventType.NODE_DRAG_FINISHED, { view: this, id: nodeId });
 	}
+
 	private function onMouseUp(e:MouseEvent):Void
 	{
 		if (!_isDragging) return;
@@ -800,6 +1051,7 @@ class NodeView extends Sprite
 		if (stage != null) stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
 		Impulsys.quickEmit(EventType.NODE_DRAG_FINISHED, { view: this, id: nodeId });
 	}
+
 // =========================================================================
 // INLINE NAME EDITING (v3.3)
 // =========================================================================
@@ -811,9 +1063,9 @@ class NodeView extends Sprite
 	{
 		if (_isEditingName) return;
 		_isEditingName = true;
-// Hide title label
+		// Hide title label
 		_titleLabel.visible = false;
-// Create input field lazily (first time only)
+		// Create input field lazily (first time only)
 		if (_nameInput == null)
 		{
 			_nameInput = new TextField();
@@ -835,7 +1087,7 @@ class NodeView extends Sprite
 			_nameInput.addEventListener(FocusEvent.FOCUS_OUT, onNameFocusOut);
 			_titleBar.addChild(_nameInput);
 		}
-// Populate with current name and show
+		// Populate with current name and show
 		_nameInput.text = atom.displayName;
 		_nameInput.visible = true;
 		_nameInput.borderColor = 0x00AAFF; // Reset border color
@@ -843,6 +1095,7 @@ class NodeView extends Sprite
 		if (stage != null) stage.focus = _nameInput;
 		trace('NodeView: Started name editing for "${atom.displayName}"');
 	}
+
 	/**
 	* Finish name editing — apply the new name.
 	* Checks uniqueness via parent Assembly.
@@ -852,26 +1105,26 @@ class NodeView extends Sprite
 		if (!_isEditingName) return;
 		_isEditingName = false;
 		var newName = StringTools.trim(_nameInput.text);
-// Empty name — revert
+		// Empty name — revert
 		if (newName.length == 0)
 		{
 			cancelNameEditing();
 			return;
 		}
-// Same name — just close
+		// Same name — just close
 		if (newName == atom.displayName)
 		{
 			_nameInput.visible = false;
 			_titleLabel.visible = true;
 			return;
 		}
-// === Uniqueness check ===
+		// === Uniqueness check ===
 		if (_parentAssembly != null && _parentAssembly.hasAtomWithName(newName, atom.id))
 		{
-// Name conflict — visual feedback
+			// Name conflict — visual feedback
 			trace('NodeView: Name "$newName" already exists in assembly!');
 			_nameInput.borderColor = 0xFF3333;
-// Flash red for 1 second, then revert
+			// Flash red for 1 second, then revert
 			haxe.Timer.delay(function()
 			{
 				if (_nameInput != null)
@@ -879,19 +1132,20 @@ class NodeView extends Sprite
 					_nameInput.borderColor = 0x00AAFF;
 				}
 			}, 1000);
-// Keep editing — don't apply
+			// Keep editing — don't apply
 			_isEditingName = true; // Re-set so user can continue editing
 			return;
 		}
-// === Apply new name ===
+		// === Apply new name ===
 		atom.displayName = newName;
 		_titleLabel.text = newName;
 		_nameInput.visible = false;
 		_titleLabel.visible = true;
-// Save project
+		// Save project
 		Impulsys.quickEmit(EventType.VALUE_COMMITTED);
 		trace('NodeView: Renamed atom to "$newName"');
 	}
+
 	/**
 	* Cancel name editing — revert to original name.
 	*/
@@ -904,13 +1158,14 @@ class NodeView extends Sprite
 		}
 		_titleLabel.visible = true;
 	}
+
 	/**
 	* Handle keyboard events during name editing.
 	* ENTER → apply, ESCAPE → cancel.
 	*/
 	private function onNameKeyDown(e:KeyboardEvent):Void
 	{
-// Prevent global shortcuts (D, E, etc.) while editing
+		// Prevent global shortcuts (D, E, etc.) while editing
 		e.stopImmediatePropagation();
 		if (e.keyCode == Keyboard.ENTER)
 		{
@@ -923,6 +1178,7 @@ class NodeView extends Sprite
 			if (stage != null) stage.focus = null;
 		}
 	}
+
 	/**
 	* Handle focus-out during name editing.
 	* Small delay to allow ENTER key to process first.
@@ -937,6 +1193,7 @@ class NodeView extends Sprite
 			}
 		}, 50);
 	}
+
 // =========================================================================
 // PORT INTERACTION
 // =========================================================================
@@ -949,12 +1206,14 @@ class NodeView extends Sprite
 			nodeId: nodeId, contactName: contactName, isInput: isInput, startX: globalPos.x, startY: globalPos.y
 		});
 	}
+
 	private function onPortRightClick(contactName:String, isInput:Bool, e:MouseEvent):Void
 	{
 		Impulsys.quickEmit(EventType.PORT_RIGHT_CLICKED, {
 			nodeId: nodeId, contactName: contactName, isInput: isInput, x: e.stageX, y: e.stageY
 		});
 	}
+
 // =========================================================================
 // POSITION
 // =========================================================================
@@ -964,6 +1223,7 @@ class NodeView extends Sprite
 		this.y = y;
 		ECS.updatePosition(nodeId, x, y);
 	}
+
 	public function getPortPosition(contactName:String): {x:Float, y:Float}
 	{
 		var port = inputPorts.get(contactName);
@@ -972,6 +1232,7 @@ class NodeView extends Sprite
 		var global = port.localToGlobal(new Point(0, 0));
 		return {x: global.x, y: global.y};
 	}
+
 	public function getWirePoint(contactName:String, isInput:Bool): {x:Float, y:Float}
 	{
 		var ports = isInput ? inputPorts : outputPorts;
@@ -986,6 +1247,7 @@ class NodeView extends Sprite
 		var global = localToGlobal(new Point(x, y));
 		return {x: global.x, y: global.y};
 	}
+
 // =========================================================================
 // ASSEMBLY SYNC (v3.0)
 // =========================================================================
@@ -995,13 +1257,17 @@ class NodeView extends Sprite
 		{
 			trace('NodeView: Ports changed event received for ${atom.displayName}. Rebuilding layout.');
 			updateLayout();
-			updateInlineEditorsVisibility();
+			//updateInlineEditorsVisibility();
+			alignInlineEditors();
 		}
 	}
+	
 	private function onWiresRedrawn(impulse:Impulse):Void
 	{
-		updateInlineEditorsVisibility();
+		//updateInlineEditorsVisibility();
+		alignInlineEditors();
 	}
+
 // =========================================================================
 // DISPOSE
 // =========================================================================
@@ -1018,7 +1284,7 @@ class NodeView extends Sprite
 		{
 			_settingsButton.removeEventListener(MouseEvent.CLICK, onSettingsClick);
 		}
-// === v3.3: Clean up inline name editor ===
+		// === v3.3: Clean up inline name editor ===
 		if (_nameInput != null)
 		{
 			_nameInput.removeEventListener(KeyboardEvent.KEY_DOWN, onNameKeyDown);

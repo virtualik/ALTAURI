@@ -165,6 +165,15 @@ class TextInputWidget extends DeviceView
         }
     }
 
+	/**
+	* Rescue uncommitted text from the TextField into the Atom's Contact
+	* before the widget is detached from the display list.
+	*/
+	override private function flushTransientState():Void
+	{
+		pushValue();
+	}
+
     override private function onContactChanged(contact:Contact, newValue:Dynamic):Void 
     {
         // React to changes in "set" or "out" contact

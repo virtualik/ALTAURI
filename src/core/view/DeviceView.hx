@@ -1,4 +1,5 @@
 package core.view;
+import flash.events.MouseEvent;
 import openfl.display.Sprite;
 import openfl.events.Event;
 import core.base.Atom;
@@ -27,10 +28,10 @@ import core.data.Blueprint.ParameterPriority;
 * │        ▼                     ▼                     ▼                    │
 * │   A) COMPUTE            B) DATABANK           C) FACE                   │
 * │   (processing)          (data)                (DeviceView)              │
-* │                                                  │                      │
-* │                   DeviceView reads from Atom     │                      │
-* │                   DeviceView writes to Atom      │                      │
-* │                   DeviceView DOES NOT store state│                      │
+* │                                                    │                    │
+* │                   DeviceView reads from Atom       │                    │
+* │                   DeviceView writes to Atom        │                    │
+* │                   DeviceView DOES NOT store state  │                    │
 * └─────────────────────────────────────────────────────────────────────────┘
 *
 * ═══════════════════════════════════════════════════════════════════════════
@@ -147,6 +148,8 @@ class DeviceView extends Sprite
 // Subclass hook
 		onActivate();
 		_isActivating = false;
+// v3.4: Prevent NodeView drag when interacting with this widget
+		addMouseIsolation();
 	}
 	/**
 	* Deactivate the view.
@@ -161,11 +164,17 @@ class DeviceView extends Sprite
 	public function deactivate():Void
 	{
 		if (!isActive || isDisposed) return;
+		
+		 // 1. RESCUE DATA: Push uncommitted UI state to the Databank
+		flushTransientState(); 
+		
 		isActive = false;
 // Unsubscribe from all contacts
 		unsubscribeFromContacts();
 // Subclass hook
 		onDeactivate();
+// v3.4: Remove mouse isolation before deactivation
+		removeMouseIsolation();
 	}
 	/**
 	* Called after activation.
@@ -183,6 +192,61 @@ class DeviceView extends Sprite
 	{
 // Override me
 	}
+	
+// =========================================================================
+// MOUSE EVENT ISOLATION (v3.4)
+// =========================================================================
+
+	/**
+	 * v3.4: Called during activate(). Adds mouse-down listener that stops
+	 * event propagation, preventing the parent NodeView from starting
+	 * a drag operation when the user interacts with this widget.
+	 *
+	 * This ensures ALL widgets (Button, Toggle, TextInput, Oscilloscope,
+	 * TextWidget, etc.) are automatically protected without each widget
+	 * needing its own stopPropagation logic.
+	 */
+	private function addMouseIsolation():Void
+	{
+		addEventListener(MouseEvent.MOUSE_DOWN, onWidgetMouseDown);
+	}
+
+	/**
+	 * v3.4: Called during deactivate(). Removes mouse-down isolation listener.
+	 */
+	private function removeMouseIsolation():Void
+	{
+		removeEventListener(MouseEvent.MOUSE_DOWN, onWidgetMouseDown);
+	}
+
+	/**
+	 * v3.4: Stops MOUSE_DOWN from bubbling up to NodeView.
+	 * This is REDUNDANT with NodeView.isInteractiveTarget() but provides
+	 * defense-in-depth and also prevents any intermediate containers
+	 * from reacting to the click.
+	 */
+	private function onWidgetMouseDown(e:MouseEvent):Void
+	{
+		e.stopPropagation();
+	}
+	
+	
+	/**
+	* HOOK: Flush transient UI state to the Model (Databank).
+	* 
+	* Called automatically right before the widget unsubscribes from contacts
+	* and goes offline (e.g., when moving between NodeView and DevicePanel).
+	* 
+	* Subclasses with interactive inputs (TextFields, Sliders) MUST override this
+	* to push their current uncommitted UI state into the Atom's Contacts.
+	* This prevents data loss when the View is detached from the display list.
+	*/
+	private function flushTransientState():Void
+	{
+		// Base implementation does nothing.
+// Override in TextInputWidget, ComPortWidget, etc.
+	}
+
 // =========================================================================
 // CONTACT SUBSCRIPTION
 // =========================================================================
