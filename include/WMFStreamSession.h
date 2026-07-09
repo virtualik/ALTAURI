@@ -14,6 +14,7 @@
 
 #include <mfapi.h>
 #include <mfidl.h>
+#include <mferror.h>
 #include <shlwapi.h>
 #include <string>
 #include <atomic>
@@ -35,6 +36,26 @@
     fflush(stdout); \
 } while(0)
 
+/**
+ * WMF STREAM SESSION v2.3 (Reconnect Loop Fix)
+ *
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │  v2.3 CHANGES:                                                         │
+ * │                                                                         │
+ * │  1. Play() resets _connectionLost, _bufferingTimeout, _bufferingStartTime│
+ * │     at the START of new playback. Without this, stale flags from a      │
+ * │     previous session cause pollSessionState() to immediately trigger     │
+ * │     startReconnect() right after a successful Play().                    │
+ * │                                                                         │
+ * │  2. MESessionClosed resets _bufferingStartTime to 0.                    │
+ * │     Without this, CheckBufferingTimeout() can fire on a stale timestamp │
+ * │     from a previous session, causing false-positive timeout.             │
+ * │                                                                         │
+ * │  3. MESessionEnded clears _currentUrl BEFORE setting _connectionLost.   │
+ * │     This prevents CheckAndResetConnectionLost() from firing on a URL    │
+ * │     that was intentionally stopped by the user.                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ */
 class WMFStreamSession : public IMFAsyncCallback {
 public:
     enum class State {
@@ -53,6 +74,12 @@ private:
     IMFMediaSource*             _source;
     IMFPresentationDescriptor*  _presDesc;
 
+// =========================================================================
+// v2.2: CONNECTION MONITORING & RECONNECT SUPPORT
+// =========================================================================
+    std::atomic<bool> _connectionLost;
+    std::atomic<bool> _bufferingTimeout;
+    std::atomic<int>  _bufferingStartTime;
 
     ULONG       _refCount;
     std::mutex  _mutex;
@@ -131,11 +158,6 @@ private:
         MF_OBJECT_TYPE objectType = MF_OBJECT_INVALID;
         IUnknown* sourceUnknown = nullptr;
 
-        // ═══════════════════════════════════════════════════════════════════
-        // v2.1 FIX: Removed MF_RESOLUTION_CONTENT_DOES_NOT_HAVE_TO_MATCH_EXTENSION_OR_MIME
-        // This flag is only available in Windows SDK 10.0.17763+ (Windows 10 1809+).
-        // MF_RESOLUTION_MEDIASOURCE | MF_RESOLUTION_READ is sufficient for HTTP streams.
-        // ═══════════════════════════════════════════════════════════════════
         DWORD dwResolutionFlags =
             MF_RESOLUTION_MEDIASOURCE |
             MF_RESOLUTION_READ;
@@ -167,6 +189,14 @@ private:
         if (objectType != MF_OBJECT_MEDIASOURCE) {
             WMF_LOG("⚠️ [WMF] Warning: objectType=%d (expected MF_OBJECT_MEDIASOURCE=%d)\n",
                    (int)objectType, (int)MF_OBJECT_MEDIASOURCE);
+            // v2.3 FIX: If objectType is not MEDIASOURCE, release and fail
+            // objectType=2 means BYTESTREAM — server returned data but not a media source
+            // This happens when server is down or URL is invalid
+            sourceUnknown->Release();
+            _lastError = MF_E_UNSUPPORTED_FORMAT;
+            _errorMessage = "Not a media source (objectType=" + std::to_string((int)objectType) + ")";
+            _state.store(State::ERR);
+            return false;
         }
 
         hr = sourceUnknown->QueryInterface(IID_PPV_ARGS(&_source));
@@ -274,12 +304,6 @@ private:
                             IMFTopologyNode* sinkNode = nullptr;
                             hr = MFCreateTopologyNode(MF_TOPOLOGY_OUTPUT_NODE, &sinkNode);
                             if (SUCCEEDED(hr) && sinkNode) {
-                                // ═════════════════════════════════════════════════════════════
-                                // v2.1 FIX: Use SetObject() instead of SetUnknown(MF_TOPONODE_ACTIVATE,...)
-                                // MF_TOPONODE_ACTIVATE GUID is only available in Windows SDK 10.0.17763+.
-                                // SetObject() with IMFActivate* is the standard approach that works
-                                // on all supported Windows versions (7, 8, 10, 11).
-                                // ═════════════════════════════════════════════════════════════
                                 sinkNode->SetObject(audioActivate);
                                 sinkNode->SetUINT32(MF_TOPONODE_STREAMID, 0);
                                 sinkNode->SetUINT32(MF_TOPONODE_PRIMARYOUTPUT, TRUE);
@@ -339,6 +363,9 @@ public:
         , _lastError(S_OK)
         , _volume(1.0f)
         , _mfInitialized(false)
+        , _connectionLost(false)
+        , _bufferingTimeout(false)
+        , _bufferingStartTime(0)
     {
         WMF_LOG("🎵 [WMF] WMFStreamSession constructor\n");
 
@@ -431,6 +458,8 @@ public:
                 WMF_LOG("✅✅✅ [WMF] EVENT: MESessionStarted — PLAYING! hr=0x%lX\n", (unsigned long)hrEvent);
                 _state.store(State::PLAYING);
                 _isBuffering.store(false);
+                // v2.3 FIX: Clear connection lost flag on successful start
+                _connectionLost.store(false);
                 break;
 
             case MESessionStopped:
@@ -440,21 +469,33 @@ public:
             case MESessionClosed:
                 WMF_LOG("🔒 [WMF] EVENT: MESessionClosed — session fully stopped\n");
                 _state.store(State::IDLE);
+                // v2.3 FIX: Reset buffering timer on close to prevent
+                // stale timestamp from triggering false timeout on next session
+                _bufferingStartTime.store(0);
                 break;
 
             case MESessionEnded:
                 WMF_LOG("🏁 [WMF] EVENT: MESessionEnded\n");
                 _state.store(State::IDLE);
+                // v2.3 FIX: Signal connection loss only if we had a URL
+                // (i.e., this wasn't an intentional stop)
+                if (_currentUrl.length() > 0) {
+                    _connectionLost.store(true);
+                    _errorMessage = "Stream ended unexpectedly";
+                }
                 break;
 
             case MEBufferingStarted:
                 WMF_LOG("⏳ [WMF] EVENT: MEBufferingStarted\n");
                 _isBuffering.store(true);
+                _bufferingStartTime.store(GetTickCount());
+                _bufferingTimeout.store(false);
                 break;
 
             case MEBufferingStopped:
                 WMF_LOG("✅ [WMF] EVENT: MEBufferingStopped\n");
                 _isBuffering.store(false);
+                _bufferingStartTime.store(0);
                 break;
 
             case MEError:
@@ -462,6 +503,7 @@ public:
                 _lastError = hrEvent;
                 _errorMessage = "Media Foundation error: 0x" + std::to_string(hrEvent);
                 _state.store(State::ERR);
+                _connectionLost.store(true);
                 break;
 
             case MESourceStarted:
@@ -500,6 +542,16 @@ public:
             _state.store(State::ERR);
             return false;
         }
+
+        // ═════════════════════════════════════════════════════════════════
+        // v2.3 FIX: Reset ALL reconnect flags at start of new playback.
+        // Without this, stale flags from a previous failed session cause
+        // pollSessionState() to immediately trigger startReconnect()
+        // right after a successful Play(), creating an infinite loop.
+        // ═════════════════════════════════════════════════════════════════
+        _connectionLost.store(false);
+        _bufferingTimeout.store(false);
+        _bufferingStartTime.store(0);
 
         if (_state.load() == State::PLAYING && _currentUrl == url) {
             WMF_LOG("🎵 [WMF] Already playing same URL, resuming...\n");
@@ -558,12 +610,9 @@ public:
         return true;
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
+    // ═════════════════════════════════════════════════════════════════════
     // v2.0 SYNCHRONOUS STOP
-    // ═════════════════════════════════════════════════════════════════════════
-    // MF's Stop() and Close() are ASYNCHRONOUS. We MUST wait for MESessionClosed
-    // before calling TeardownSession(), otherwise zombie sessions block audio device.
-    // ═════════════════════════════════════════════════════════════════════════
+    // ═════════════════════════════════════════════════════════════════════
     void Stop() {
         WMF_LOG("🎵 [WMF] Stop() called\n");
 
@@ -583,17 +632,15 @@ public:
             WMF_LOG("🎵 [WMF] Calling _session->Close()...\n");
             _session->Close();
 
-            // UNLOCK mutex so Invoke() (on MF thread) can process MESessionClosed
             lock.unlock();
 
-            // Spin-wait for MESessionClosed (max 1 second)
-            int timeout = 100;
+            int timeout = 20;
             while (_state.load() == State::STOPPING && timeout-- > 0) {
                 Sleep(10);
             }
 
             if (timeout <= 0) {
-                WMF_LOG("⚠️ [WMF] Stop() TIMEOUT — MESessionClosed not received in 1s\n");
+                WMF_LOG("⚠️ [WMF] Stop() TIMEOUT — MESessionClosed not received in 200ms\n");
             } else {
                 WMF_LOG("✅ [WMF] Stop() — MESessionClosed received after %d ms\n",
                        (100 - timeout) * 10);
@@ -605,7 +652,13 @@ public:
         TeardownSession();
         _state.store(State::IDLE);
         _isBuffering.store(false);
+        // v2.3 FIX: Clear URL on stop so MESessionEnded won't
+        // trigger _connectionLost for intentional stops
         _currentUrl.clear();
+        // v2.3 FIX: Reset reconnect flags on intentional stop
+        _connectionLost.store(false);
+        _bufferingTimeout.store(false);
+        _bufferingStartTime.store(0);
 
         WMF_LOG("✅ [WMF] Stop() complete — session fully torn down\n");
     }
@@ -642,6 +695,58 @@ public:
         std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(_mutex));
         return _errorMessage;
     }
+
+    // =========================================================================
+    // v2.2: RECONNECT SUPPORT API
+    // =========================================================================
+
+    bool CheckAndResetConnectionLost() {
+        return _connectionLost.exchange(false);
+    }
+
+    bool CheckBufferingTimeout(DWORD timeoutMs = 15000) {
+        if (!_isBuffering.load()) return false;
+        int startTime = _bufferingStartTime.load();
+        if (startTime == 0) return false;
+        DWORD elapsed = GetTickCount() - (DWORD)startTime;
+        if (elapsed > timeoutMs) {
+            _bufferingTimeout.store(true);
+            _errorMessage = "Buffering timeout (" + std::to_string(timeoutMs/1000) + "s)";
+            return true;
+        }
+        return false;
+    }
+
+    bool CheckAndResetBufferingTimeout() {
+        return _bufferingTimeout.exchange(false);
+    }
+
+    std::string GetStateString() const {
+        switch (_state.load()) {
+            case State::IDLE:       return "IDLE";
+            case State::CONNECTING: return "CONNECTING";
+            case State::PLAYING:    return "PLAYING";
+            case State::STOPPING:   return "STOPPING";
+            case State::ERR:        return "ERROR";
+            default:                return "UNKNOWN";
+        }
+    }
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// CLEANUP: Undefine aggressive Windows macros
+// ═══════════════════════════════════════════════════════════════════════════
+#ifdef ERROR
+#undef ERROR
 #endif
+#ifdef interface
+#undef interface
+#endif
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+
+#endif  // #ifdef _WIN32

@@ -60,55 +60,6 @@ import system.managers.DriverManager;
 static std::map<void*, WMFStreamSession*> _urlaudio_sessions;
 static std::mutex _urlaudio_sessions_mutex;
 ')
-/**
- * URL AUDIO STREAM PLAYER ATOM v1.3 (Reconnect Loop Fix)
- *
- * ┌─────────────────────────────────────────────────────────────────────────┐
- * │  v1.3 CHANGES (fixes infinite reconnect loop):                         │
- * │                                                                         │
- * │  ROOT CAUSE: executeReconnect() did NOT set _reconnectTimer after      │
- * │  a failed Play(). So on the next frame, _reconnectTimer was still      │
- * │  <= 0, and executeReconnect() was called again — infinite loop.        │
- * │                                                                         │
- * │  FIX 1: executeReconnect() now sets _reconnectTimer after failure:     │
- * │    • Play() == true  → _reconnectAttempts = 0, wait for PLAYING       │
- * │    • Play() == false → _reconnectAttempts++, set exponential delay     │
- * │    • attempts > MAX  → stop reconnecting, show error                   │
- * │                                                                         │
- * │  FIX 2: pollSessionState() no longer calls startReconnect() if         │
- * │  _isReconnecting is already true (prevents double-triggering).         │
- * │                                                                         │
- * │  FIX 3: startReconnect() resets _connectionLost flag via C++ before    │
- * │  scheduling, preventing stale flag from re-triggering.                 │
- * └─────────────────────────────────────────────────────────────────────────┘
- *
- * RECONNECT FLOW:
- * ┌─────────────────────────────────────────────────────────────────────────┐
- * │                                                                         │
- * │  MEError / BufferingTimeout                                            │
- * │       │                                                                 │
- * │       ▼                                                                 │
- * │  pollSessionState() detects connectionLost                              │
- * │       │                                                                 │
- * │       ▼                                                                 │
- * │  startReconnect():                                                      │
- * │    _isReconnecting = true                                               │
- * │    _reconnectAttempts = 1                                               │
- * │    _reconnectTimer = ~1.0s (exponential backoff)                        │
- * │       │                                                                 │
- * │       ▼  (after timer expires)                                          │
- * │  executeReconnect():                                                    │
- * │    Stop() + Play(url)                                                   │
- * │       │                                                                 │
- * │       ├── Play() == true  → _reconnectAttempts = 0                     │
- * │       │     Wait for MESessionStarted (pollSessionState checks)         │
- * │       │                                                                 │
- * │       └── Play() == false → _reconnectAttempts++                       │
- * │             _reconnectTimer = ~2.0s (next attempt)                     │
- * │             If attempts > 10 → give up                                 │
- * │                                                                         │
- * └─────────────────────────────────────────────────────────────────────────┘
- */
 class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 {
     private var _lastUrl:String = "";
@@ -120,10 +71,8 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
     private var _lastError:String = "";
     private var _lastStateInt:Int = 0;
 
-// =========================================================================
-// v1.2: AUTO-RECONNECT STATE
-// =========================================================================
     private var _isReconnecting:Bool = false;
+    private var _waitingForPlaying:Bool = false; // НОВЫЙ ФЛАГ: ожидаем ответа от асинхронного Play()
     private var _reconnectAttempts:Int = 0;
     private var _reconnectTimer:Float = 0.0;
     private static inline var MAX_RECONNECT_ATTEMPTS:Int = 10;
@@ -168,8 +117,9 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
         readInputs();
         pollSessionState();
 
-        // === v1.2: RECONNECT TIMER MANAGEMENT ===
-        if (_isReconnecting)
+        // === RECONNECT TIMER MANAGEMENT ===
+        // Таймер тикает ТОЛЬКО если мы не ждем завершения асинхронного Play()
+        if (_isReconnecting && !_waitingForPlaying)
         {
             _reconnectTimer -= dt;
             if (_reconnectTimer <= 0)
@@ -342,28 +292,51 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
         ', this, cppPlaying, cppBuffering, cppError, cppState,
            cppConnectionLost, cppBufferingTimeout, Std.int(BUFFERING_TIMEOUT_SEC * 1000));
 
-        // ═════════════════════════════════════════════════════════════════
-        // v1.3 FIX: DETECT CONNECTION LOSS
-        // Only trigger startReconnect if:
-        //   1. Connection was lost OR buffering timed out
-        //   2. User wants playback (_lastPlayCtrl == true)
-        //   3. We are NOT already reconnecting (prevents double-trigger)
-        // ═════════════════════════════════════════════════════════════════
+        // 1. INITIAL CONNECTION LOSS DETECTION
         if ((cppConnectionLost || cppBufferingTimeout) && _lastPlayCtrl && !_isReconnecting)
         {
             trace('🔌 URLAudioStreamPlayer: Connection lost detected! Starting reconnect...');
             startReconnect(cppError);
         }
 
-        // ═════════════════════════════════════════════════════════════════
-        // v1.3 FIX: DETECT SUCCESSFUL RECONNECT
-        // Only clear reconnect state if we were reconnecting AND
-        // the C++ state is PLAYING (MESessionStarted received)
-        // ═════════════════════════════════════════════════════════════════
+        // 2. FAILED RECONNECT (Play() was called, but stream failed or timed out)
+        if (_waitingForPlaying && (cppConnectionLost || cppBufferingTimeout))
+        {
+            trace('⏳ URLAudioStreamPlayer: Play() accepted, but failed to reach PLAYING. Scheduling retry...');
+            _waitingForPlaying = false; // Отключаем ожидание, снова запускаем таймер
+            _reconnectAttempts++;
+
+            if (_reconnectAttempts > MAX_RECONNECT_ATTEMPTS)
+            {
+                trace('❌ URLAudioStreamPlayer: Max reconnect attempts ($MAX_RECONNECT_ATTEMPTS) reached. Giving up.');
+                _isReconnecting = false;
+                _reconnectTimer = 0;
+
+                var errC = getOutput("error");
+                if (errC != null) { errC.setValueSilent("Connection lost. Max retries exceeded."); errC.propagateCurrentValue(); }
+                var stateC = getOutput("state");
+                if (stateC != null) { stateC.setValueSilent(4); stateC.propagateCurrentValue(); }
+                return;
+            }
+
+            var delay = BASE_RECONNECT_DELAY * Math.pow(2, _reconnectAttempts - 1);
+            if (delay > MAX_RECONNECT_DELAY) delay = MAX_RECONNECT_DELAY;
+            var jitter = delay * 0.2 * (Math.random() * 2 - 1);
+            delay += jitter;
+            _reconnectTimer = delay;
+
+            trace('🔄 Next attempt in ${Math.round(delay * 10) / 10}s (attempt $_reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)');
+            
+            var errC = getOutput("error");
+            if (errC != null) { errC.setValueSilent('Reconnecting ($_reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)...'); errC.propagateCurrentValue(); }
+        }
+
+        // 3. SUCCESSFUL RECONNECT
         if (_isReconnecting && cppPlaying && cppState == 2)
         {
             trace('✅ URLAudioStreamPlayer: Reconnect successful after $_reconnectAttempts attempt(s)');
             _isReconnecting = false;
+            _waitingForPlaying = false;
             _reconnectAttempts = 0;
             _reconnectTimer = 0;
 
@@ -403,14 +376,6 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
         }
     }
 
-    // =========================================================================
-    // v1.3: AUTO-RECONNECT LOGIC (FIXED)
-    // =========================================================================
-
-    /**
-     * Initiate reconnect sequence with exponential backoff.
-     * Called by pollSessionState() when connection loss is detected.
-     */
     private function startReconnect(errorMsg:String):Void
     {
         if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS)
@@ -419,67 +384,32 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
             _isReconnecting = false;
 
             var errC = getOutput("error");
-            if (errC != null)
-            {
-                errC.setValueSilent("Connection lost. Max retries exceeded.");
-                errC.propagateCurrentValue();
-            }
+            if (errC != null) { errC.setValueSilent("Connection lost. Max retries exceeded."); errC.propagateCurrentValue(); }
             var stateC = getOutput("state");
             if (stateC != null) { stateC.setValueSilent(4); stateC.propagateCurrentValue(); }
             return;
         }
 
         _isReconnecting = true;
+        _waitingForPlaying = false;
         _reconnectAttempts++;
 
         var delay = BASE_RECONNECT_DELAY * Math.pow(2, _reconnectAttempts - 1);
         if (delay > MAX_RECONNECT_DELAY) delay = MAX_RECONNECT_DELAY;
-
         var jitter = delay * 0.2 * (Math.random() * 2 - 1);
         delay += jitter;
-
         _reconnectTimer = delay;
 
         trace('🔄 URLAudioStreamPlayer: Reconnect attempt $_reconnectAttempts/$MAX_RECONNECT_ATTEMPTS in ${Math.round(delay * 10) / 10}s');
 
         var errC = getOutput("error");
-        if (errC != null)
-        {
-            errC.setValueSilent('Connection lost. Reconnecting ($_reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)...');
-            errC.propagateCurrentValue();
-        }
-
+        if (errC != null) { errC.setValueSilent('Connection lost. Reconnecting ($_reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)...'); errC.propagateCurrentValue(); }
         var stateC = getOutput("state");
-        if (stateC != null)
-        {
-            stateC.setValueSilent(3);
-            stateC.propagateCurrentValue();
-        }
-
+        if (stateC != null) { stateC.setValueSilent(3); stateC.propagateCurrentValue(); }
         var bufC = getOutput("isBuffering");
-        if (bufC != null)
-        {
-            bufC.setValueSilent(true);
-            bufC.propagateCurrentValue();
-        }
+        if (bufC != null) { bufC.setValueSilent(true); bufC.propagateCurrentValue(); }
     }
 
-    /**
-     * Execute reconnect attempt: Stop + Play with same URL.
-     *
-     * ═════════════════════════════════════════════════════════════════════
-     * v1.3 FIX: This method now properly handles the result of Play():
-     *
-     *   Play() == true  → Reset counter, wait for MESessionStarted
-     *                      (pollSessionState will detect PLAYING state)
-     *
-     *   Play() == false → Increment counter, set exponential delay
-     *                      for the NEXT attempt. If max reached → give up.
-     *
-     * Without this fix, _reconnectTimer was never set after failure,
-     * causing executeReconnect() to be called every frame (infinite loop).
-     * ═════════════════════════════════════════════════════════════════════
-     */
     private function executeReconnect():Void
     {
         if (_currentUrl == "" || _currentUrl == null)
@@ -488,25 +418,6 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
             _isReconnecting = false;
             _reconnectAttempts = 0;
             _reconnectTimer = 0;
-            return;
-        }
-
-        // v1.3 FIX: Check max attempts BEFORE trying
-        if (_reconnectAttempts > MAX_RECONNECT_ATTEMPTS)
-        {
-            trace('❌ URLAudioStreamPlayer: Max reconnect attempts reached. Giving up.');
-            _isReconnecting = false;
-            _reconnectAttempts = 0;
-            _reconnectTimer = 0;
-
-            var errC = getOutput("error");
-            if (errC != null)
-            {
-                errC.setValueSilent("Connection lost. Max retries exceeded.");
-                errC.propagateCurrentValue();
-            }
-            var stateC = getOutput("state");
-            if (stateC != null) { stateC.setValueSilent(4); stateC.propagateCurrentValue(); }
             return;
         }
 
@@ -522,7 +433,9 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
             if (it != _urlaudio_sessions.end()) session = it->second;
         }
         if (session) {
-            session->Stop();
+            // УБРАНО: session->Stop(); 
+            // Play() сам вызывает TeardownSession(), который быстро и безопасно очищает старую сессию.
+            // Вызов Stop() тут приводил к 1-секундным зависаниям, так как синхронно ждал MESessionClosed.
             std::string url = std::string((const char*){1}.__s);
             bool result = session->Play(url);
             {2} = result;
@@ -533,82 +446,56 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
         }
         ', this, _currentUrl, playResult);
 
-        // ═════════════════════════════════════════════════════════════════
-        // v1.3 FIX: Handle Play() result properly
-        // ═════════════════════════════════════════════════════════════════
         if (playResult)
         {
-            // Play() accepted the URL — reset attempt counter
-            // pollSessionState() will detect MESessionStarted (PLAYING state)
-            // and clear _isReconnecting
-			_isReconnecting = false; 
-            _reconnectAttempts = 0;
-            _reconnectTimer = 0;
+            // Play() вернул true. Это значит WMF принял URL и начал асинхронное подключение.
+            // Мы НЕ сбрасываем _reconnectAttempts и НЕ ставим таймер в 0.
+            // Мы просто переводим класс в режим ожидания.
+            _waitingForPlaying = true; 
             trace('✅ Play() accepted, waiting for PLAYING state...');
-
-            var errC = getOutput("error");
-            if (errC != null)
-            {
-                errC.setValueSilent("Connecting...");
-                errC.propagateCurrentValue();
-            }
         }
         else
         {
-            // Play() failed — increment counter and schedule next attempt
+            // Play() сразу вернул false (синхронная ошибка, например DNS не резолвится).
+            // Планируем следующую попытку.
             _reconnectAttempts++;
 
             if (_reconnectAttempts > MAX_RECONNECT_ATTEMPTS)
             {
-                // Max attempts reached — give up
                 trace('❌ URLAudioStreamPlayer: Max reconnect attempts ($MAX_RECONNECT_ATTEMPTS) reached. Giving up.');
                 _isReconnecting = false;
                 _reconnectTimer = 0;
 
                 var errC = getOutput("error");
-                if (errC != null)
-                {
-                    errC.setValueSilent("Connection lost. Max retries exceeded.");
-                    errC.propagateCurrentValue();
-                }
+                if (errC != null) { errC.setValueSilent("Connection lost. Max retries exceeded."); errC.propagateCurrentValue(); }
                 var stateC = getOutput("state");
                 if (stateC != null) { stateC.setValueSilent(4); stateC.propagateCurrentValue(); }
                 return;
             }
 
-            // Calculate next delay with exponential backoff
             var delay = BASE_RECONNECT_DELAY * Math.pow(2, _reconnectAttempts - 1);
             if (delay > MAX_RECONNECT_DELAY) delay = MAX_RECONNECT_DELAY;
-
             var jitter = delay * 0.2 * (Math.random() * 2 - 1);
             delay += jitter;
-
             _reconnectTimer = delay;
 
             trace('⏳ Play() failed. Next attempt in ${Math.round(delay * 10) / 10}s (attempt $_reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)');
 
             var errC = getOutput("error");
-            if (errC != null)
-            {
-                errC.setValueSilent('Reconnecting ($_reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)...');
-                errC.propagateCurrentValue();
-            }
+            if (errC != null) { errC.setValueSilent('Reconnecting ($_reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)...'); errC.propagateCurrentValue(); }
         }
     }
 
-    /**
-     * Cancel pending reconnect (called on URL change or Stop).
-     */
     private function cancelReconnect():Void
     {
         if (_isReconnecting)
         {
             trace('🛑 URLAudioStreamPlayer: Reconnect cancelled');
             _isReconnecting = false;
+            _waitingForPlaying = false;
             _reconnectAttempts = 0;
             _reconnectTimer = 0;
 
-            // Clear error display
             var errC = getOutput("error");
             if (errC != null) { errC.setValueSilent(""); errC.propagateCurrentValue(); }
         }

@@ -219,6 +219,12 @@ class AtomRegistry
 			{name: "isBuffering", type: OUTPUT, dataType: "bool", priority: IMPORTANT, label: "Buffering"},
 			{name: "error", type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
 			{name: "state", type: OUTPUT, dataType: "int", priority: OPTIONAL, label: "State"}
+			// State values:
+			//   0 = IDLE
+			//   1 = CONNECTING
+			//   2 = PLAYING
+			//   3 = RECONNECTING (v1.2)
+			//   4 = ERROR
 		], null, "urlplayer", true, true);
 		
         // =================================================================
