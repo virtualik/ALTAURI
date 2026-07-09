@@ -867,6 +867,38 @@ class NodeView extends Sprite
 		return false;
 	}
 
+/**
+ * v3.4.3: Walks up the display list from event target to this NodeView,
+ * checking if any ancestor is a port sprite (input or output).
+ *
+ * Port sprites contain child elements (hit area, label TextField) that
+ * can become e.target instead of the port itself. This method handles
+ * that by walking up the hierarchy.
+ *
+ * @param target The original event target (e.target)
+ * @return true if the click originated from a port or its children
+ */
+private function isPortTarget(target:DisplayObject):Bool
+{
+    var current:DisplayObject = target;
+    
+    while (current != null && current != this)
+    {
+        if (Std.isOfType(current, Sprite))
+        {
+            var spr:Sprite = cast current;
+            if (spr.name != null && spr.name != "")
+            {
+                if (inputPorts.exists(spr.name) || outputPorts.exists(spr.name))
+                    return true;
+            }
+        }
+        current = current.parent;
+    }
+    
+    return false;
+}
+
 	private function setupInteraction():Void
 	{
 		mouseEnabled = true;
@@ -879,17 +911,25 @@ class NodeView extends Sprite
 		addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
 	}
 
-	/**
-	* v3.3: Double-click handler with name editing support.
-	*
-	* Priority:
-	* 1. If click is on a port → ignore (port handler takes over)
-	* 2. If click is on settings button → ignore
-	* 3. If click is in title bar area → start name editing
-	* 4. Otherwise → open Assembly (if applicable)
-	*/
+/**
+* v3.3: Double-click handler with name editing support.
+*
+* Priority:
+* 1. If click is on a port → ignore (port handler takes over)
+* 2. If click is on settings button → ignore
+* 3. If click is in title bar area → start name editing
+* 4. Otherwise → open Assembly (if applicable)
+*/
 	private function onDoubleClick(e:MouseEvent):Void
 	{
+		// === Guard 0 (v3.4.1): Name editing in progress ===
+		if (_isEditingName) return;
+		
+		// === Guard 1 (v3.4.1): Interactive element ===
+		// Prevents assembly open / name editing when user double-clicks
+		// on a widget or inline editor.
+		if (isInteractiveTarget(cast e.target)) return;
+		
 		// Check if click was on a port
 		if (Std.isOfType(e.target, Sprite))
 		{
@@ -922,20 +962,120 @@ class NodeView extends Sprite
 		trace('NodeView: Double-click on simple atom ${atom.id} (ignored)');
 	}
 
+/**
+* v3.4.2: Click handler with interactive element protection + selection clear.
+*
+* UX Philosophy:
+* - Click on widget/inline editor = interact with widget, CLEAR ALL SELECTION
+* - Click on empty area/title = select the node (deselecting others)
+* - This keeps focus on widget interaction without visual selection noise
+*
+* Guard Logic:
+* - isInteractiveTarget() → clear selection, don't select node
+* - Port clicks → handled by port handlers, no selection change
+* - Name editing → blocks all selection logic
+*
+* Order of guards:
+*   1. Name editing in progress
+*   2. Interactive element → CLEAR SELECTION + return
+*   3. Port click → return (port handler takes over)
+*   4. → Select node + emit NODE_CLICKED
+*/
 	private function onClick(e:MouseEvent):Void
 	{
-		if (Std.isOfType(e.target, Sprite))
+		// === Guard 1: Name editing in progress ===
+		if (_isEditingName) return;
+		
+		// === Guard 2 (v3.4.2): Interactive element → CLEAR SELECTION ===
+		// When clicking on widgets, inline editors, or text input fields:
+		// 1. Signal to deselect ALL nodes (via null view/id)
+		// 2. Do NOT select this node
+		// 3. Stop propagation to prevent other handlers
+		if (isInteractiveTarget(cast e.target))
 		{
-			var target:Sprite = cast e.target;
-			if (inputPorts.exists(target.name) || outputPorts.exists(target.name)) return;
+			// Signal "deselect all" by passing null view/id
+			if (onSelect != null) onSelect(null);
+			Impulsys.quickEmit(EventType.NODE_CLICKED, { view: null, id: null, ctrlKey: e.ctrlKey });
+			e.stopPropagation();
+			return;
 		}
+		
+// === Guard 3 (v3.4.3): Port click → CLEAR SELECTION ===
+		if (isPortTarget(cast e.target))
+		{
+			if (onSelect != null) onSelect(null);
+			Impulsys.quickEmit(EventType.NODE_CLICKED, { view: null, id: null, ctrlKey: e.ctrlKey });
+			e.stopPropagation();
+			return;
+		}
+		
+		// === All guards passed → Select node ===
 		if (onSelect != null) onSelect(this);
 		Impulsys.quickEmit(EventType.NODE_CLICKED, { view: this, id: nodeId, ctrlKey: e.ctrlKey });
 		e.stopPropagation();
 	}
 
+/**
+* v3.4.3: Right-click handler with full protection.
+*
+* Behavior:
+* - Right-click on widget → clear selection, let widget handle context menu
+* - Right-click on port → clear selection, emit PORT_RIGHT_CLICKED
+* - Right-click on empty node area → emit NODE_RIGHT_CLICKED for node context menu
+*/
 	private function onRightClick(e:MouseEvent):Void
 	{
+		// === Guard 1 (v3.4.2): Interactive element → CLEAR SELECTION ===
+		if (isInteractiveTarget(cast e.target))
+		{
+			if (onSelect != null) onSelect(null);
+			Impulsys.quickEmit(EventType.NODE_CLICKED, { view: null, id: null, ctrlKey: false });
+			e.stopPropagation();
+			return;
+		}
+		
+		// === Guard 2 (v3.4.3): Port click → CLEAR SELECTION ===
+		if (isPortTarget(cast e.target))
+		{
+			if (onSelect != null) onSelect(null);
+			Impulsys.quickEmit(EventType.NODE_CLICKED, { view: null, id: null, ctrlKey: false });
+			
+			// Find which port was clicked and emit PORT_RIGHT_CLICKED
+			var current:DisplayObject = cast e.target;
+			while (current != null && current != this)
+			{
+				if (Std.isOfType(current, Sprite))
+				{
+					var spr:Sprite = cast current;
+					if (spr.name != null && spr.name != "")
+					{
+						if (inputPorts.exists(spr.name))
+						{
+							Impulsys.quickEmit(EventType.PORT_RIGHT_CLICKED, {
+								nodeId: nodeId, contactName: spr.name, isInput: true,
+								x: e.stageX, y: e.stageY
+							});
+							e.stopPropagation();
+							return;
+						}
+						if (outputPorts.exists(spr.name))
+						{
+							Impulsys.quickEmit(EventType.PORT_RIGHT_CLICKED, {
+								nodeId: nodeId, contactName: spr.name, isInput: false,
+								x: e.stageX, y: e.stageY
+							});
+							e.stopPropagation();
+							return;
+						}
+					}
+				}
+				current = current.parent;
+			}
+			e.stopPropagation();
+			return;
+		}
+		
+		// === Normal behavior: emit node right-click event ===
 		Impulsys.quickEmit(EventType.NODE_RIGHT_CLICKED, { view: this, id: nodeId, x: e.stageX, y: e.stageY });
 		e.stopPropagation();
 	}
@@ -1040,13 +1180,16 @@ class NodeView extends Sprite
 		// TextInputWidget, ToggleWidget, etc.) or InlineParameterEditors.
 		if (isInteractiveTarget(cast e.target)) return;
 		
-		// === Guard 3: Port click ===
-		if (Std.isOfType(e.target, Sprite))
-		{
-			var target:Sprite = cast e.target;
-			if (inputPorts.exists(target.name) || outputPorts.exists(target.name))
-				return;
-		}
+// === Guard 3 (v3.4.3): Port click → CLEAR SELECTION ===
+// When clicking on a port (to start wire drag), clear all node selection.
+// User is focused on wire creation, not node manipulation.
+	if (isPortTarget(cast e.target))
+	{
+		if (onSelect != null) onSelect(null);
+		Impulsys.quickEmit(EventType.NODE_CLICKED, { view: null, id: null, ctrlKey: e.ctrlKey });
+		e.stopPropagation();
+		return;
+	}
 		
 		// === Guard 4: Settings button click ===
 		var targetObj:DisplayObject = cast e.target;

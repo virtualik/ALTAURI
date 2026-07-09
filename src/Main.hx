@@ -325,6 +325,21 @@ class Main extends Sprite
 
 			_editorContext.push(rootAssembly, true);
 			_editorContext.currentEditor.setViewState(data.view);
+			
+			// === v4.3: Force full redraw after project load ===
+			// WireRenderer and ViewportManager may not have triggered
+			// their initial draw cycle yet. Delay ensures all nodes
+			// are registered in ECS before we redraw.
+			if (_editorContext.currentEditor != null)
+			{
+				haxe.Timer.delay(function()
+				{
+					if (_editorContext.currentEditor != null)
+					{
+						_editorContext.currentEditor.forceFullRedraw();
+					}
+				}, 100);
+			}
 
 			if (data.isOpen)
 			{
@@ -690,6 +705,17 @@ class Main extends Sprite
 			if (_editorContext.currentEditor != null)
 			{
 				_editorContext.currentEditor.restoreAllWidgets();
+				
+				// === v4.3: Force full redraw after mode switch ===
+				// Nodes and wires may be invisible after returning from Device Panel
+				// because Widget deactivation/reactivation doesn't trigger wire rebuild.
+				haxe.Timer.delay(function()
+				{
+					if (_editorContext.currentEditor != null)
+					{
+						_editorContext.currentEditor.forceFullRedraw();
+					}
+				}, 50);
 			}
 		}
 	}

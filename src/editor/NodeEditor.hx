@@ -190,7 +190,11 @@ class NodeEditor extends Sprite
 		);
 
 // Pass reference to setWires method so WireRenderer can update selection
-		_wireRenderer.setSelectionCallback(_selection.setWires);
+		_wireRenderer.setSelectionCallback(function(ids:Array<String>) {
+		_selection.clearNodeSelection();
+		_selection.setWires(ids);
+		_wireRenderer.rebuildAll();
+		});
 
 // Frame
 		_frame = new Sprite();
@@ -233,8 +237,11 @@ class NodeEditor extends Sprite
 		drawFrame();
 		restoreExistingAtoms();
 		_selection.setContext(_assembly, _canvas, getNodeViewById);
-		_wireRenderer.setSelectionCallback(_selection.setWires);
+		_wireRenderer.setSelectionCallback(function(ids:Array<String>) {
+		_selection.clearNodeSelection();
+		_selection.setWires(ids);
 		_wireRenderer.rebuildAll();
+		});
 	}
 
 	private function onResize(e:Event):Void
@@ -390,6 +397,45 @@ class NodeEditor extends Sprite
 		}
 		_wireRenderer.rebuildAll();
 	}
+	
+// =========================================================================
+// FORCED REDRAW (v4.3)
+// =========================================================================
+/**
+* Force complete visual refresh of the editor.
+*
+* Redraws ALL nodes, rebuilds ALL wires, and forces visibility update.
+* Call after:
+*   - Project load (to ensure wires and nodes are visible)
+*   - Mode switch from Device Panel back to Editor
+*   - Any situation where visuals might be stale
+*
+* v4.3: Added to fix invisible nodes/wires after load and mode switch.
+*/
+	public function forceFullRedraw():Void
+	{
+		// 1. Reset visibility throttle timer
+		_lastVisibilityUpdate = 0;
+		
+		// 2. Redraw ALL node views (not just assemblies)
+		for (view in _nodes)
+		{
+			if (view != null)
+			{
+				view.visible = true;  // Force visible
+				view.redraw();
+			}
+		}
+		
+		// 3. Rebuild ALL wires
+		_wireRenderer.rebuildAll();
+		
+		// 4. Force visibility culling update
+		updateVisibility();
+		
+		// 5. Update edge wires (assembly boundary connections)
+		_wireRenderer.updateEdgeWires();
+	}
 
 // =========================================================================
 // WIDGET RESTORATION (v4.1 FIX)
@@ -468,26 +514,66 @@ class NodeEditor extends Sprite
 // =========================================================================
 // SELECTION EVENTS
 // =========================================================================
+/**
+* Handle NODE_CLICKED event from NodeView.
+*
+* v3.4.2: Added support for null view/id to signal "deselect all".
+* This allows widgets to clear selection when clicked without selecting a node.
+*
+* @param impulse Contains {view:NodeView, id:String, ctrlKey:Bool} or {view:null, id:null}
+*/
+	private function onNodeClicked(impulse:Impulse):Void
+	{
+		if (impulse == null || impulse.data == null) return;
+		
+		var data = impulse.data;
+		
+		// === v3.4.2: Handle "deselect all" signal ===
+		// When view/id is null, it means: "clear all selection, don't select anything"
+		// This is emitted when user clicks on a widget/inline editor inside a node
+		if (data.view == null || data.id == null)
+		{
+			_selection.deselectAll();
+			_wireRenderer.rebuildAll();
+			return;
+		}
+		
+		// === Normal behavior: handle node selection ===
+		_selection.handleNodeClick(data.id, data.view, data.ctrlKey);
+	}
+
+/**
+* Handle MOUSE_DOWN on canvas background.
+* Initiates lasso selection (rectangle selection of multiple nodes).
+*
+* @param e Mouse event from _bgHitArea
+*/
 	private function onCanvasMouseDown(e:MouseEvent):Void
 	{
 		var local = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
 		_selection.handleCanvasMouseDown(local.x, local.y);
 	}
 
+/**
+* Handle RIGHT_CLICK on canvas background.
+* Opens context menu for adding atoms.
+*
+* v4.3: Clears ALL selection before showing menu.
+* Right-click on empty canvas = user wants to add new atom,
+* not work with currently selected objects.
+*/
 	private function onCanvasRightClick(e:MouseEvent):Void
 	{
 		e.stopPropagation();
+		
+		// === v4.3: Clear all selection (nodes + wires) ===
+		_selection.deselectAll();
+		_wireRenderer.rebuildAll();
+		
 		Impulsys.quickEmit(EventType.CANVAS_RIGHT_CLICKED, {
 			x: e.stageX,
 			y: e.stageY
 		});
-	}
-
-	private function onNodeClicked(impulse:Impulse):Void
-	{
-		var view:NodeView = impulse.data.view;
-		var ctrl:Bool = impulse.data.ctrlKey;
-		_selection.handleNodeClick(view.nodeId, view, ctrl);
 	}
 
 // =========================================================================

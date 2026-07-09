@@ -135,15 +135,14 @@ class SelectionManager
                 selectNode(nodeId, view);
             }
         }
-        else
-        {
-            // Regular click: select only this node if not already selected
-            if (!_selection.hasNode(nodeId))
-            {
-                deselectAll();
-                selectNode(nodeId, view);
-            }
-        }
+    else
+    {
+        // === v1.1 FIX: Always deselect all others ===
+        // Even if this node is already selected, we must deselect all
+        // other nodes to ensure single-selection on regular click.
+        deselectAll();
+        selectNode(nodeId, view);
+    }
     }
     
     /**
@@ -262,6 +261,25 @@ class SelectionManager
         _selection.clearWires();
     }
     
+/**
+* Clear node selection only (wires remain selected).
+* Used when wire selection changes — nodes should deselect
+* but wire selection is managed separately.
+*/
+	public function clearNodeSelection():Void
+	{
+		for (id in _selection.getNodeIds())
+		{
+			var view = _getNodeView(id);
+			if (view != null)
+			{
+				view.selected = false;
+				ECS.setSelected(id, false);
+			}
+		}
+		_selection.clearNodes();
+	}
+
     /**
      * Clear wire selection only.
      * Used when switching between node and wire selection.
