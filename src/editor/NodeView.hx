@@ -76,14 +76,14 @@ class NodeView extends Sprite
 // =========================================================================
 // CONFIGURATION
 // =========================================================================
-	public static inline var PREVIEW_SCALE:Float = 0.6;
+	public static inline var PREVIEW_SCALE:Float = 0.7;
 	public static inline var MIN_WIDTH:Float = 180;
 	public static inline var MIN_BODY_HEIGHT:Float = 68;
-	public static inline var WIDGET_PADDING:Float = 12;
+	public static inline var WIDGET_PADDING:Float = 5;
 	public static inline var TITLE_HEIGHT:Float = 22;
 	public static inline var PORT_RADIUS:Float = 7;
 	public static inline var PORT_SPACING:Float = 32;
-	public static inline var INLINE_EDITOR_X_OFFSET:Float = 24;
+	public static inline var INLINE_EDITOR_X_OFFSET:Float = 11;
 
 // =========================================================================
 // DYNAMIC SIZE (v3.0)
@@ -230,6 +230,58 @@ class NodeView extends Sprite
 		recalcSize();
 		redraw();
 		createPorts();
+		realignInlineEditors();
+	}
+	
+/**
+ * v3.5.2: Realign inline editors vertically with their corresponding ports.
+ * Does NOT recreate editors (avoids callback subscription leaks).
+ * Only updates Y positions of existing editors and hides port labels.
+ */
+	private function realignInlineEditors():Void
+	{
+		var inputs = atom.getInputs();
+		if (inputs == null || inputs.length == 0) return;
+		
+		var inputCount = inputs.length;
+		var outputCount = (atom.getOutputs() != null) ? atom.getOutputs().length : 0;
+		var maxPorts = Std.int(Math.max(inputCount, outputCount));
+		var portsHeight:Float = MIN_BODY_HEIGHT;
+		if (maxPorts > 0)
+		{
+			portsHeight = (maxPorts + 1) * PORT_SPACING;
+		}
+		var stepY = (inputCount > 0) ? portsHeight / (inputCount + 1) : 0;
+		
+		for (i in 0...inputCount)
+		{
+			var contact = inputs[i];
+			if (contact == null) continue;
+			
+			var editor = _inlineEditors.get(contact.name);
+			if (editor != null)
+			{
+				// Update Y position to align with port
+				var portY = TITLE_HEIGHT + stepY * (i + 1);
+				editor.x = INLINE_EDITOR_X_OFFSET;
+				editor.y = portY - 15; // Center vertically on port
+				
+				// === FIX: Hide port label (inline editor replaces it) ===
+				// This is critical after updateLayout() recreates ports with visible labels
+				var port = inputPorts.get(contact.name);
+				if (port != null)
+				{
+					for (j in 0...port.numChildren)
+					{
+						var child = port.getChildAt(j);
+						if (Std.isOfType(child, TextField))
+						{
+							child.visible = false;
+						}
+					}
+				}
+			}
+		}
 	}
 
 // =========================================================================
@@ -362,7 +414,7 @@ class NodeView extends Sprite
 		{
 			var ws = deviceView.getWidgetSize();
 			var scaledH = ws.height * PREVIEW_SCALE;
-			var separatorY = _nodeHeight - scaledH - WIDGET_PADDING;
+			var separatorY = _nodeHeight - scaledH - WIDGET_PADDING - 5;
 			var sepG = _background.graphics;
 			sepG.lineStyle(1, 0x444455);
 			sepG.moveTo(0, separatorY);
@@ -468,7 +520,7 @@ class NodeView extends Sprite
 	{
 		var port = new Sprite();
 		var w = PORT_RADIUS * 2;
-		var h = PORT_RADIUS * 2;
+		var h = PORT_RADIUS * 2 + 4;
 		var color = isInput ? 0xFFAA00 : 0x00AAFF;
 		port.graphics.beginFill(color);
 		port.graphics.lineStyle(1, 0xFFFFFF);
@@ -483,20 +535,23 @@ class NodeView extends Sprite
 			port.graphics.moveTo(tipStartX, -h / 2);
 			port.graphics.lineTo(w / 2, 0);
 			port.graphics.lineTo(tipStartX, h / 2);
-			port.graphics.lineTo(tipStartX, -h / 2);
+			port.graphics.lineStyle(1.2, 0x00AAFF);
+			port.graphics.moveTo(tipStartX, ( h / 2) - 1.7);
+			port.graphics.lineTo(tipStartX, (-h / 2) + 1.7);
 		}
 		port.graphics.endFill();
 		var hit = new Sprite();
-		hit.graphics.beginFill(0x000000, 0);
+		hit.graphics.beginFill(0xFF0000, 0);
 		hit.graphics.drawRect(-w, -h, w * 2, h * 2);
 		hit.graphics.endFill();
 		port.addChild(hit);
 		var label = new TextField();
-		label.width = 60;
-		label.height = 14;
+		label.width = 77;
+		label.height = 16;
 		label.selectable = false;
 		label.mouseEnabled = false;
-		label.defaultTextFormat = new TextFormat("_sans", 8, 0x888888);
+		label.defaultTextFormat = new TextFormat("_sans", 11, 0xFFFFCC);
+		label.y = -7;
 		if (isInput)
 		{
 			label.x = w / 2 + 3;
@@ -504,13 +559,14 @@ class NodeView extends Sprite
 		}
 		else {
 			label.x = -w / 2 - label.width - 3;
+			label.y = -9;
 			label.text = name;
-			var fmt = new TextFormat("_sans", 8, 0x888888);
+			var fmt = new TextFormat("_sans", 11, 0xFFFFCC);
 			fmt.align = "right";
 			label.setTextFormat(fmt);
 			label.defaultTextFormat = fmt;
 		}
-		label.y = -7;
+
 		port.addChild(label);
 		port.name = name;
 		port.buttonMode = true;
@@ -618,7 +674,6 @@ class NodeView extends Sprite
 			if (hasConnection)
 			{
 				editor.hideEditor();
-				// Show port label
 				if (port != null)
 				{
 					for (i in 0...port.numChildren)
@@ -634,7 +689,6 @@ class NodeView extends Sprite
 			else
 			{
 				editor.showEditor();
-				// Hide port label
 				if (port != null)
 				{
 					for (i in 0...port.numChildren)
@@ -648,7 +702,8 @@ class NodeView extends Sprite
 				}
 			}
 		}
-		alignInlineEditors();
+		// v3.5.2: Just realign, don't recreate
+		realignInlineEditors();
 	}
 	
 // =========================================================================

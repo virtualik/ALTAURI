@@ -64,10 +64,11 @@ class InlineParameterEditor extends Sprite
 	{
 // Label (parameter name)
 		_labelField = new TextField();
-		_labelField.defaultTextFormat = new TextFormat("_sans", 9, 0x888888);
+		_labelField.defaultTextFormat = new TextFormat("_sans", 11, 0xFFFCFC);
 		_labelField.text = (_pinDef.label != null) ? _pinDef.label : _pinDef.name;
-		_labelField.width = 50;
-		_labelField.height = 14;
+		_labelField.width = 77;
+		_labelField.y = 6;
+		_labelField.height = 16;
 		_labelField.selectable = false;
 		_labelField.mouseEnabled = false;
 		addChild(_labelField);
@@ -75,9 +76,9 @@ class InlineParameterEditor extends Sprite
 		_inputField = new TextField();
 		_inputField.type = TextFieldType.INPUT;
 		_inputField.defaultTextFormat = new TextFormat("_sans", 10, 0x00AAFF, true);
-		_inputField.width = 60;
+		_inputField.width = 70;
 		_inputField.height = 16;
-		_inputField.y = 14;
+		_inputField.y = 21;
 		_inputField.border = true;
 		_inputField.borderColor = 0x333344;
 		_inputField.background = true;
