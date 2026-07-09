@@ -102,7 +102,7 @@ class UndoManager extends EventDispatcher {
         }
         
         dispatchEvent(new Event(UNDO_STACK_CHANGED));
-        trace('UndoManager: Executed and stored "${cmd.getDescription()}"');
+        //trace('UndoManager: Executed and stored "${cmd.getDescription()}"');
     }
     
     /**
@@ -139,7 +139,7 @@ class UndoManager extends EventDispatcher {
         try {
             action.undo();
         } catch (e:Dynamic) {
-            trace('CRITICAL ERROR in Undo: ${action.getDescription()} -> $e');
+            //trace('CRITICAL ERROR in Undo: ${action.getDescription()} -> $e');
         }
         
         _redoStack.push(action);
@@ -161,7 +161,7 @@ class UndoManager extends EventDispatcher {
         try {
             action.execute();
         } catch (e:Dynamic) {
-            trace('CRITICAL ERROR in Redo: ${action.getDescription()} -> $e');
+            //trace('CRITICAL ERROR in Redo: ${action.getDescription()} -> $e');
         }
         
         _undoStack.push(action);

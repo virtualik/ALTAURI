@@ -211,6 +211,16 @@ class AtomRegistry
 			{name: "error",         type: OUTPUT, dataType: "string",  priority: OPTIONAL, label: "Error Msg"}
 		], null, "netradio", true, true);
 
+		reg("URLAudioStreamPlayer", "URL Audio Player", [
+			{name: "url", type: INPUT, dataType: "string", priority: CRITICAL, visibleInEditor: true, label: "URL"},
+			{name: "play", type: INPUT, dataType: "bool", priority: CRITICAL, visibleInEditor: true, label: "Play"},
+			{name: "volume", type: INPUT, dataType: "float", defaultValue: 1.0, priority: OPTIONAL, visibleInEditor: true, label: "Vol"},
+			{name: "isPlaying", type: OUTPUT, dataType: "bool", priority: CRITICAL, label: "Playing"},
+			{name: "isBuffering", type: OUTPUT, dataType: "bool", priority: IMPORTANT, label: "Buffering"},
+			{name: "error", type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
+			{name: "state", type: OUTPUT, dataType: "int", priority: OPTIONAL, label: "State"}
+		], null, "urlplayer", true, true);
+		
         // =================================================================
         // PASSIVE DISPLAYS (no active processing)
         // =================================================================

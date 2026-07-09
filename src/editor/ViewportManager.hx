@@ -292,7 +292,7 @@ class ViewportManager
         // Log if many nodes changed visibility at once
         if (newlyVisible > 3 || newlyHidden > 3)
         {
-            trace('VISIBILITY DEBUG: Zoom=${Std.string(_canvas.scaleX).substr(0, 5)}, Visible=${visibleCount}, NewVisible=${newlyVisible}, NewHidden=${newlyHidden}');
+            //trace('VISIBILITY DEBUG: Zoom=${Std.string(_canvas.scaleX).substr(0, 5)}, Visible=${visibleCount}, NewVisible=${newlyVisible}, NewHidden=${newlyHidden}');
         }
     }
     
@@ -304,7 +304,7 @@ class ViewportManager
     {
         if (_pendingActivations.length == 0) return;
         
-        trace('VISIBILITY: Processing ${_pendingActivations.length} pending activations after zoom');
+        //trace('VISIBILITY: Processing ${_pendingActivations.length} pending activations after zoom');
         
         // Activate in small batches to avoid single-frame spike
         var batchSize = 5;

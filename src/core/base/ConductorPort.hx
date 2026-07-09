@@ -71,12 +71,12 @@ class ConductorPort
         this.defaultValue = defaultValue;
         
         // Create internal contact
-        this.internal = new Contact(name, type, defaultValue);
+        this.internal = new Contact(defaultValue, type, name);
         
         // Create external contact
-        this.external = new Contact(name, type, defaultValue);
+        this.external = new Contact(defaultValue, type, name);
     }
-    
+
     // ========================================================================
     // LINKING
     // ========================================================================

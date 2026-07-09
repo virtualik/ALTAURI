@@ -137,6 +137,14 @@ class AssemblyFactory
 				case "NETRADIO":
 					normalizedTypeId = "NETRadioPlayerAtom";
 // ─────────────────────────────────────────────────────────────
+// URL AUDIO STREAM PLAYER — Internet radio player
+// ─────────────────────────────────────────────────────────────
+				case "URLAUDIOSTREAMPLAYERATOM",
+				"URLAUDIOSTREAMPLAYER",
+				"URL STREAM PLAYER",
+				"URLPLAYER":
+					normalizedTypeId = "URLAudioStreamPlayerAtom";
+// ─────────────────────────────────────────────────────────────
 // === ELECTRO / UI ATOMS ===
 // ─────────────────────────────────────────────────────────────
 				case "BUTTON":
@@ -195,6 +203,16 @@ class AssemblyFactory
 				trace('📻 AssemblyFactory: Created NETRadioPlayerAtom v2.0...');
 				#else
 				trace('⚠️ NETRadioPlayerAtom requires C++ target');
+				#end
+// ─────────────────────────────────────────────────────────────
+// URL AUDIO STREAM PLAYER — Internet radio player
+// ─────────────────────────────────────────────────────────────
+				case "URLAudioStreamPlayerAtom":
+				#if cpp
+					atom = new library.drivers.URLAudioStreamPlayerAtom(id);
+					trace('📻 AssemblyFactory: URLAudioStreamPlayerAtom v1.0...');
+				#else
+					trace('⚠️ URLAudioStreamPlayerAtom requires C++ target');
 				#end
 // =============================================================
 // SYSTEM VU METER — Windows WASAPI audio meter

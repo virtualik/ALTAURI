@@ -173,7 +173,7 @@ class DeviceCard extends Sprite {
         _titleBar.buttonMode = true;
         _titleBar.addEventListener(MouseEvent.MOUSE_DOWN, onCardMouseDown);
         
-        trace('DeviceCard: Built card for "${atom.name}"');
+        //trace('DeviceCard: Built card for "${atom.name}"');
     }
     
     /**
@@ -291,6 +291,6 @@ class DeviceCard extends Sprite {
         _titleBar = null;
         _titleLabel = null;
         
-        trace('DeviceCard: Disposed');
+        //trace('DeviceCard: Disposed');
     }
 }

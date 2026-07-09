@@ -30,28 +30,29 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
     private var _currentUrl:String = "";
     private var _lastPlayCtrl:Bool = false;
     private var _volume:Float = 1.0;
-    private var _lastState:Int = 0;
+    private var _lastPlayingState:Bool = false;
     private var _lastBuffering:Bool = false;
     private var _lastError:String = "";
+    private var _lastStateInt:Int = 0;
 
-    public function new(id:String)
-    {
-        super(
-            [
-                new Contact("", INPUT, "url"),
-                new Contact(false, INPUT, "play"),
-                new Contact(1.0, INPUT, "volume")
-            ],
-            [
-                new Contact(false, OUTPUT, "isPlaying"),
-                new Contact(false, OUTPUT, "isBuffering"),
-                new Contact("", OUTPUT, "error"),
-                new Contact(0, OUTPUT, "state")
-            ],
-            null, id, "URLAudioStreamPlayer", true
-        );
-        init();
-    }
+	public function new(id:String)
+	{
+		super(
+			[
+				new Contact("", INPUT, "url"),
+				new Contact(false, INPUT, "play"),
+				new Contact(1.0, INPUT, "volume")
+			],
+			[
+				new Contact(false, OUTPUT, "isPlaying"),
+				new Contact(false, OUTPUT, "isBuffering"),
+				new Contact("", OUTPUT, "error"),
+				new Contact(0, OUTPUT, "state")
+			],
+			null, id, "URLAudioStreamPlayer", true
+		);
+		init();
+	}
 
     override public function init():Void
     {
@@ -153,25 +154,36 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
         }
     }
 
-    private function startPlayback():Void
-    {
-        if (_lastUrl == "" || _lastUrl == null) return;
-
-        _currentUrl = _lastUrl;
-
-        untyped __cpp__('
-            WMFStreamSession* session = nullptr;
-            {
-                std::lock_guard<std::mutex> lock(_urlaudio_sessions_mutex);
-                auto it = _urlaudio_sessions.find((void*){0}.mPtr);
-                if (it != _urlaudio_sessions.end()) session = it->second;
-            }
-            if (session) {
-                std::string url = std::string((const char*){1}.__s);
-                session->Play(url);
-            }
-        ', this, _currentUrl);
-    }
+	private function startPlayback():Void
+	{
+		trace('🎵 URLAudioStreamPlayer: startPlayback() called, URL="${_lastUrl}"');
+		
+		if (_lastUrl == "" || _lastUrl == null)
+		{
+			trace('⚠️ URLAudioStreamPlayer: URL is empty, cannot start playback');
+			return;
+		}
+		
+		_currentUrl = _lastUrl;
+		trace('🎵 URLAudioStreamPlayer: Starting playback for URL: ${_currentUrl}');
+		
+		untyped __cpp__('
+		WMFStreamSession* session = nullptr;
+		{
+			std::lock_guard<std::mutex> lock(_urlaudio_sessions_mutex);
+			auto it = _urlaudio_sessions.find((void*){0}.mPtr);
+			if (it != _urlaudio_sessions.end()) session = it->second;
+		}
+		if (session) {
+			std::string url = std::string((const char*){1}.__s);
+			printf("🎵 Calling session->Play() with URL: %s\\n", url.c_str());
+			bool result = session->Play(url);
+			printf("🎵 session->Play() returned: %s\\n", result ? "true" : "false");
+		} else {
+			printf("⚠️ URLAudioStreamPlayer: Session is null!\\n");
+		}
+		', this, _currentUrl);
+	}
 
     private function stopPlayback():Void
     {
@@ -210,9 +222,9 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
             }
         ', this, cppPlaying, cppBuffering, cppError, cppState);
 
-        if (cppPlaying != _lastState)
+        if (cppPlaying != _lastPlayingState)
         {
-            _lastState = cppPlaying ? 1 : 0;
+            _lastPlayingState = cppPlaying;
             var c = getOutput("isPlaying");
             if (c != null) { c.setValueSilent(cppPlaying); c.propagateCurrentValue(); }
         }
@@ -231,8 +243,9 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
             if (c != null) { c.setValueSilent(cppError); c.propagateCurrentValue(); }
         }
 
-        if (cppState != _lastState)
+        if (cppState != _lastStateInt)
         {
+            _lastStateInt = cppState;
             var c = getOutput("state");
             if (c != null) { c.setValueSilent(cppState); c.propagateCurrentValue(); }
         }

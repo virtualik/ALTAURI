@@ -814,7 +814,7 @@ class NodeView extends Sprite
 				centerPreviewContainer();
 			}, 50);
 		}
-		trace('NodeView: Accepted widget back for ${atom.id}');
+		//trace('NodeView: Accepted widget back for ${atom.id}');
 	}
 
 // =========================================================================

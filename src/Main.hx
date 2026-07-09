@@ -294,9 +294,9 @@ class Main extends Sprite
 		{
 			rootAssembly = new Assembly("main_asm", data.blueprint);
 
-			trace('=== DEBUG: Checking isLogic flags ===');
+			//trace('=== DEBUG: Checking isLogic flags ===');
 			checkIsLogicRecursive(rootAssembly, 0);
-			trace('=== DEBUG: Check complete ===');
+			//trace('=== DEBUG: Check complete ===');
 
 			_cachedDeviceWindowState = [];
 
@@ -374,7 +374,7 @@ class Main extends Sprite
 			if (atom != null)
 			{
 				var logicStatus = atom.isLogic ? "DIGITAL" : "ANALOG";
-				trace('${indent}Atom: ${atom.name} (${atom.id}) - ${logicStatus}');
+				//trace('${indent}Atom: ${atom.name} (${atom.id}) - ${logicStatus}');
 
 				if (Std.isOfType(atom, Assembly))
 				{
@@ -779,7 +779,7 @@ class Main extends Sprite
 	 */
 	private function log(msg:String)
 	{
-		trace(msg);
+		//trace(msg);
 
 		if (_hideTimer != null) _hideTimer.stop();
 
@@ -1121,12 +1121,12 @@ class Main extends Sprite
 
 		if (impulse == null || impulse.data == null)
 		{
-			trace("ERROR: Open Assembly Request has no data!");
+			//trace("ERROR: Open Assembly Request has no data!");
 			return;
 		}
 
 		var id = impulse.data.atomId;
-		trace('DEBUG: Open Request for ID: $id');
+		//trace('DEBUG: Open Request for ID: $id');
 
 		var obj = _editorContext.currentAssembly.internalAtoms.get(id);
 
@@ -1136,20 +1136,20 @@ class Main extends Sprite
 			if (runtimeId != null)
 			{
 				obj = _editorContext.currentAssembly.internalAtoms.get(runtimeId);
-				trace('DEBUG: Found via ID Map. RuntimeID: $runtimeId');
+				//trace('DEBUG: Found via ID Map. RuntimeID: $runtimeId');
 			}
 		}
 
 		if (obj == null)
 		{
-			trace('ERROR: Atom with ID $id NOT FOUND in current assembly!');
-			trace('  Available keys: ${[for(k in _editorContext.currentAssembly.internalAtoms.keys()) k]}');
+			//trace('ERROR: Atom with ID $id NOT FOUND in current assembly!');
+			//trace('  Available keys: ${[for(k in _editorContext.currentAssembly.internalAtoms.keys()) k]}');
 			return;
 		}
 
 		if (!Std.isOfType(obj, Assembly))
 		{
-			trace('ERROR: Object $id is NOT an Assembly. It is ${Type.getClassName(Type.getClass(obj))}');
+			//trace('ERROR: Object $id is NOT an Assembly. It is ${Type.getClassName(Type.getClass(obj))}');
 			return;
 		}
 

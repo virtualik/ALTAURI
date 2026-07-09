@@ -119,7 +119,9 @@ class DeviceWidgetFactory
 				new ComEnumeratorWidget(asm);
 			case "netradio", "netradioplayer":
 				new NETRadioPlayerWidget(asm);
-				#end
+			case "urlplayer", "url audio player", "urlaudioplayer":
+				new URLAudioStreamPlayerWidget(asm);
+			#end
 			default:
 // Try to find class by name
 				createByClassName(deviceType, asm);
@@ -164,6 +166,8 @@ class DeviceWidgetFactory
 				new NETRadioPlayerWidget(atom);
 			case "miniaudioatom", "mini audio capture":
 				new MiniAudioWidget(atom);
+			case "urlaudioplayeratom", "url audio player":
+				new URLAudioStreamPlayerWidget(atom);
 				#end
 			default:
 // Universal widget - text display
