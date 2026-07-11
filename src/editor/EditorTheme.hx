@@ -94,7 +94,7 @@ class EditorTheme
     // CANVAS & BACKGROUND
     // =========================================================================
     /** Editor canvas background color */
-    public var CANVAS_BG_COLOR:Int = 0x333333;
+    public var CANVAS_BG_COLOR:Int = 0x777777;
     
     /** Device canvas background color */
     public var DEVICE_CANVAS_BG_COLOR:Int = 0x444444;
@@ -121,7 +121,7 @@ class EditorTheme
     // MAIN UI (Main.hx specific)
     // =========================================================================
     /** Main application background */
-    public var APP_BG_COLOR:Int = 0xFFFFFF;
+    public var APP_BG_COLOR:Int = 0xFFFFAA;
     
     /** Alternative black background (for transparency) */
     public var APP_BG_BLACK:Int = 0xFFFFFF;

@@ -232,7 +232,7 @@ class AtomRegistry
         // =================================================================
         
         reg("Oscilloscope", "Oscilloscope", [
-            {name: "in", type: INPUT, dataType: "array", priority: CRITICAL}
+            {name: "in", type: INPUT, dataType: "array", priority: INTERNAL, visibleInEditor: false}
         ], null, "oscilloscope");
         
         _initialized = true;

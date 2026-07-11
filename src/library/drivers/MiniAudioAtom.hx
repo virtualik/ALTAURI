@@ -1,6 +1,5 @@
-package library.drivers;
-
 #if cpp
+package library.drivers;
 import core.base.Atom;
 import core.base.Contact;
 import core.types.ContactType.*;
@@ -15,170 +14,124 @@ import system.managers.DriverManager;
 @:cppFileCode('
 #define MINIAUDIO_IMPLEMENTATION
 #include "../../../../include/miniaudio.h"
+#include <math.h>
 
 // ================================================
 // C++ callback for miniaudio
 // ================================================
-// Global callback for miniaudio
 static void _altauri_audio_cb(
-    ma_device*  pDevice,
-    void*       pOutput,
-    const void* pInput,
-    ma_uint32   frameCount)
+ma_device*  pDevice,
+void*       pOutput,
+const void* pInput,
+ma_uint32   frameCount)
 {
-    ::library::drivers::MiniAudioAtom_obj* self =
-        (::library::drivers::MiniAudioAtom_obj*)(pDevice->pUserData);
-    
-    if (!self || (bool)self->_isDisposed) return;
-    
-    const float* samples = (const float*)pInput;
-    if (!samples) return;
-    
-    float bufferSample = 0.0f;
-    float rmsAccum     = 0.0f;
-    bool  clip         = false;
-    
-    for (ma_uint32 i = 0; i < frameCount; i++)
-    {
-        float left  = samples[i * 2]     * (float)self->_gain;
-        float right = samples[i * 2 + 1] * (float)self->_gain;
-        float mono = (left + right) * 0.5f;
-        
-        if ((int)self->_channel == 1) mono = left;
-        else if ((int)self->_channel == 2) mono = right;
-        
-        if (mono >  1.0f) { mono =  1.0f; clip = true; }
-        if (mono < -1.0f) { mono = -1.0f; clip = true; }
-        
-        rmsAccum    += mono * mono;
-        bufferSample = mono;
-    }
-    
-    float* rmsBuffer = (float*)self->_rmsBufferRaw;
-    if (rmsBuffer)
-    {
-        float bufferMean = rmsAccum / (float)frameCount;
-        int   rmsIdx     = (int)self->_rmsIndex;
-        
-        self->_rmsSum -= rmsBuffer[rmsIdx];
-        rmsBuffer[rmsIdx] = bufferMean;
-        self->_rmsSum += bufferMean;
-        self->_rmsIndex = (rmsIdx + 1) % 1024;
-    }
-    
-    float rms = sqrtf((float)self->_rmsSum / 1024.0f);
-    
-    float quantum   = (float)self->_quantum;
-    float quantized = roundf(bufferSample / quantum) * quantum;
-    
-    if (quantized >  1.0f) quantized =  1.0f;
-    if (quantized < -1.0f) quantized = -1.0f;
-    
-    bool changed = (!(bool)self->_isFirstSample) &&
-                   (quantized != (float)self->_lastQuantum);
-    
-    self->_pendingSample  = quantized;
-    self->_pendingRms     = rms;
-    self->_pendingClip    = clip;
-    self->_pendingChanged = changed;
-    self->_lastQuantum    = quantized;
-    self->_isFirstSample  = false;
-    self->_hasPending     = true;
+::library::drivers::MiniAudioAtom_obj* self =
+(::library::drivers::MiniAudioAtom_obj*)(pDevice->pUserData);
+
+if (!self || (bool)self->_isDisposed) return;
+
+const float* samples = (const float*)pInput;
+if (!samples) return;
+
+float bufferSample = 0.0f;
+float rmsAccum     = 0.0f;
+bool  clip         = false;
+
+for (ma_uint32 i = 0; i < frameCount; i++)
+{
+float left  = samples[i * 2]     * (float)self->_gain;
+float right = samples[i * 2 + 1] * (float)self->_gain;
+
+float mono = (left + right) * 0.5f;
+if ((int)self->_channel == 1) mono = left;
+else if ((int)self->_channel == 2) mono = right;
+
+if (mono >  1.0f) { mono =  1.0f; clip = true; }
+if (mono < -1.0f) { mono = -1.0f; clip = true; }
+
+rmsAccum    += mono * mono;
+bufferSample = mono;
+
+// v2.0: Accumulate samples for oscilloscope buffer
+// Store stereo pair even if mono is selected
+int bufIdx = (int)self->_scopeWriteIndex;
+if (bufIdx >= 0 && bufIdx < 4096) {
+::Array< ::Dynamic > ringBuf = (::Array< ::Dynamic >)self->_scopeRingBuffer;
+if (ringBuf != nullptr && bufIdx < ringBuf->length) {
+::Dynamic sample = ringBuf->__get(bufIdx);
+if (sample != nullptr) {
+// Correct hxcpp way to set fields on a Dynamic object
+sample->__SetField("l", left, hx::paccDynamic);
+sample->__SetField("r", right, hx::paccDynamic);
+}
+}
+}
+
+self->_scopeWriteIndex = (bufIdx + 1) % 4096;
+self->_scopeSamplesAccum++;
+
+if ((int)self->_scopeSamplesAccum >= (int)self->_bufferSize) {
+self->_scopeBufferReady = true;
+}
+}
+
+float* rmsBuffer = (float*)self->_rmsBufferRaw;
+if (rmsBuffer)
+{
+float bufferMean = rmsAccum / (float)frameCount;
+int   rmsIdx     = (int)self->_rmsIndex;
+self->_rmsSum -= rmsBuffer[rmsIdx];
+rmsBuffer[rmsIdx] = bufferMean;
+self->_rmsSum += bufferMean;
+self->_rmsIndex = (rmsIdx + 1) % 1024;
+}
+
+float rms = sqrtf((float)self->_rmsSum / 1024.0f);
+
+float quantum   = (float)self->_quantum;
+float quantized = roundf(bufferSample / quantum) * quantum;
+
+if (quantized >  1.0f) quantized =  1.0f;
+if (quantized < -1.0f) quantized = -1.0f;
+
+bool changed = (!(bool)self->_isFirstSample) &&
+(quantized != (float)self->_lastQuantum);
+
+self->_pendingSample  = quantized;
+self->_pendingRms     = rms;
+self->_pendingClip    = clip;
+self->_pendingChanged = changed;
+self->_lastQuantum    = quantized;
+self->_isFirstSample  = false;
+self->_hasPending     = true;
 }
 ')
 /**
- * ╔═══════════════════════════════════════════════════════════════════════════╗
- * ║                     MINI AUDIO ATOM v1.0                                  ║
- * ║                     (Audio Capture Driver)                                ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                           ║
- * ║  Audio capture driver using MiniAudio library.                            ║
- * ║  Supports microphone input and loopback (system audio).                   ║
- * ║                                                                           ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                        ARCHITECTURE                                       ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                           ║
- * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
- * ║  │                     MiniAudioAtom                                   │  ║
- * ║  │                                                                     │  ║
- * ║  │  A) COMPUTE MODULE:                                                 │  ║
- * ║  │     ─────────────────                                               │  ║
- * ║  │     Audio Thread (C++ callback):                                    │  ║
- * ║  │       1. Receive audio frames from MiniAudio                        │  ║
- * ║  │       2. Apply gain and channel selection                           │  ║
- * ║  │       3. Calculate RMS (Root Mean Square)                           │  ║
- * ║  │       4. Quantize amplitude                                         │  ║
- * ║  │       5. Write to pending fields (thread-safe)                      │  ║
- * ║  │                                                                     │  ║
- * ║  │     update(dt) {                                                    │  ║
- * ║  │       1. Read pending fields from audio thread                      │  ║
- * ║  │       2. Write to output contacts (silent + propagate)              │  ║
- * ║  │       3. Manage pulse timers                                        │  ║
- * ║  │     }                                                               │  ║
- * ║  │                                                                     │  ║
- * ║  │  B) DATABANK:                                                       │  ║
- * ║  │     ─────────────                                                   │  ║
- * ║  │     _mode:Int            - Capture mode (0=MIC, 1=LOOPBACK)         │  ║
- * ║  │     _quantum:Float       - Amplitude quantization step              │  ║
- * ║  │     _gain:Float          - Input gain multiplier                    │  ║
- * ║  │     _channel:Int         - Channel selection (0=MONO, 1=L, 2=R)     │  ║
- * ║  │     _sampleRateIdx:Int   - Sample rate index                        │  ║
- * ║  │     _lastQuantum:Float   - Last quantized value                     │  ║
- * ║  │     _rmsBufferRaw:Void*  - RMS calculation buffer                   │  ║
- * ║  │                                                                     │  ║
- * ║  │  C) INPUTS:                                                         │  ║
- * ║  │     ────────                                                        │  ║
- * ║  │     "mode"     - Capture mode (Int)                                 │  ║
- * ║  │     "quantum"  - Quantization step (Float)                          │  ║
- * ║  │     "gain"     - Input gain (Float)                                 │  ║
- * ║  │     "channel"  - Channel selection (Int)                            │  ║
- * ║  │     "rate"     - Sample rate index (Int)                            │  ║
- * ║  │                                                                     │  ║
- * ║  │  D) OUTPUTS:                                                        │  ║
- * ║  │     ────────                                                        │  ║
- * ║  │     "sample"   - Quantized audio sample (Float)                     │  ║
- * ║  │     "changed"  - Pulse on quantum change (Bool)                     │  ║
- * ║  │     "rms"      - RMS level (Float)                                  │  ║
- * ║  │     "clip"     - Clipping indicator (Bool)                          │  ║
- * ║  │     "tick"     - Audio frame tick (Bool)                            │  ║
- * ║  │     "level"    - dBFS level (Float)                                 │  ║
- * ║  │     "device"   - Device name (String)                               │  ║
- * ║  │                                                                     │  ║
- * ║  │  E) FACE (DeviceView):                                              │  ║
- * ║  │     ─────────────────                                               │  ║
- * ║  │     MiniAudioWidget for VU meter and controls                       │  ║
- * ║  │                                                                     │  ║
- * ║  └─────────────────────────────────────────────────────────────────────┘  ║
- * ║                                                                           ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                      THREAD SAFETY                                        ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                           ║
- * ║  Audio Thread (C++) ──► Pending Fields ──► Main Thread (Haxe)             ║
- * ║                                                                           ║
- * ║  Pending fields are marked @:volatile to ensure visibility                ║
- * ║  across threads without explicit locks.                                   ║
- * ║                                                                           ║
- * ║  Pattern:                                                                 ║
- * ║  1. Audio thread writes to _pending* fields                               ║
- * ║  2. Audio thread sets _hasPending = true                                  ║
- * ║  3. Main thread reads _hasPending in update()                             ║
- * ║  4. Main thread copies _pending* to local variables                       ║
- * ║  5. Main thread writes to output contacts                                 ║
- * ║                                                                           ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                    APPLICATION                                            ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                           ║
- * ║  • Microphone input capture                                               ║
- * ║  • System audio loopback (desktop audio)                                  ║
- * ║  • Real-time audio level monitoring                                       ║
- * ║  • Audio-driven signal generation                                         ║
- * ║  • Voice activity detection                                               ║
- * ║                                                                           ║
- * ╚═══════════════════════════════════════════════════════════════════════════╝
- */
+* ╔═══════════════════════════════════════════════════════════════════════════╗
+* ║                     MINI AUDIO ATOM v2.0                                  ║
+* ║                     (Audio Capture Driver with Buffer Output)             ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  v2.0 Changes:                                                            ║
+* ║  - ADDED: Output contacts "buffer", "bufferL", "bufferR" (Array<Float>)   ║
+* ║  - ADDED: Input contact "bufferSize" (Int, default 256)                   ║
+* ║  - ADDED: Stereo ring buffer (4096 samples) for oscilloscope              ║
+* ║  - Audio callback now writes to ring buffer every frame                   ║
+* ║  - propagateScopeBuffer() copies buffer to Haxe Arrays and emits          ║
+* ║                                                                           ║
+* ║  Architecture:                                                            ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │  Audio Thread (C++) ──► Ring Buffer ──► Main Thread (Haxe)          │  ║
+* ║  │                                                                     │  ║
+* ║  │  propagateScopeBuffer():                                            │  ║
+* ║  │    1. Copy last _bufferSize samples from ring buffer                │  ║
+* ║  │    2. Create 3 Haxe Arrays: mono, left, right                       │  ║
+* ║  │    3. setValueSilent() + propagateCurrentValue() for each output    │  ║
+* ║  │    4. Reset _scopeSamplesAccum counter                              │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║                                                                           ║
+* ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
 class MiniAudioAtom extends Atom implements system.managers.Driver
 {
     // =========================================================================
@@ -237,6 +190,20 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
     private var _clipTimer:Float    = 0.0;
 
     // =========================================================================
+    // v2.0: SCOPE BUFFER STATE
+    // =========================================================================
+    /** Ring buffer for oscilloscope output (stereo) */
+    private var _scopeRingBuffer:Array<{l:Float, r:Float}>;
+    /** Current write position in ring buffer */
+    private var _scopeWriteIndex:Int = 0;
+    /** Number of samples accumulated since last flush */
+    private var _scopeSamplesAccum:Int = 0;
+    /** Buffer size for oscilloscope output (configurable) */
+    private var _bufferSize:Int = 256;
+    /** Flag: buffer ready to send to Haxe */
+    @:volatile private var _scopeBufferReady:Bool = false;
+
+    // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
     public function new(id:String)
@@ -247,7 +214,8 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
                 new Contact(0.01, INPUT, "quantum"),
                 new Contact(50.0, INPUT, "gain"),
                 new Contact(0, INPUT, "channel"),
-                new Contact(0, INPUT, "rate")
+                new Contact(0, INPUT, "rate"),
+                new Contact(256, INPUT, "bufferSize")  // v2.0: NEW
             ],
             [
                 new Contact(0.0, OUTPUT, "sample"),
@@ -256,17 +224,24 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
                 new Contact(false, OUTPUT, "clip"),
                 new Contact(false, OUTPUT, "tick"),
                 new Contact(0.0, OUTPUT, "level"),
-                new Contact("", OUTPUT, "device")
+                new Contact("", OUTPUT, "device"),
+                new Contact(null, OUTPUT, "buffer"),   // v2.0: NEW (mono)
+                new Contact(null, OUTPUT, "bufferL"),  // v2.0: NEW (left)
+                new Contact(null, OUTPUT, "bufferR")   // v2.0: NEW (right)
             ],
             null,
             id,
             "MiniAudioAtom",
             true
         );
-        
+
         var sampleOut = getOutput("sample");
         if (sampleOut != null) sampleOut.ignoreOscillation = true;
-        
+
+        // v2.0: Initialize scope ring buffer
+        _scopeRingBuffer = [];
+        for (i in 0...4096) _scopeRingBuffer.push({l: 0.0, r: 0.0});
+
         init();
     }
 
@@ -282,23 +257,23 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
     override public function update(dt:Float):Void
     {
         if (_isDisposed) return;
-        
+
         if (_hasPending)
         {
             _hasPending = false;
-            
+
             var snapSample  = _pendingSample;
             var snapRms     = _pendingRms;
             var snapClip    = _pendingClip;
             var snapChanged = _pendingChanged;
-            
+
             var sampleOut = getOutput("sample");
             var rmsOut    = getOutput("rms");
             var levelOut  = getOutput("level");
-            
+
             if (sampleOut != null) sampleOut.setValueSilent(snapSample);
             if (rmsOut    != null) rmsOut.setValueSilent(snapRms);
-            
+
             if (levelOut != null)
             {
                 var db = snapRms > 0.0001
@@ -306,27 +281,42 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
                     : -120.0;
                 levelOut.setValueSilent(db);
             }
-            
+
             var tickOut = getOutput("tick");
             if (tickOut != null) { tickOut.value = true; _tickTimer = PULSE_DURATION; }
-            
+
             if (snapChanged)
             {
                 var c = getOutput("changed");
                 if (c != null) { c.value = true; _changedTimer = PULSE_DURATION; }
             }
-            
+
             if (snapClip)
             {
                 var c = getOutput("clip");
                 if (c != null) { c.value = true; _clipTimer = PULSE_DURATION; }
             }
-            
+
             if (sampleOut != null) sampleOut.propagateCurrentValue();
             if (rmsOut    != null) rmsOut.propagateCurrentValue();
             if (levelOut  != null) levelOut.propagateCurrentValue();
         }
-        
+
+	    // === v2.0: Process scope buffer ===
+		if (_scopeBufferReady)
+		{
+			//trace('🔍 MiniAudioAtom: _scopeBufferReady = true, calling propagateScopeBuffer()');
+			_scopeBufferReady = false;
+			propagateScopeBuffer();
+		}
+		
+        // v2.0: Process scope buffer
+        if (_scopeBufferReady)
+        {
+            _scopeBufferReady = false;
+            propagateScopeBuffer();
+        }
+
         readInputs();
         updatePulseTimers(dt);
     }
@@ -345,12 +335,12 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
     {
         var sampleRate : Int = SAMPLE_RATES[_sampleRateIdx];
         var deviceType : Int = (_mode == MODE_LOOPBACK) ? 2 : 1;
-        
+
         untyped __cpp__('
             printf("MiniAudioAtom: === STARTING AUDIO DEVICE ===\\n");
             printf("MiniAudioAtom: DeviceType=%d (1=Capture, 2=Loopback)\\n", {2});
             printf("MiniAudioAtom: SampleRate=%d\\n", {3});
-            
+
             // Allocate RMS buffer
             {0}->_rmsBufferRaw = calloc(1024, sizeof(float));
             if (!{0}->_rmsBufferRaw) {
@@ -358,17 +348,16 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
                 return;
             }
             printf("MiniAudioAtom: RMS buffer allocated\\n");
-            
+
             // Create context and device
             ma_context* ctx = (ma_context*)malloc(sizeof(ma_context));
             ma_device*  dev = (ma_device*)malloc(sizeof(ma_device));
-            
             if (!ctx || !dev) {
                 printf("MiniAudioAtom: malloc FAILED\\n");
                 return;
             }
             printf("MiniAudioAtom: Memory allocated\\n");
-            
+
             // === FIX: Simple initialization without WASAPI specifics ===
             // MiniAudio will choose the best backend automatically
             ma_result result = ma_context_init(NULL, 0, NULL, ctx);
@@ -378,9 +367,8 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
                 return;
             }
             printf("MiniAudioAtom: ma_context_init SUCCESS\\n");
-            
             {0}->_context = ctx;
-            
+
             // Configure device
             ma_device_config cfg = ma_device_config_init(
                 {2} == 2 ? ma_device_type_loopback : ma_device_type_capture
@@ -391,10 +379,9 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
             cfg.capture.channels   = 2;
             cfg.dataCallback       = _altauri_audio_cb;
             cfg.pUserData          = (void*)({0}.mPtr);
-            
+
             printf("MiniAudioAtom: ma_device_init...\\n");
             result = ma_device_init(ctx, &cfg, dev);
-            
             if (result != MA_SUCCESS) {
                 printf("MiniAudioAtom: ma_device_init FAILED: %d\\n", result);
                 printf(">>> TIP: Loopback may not be supported on this system\\n");
@@ -405,12 +392,10 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
                 return;
             }
             printf("MiniAudioAtom: ma_device_init SUCCESS\\n");
-            
             {0}->_device = dev;
-            
+
             printf("MiniAudioAtom: ma_device_start...\\n");
             result = ma_device_start(dev);
-            
             if (result != MA_SUCCESS) {
                 printf("MiniAudioAtom: ma_device_start FAILED: %d\\n", result);
                 ma_device_uninit(dev);
@@ -422,10 +407,9 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
             }
             printf("MiniAudioAtom: SUCCESS - AUDIO DEVICE IS RUNNING!\\n");
             printf("MiniAudioAtom: Mode=%s\\n", {2} == 2 ? "LOOPBACK" : "MICROPHONE");
-            
             {0}->_deviceReady = true;
         ', this, deviceType, deviceType, sampleRate);
-        
+
         if (_deviceReady)
         {
             setDeviceNameOutput((_mode == MODE_LOOPBACK) ? "Loopback @" + sampleRate + "Hz" : "Capture @" + sampleRate + "Hz");
@@ -443,11 +427,11 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
     {
         if (!_deviceReady) return;
         _deviceReady = false;
-        
+
         untyped __cpp__('
             ma_device*  dev = (ma_device*) {0}->_device;
             ma_context* ctx = (ma_context*){0}->_context;
-            
+
             if (dev) {
                 ma_device_stop(dev);
                 ma_device_uninit(dev);
@@ -460,7 +444,7 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
             if ({0}->_rmsBufferRaw) {
                 free({0}->_rmsBufferRaw);
             }
-            
+
             {0}->_device      = nullptr;
             {0}->_context     = nullptr;
             {0}->_rmsBufferRaw = nullptr;
@@ -499,27 +483,103 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
         var gainC    = getInput("gain");
         var channelC = getInput("channel");
         var rateC    = getInput("rate");
-        
+        var bufSizeC = getInput("bufferSize");  // v2.0: NEW
+
         if (modeC    != null && modeC.value    != null) _mode    = Std.int(modeC.value);
         if (gainC    != null && gainC.value    != null) _gain    = gainC.value;
         if (channelC != null && channelC.value != null) _channel = Std.int(channelC.value);
-        
+
         if (rateC != null && rateC.value != null)
         {
             var idx = Std.int(rateC.value);
             if (idx >= 0 && idx < SAMPLE_RATES.length) _sampleRateIdx = idx;
         }
-        
+
         if (quantumC != null && quantumC.value != null)
         {
             var q:Float = quantumC.value;
             if (q >= MIN_QUANTUM && q <= MAX_QUANTUM) _quantum = q;
         }
+
+        // v2.0: Update buffer size
+        if (bufSizeC != null && bufSizeC.value != null)
+        {
+            var bs = Std.int(bufSizeC.value);
+            if (bs >= 64 && bs <= 4096 && bs != _bufferSize)
+            {
+                _bufferSize = bs;
+               // trace('MiniAudioAtom: bufferSize changed to $_bufferSize');
+            }
+        }
+    }
+
+    // =========================================================================
+    // v2.0: SCOPE BUFFER PROPAGATION
+    // =========================================================================
+    /**
+    * Copy ring buffer to Haxe Arrays and emit via contacts.
+    * 
+    * Process:
+    * 1. Calculate start position (go back _bufferSize samples)
+    * 2. Copy samples to 3 Haxe Arrays: mono, left, right
+    * 3. setValueSilent() + propagateCurrentValue() for each output
+    * 4. Reset _scopeSamplesAccum counter
+    */
+    private function propagateScopeBuffer():Void
+    {
+		//trace('🔍 [1] MiniAudioAtom: propagateScopeBuffer() STARTED');
+		
+        var buffer:Array<Float>  = [];
+        var bufferL:Array<Float> = [];
+        var bufferR:Array<Float> = [];
+
+        // Calculate start position (go back _bufferSize samples)
+        var startIdx = _scopeWriteIndex - _bufferSize;
+        if (startIdx < 0) startIdx += 4096;
+
+        for (i in 0..._bufferSize)
+        {
+            var idx = (startIdx + i) % 4096;
+            if (idx >= 0 && idx < _scopeRingBuffer.length)
+            {
+                var sample = _scopeRingBuffer[idx];
+                if (sample != null)
+                {
+                    var mono = (sample.l + sample.r) * 0.5;
+                    buffer.push(mono);
+                    bufferL.push(sample.l);
+                    bufferR.push(sample.r);
+                }
+                else
+                {
+                    buffer.push(0.0);
+                    bufferL.push(0.0);
+                    bufferR.push(0.0);
+                }
+            }
+        }
+		
+		//trace('🔍 [2] MiniAudioAtom: propagateScopeBuffer() STARTED');
+        
+		// Write to contacts
+        var bufOut  = getOutput("buffer");
+        var bufLOut = getOutput("bufferL");
+        var bufROut = getOutput("bufferR");
+
+        if (bufOut  != null) { bufOut.setValueSilent(buffer);  bufOut.propagateCurrentValue();  }
+        if (bufLOut != null) { bufLOut.setValueSilent(bufferL); bufLOut.propagateCurrentValue(); }
+        if (bufROut != null) { bufROut.setValueSilent(bufferR); bufROut.propagateCurrentValue(); }
+
+        // Reset accumulator
+        _scopeSamplesAccum = 0;
     }
 
     // =========================================================================
     // UTILITIES
     // =========================================================================
+    /**
+    * Set the device name output contact.
+    */
     private function setDeviceNameOutput(name:String):Void
     {
         var c = getOutput("device");
@@ -534,9 +594,15 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
         _rmsSum        = 0.0;
         _rmsIndex      = 0;
         _hasPending    = false;
+
+        // v2.0: Reset scope buffer
+        _scopeWriteIndex = 0;
+        _scopeSamplesAccum = 0;
+        _scopeBufferReady = false;
+
         readInputs();
         openDevice();
-        trace("restart() called");
+       //trace("restart() called");
     }
 }
 #end

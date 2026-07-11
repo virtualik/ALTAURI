@@ -164,13 +164,14 @@ class NodeEditor extends Sprite
 
 		_canvas = new Sprite();
 		_editorContainer.addChild(_canvas);
+		_canvas.graphics.lineStyle(3, 0xFF33FF);
 		_canvas.graphics.beginFill(_theme.CANVAS_BG_COLOR, 1);
-		_canvas.graphics.drawRect(-5000, -5000, 10000, 10000);
+		_canvas.graphics.drawRect(-1, -1, 1500, 1500);
 		_canvas.graphics.endFill();
 
 		_bgHitArea = new Sprite();
 		_bgHitArea.graphics.beginFill(_theme.CANVAS_HIT_AREA_COLOR, _theme.CANVAS_HIT_AREA_ALPHA);
-		_bgHitArea.graphics.drawRect(-5000, -5000, 10000, 10000);
+		_bgHitArea.graphics.drawRect(-1, -1, 10000, 10000);
 		_bgHitArea.graphics.endFill();
 		_bgHitArea.mouseEnabled = true;
 		_canvas.addChild(_bgHitArea);

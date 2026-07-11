@@ -186,18 +186,18 @@ class Main extends Sprite
 		if (canvas != null) canvas.oncontextmenu = function(e) { e.preventDefault(); return false; };
 		#end
 
-		setupDebugLog();
 
 		_projectManager = ProjectManager.getInstance();
 		_projectManager.init();
 
 		AtomRegistry.initialize();
 
-		log("System initialized");
 
 		ECS.init();
 
 		setupLayers();
+
+		setupDebugLog();
 
 		// v2.5: Initialize transparency right after layer creation
 		initTransparency();
@@ -212,6 +212,7 @@ class Main extends Sprite
 
 	private function init(e:Event = null):Void
 	{
+		log("System initialized");
 		removeEventListener(Event.ADDED_TO_STAGE, init);
 
 		openfl.Lib.current.stage.window.visible = true;

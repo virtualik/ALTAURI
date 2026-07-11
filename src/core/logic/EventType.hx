@@ -23,8 +23,10 @@ abstract EventType(String) from String to String {
     public static var ASSEMBLY_PORTS_CHANGED(default, never) = new EventType("ASSEMBLY_PORTS_CHANGED");
     public static var VALUE_COMMITTED(default, never) = new EventType("VALUE_COMMITTED");
     public static var DEVICE_WINDOW_CHANGED(default, never) = new EventType("DEVICE_WINDOW_CHANGED");
-
-    // === INTERACTION (Mouse/Click) ===
+	public static var OSCILLOSCOPE_SHAPE_CHANGED(default, never) = new EventType("OSCILLOSCOPE_SHAPE_CHANGED");
+	public static var OSCILLOSCOPE_FRAME_READY:String = "oscilloscopeFrameReady";
+    
+	// === INTERACTION (Mouse/Click) ===
     public static var PORT_DRAG_START(default, never) = new EventType("PORT_DRAG_START");
     public static var NODE_CLICKED(default, never) = new EventType("NODE_CLICKED");
     public static var NODE_RIGHT_CLICKED(default, never) = new EventType("NODE_RIGHT_CLICKED");

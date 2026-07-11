@@ -171,9 +171,7 @@ class AssemblyFactory
 // ACTIVE DRIVERS (real C++ code, registered in DriverManager)
 // =============================================================
 			case "SignalGenerator":
-				#if cpp
 				atom = new library.drivers.SignalGenerator(id);
-				#end
 // =============================================================
 // MINI AUDIO ATOM — your microphone capture engine
 // =============================================================
@@ -217,8 +215,8 @@ class AssemblyFactory
 // =============================================================
 // SYSTEM VU METER — Windows WASAPI audio meter
 // =============================================================
-			case "SystemVUMeterAtom":
 				#if cpp
+				case "SystemVUMeterAtom":
 				atom = new library.drivers.SystemVUMeterAtom(id);
 				trace('🔊 AssemblyFactory: Created SystemVUMeterAtom...');
 				#else

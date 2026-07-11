@@ -124,6 +124,7 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 // v1.2: AUTO-RECONNECT STATE
 // =========================================================================
     private var _isReconnecting:Bool = false;
+	private var _waitingForPlaying:Bool = false;
     private var _reconnectAttempts:Int = 0;
     private var _reconnectTimer:Float = 0.0;
     private static inline var MAX_RECONNECT_ATTEMPTS:Int = 10;
@@ -313,6 +314,12 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
                 session->Stop();
             }
         ', this);
+		// === v2.3 FIX: Clear URL and reset flags on stop ===
+		_currentUrl = "";
+		_isReconnecting = false;
+		_waitingForPlaying = false;
+		_reconnectAttempts = 0;
+		_reconnectTimer = 0;
     }
 
     private function pollSessionState():Void
@@ -360,19 +367,57 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
         // Only clear reconnect state if we were reconnecting AND
         // the C++ state is PLAYING (MESessionStarted received)
         // ═════════════════════════════════════════════════════════════════
-        if (_isReconnecting && cppPlaying && cppState == 2)
+		if (_isReconnecting && cppPlaying && cppState == 2)
+		{
+			trace('✅ URLAudioStreamPlayer: Reconnect successful after $_reconnectAttempts attempt(s)');
+			_isReconnecting = false;
+			_waitingForPlaying = false;   // ← ДОБАВИТЬ: сброс ожидания
+			_reconnectAttempts = 0;
+			_reconnectTimer = 0;
+
+			var errC = getOutput("error");
+			if (errC != null) { errC.setValueSilent(""); errC.propagateCurrentValue(); }
+			var stateC = getOutput("state");
+			if (stateC != null) { stateC.setValueSilent(2); stateC.propagateCurrentValue(); }
+		}
+        // ═════════════════════════════════════════════════════════════════
+        // v1.4 FIX: DETECT FAILED RECONNECT
+        // Play() returned true (accepted URL), but stream failed to reach
+        // PLAYING state (connection lost or buffering timeout occurred).
+        // Schedule next retry attempt.
+        // ═════════════════════════════════════════════════════════════════
+        if (_waitingForPlaying && (cppConnectionLost || cppBufferingTimeout))
         {
-            trace('✅ URLAudioStreamPlayer: Reconnect successful after $_reconnectAttempts attempt(s)');
-            _isReconnecting = false;
-            _reconnectAttempts = 0;
-            _reconnectTimer = 0;
+            trace('⏳ URLAudioStreamPlayer: Play() accepted, but failed to reach PLAYING. Scheduling retry...');
+            _waitingForPlaying = false;
+            _reconnectAttempts++;
+
+            if (_reconnectAttempts > MAX_RECONNECT_ATTEMPTS)
+            {
+                trace('❌ URLAudioStreamPlayer: Max reconnect attempts ($MAX_RECONNECT_ATTEMPTS) reached. Giving up.');
+                _isReconnecting = false;
+                _reconnectTimer = 0;
+
+                var errC = getOutput("error");
+                if (errC != null) { errC.setValueSilent("Connection lost. Max retries exceeded."); errC.propagateCurrentValue(); }
+                var stateC = getOutput("state");
+                if (stateC != null) { stateC.setValueSilent(4); stateC.propagateCurrentValue(); }
+                return;
+            }
+
+            var delay = BASE_RECONNECT_DELAY * Math.pow(2, _reconnectAttempts - 1);
+            if (delay > MAX_RECONNECT_DELAY) delay = MAX_RECONNECT_DELAY;
+            var jitter = delay * 0.2 * (Math.random() * 2 - 1);
+            delay += jitter;
+            _reconnectTimer = delay;
+            _isReconnecting = true;
+
+            trace('🔄 Next attempt in ${Math.round(delay * 10) / 10}s (attempt $_reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)');
 
             var errC = getOutput("error");
-            if (errC != null) { errC.setValueSilent(""); errC.propagateCurrentValue(); }
-            var stateC = getOutput("state");
-            if (stateC != null) { stateC.setValueSilent(2); stateC.propagateCurrentValue(); }
+            if (errC != null) { errC.setValueSilent('Reconnecting ($_reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)...'); errC.propagateCurrentValue(); }
         }
-
+		
         // === Update output contacts ===
         if (cppPlaying != _lastPlayingState)
         {
@@ -395,12 +440,14 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
             if (c != null) { c.setValueSilent(cppError); c.propagateCurrentValue(); }
         }
 
-        if (cppState != _lastStateInt)
-        {
-            _lastStateInt = cppState;
-            var c = getOutput("state");
-            if (c != null) { c.setValueSilent(cppState); c.propagateCurrentValue(); }
-        }
+		// Debug state
+		if (cppState != _lastStateInt)
+		{
+			trace('📊 URLAudioStreamPlayer: State changed: ${_lastStateInt} → $cppState (${getGameStateName(cppState)})');
+			_lastStateInt = cppState;
+			var c = getOutput("state");
+			if (c != null) { c.setValueSilent(cppState); c.propagateCurrentValue(); }
+		}
     }
 
     // =========================================================================
@@ -536,23 +583,23 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
         // ═════════════════════════════════════════════════════════════════
         // v1.3 FIX: Handle Play() result properly
         // ═════════════════════════════════════════════════════════════════
-        if (playResult)
-        {
-            // Play() accepted the URL — reset attempt counter
-            // pollSessionState() will detect MESessionStarted (PLAYING state)
-            // and clear _isReconnecting
-			_isReconnecting = false; 
-            _reconnectAttempts = 0;
-            _reconnectTimer = 0;
-            trace('✅ Play() accepted, waiting for PLAYING state...');
-
-            var errC = getOutput("error");
-            if (errC != null)
-            {
-                errC.setValueSilent("Connecting...");
-                errC.propagateCurrentValue();
-            }
-        }
+		if (playResult)
+		{
+			// Play() accepted - reset all reconnect state
+			_isReconnecting = false;
+			_waitingForPlaying = true;
+			_reconnectAttempts = 0;
+			_reconnectTimer = 0;
+			
+			trace('✅ Play() accepted, waiting for PLAYING state...');
+			
+			var errC = getOutput("error");
+			if (errC != null)
+			{
+				errC.setValueSilent("Connecting...");
+				errC.propagateCurrentValue();
+			}
+		}
         else
         {
             // Play() failed — increment counter and schedule next attempt
@@ -611,6 +658,29 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
             // Clear error display
             var errC = getOutput("error");
             if (errC != null) { errC.setValueSilent(""); errC.propagateCurrentValue(); }
+        }
+    }
+    /**
+     * Convert C++ WMFStreamSession::State enum to human-readable string.
+     * Used for debug logging in pollSessionState().
+     *
+     * Mapping (from WMFStreamSession.h):
+     *   0 = IDLE
+     *   1 = CONNECTING
+     *   2 = PLAYING
+     *   3 = STOPPING
+     *   4 = ERR
+     */
+    private function getGameStateName(state:Int):String
+    {
+        return switch (state)
+        {
+            case 0: "IDLE";
+            case 1: "CONNECTING";
+            case 2: "PLAYING";
+            case 3: "STOPPING";
+            case 4: "ERR";
+            default: "UNKNOWN(" + state + ")";
         }
     }
 }

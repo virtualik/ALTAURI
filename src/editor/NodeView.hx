@@ -650,13 +650,32 @@ class NodeView extends Sprite
 
 	private function getPinDefForContact(contact:Contact):PinDef
 	{
-		if (atom == null || !(Std.isOfType(atom, Assembly))) return null;
-		var asm:Assembly = cast(atom, Assembly);
-		if (asm.blueprint == null || asm.blueprint.pins == null) return null;
-		for (pin in asm.blueprint.pins)
+		// 1. Try Assembly blueprint pins (for composite atoms)
+		if (atom != null && Std.isOfType(atom, Assembly))
 		{
-			if (pin.name == contact.name) return pin;
+			var asm:Assembly = cast(atom, Assembly);
+			if (asm.blueprint != null && asm.blueprint.pins != null)
+			{
+				for (pin in asm.blueprint.pins)
+				{
+					if (pin.name == contact.name) return pin;
+				}
+			}
 		}
+		
+		// 2. Try AtomRegistry for native atoms (Oscilloscope, SignalGenerator, etc.)
+		if (atom != null && atom.type != null)
+		{
+			var bp = library.AtomRegistry.get(atom.type);
+			if (bp != null && bp.pins != null)
+			{
+				for (pin in bp.pins)
+				{
+					if (pin.name == contact.name) return pin;
+				}
+			}
+		}
+		
 		return null;
 	}
 

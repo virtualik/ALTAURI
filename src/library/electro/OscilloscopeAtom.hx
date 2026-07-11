@@ -2,550 +2,433 @@ package library.electro;
 
 import core.base.Atom;
 import core.base.Contact;
-import core.types.ContactType;
-import core.logic.TickGenerator;
+import core.logic.EventType;
+import core.logic.Impulsys;
+import core.types.ContactType.*;
 import system.managers.DriverManager;
 import system.managers.Driver;
 
 /**
- * OSCILLOSCOPE ATOM v4.0 (Time-Based Sampling)
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * ARCHITECTURE: "ATOM IS DATABANK & COMPUTE CORE"
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * OscilloscopeAtom is an active driver atom with timing from TickGenerator.
- *
+ * OSCILLOSCOPE ATOM v7.0 (Buffer Input Architecture)
+ * 
+ * v7.0 Changes:
+ * - Input changed from "in:Float" to "samples:Array<Float>"
+ * - Receives full audio buffer from MiniAudioAtom
+ * - Writes buffer into internal ring buffer
+ * - Applies trigger detection to find stable waveform
+ * - Emits OSCILLOSCOPE_FRAME_READY when frame is ready
+ * 
+ * Architecture:
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │   OscilloscopeAtom                                                      │
+ * │  MiniAudioAtom "samples" ──> OscilloscopeAtom "samples"                 │
  * │                                                                         │
- * │   А) COMPUTE MODULE:                                                    │
- * │   ─────────────────                                                     │
- * │   update(dt) {                                                          │
- * │       1. Accumulate time until next sample                              │
- * │       2. Calculate interval: sampleInterval = timeScale / BUFFER_SIZE   │
- * │       3. If enough time accumulated → takeSample()                      │
- * │       4. takeSample() reads current "in" contact value                  │
- * │       5. Check trigger and write to buffer                              │
- * │   }                                                                     │
- * │                                                                         │
- * │   Б) DATABANK:                                                          │
- * │   ─────────────                                                         │
- * │   private var _buffer:Array<Float>;        // Ring buffer 512           │
- * │   private var _writeIndex:Int = 0;         // Current write position    │
- * │   private var _samplesCollected:Int = 0;   // Samples collected count   │
- * │   private var _totalSamples:Int = 0;       // Total counter             │
- * │   private var _sampleAccumulator:Float = 0;// Time accumulator          │
- * │   private var _timeScale:Float = 1.0;      // Seconds per full screen   │
- * │   private var _triggerLevel:Float = 0.0;   // Trigger level             │
- * │   private var _triggerEdge:Int = 0;        // 0=rising, 1=falling       │
- * │   private var _triggerMode:Int = 0;        // 0=auto, 1=normal, 2=single│
- * │   private var _triggerArmed:Bool = true;   // Is trigger armed          │
- * │                                                                         │
- * │   public function getBuffer():Array<Float>  // API for DeviceView       │
- * │   public function getWriteIndex():Int                                   │
- * │   public function getSamplesCollected():Int                             │
- * │   public function getSamplingStatus() // Sampling status                │
- * │                                                                         │
- * │   В) FACE (DeviceView):                                                 │
- * │   ──────────────────                                                    │
- * │   OscilloscopeWidget reads from Databank:                               │
- * │   ┌─────────────────────────────────────────────────────────────────┐   │
- * │   │ var buffer = oscAtom.getBuffer();                               │   │
- * │   │ var idx = oscAtom.getWriteIndex();                              │   │
- * │   │ drawWave(buffer, idx, oscAtom.getSamplesCollected());           │   │
- * │   └─────────────────────────────────────────────────────────────────┘   │
- * │                                                                         │
- * │   Headless Mode:                                                        │
- * │   ──────────────                                                        │
- * │   Atom works autonomously - samples input by time.                      │
- * │   DeviceView not required for operation.                                │
- * │   Data can be saved via getPersistentState().                           │
- * │                                                                         │
- * │   ═══════════════════════════════════════════════════════════════════   │
- * │   TIMING FROM TICKGENERATOR                                             │
- * │   ═══════════════════════════════════════════════════════════════════   │
- * │                                                                         │
- * │   TickGenerator (60 Hz)                                                 │
- * │        │                                                                │
- * │        ├──► SignalGenerator.update(dt) - generates signal               │
- * │        │                                                                │
- * │        └──► OscilloscopeAtom.update(dt) - samples input                 │
- * │                                                                         │
- * │   Both use same fixedDeltaTime for consistent time!                     │
- * │                                                                         │
- * │   ═══════════════════════════════════════════════════════════════════   │
- * │   INTERVAL CALCULATION                                                  │
- * │   ═══════════════════════════════════════════════════════════════════   │
- * │                                                                         │
- * │   timeScale = 0.01 (10ms per screen)                                    │
- * │   BUFFER_SIZE = 512                                                     │
- * │   sampleInterval = 0.01 / 512 = 19.5μs                                  │
- * │   sampleRate = 512 / 0.01 = 51.2 kHz                                    │
- * │                                                                         │
- * │   For 440 Hz sine wave:                                                 │
- * │   - Period = 2.27ms                                                     │
- * │   - Samples per period = 51.2kHz / 440Hz ≈ 116 samples                  │
- * │   - Enough for smooth wave!                                             │
- * │                                                                         │
+ * │  OscilloscopeAtom:                                                      │
+ * │    1. Receives Array<Float> buffer                                      │
+ * │    2. Writes into internal ring buffer (2048 samples)                   │
+ * │    3. Searches for trigger edge                                         │
+ * │    4. If trigger found: snapshot + emit FRAME_READY                     │
+ * │    5. If no trigger for 100ms: free-run snapshot + emit                 │
  * └─────────────────────────────────────────────────────────────────────────┘
- *
- * v4.0 Changes:
- * - ARCHITECTURE: Time-based sampling instead of event-driven
- * - Oscilloscope is now an active Driver (isActive = true)
- * - Uses TickGenerator.update(dt) for precise timing
- * - Sample interval calculated from timeScale / BUFFER_SIZE
- * - Trigger logic works with time-based sampling
- * - Input contact ignores oscillation for fast signals
- * - Sampling status API for debugging
  */
 class OscilloscopeAtom extends Atom implements Driver
 {
-    // =========================================================================
-    // CONFIGURATION
-    // =========================================================================
-    // Buffer size = oscilloscope screen width in pixels.
-    // 512 points is enough for smooth line.
-    private static inline var BUFFER_SIZE:Int = 512;
+    private static inline var DEFAULT_BUFFER_SIZE:Int = 256;
+    private static inline var MIN_BUFFER_SIZE:Int = 128;
+    private static inline var MAX_BUFFER_SIZE:Int = 4096;
+    private static inline var DISPLAY_REFRESH_INTERVAL:Float = 0.1;
     
-    // Minimum sample interval (protection from too high frequency)
-    private static inline var MIN_SAMPLE_INTERVAL:Float = 0.00001; // 10μs
-
-    // =========================================================================
-    // DISPLAY SHAPE ENUM
-    // =========================================================================
     public static inline var SHAPE_RECTANGULAR:Int = 0;
     public static inline var SHAPE_SQUARE:Int = 1;
     public static inline var SHAPE_CIRCULAR:Int = 2;
-
-    // =========================================================================
-    // DATABANK
-    // =========================================================================
+    
+    public static inline var STATE_IDLE:Int = 0;
+    public static inline var STATE_CAPTURED:Int = 1;
+    public static inline var STATE_HOLDOFF:Int = 2;
+    
+    /** Internal ring buffer - stores incoming samples */
     private var _buffer:Array<Float>;
-    // Write index in ring buffer
+    private var _bufferSize:Int = DEFAULT_BUFFER_SIZE;
     private var _writeIndex:Int = 0;
-    // Counter of collected samples (for "waiting for signal" logic)
-    private var _samplesCollected:Int = 0;
+    private var _trtrig:Bool =  true;
+    /** Snapshot buffer - frozen frame for display */
+    private var _lastCapturedBuffer:Array<Float>;
+    private var _triggerIndex:Int = 0;
+    
     private var _totalSamples:Int = 0;
-    private var _lastValue:Float = 0.0;
-    private var _displayShape:Int = SHAPE_RECTANGULAR;
-
-    // =========================================================================
-    // TIME BASE & TRIGGER
-    // =========================================================================
-    private var _timeScale:Float = 0.1;      // seconds per full screen (buffer width)
+    private var _isTriggered:Bool = false;
+    
+    private var _state:Int = STATE_IDLE;
+    private var _triggerArmed:Bool = true;
+    private var _displayTimer:Float = 0.0;
+    
+    /** Trigger configuration */
+    private var _timeScale:Float = 0.1;
+    private var _zoom:Float = 1.0;
     private var _triggerLevel:Float = 0.0;
-    private var _triggerEdge:Int = 0;        // 0=rising, 1=falling
-    private var _triggerMode:Int = 0;        // 0=auto, 1=normal, 2=single
-    private var _triggerArmed:Bool = true;   // is trigger armed (for single/normal)
-
-    // =========================================================================
-    // SAMPLING STATE (v4.0)
-    // =========================================================================
-    private var _sampleAccumulator:Float = 0.0;  // Time accumulator for samples
-    private var _lastInputValue:Float = 0.0;     // Last read input value
-    private var _isSampling:Bool = false;        // Active sampling flag
-
-    // =========================================================================
-    // CONSTRUCTOR
-    // =========================================================================
+    private var _triggerEdge:Int = 0;
+    private var _triggerMode:Int = 0;
+    private var _displayShape:Int = SHAPE_RECTANGULAR;
+    
     public function new(id:String)
     {
         super(
             [
-                new Contact(null, INPUT, "in"),
+                new Contact(null, INPUT, "in"),  // v7.0: Array<Float> input
                 new Contact(0.1, INPUT, "timeScale"),
                 new Contact(0.0, INPUT, "triggerLevel"),
                 new Contact(0, INPUT, "triggerEdge"),
-                new Contact(0, INPUT, "triggerMode")
+                new Contact(0, INPUT, "triggerMode"),
+                new Contact(DEFAULT_BUFFER_SIZE, INPUT, "bufferSize"),
+                new Contact(1.0, INPUT, "zoom"),
+                new Contact(0, INPUT, "displayShape")
             ],
-            [], // no outputs
+            [],
             null,
             id,
             "Oscilloscope",
-            true  // v4.0: isActive = true (register in DriverManager)
+            true
         );
         
-        var inContact = getInput("in");
-        if (inContact != null) {
-            inContact.ignoreOscillation = true;  // v4.0: Ignore oscillation for fast signals
-            inContact.resetOscillation();
+        var samplesContact = getInput("samples");
+        if (samplesContact != null) {
+            samplesContact.ignoreOscillation = true;
+            samplesContact.resetOscillation();
         }
         
-        // Initialize buffer with zeros
-        _buffer = [];
-        for (i in 0...BUFFER_SIZE) {
-            _buffer.push(0.0);
-        }
-        
-        trace('OscilloscopeAtom: Created (id: $id, bufferSize: $BUFFER_SIZE, active: true)');
+        trace('OscilloscopeAtom v7.0: Created (id: $id, bufferSize: $_bufferSize)');
     }
-
-    // =========================================================================
-    // LIFECYCLE - Driver Interface
-    // =========================================================================
-    /**
-     * Driver initialization.
-     */
+    
     override public function init():Void
     {
-        _sampleAccumulator = 0.0;
-        _lastInputValue = 0.0;
-        _isSampling = true;
+        _state = STATE_IDLE;
+        _displayTimer = 0.0;
+        _totalSamples = 0;
+        _writeIndex = 0;
         _triggerArmed = true;
-        trace('OscilloscopeAtom: Initialized (sampling active)');
+        
+        _buffer = [];
+        for (i in 0..._bufferSize) _buffer.push(0.0);
+        
+        _lastCapturedBuffer = [];
+        for (i in 0..._bufferSize) _lastCapturedBuffer.push(0.0);
+        
+        trace('OscilloscopeAtom: Initialized (Buffer Input Mode)');
     }
-
-    /**
-     * Update every frame - main sampling logic.
-     * Called from DriverManager.update().
-     *
-     * v4.0: Time-based sampling instead of event-driven
-     *
-     * @param dt Delta time in seconds
-     */
+    
     override public function update(dt:Float):Void
-    {
-        if (_isDisposed || !_isSampling) return;
-        
-        // 1. Read parameters (timeScale, trigger, etc.)
-        readParameters();
-        
-        // 2. Calculate sample interval
-        var sampleInterval = _timeScale / BUFFER_SIZE;
-        if (sampleInterval < MIN_SAMPLE_INTERVAL) {
-            sampleInterval = MIN_SAMPLE_INTERVAL;
-        }
-        
-        // 3. Accumulate time
-        _sampleAccumulator += dt;
-        
-        // 4. If enough time accumulated - take sample(s)
-        while (_sampleAccumulator >= sampleInterval) {
-            takeSample();
-            _sampleAccumulator -= sampleInterval;
-        }
-        
-        // 5. Auto-arm trigger in auto mode
-        if (_triggerMode == 0 && !_triggerArmed && _samplesCollected >= BUFFER_SIZE) {
-            _triggerArmed = true;
-        }
-    }
-
-    /**
-     * Free resources.
-     */
-    override public function dispose():Void
-    {
-        DriverManager.getInstance().unregister(this.id);
-        _buffer = null;
-        super.dispose();
-        trace('OscilloscopeAtom: Disposed (total samples: $_totalSamples)');
-    }
-
-    // =========================================================================
-    // PARAMETER READING
-    // =========================================================================
-    /**
-     * Read values from parameter input contacts.
-     */
-    private function readParameters():Void
-    {
-        // timeScale
-        var timeScaleContact = getInput("timeScale");
-        if (timeScaleContact != null && timeScaleContact.value != null) {
-            var ts = _safeFloat(timeScaleContact.value, _timeScale);
-            if (ts >= 0.001 && ts <= 10.0) {
-                _timeScale = ts;
-            }
-        }
-        
-        // triggerLevel
-        var triggerLevelContact = getInput("triggerLevel");
-        if (triggerLevelContact != null && triggerLevelContact.value != null) {
-            _triggerLevel = _safeFloat(triggerLevelContact.value, 0.0);
-            if (_triggerLevel < -1.0) _triggerLevel = -1.0;
-            if (_triggerLevel > 1.0) _triggerLevel = 1.0;
-        }
-        
-        // triggerEdge
-        var triggerEdgeContact = getInput("triggerEdge");
-        if (triggerEdgeContact != null && triggerEdgeContact.value != null) {
-            _triggerEdge = _safeInt(triggerEdgeContact.value, 0);
-        }
-        
-        // triggerMode
-        var triggerModeContact = getInput("triggerMode");
-        if (triggerModeContact != null && triggerModeContact.value != null) {
-            _triggerMode = _safeInt(triggerModeContact.value, 0);
-            if (_triggerMode == 2) _triggerArmed = true; // single mode: re-arm
-        }
-    }
-
-    // =========================================================================
-    // EVENT HANDLING (for parameter changes only)
-    // =========================================================================
-    /**
-     * Handle contact changes.
-     * v4.0: Only for parameters, not for sampling!
-     */
-    override public function onContactChanged(c:Contact):Void
     {
         if (_isDisposed) return;
         
-        // v4.0: Ignore "in" for sampling - it happens in update()
-        // But process parameter changes
-        switch (c.name) {
-            case "timeScale":
-                _timeScale = _safeFloat(c.value, 1.0);
-                if (_timeScale < 0.001) _timeScale = 0.001;
-            case "triggerLevel":
-                _triggerLevel = _safeFloat(c.value, 0.0);
-                if (_triggerLevel < -1.0) _triggerLevel = -1.0;
-                if (_triggerLevel > 1.0) _triggerLevel = 1.0;
-            case "triggerEdge":
-                _triggerEdge = _safeInt(c.value, 0);
-            case "triggerMode":
-                _triggerMode = _safeInt(c.value, 0);
-                if (_triggerMode == 2) _triggerArmed = true; // single mode: re-arm
-            case "in":
-                // v4.0: Ignore for sampling, but save last value
-                // in case update() doesn't have time to read
-                if (c.value != null) {
-                    _lastInputValue = _toFloat(c.value, 0.0);
-                }
+        readParameters();
+        
+        // === v7.0: Read samples buffer from input ===
+        var samplesContact = getInput("in");
+        if (samplesContact != null && samplesContact.value != null)
+        {
+			if (_trtrig) {	trace('OscilloscopeAtom: samplesBuffer !=0 Input Data is Here!'); _trtrig = false; }
+            var samplesBuffer:Array<Float> = samplesContact.value;
+            if (samplesBuffer != null && samplesBuffer.length > 0)
+            {
+                processSamplesBuffer(samplesBuffer);
+            }
+        }
+        
+        // === Auto mode: free-run if no trigger for 100ms ===
+        if (_triggerMode == 0)
+        {
+            _displayTimer += dt;
+            if (_displayTimer >= DISPLAY_REFRESH_INTERVAL)
+            {
+                _isTriggered = false;
+                captureBuffer();
+                Impulsys.quickEmit(EventType.OSCILLOSCOPE_FRAME_READY, { atomId: this.id });
+                _displayTimer = 0.0;
+            }
         }
     }
-
-    // =========================================================================
-    // SAMPLING LOGIC (v4.0)
-    // =========================================================================
+    
     /**
-     * Take one sample from input.
-     * Called from update() when enough time accumulated.
-     *
-     * v4.1 FIX: Always write to buffer for continuous sweep,
-     * even if trigger hasn't fired. Trigger only syncs display start,
-     * but doesn't stop sampling.
+     * v7.0: Process incoming samples buffer.
+     * Writes samples into ring buffer and searches for trigger.
      */
-    private function takeSample():Void
+    private function processSamplesBuffer(samples:Array<Float>):Void
     {
-        // 1. Read current input value
-        var inContact = getInput("in");
-        var currentValue:Float = 0.0;
-        if (inContact != null && inContact.value != null) {
-            currentValue = _toFloat(inContact.value, _lastInputValue);
-        } else {
-            currentValue = _lastInputValue;
-        }
+        var triggered = false;
+        var triggerPos = -1;
         
-        // Update last value
-        _lastInputValue = currentValue;
-        
-        // 2. === FIX v4.1: ALWAYS write to buffer (continuous sweep) ===
-        _buffer[_writeIndex] = currentValue;
-        _writeIndex = (_writeIndex + 1) % BUFFER_SIZE;
-        if (_samplesCollected < BUFFER_SIZE) {
-            _samplesCollected++;
-        }
-        _totalSamples++;
-        
-        // 3. Trigger logic (only for sync, doesn't block sampling)
-        if (_triggerMode != 0 && !_triggerArmed) {
-            // Wait for trigger
-            var triggered = false;
-            if (_triggerEdge == 0) { // rising
-                if (_lastValue < _triggerLevel && currentValue >= _triggerLevel) {
+        // Write samples into ring buffer and search for trigger
+        for (i in 0...samples.length)
+        {
+            var sample = samples[i];
+            
+            // Trigger detection (compare with previous sample)
+            if (_triggerArmed && i > 0)
+            {
+                var prevSample = samples[i - 1];
+                if (checkTrigger(prevSample, sample))
+                {
                     triggered = true;
-                }
-            } else { // falling
-                if (_lastValue > _triggerLevel && currentValue <= _triggerLevel) {
-                    triggered = true;
+                    triggerPos = i;
                 }
             }
-            if (triggered) {
+            
+            // Write to ring buffer
+            _buffer[_writeIndex] = sample;
+            _writeIndex = (_writeIndex + 1) % _bufferSize;
+            _totalSamples++;
+        }
+        
+        // If trigger found, capture frame
+        if (triggered)
+        {
+            _isTriggered = true;
+            // Trigger index points to where the edge occurred in the captured buffer
+            _triggerIndex = (_writeIndex - samples.length + triggerPos + _bufferSize) % _bufferSize;
+            captureBuffer();
+            Impulsys.quickEmit(EventType.OSCILLOSCOPE_FRAME_READY, { atomId: this.id });
+            _displayTimer = 0.0;
+            
+            if (_triggerMode == 2)
+            {
                 _triggerArmed = false;
-                // Reset writeIndex to start display from this sample
-                // But DON'T clear buffer - just change reference point
-                _writeIndex = 0;
-                _samplesCollected = 1;
             }
-            _lastValue = currentValue;
-            return; // Exit, but buffer already written!
         }
-        
-        // 4. Auto-arm trigger in auto mode
-        if (_triggerMode == 0 && !_triggerArmed && _samplesCollected >= BUFFER_SIZE) {
-            _triggerArmed = true;
-        }
-        
-        _lastValue = currentValue;
     }
-
-    // =========================================================================
-    // PUBLIC API
-    // =========================================================================
-    public function getBuffer():Array<Float> return _buffer;
-    public function getWriteIndex():Int return _writeIndex;
-    public function getSamplesCollected():Int return _samplesCollected;
-    public function getTotalSamples():Int return _totalSamples;
-    public function getLastValue():Float return _lastValue;
-    public function getBufferSize():Int return BUFFER_SIZE;
+    
+    private function checkTrigger(lastValue:Float, currentValue:Float):Bool
+    {
+        if (_triggerEdge == 0)
+        {
+            return (lastValue < _triggerLevel && currentValue >= _triggerLevel);
+        }
+        else
+        {
+            return (lastValue > _triggerLevel && currentValue <= _triggerLevel);
+        }
+    }
+    
+    private function captureBuffer():Void
+    {
+        for (i in 0..._bufferSize)
+        {
+            _lastCapturedBuffer[i] = _buffer[i];
+        }
+    }
+    
+    private function readParameters():Void
+    {
+        var timeScaleContact = getInput("timeScale");
+        if (timeScaleContact != null && timeScaleContact.value != null)
+        {
+            var ts = safeFloat(timeScaleContact.value, _timeScale);
+            if (ts >= 0.001 && ts <= 100.0) _timeScale = ts;
+        }
+        
+        var bufferSizeContact = getInput("bufferSize");
+        if (bufferSizeContact != null && bufferSizeContact.value != null)
+        {
+            var bs = safeInt(bufferSizeContact.value, _bufferSize);
+            if (bs < MIN_BUFFER_SIZE) bs = MIN_BUFFER_SIZE;
+            if (bs > MAX_BUFFER_SIZE) bs = MAX_BUFFER_SIZE;
+            if (bs != _bufferSize)
+            {
+                _bufferSize = bs;
+                resizeBuffer(_bufferSize);
+            }
+        }
+        
+        var zoomContact = getInput("zoom");
+        if (zoomContact != null && zoomContact.value != null)
+        {
+            _zoom = safeFloat(zoomContact.value, 1.0);
+            if (_zoom < 0.1) _zoom = 0.1;
+            if (_zoom > 10.0) _zoom = 10.0;
+        }
+        
+        var shapeContact = getInput("displayShape");
+        if (shapeContact != null && shapeContact.value != null)
+        {
+            var newShape = safeInt(shapeContact.value, _displayShape);
+            if (newShape != _displayShape)
+            {
+                _displayShape = newShape;
+                Impulsys.quickEmit(EventType.OSCILLOSCOPE_SHAPE_CHANGED, {
+                    atomId: this.id,
+                    shape: _displayShape
+                });
+            }
+        }
+        
+        var triggerLevelContact = getInput("triggerLevel");
+        if (triggerLevelContact != null && triggerLevelContact.value != null)
+        {
+            _triggerLevel = safeFloat(triggerLevelContact.value, 0.0);
+            _triggerLevel = Math.max(-1.0, Math.min(1.0, _triggerLevel));
+        }
+        
+        var triggerEdgeContact = getInput("triggerEdge");
+        if (triggerEdgeContact != null && triggerEdgeContact.value != null)
+        {
+            _triggerEdge = safeInt(triggerEdgeContact.value, 0);
+        }
+        
+        var triggerModeContact = getInput("triggerMode");
+        if (triggerModeContact != null && triggerModeContact.value != null)
+        {
+            var newMode = safeInt(triggerModeContact.value, _triggerMode);
+            if (newMode != _triggerMode)
+            {
+                _triggerMode = newMode;
+                if (_triggerMode == 2) _triggerArmed = true;
+            }
+        }
+    }
+    
+    // Public accessors
+    public function getBuffer():Array<Float> return _lastCapturedBuffer;
+    public function getTriggerIndex():Int return _triggerIndex;
+    public function getBufferSize():Int return _bufferSize;
+    public function getZoom():Float return _zoom;
+    public function getTimeScale():Float return _timeScale;
+    public function getTriggerLevel():Float return _triggerLevel;
     public function getDisplayShape():Int return _displayShape;
+    public function getFSMState():Int return _state;
+    public function isTriggered():Bool return _isTriggered;
+    public function getSamplesCollected():Int return Std.int(Math.min(_totalSamples, _bufferSize));
+    public function getTotalSamples():Int return _totalSamples;
     
     public function setDisplayShape(shape:Int):Void
     {
-        if (shape >= SHAPE_RECTANGULAR && shape <= SHAPE_CIRCULAR) {
+        if (shape >= SHAPE_RECTANGULAR && shape <= SHAPE_CIRCULAR)
+        {
             _displayShape = shape;
+            Impulsys.quickEmit(EventType.OSCILLOSCOPE_SHAPE_CHANGED, {
+                atomId: this.id,
+                shape: _displayShape
+            });
         }
     }
-
-    /**
-     * v4.0: Sampling status for debugging
-     */
-    public function getSamplingStatus():{
-        sampleRate:Float,
-        timePerSample:Float,
-        isTriggered:Bool,
-        accumulator:Float
-    } {
-        var sampleInterval = _timeScale / BUFFER_SIZE;
-        return {
-            sampleRate: 1.0 / sampleInterval,
-            timePerSample: sampleInterval,
-            isTriggered: !_triggerArmed,
-            accumulator: _sampleAccumulator
-        };
-    }
-
-    /**
-     * v4.0: Enable/disable sampling
-     */
-    public function setSampling(active:Bool):Void
-    {
-        _isSampling = active;
-        if (active) {
-            _sampleAccumulator = 0.0;
-            _triggerArmed = true;
-        }
-    }
-
+    
     public function clearBuffer():Void
     {
         _writeIndex = 0;
-        _samplesCollected = 0;
-        // Don't reset _totalSamples - this is overall statistics
-        _lastValue = 0.0;
-        for (i in 0...BUFFER_SIZE) {
-            _buffer[i] = 0.0;
-        }
-    }
-
-    // =========================================================================
-    // TIME SCALE & TRIGGER API
-    // =========================================================================
-    public function getTimeScale():Float return _timeScale;
-    public function setTimeScale(scale:Float):Void {
-        _timeScale = Math.max(0.001, scale);
-    }
-    public function getTriggerLevel():Float return _triggerLevel;
-    public function setTriggerLevel(level:Float):Void {
-        _triggerLevel = Math.max(-1.0, Math.min(1.0, level));
-    }
-    public function getTriggerEdge():Int return _triggerEdge;
-    public function setTriggerEdge(edge:Int):Void {
-        _triggerEdge = edge;
-    }
-    public function getTriggerMode():Int return _triggerMode;
-    public function setTriggerMode(mode:Int):Void {
-        _triggerMode = mode;
-        if (mode == 2) _triggerArmed = true;
-    }
-    public function rearm():Void {
+        _triggerIndex = 0;
+        _totalSamples = 0;
+        _displayTimer = 0.0;
         _triggerArmed = true;
-    }
-
-    // =========================================================================
-    // STATE SERIALIZATION
-    // =========================================================================
-	override public function getPersistentState():Dynamic
-	{
-		var base = super.getPersistentState();
-		var result = {
-			displayShape: _displayShape,
-			timeScale: _timeScale,
-			triggerLevel: _triggerLevel,
-			triggerEdge: _triggerEdge,
-			triggerMode: _triggerMode,
-			totalSamples: _totalSamples
-		};
-		if (base != null)
-		{
-			for (field in Reflect.fields(base))
-			{
-				Reflect.setField(result, field, Reflect.field(base, field));
-			}
-		}
-		return result;
-	}
-
-    override public function restoreState(state:Dynamic):Void
-    {
-        if (state == null) return;
-        super.restoreState(state);
-        if (state.timeScale != null) _timeScale = state.timeScale;
-        if (state.triggerLevel != null) _triggerLevel = state.triggerLevel;
-        if (state.triggerEdge != null) _triggerEdge = state.triggerEdge;
-        if (state.triggerMode != null) {
-            _triggerMode = state.triggerMode;
-            if (_triggerMode == 2) _triggerArmed = true;
-        }
-        if (state.displayShape != null) _displayShape = state.displayShape;
-        if (state.totalSamples != null) _totalSamples = state.totalSamples;
+        _state = STATE_IDLE;
         
-        // Reconfigure contact
-        var inContact = getInput("in");
-        if (inContact != null) {
-            inContact.ignoreOscillation = true;
-            inContact.resetOscillation();
+        for (i in 0..._bufferSize)
+        {
+            _buffer[i] = 0.0;
+            _lastCapturedBuffer[i] = 0.0;
         }
-        trace('OscilloscopeAtom: Restored state (timeScale: $_timeScale, totalSamples: $_totalSamples)');
     }
-
-    // =========================================================================
-    // UTILITY FUNCTIONS
-    // =========================================================================
-    private function _safeFloat(value:Dynamic, defaultVal:Float):Float {
+    
+    public function rearm():Void
+    {
+        _triggerArmed = true;
+        _state = STATE_IDLE;
+    }
+    
+    private function resizeBuffer(newSize:Int):Void
+    {
+        var oldBuffer = _buffer;
+        var oldCaptured = _lastCapturedBuffer;
+        
+        _buffer = [];
+        _lastCapturedBuffer = [];
+        
+        for (i in 0...newSize)
+        {
+            _buffer.push(i < oldBuffer.length ? oldBuffer[i] : 0.0);
+            _lastCapturedBuffer.push(i < oldCaptured.length ? oldCaptured[i] : 0.0);
+        }
+        
+        _writeIndex = _writeIndex % newSize;
+        _triggerIndex = _triggerIndex % newSize;
+        _bufferSize = newSize;
+    }
+    
+    private function safeFloat(value:Dynamic, defaultVal:Float):Float
+    {
         if (value == null) return defaultVal;
         if (Std.isOfType(value, Float)) return cast value;
         if (Std.isOfType(value, Int)) return cast(value, Int) * 1.0;
-        if (Std.isOfType(value, String)) {
+        if (Std.isOfType(value, String))
+        {
             var f = Std.parseFloat(cast value);
             return Math.isNaN(f) ? defaultVal : f;
         }
         return defaultVal;
     }
-
-    private function _safeInt(value:Dynamic, defaultVal:Int):Int {
+    
+    private function safeInt(value:Dynamic, defaultVal:Int):Int
+    {
         if (value == null) return defaultVal;
         if (Std.isOfType(value, Int)) return cast value;
         if (Std.isOfType(value, Float)) return Std.int(cast(value, Float));
-        if (Std.isOfType(value, String)) {
+        if (Std.isOfType(value, String))
+        {
             var i = Std.parseInt(cast value);
             return i == null ? defaultVal : i;
         }
         return defaultVal;
     }
-
-    private function _toFloat(value:Dynamic, defaultVal:Float):Float {
-        if (value == null) return defaultVal;
-        if (Std.isOfType(value, Float)) return cast value;
-        if (Std.isOfType(value, Int)) return cast(value, Int) * 1.0;
-        if (Std.isOfType(value, Bool)) return cast(value, Bool) ? 1.0 : 0.0;
-        if (Std.isOfType(value, String)) {
-            var f = Std.parseFloat(cast value);
-            return Math.isNaN(f) ? defaultVal : f;
+    
+    override public function getPersistentState():Dynamic
+    {
+        var base = super.getPersistentState();
+        var result = {
+            displayShape: _displayShape,
+            timeScale: _timeScale,
+            zoom: _zoom,
+            bufferSize: _bufferSize,
+            triggerLevel: _triggerLevel,
+            triggerEdge: _triggerEdge,
+            triggerMode: _triggerMode,
+            totalSamples: _totalSamples
+        };
+        
+        if (base != null)
+        {
+            for (field in Reflect.fields(base))
+            {
+                Reflect.setField(result, field, Reflect.field(base, field));
+            }
         }
-        return defaultVal;
+        
+        return result;
+    }
+    
+    override public function restoreState(state:Dynamic):Void
+    {
+        if (state == null) return;
+        super.restoreState(state);
+        
+        if (state.timeScale != null) _timeScale = state.timeScale;
+        if (state.zoom != null) _zoom = state.zoom;
+        if (state.bufferSize != null)
+        {
+            var bs = state.bufferSize;
+            if (bs >= MIN_BUFFER_SIZE && bs <= MAX_BUFFER_SIZE && bs != _bufferSize)
+            {
+                _bufferSize = bs;
+                resizeBuffer(_bufferSize);
+            }
+        }
+        if (state.triggerLevel != null) _triggerLevel = state.triggerLevel;
+        if (state.triggerEdge != null) _triggerEdge = state.triggerEdge;
+        if (state.triggerMode != null) _triggerMode = state.triggerMode;
+        if (state.displayShape != null) _displayShape = state.displayShape;
+        if (state.totalSamples != null) _totalSamples = state.totalSamples;
+    }
+    
+    override public function dispose():Void
+    {
+        DriverManager.getInstance().unregister(this.id);
+        _buffer = null;
+        _lastCapturedBuffer = null;
+        super.dispose();
     }
 }

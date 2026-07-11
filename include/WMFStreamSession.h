@@ -39,22 +39,22 @@
 /**
  * WMF STREAM SESSION v2.3 (Reconnect Loop Fix)
  *
- * ┌─────────────────────────────────────────────────────────────────────────┐
- * │  v2.3 CHANGES:                                                         │
- * │                                                                         │
+ * ┌──────────────────────────────────────────────────────────────────────────┐
+ * │  v2.3 CHANGES:                                                           │
+ * │                                                                          │
  * │  1. Play() resets _connectionLost, _bufferingTimeout, _bufferingStartTime│
- * │     at the START of new playback. Without this, stale flags from a      │
+ * │     at the START of new playback. Without this, stale flags from a       │
  * │     previous session cause pollSessionState() to immediately trigger     │
  * │     startReconnect() right after a successful Play().                    │
- * │                                                                         │
- * │  2. MESessionClosed resets _bufferingStartTime to 0.                    │
- * │     Without this, CheckBufferingTimeout() can fire on a stale timestamp │
+ * │                                                                          │
+ * │  2. MESessionClosed resets _bufferingStartTime to 0.                     │
+ * │     Without this, CheckBufferingTimeout() can fire on a stale timestamp  │
  * │     from a previous session, causing false-positive timeout.             │
- * │                                                                         │
- * │  3. MESessionEnded clears _currentUrl BEFORE setting _connectionLost.   │
- * │     This prevents CheckAndResetConnectionLost() from firing on a URL    │
- * │     that was intentionally stopped by the user.                         │
- * └─────────────────────────────────────────────────────────────────────────┘
+ * │                                                                          │
+ * │  3. MESessionEnded clears _currentUrl BEFORE setting _connectionLost.    │
+ * │     This prevents CheckAndResetConnectionLost() from firing on a URL     │
+ * │     that was intentionally stopped by the user.                          │
+ * └──────────────────────────────────────────────────────────────────────────┘
  */
 class WMFStreamSession : public IMFAsyncCallback {
 public:
@@ -704,18 +704,20 @@ public:
         return _connectionLost.exchange(false);
     }
 
-    bool CheckBufferingTimeout(DWORD timeoutMs = 15000) {
-        if (!_isBuffering.load()) return false;
-        int startTime = _bufferingStartTime.load();
-        if (startTime == 0) return false;
-        DWORD elapsed = GetTickCount() - (DWORD)startTime;
-        if (elapsed > timeoutMs) {
-            _bufferingTimeout.store(true);
-            _errorMessage = "Buffering timeout (" + std::to_string(timeoutMs/1000) + "s)";
-            return true;
-        }
-        return false;
-    }
+	bool CheckBufferingTimeout(DWORD timeoutMs = 15000) {
+		if (!_isBuffering.load()) return false;
+		
+		int startTime = _bufferingStartTime.load();
+		if (startTime == 0) return false;  // Timer was reset
+		
+		DWORD elapsed = GetTickCount() - (DWORD)startTime;
+		if (elapsed > timeoutMs) {
+			_bufferingTimeout.store(true);
+			_errorMessage = "Buffering timeout (" + std::to_string(timeoutMs/1000) + "s)";
+			return true;
+		}
+		return false;
+	}
 
     bool CheckAndResetBufferingTimeout() {
         return _bufferingTimeout.exchange(false);
