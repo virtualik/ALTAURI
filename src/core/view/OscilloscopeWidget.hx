@@ -83,7 +83,7 @@ class OscilloscopeWidget extends DeviceView
         _debugLabel.selectable = false;
         _debugLabel.mouseEnabled = false;
         _debugLabel.defaultTextFormat = new TextFormat("_sans", 9, 0xFFFF00);
-        _debugLabel.text = "Waiting for signal...";
+        _debugLabel.text = ""; // "Waiting for signal...";
         addChild(_debugLabel);
         
         _label = new TextField();
@@ -309,7 +309,7 @@ class OscilloscopeWidget extends DeviceView
         
         if (samplesCollected < 2)
         {
-            setLabel('Collecting: $samplesCollected / ${_oscAtom.getBufferSize()}');
+           // setLabel('Collecting: $samplesCollected / ${_oscAtom.getBufferSize()}');
             return;
         }
         
@@ -319,7 +319,7 @@ class OscilloscopeWidget extends DeviceView
         else
             drawWaveLinear(buffer, triggerIndex, samplesCollected);
         
-        setLabel('Samples: $samplesCollected | Total: ${_oscAtom.getTotalSamples()}');
+        //setLabel('Samples: $samplesCollected | Total: ${_oscAtom.getTotalSamples()}');
     }
     
     /**
