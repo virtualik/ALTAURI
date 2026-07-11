@@ -22,16 +22,21 @@ import library.electro.OscilloscopeAtom;
  * 
  * Rendering:
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │  Buffer[2048] ──> Draw entire buffer from index 0 to 2047              │
- * │                    stepX = widgetWidth / bufferSize                    │
- * │                    Each sample gets equal horizontal space             │
+ * │  Buffer[2048] ──> Draw entire buffer from index 0 to 2047               │
+ * │                    stepX = widgetWidth / bufferSize                     │
+ * │                    Each sample gets equal horizontal space              │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
 class OscilloscopeWidget extends DeviceView
 {
     public var widgetWidth:Float = 300;
     public var widgetHeight:Float = 150;
-    public var colorLine:Int = 0x00FF00;
+	override public function getWidgetSize():{width:Float, height:Float}
+	{
+		return {width: widgetWidth, height: widgetHeight};
+	}
+
+	public var colorLine:Int = 0x00FF00;
     public var colorBg:Int = 0x0a0a12;
     public var colorGrid:Int = 0x1a2a1a;
     

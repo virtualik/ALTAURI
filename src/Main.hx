@@ -1409,7 +1409,10 @@ class Main extends Sprite
 
 		var nodeCount = _editorContext.currentEditor.getSelectedNodeCount();
 		var wireIds = _editorContext.currentEditor.getSelectedWireIds();
-
+		
+		trace('DEBUG: nodeCount=$nodeCount, wireIds.length=${wireIds.length}');
+		trace('DEBUG: selectedNodeIds=${_editorContext.currentEditor.getSelectedNodeIds()}');
+	
 		if (nodeCount > 0)
 		{
 			_editorContext.currentEditor.deleteSelectedNodes();

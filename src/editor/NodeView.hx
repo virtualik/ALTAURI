@@ -199,19 +199,24 @@ class NodeView extends Sprite
 // =========================================================================
 // DYNAMIC SIZING (v3.0)
 // =========================================================================
-	private function recalcSize():Void
-	{
-		var bodyWidth:Float = MIN_WIDTH;
-		var widgetHeight:Float = 0;
-		if (deviceView != null)
-		{
-			var ws = deviceView.getWidgetSize();
-			var scaledW = ws.width * PREVIEW_SCALE;
-			var scaledH = ws.height * PREVIEW_SCALE;
-			bodyWidth = Math.max(bodyWidth, scaledW + WIDGET_PADDING * 2);
-			widgetHeight = scaledH + WIDGET_PADDING;
-			//trace('Widget size: ${ws.width} x ${ws.height}');
-		}
+private function recalcSize():Void
+{
+    var bodyWidth:Float = MIN_WIDTH;
+    var widgetHeight:Float = 0;
+    if (deviceView != null)
+    {
+        var ws = deviceView.getWidgetSize();
+        //trace('NodeView.recalcSize: getWidgetSize() = ${ws.width}x${ws.height} for ${Type.getClassName(Type.getClass(deviceView))}');
+        //trace('NodeView.recalcSize: Reflect.widgetWidth = ${Reflect.field(deviceView, "widgetWidth")}');
+        //trace('NodeView.recalcSize: Reflect.widgetHeight = ${Reflect.field(deviceView, "widgetHeight")}');
+        //trace('NodeView.recalcSize: deviceView.width/height = ${deviceView.width}x${deviceView.height}');
+        //trace('NodeView.recalcSize: deviceView.scaleX/Y = ${deviceView.scaleX}x${deviceView.scaleY}');
+        
+        var scaledW = ws.width * PREVIEW_SCALE;
+        var scaledH = ws.height * PREVIEW_SCALE;
+        bodyWidth = Math.max(bodyWidth, scaledW + WIDGET_PADDING * 2);
+        widgetHeight = scaledH + WIDGET_PADDING;
+    }
 		var portsHeight:Float = MIN_BODY_HEIGHT;
 		var inputCount = (atom != null && atom.getInputs() != null) ? atom.getInputs().length : 0;
 		var outputCount = (atom != null && atom.getOutputs() != null) ? atom.getOutputs().length : 0;
@@ -1028,12 +1033,19 @@ private function isPortTarget(target:DisplayObject):Bool
 			return;
 		}
 		
+// =====================================================================
+// FIX: Clear TextField focus when clicking on a node body/title.
+// OpenFL does not auto-blur TextFields when clicking Sprites.
+// This ensures keyboard shortcuts (Delete, D) work immediately.
+// =====================================================================
+		if (stage != null) stage.focus = null;
+
 		// === All guards passed → Select node ===
 		if (onSelect != null) onSelect(this);
 		Impulsys.quickEmit(EventType.NODE_CLICKED, { view: this, id: nodeId, ctrlKey: e.ctrlKey });
 		e.stopPropagation();
 	}
-
+	
 /**
 * v3.4.3: Right-click handler with full protection.
 *
@@ -1222,7 +1234,12 @@ private function isPortTarget(target:DisplayObject):Bool
 			targetObj = targetObj.parent;
 		}
 		
-		// === All guards passed → Start drag ===
+// =====================================================================
+// FIX: Clear TextField focus when starting node drag.
+// =====================================================================
+		if (stage != null) stage.focus = null;
+
+// === All guards passed → Start drag ===
 		_dragOffsetX = e.localX;
 		_dragOffsetY = e.localY;
 		if (parent != null) parent.addChild(this);
@@ -1463,6 +1480,15 @@ private function isPortTarget(target:DisplayObject):Bool
 		var y = _nodeHeight / 2;
 		var global = localToGlobal(new Point(x, y));
 		return {x: global.x, y: global.y};
+	}
+	
+	/**
+	* Get node dimensions for visibility culling.
+	* Used by ViewportManager to calculate bounding box.
+	*/
+	public function getNodeSize():{width:Float, height:Float}
+	{
+		return {width: _nodeWidth, height: _nodeHeight};
 	}
 
 // =========================================================================

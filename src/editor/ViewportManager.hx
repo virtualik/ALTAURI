@@ -249,10 +249,12 @@ class ViewportManager
         for (view in nodes)
         {
             if (view == null) continue;
-            
+										
             var wasVisible = view.visible;
-            var isVisible = (view.x > viewLeft && view.x < viewRight && 
-                            view.y > viewTop && view.y < viewBottom);
+			var size = view.getNodeSize();
+			// AABB check: node is visible if any part of it is within viewport
+			var isVisible = (view.x + size.width > viewLeft && view.x < viewRight &&
+							 view.y + size.height > viewTop  && view.y < viewBottom);
             
             if (isVisible) visibleCount++;
             

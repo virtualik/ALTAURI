@@ -553,6 +553,11 @@ class NodeEditor extends Sprite
 	{
 		var local = _canvas.globalToLocal(new Point(e.stageX, e.stageY));
 		_selection.handleCanvasMouseDown(local.x, local.y);
+// =====================================================================
+// FIX: Clear TextField focus when clicking empty canvas.
+// Ensures lasso selection and subsequent shortcuts work correctly.
+// =====================================================================
+		if (stage != null) stage.focus = null;
 	}
 
 /**
