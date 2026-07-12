@@ -8,17 +8,17 @@
     <app main="Main" if="cpp" file="ALTAURI" path="bin" />
 	
 	<output type="Application" mainClass="Main" />
-	<window  visible="false"
-			 borderless="true"
-			 hardware="true"
-			 vsync="true"
-			 allow-shaders="true"
-			 antialiasing="4"
-			 allow-high-dpi="false"
-			 width="1024" height="800"
-			 fps="120"
-			 background="#FF00FF"
-			 transparent="true">
+	<window visible="false"
+			borderless="true"
+			hardware="true"
+			vsync="true"
+			allow-shaders="true"
+			antialiasing="0"
+			allow-high-dpi="false"
+			width="1280" height="800"
+			fps="60"
+			background="#FF00FF"
+			transparent="true">
 	</window>/>
 	
 	<setenv name="OPENFL_DISABLE_DIRTY_REGIONS" value="true" />
