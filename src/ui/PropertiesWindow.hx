@@ -433,8 +433,41 @@ class PropertiesWindow extends Sprite
                 _content.addChild(btn);
                 yPos += 30;
             }
-            
             yPos += 10; // Extra spacing after shape selector
+			
+		    // === Секция: Frame Rate Control ===
+			var frLabel = new TextField();
+			frLabel.text = "Frame Rate (FPS):";
+			frLabel.width = 250;
+			frLabel.height = 20;
+			frLabel.selectable = false;
+			frLabel.defaultTextFormat = new TextFormat("_typewriter", 11, 0xAAAAAA);
+			frLabel.y = yPos;
+			_content.addChild(frLabel);
+			yPos += 22;
+			
+			var frInput = new NumberInput(oscAtom.getInput("frameRate"), "FPS");
+			frInput.y = yPos;
+			_content.addChild(frInput);
+			_widgets.push(frInput);
+			yPos += 40;
+			
+			// === Секция: Decimation ===
+			var decLabel = new TextField();
+			decLabel.text = "Sample Decimation:";
+			decLabel.width = 250;
+			decLabel.height = 20;
+			decLabel.selectable = false;
+			decLabel.defaultTextFormat = new TextFormat("_typewriter", 11, 0xAAAAAA);
+			decLabel.y = yPos;
+			_content.addChild(decLabel);
+			yPos += 22;
+			
+			var decInput = new NumberInput(oscAtom.getInput("decimation"), "Decimation");
+			decInput.y = yPos;
+			_content.addChild(decInput);
+			_widgets.push(decInput);
+			yPos += 40;
         }
         
         // =================================================================
