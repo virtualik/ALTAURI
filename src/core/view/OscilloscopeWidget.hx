@@ -598,7 +598,7 @@ class OscilloscopeWidget extends DeviceView
 		// === FIX: Рассчитываем шаг для эффективного количества точек ===
 		var stepX = widgetWidth / (effectiveCount - 1);
 		
-		g.lineStyle(3.0, colorLine, 1.0);
+		g.lineStyle(1.0, colorLine, 1.0);
 		
 		// Первая точка
 		var sample = buffer[0];
@@ -649,7 +649,7 @@ class OscilloscopeWidget extends DeviceView
 		var cy = widgetHeight / 2;
 		var maxRadius = (widgetWidth / 2) * 0.9 * zoom;
 		
-		g.lineStyle(1.0, colorLine, 1.0);
+		g.lineStyle(0.5, colorLine, 1.0);
 		
 		var sample = buffer[0];
 		if (!Math.isFinite(sample)) sample = 0.0;

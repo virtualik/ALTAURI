@@ -48,4 +48,7 @@ abstract EventType(String) from String to String {
 
     // === CONTEXT MENU ===
     public static var CONTEXT_MENU_ACTION(default, never) = new EventType("CONTEXT_MENU_ACTION");
+	
+	// === FFT  === 
+	public static var FFT_SPECTRUM_READY(default, never) = new EventType("FFT_SPECTRUM_READY");
 }

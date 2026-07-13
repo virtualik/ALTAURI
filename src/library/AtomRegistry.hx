@@ -234,7 +234,21 @@ class AtomRegistry
         reg("Oscilloscope", "Oscilloscope", [
             {name: "in", type: INPUT, dataType: "array", priority: INTERNAL, visibleInEditor: false}
         ], null, "oscilloscope");
-        
+		
+        reg("FFTAtom", "FFT Spectrum", [
+			{name: "buffer", type: INPUT, dataType: "array", priority: INTERNAL, visibleInEditor: false},
+			{name: "windowSize", type: INPUT, defaultValue: 512, dataType: "int", priority: IMPORTANT, label: "Size"},
+			{name: "windowType", type: INPUT, defaultValue: 1, dataType: "int", priority: OPTIONAL, label: "Window"},
+			{name: "sampleRate", type: INPUT, defaultValue: 48000, dataType: "int", priority: OPTIONAL, label: "Rate"},
+			{name: "spectrum", type: OUTPUT, dataType: "array", priority: CRITICAL},
+			{name: "spectrumDB", type: OUTPUT, dataType: "array", priority: CRITICAL},
+			{name: "peak", type: OUTPUT, dataType: "float", priority: IMPORTANT, label: "Peak Hz"},
+			{name: "peakAmp", type: OUTPUT, dataType: "float", priority: OPTIONAL},
+			{name: "bass", type: OUTPUT, dataType: "float", priority: IMPORTANT, label: "Bass"},
+			{name: "mid", type: OUTPUT, dataType: "float", priority: IMPORTANT, label: "Mid"},
+			{name: "treble", type: OUTPUT, dataType: "float", priority: IMPORTANT, label: "Treble"},
+			{name: "changed", type: OUTPUT, dataType: "bool", priority: OPTIONAL}
+		], null, "fft", true, true);
         _initialized = true;
     }
     

@@ -8,8 +8,8 @@ import core.data.Blueprint;
 	import core.view.ComEnumeratorWidget;
 	import core.view.NETRadioPlayerWidget;
 	import core.view.SystemVUMeterWidget;
+	import core.view.FFTWidget;
 #end
-
 /**
 * DEVICE WIDGET FACTORY v1.1
 * Factory for creating DeviceView (Atom's Face).
@@ -104,6 +104,8 @@ class DeviceWidgetFactory
 				new PanelWidget(asm);
 			case "oscilloscope", "scope":
 				new OscilloscopeWidget(asm, "in");
+			case "fftatom", "fft spectrum":
+				new FFTWidget(asm);
 			case "textinput":
 				new TextInputWidget(asm);
 				#if cpp
@@ -142,13 +144,15 @@ class DeviceWidgetFactory
 				new ButtonWidget(atom, "out");
 			case "toggle", "switch":
 				new ToggleWidget(atom, "out");
-			case "oscilloscope":
-				new OscilloscopeWidget(atom, "in");
 			case "textinput":
 				new TextInputWidget(atom);
+				#if cpp
+			case "oscilloscope":
+				new OscilloscopeWidget(atom, "in");
+			case "fftatom", "fft spectrum":
+				new FFTWidget(atom);
 			case "audioin", "audioinput", "audio":
 				new OscilloscopeWidget(atom, "samples");
-				#if cpp
 			case "systemvumeteratom", "system vu meter", "vumeter":
 				new SystemVUMeterWidget(atom);
 				#end
@@ -227,7 +231,7 @@ class DeviceWidgetFactory
 		var type = atomType.toLowerCase();
 		return switch (type)
 		{
-			case "led" | "button" | "toggle" | "oscilloscope" | "textinput" |
+			case "led" | "button" | "toggle" | "oscilloscope" | "fftatom" | "textinput" |
 					"audioin" | "audioinput" | "relay" | "conductor" |
 					"universalgen" | "signalgen" | "fpsmonitor" | "frametime":
 				true;

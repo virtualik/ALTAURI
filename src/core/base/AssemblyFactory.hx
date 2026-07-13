@@ -9,6 +9,7 @@ import library.electro.ButtonAtom;
 import library.electro.LedAtom;
 import library.electro.RelayAtom;
 import library.electro.OscilloscopeAtom;
+import library.electro.FFTAtom;
 import library.drivers.MiniAudioAtom;
 import library.drivers.SignalGenerator;
 import library.drivers.ComPortAtom;
@@ -140,9 +141,9 @@ class AssemblyFactory
 // URL AUDIO STREAM PLAYER — Internet radio player
 // ─────────────────────────────────────────────────────────────
 				case "URLAUDIOSTREAMPLAYERATOM",
-				"URLAUDIOSTREAMPLAYER",
-				"URL STREAM PLAYER",
-				"URLPLAYER":
+					 "URLAUDIOSTREAMPLAYER",
+					 "URL STREAM PLAYER",
+					 "URLPLAYER":
 					normalizedTypeId = "URLAudioStreamPlayerAtom";
 // ─────────────────────────────────────────────────────────────
 // === ELECTRO / UI ATOMS ===
@@ -155,6 +156,8 @@ class AssemblyFactory
 				case "LEDINDICATOR": normalizedTypeId = "LED";
 				case "RELAY": normalizedTypeId = "Relay";
 				case "OSCILLOSCOPE": normalizedTypeId = "Oscilloscope";
+				case "FFTATOM":
+				case "FFT": normalizedTypeId = "FFTAtom";
 				case "TEXTINPUT": normalizedTypeId = "TextInput";
 				default:
 // Keep original name if no special mapping is needed
@@ -235,6 +238,8 @@ class AssemblyFactory
 				atom = new RelayAtom(id);
 			case "Oscilloscope":
 				atom = new OscilloscopeAtom(id);
+			case "FFTAtom":
+				atom = new FFTAtom(id);
 			case "TextInput":
 				atom = new TextInputAtom(id);
 // =============================================================
