@@ -14,6 +14,8 @@ import library.drivers.MiniAudioAtom;
 import library.drivers.SignalGenerator;
 import library.drivers.ComPortAtom;
 import library.drivers.ComEnumeratorAtom;
+import library.logic.PassThroughAtom;
+
 using StringTools;
 
 /**
@@ -159,6 +161,12 @@ class AssemblyFactory
 				case "FFTATOM":
 				case "FFT": normalizedTypeId = "FFTAtom";
 				case "TEXTINPUT": normalizedTypeId = "TextInput";
+// ─────────────────────────────────────────────────────────────
+// LOGIC
+// ─────────────────────────────────────────────────────────────
+				case "PASSTHROUGH":
+				case "PASSTHROUGHLINE": normalizedTypeId = "PassThroughAtom";
+				
 				default:
 // Keep original name if no special mapping is needed
 					normalizedTypeId = typeId;
@@ -242,6 +250,11 @@ class AssemblyFactory
 				atom = new FFTAtom(id);
 			case "TextInput":
 				atom = new TextInputAtom(id);
+// =============================================================
+// LOGIC
+// =============================================================
+			case "PassThroughAtom":
+				atom = new PassThroughAtom(id); 
 // =============================================================
 // DEFAULT: Composite user-created Assembly
 // =============================================================

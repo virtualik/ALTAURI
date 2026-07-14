@@ -226,11 +226,24 @@ class AtomRegistry
 			//   3 = RECONNECTING (v1.2)
 			//   4 = ERROR
 		], null, "urlplayer", true, true);
-		
+
         // =================================================================
         // PASSIVE DISPLAYS (no active processing)
         // =================================================================
+		// =================================================================
+        // LOGIC
+        // =================================================================
         
+		reg("PassThroughAtom", "Pass Through", [
+			{name: "in",      type: INPUT,  dataType: "any",   priority: CRITICAL},
+			{name: "out",     type: OUTPUT, dataType: "any",   priority: CRITICAL},
+			{name: "changed", type: OUTPUT, dataType: "bool",  priority: OPTIONAL} 
+        ], true, "wire", true, false );
+        
+		// =================================================================
+        // INDICATORS
+        // =================================================================
+		
         reg("Oscilloscope", "Oscilloscope", [
             {name: "in", type: INPUT, dataType: "array", priority: INTERNAL, visibleInEditor: false}
         ], null, "oscilloscope");
@@ -249,7 +262,8 @@ class AtomRegistry
 			{name: "treble", type: OUTPUT, dataType: "float", priority: IMPORTANT, label: "Treble"},
 			{name: "changed", type: OUTPUT, dataType: "bool", priority: OPTIONAL}
 		], null, "fft", true, true);
-        _initialized = true;
+		
+        _initialized = true;		
     }
     
     /**

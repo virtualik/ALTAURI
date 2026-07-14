@@ -105,7 +105,7 @@ class FFTWidget extends DeviceView
 	private var _colorRed:Int = 0xCC2222;
 	
 	/** Целевое количество столбиков для визуализации (логарифмических полос). */
-	private var _targetBars:Int = 32;
+	private var _targetBars:Int = 16;
 	
 	// =========================================================================
 	// STATE & DATA (Zero-GC)
@@ -120,7 +120,7 @@ class FFTWidget extends DeviceView
 	private var _isRendering:Bool = false;
 
 	private var _previousBarHeights:Array<Float>;
-	private var _smoothingFactor:Float = 0.7; // 0.0 = нет сглаживания, 1.0 = максимальное сглаживание
+	private var _smoothingFactor:Float = 0.9; // 0.0 = нет сглаживания, 1.0 = максимальное сглаживание
 
 	// =========================================================================
 	// CONSTRUCTOR (Конструктор)
@@ -239,8 +239,8 @@ class FFTWidget extends DeviceView
 		var freqResolution = sampleRate / fftSize; // Гц на бин
 		
 		// Диапазон частот для отображения (20 Гц - 20 кГц)
-		var minFreq = 18.0;
-		var maxFreq = sampleRate / 2.0; // Частота Найквиста
+		var minFreq = 2000.0;
+		var maxFreq = sampleRate / 2.7; // Частота Найквиста
 		
 		// Защита от log(0)
 		if (minFreq <= 0) minFreq = 1.0;

@@ -937,7 +937,7 @@ class DevicePanel extends Sprite
             Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
         });
         clearBtn.x = headerWidth - 126;
-        _header.addChild(clearBtn);
+    //    _header.addChild(clearBtn);
         
         // =========================================================================
         // v3.8: MAXIMIZE/RESTORE BUTTON [□]/[◱]
