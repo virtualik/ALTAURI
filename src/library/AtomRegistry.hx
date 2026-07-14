@@ -146,8 +146,22 @@ class AtomRegistry
             {name: "out", type: OUTPUT, dataType: "float", priority: CRITICAL},
             {name: "changed", type: OUTPUT, dataType: "bool", priority: OPTIONAL}
         ], null, "panel", true, true);
+		
+        reg("BufferingAtom", "Audio Buffer", [
+			{name: "bufferSize", type: INPUT, defaultValue: 512, dataType: "int", 
+			 priority: IMPORTANT, label: "Size", visibleInEditor: true},
+			{name: "quantum", type: INPUT, defaultValue: 0.1, dataType: "float", 
+			 priority: OPTIONAL, visibleInEditor: false},
+			{name: "mode", type: INPUT, defaultValue: 0, dataType: "int", 
+			 priority: IMPORTANT, label: "Mode", visibleInEditor: true},
+			{name: "in", type: INPUT, dataType: "float", priority: CRITICAL},
+			{name: "buffer", type: OUTPUT, dataType: "array", priority: CRITICAL},
+			{name: "changed", type: OUTPUT, dataType: "bool", priority: OPTIONAL},
+			{name: "count", type: OUTPUT, dataType: "int", priority: IMPORTANT, label: "Count"},
+			{name: "full", type: OUTPUT, dataType: "bool", priority: IMPORTANT, label: "Full"}
+		], null, "buffer", true, true);
         
-        reg("MiniAudioAtom", "Mini Audio Capture", [
+		reg("MiniAudioAtom", "Mini Audio Capture", [
             {name: "mode",     type: INPUT,  defaultValue: 1,    dataType: "int",     priority: IMPORTANT, label: "Mode"},
             {name: "quantum",  type: INPUT,  defaultValue: 0.01, dataType: "float",   priority: OPTIONAL},
             {name: "gain",     type: INPUT,  defaultValue: 1.0,  dataType: "float",   priority: IMPORTANT, label: "Gain"},

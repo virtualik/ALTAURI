@@ -1,4 +1,5 @@
 package core.base;
+
 import core.base.Assembly;
 import core.base.Atom;
 import core.data.Blueprint;
@@ -10,6 +11,7 @@ import library.electro.LedAtom;
 import library.electro.RelayAtom;
 import library.electro.OscilloscopeAtom;
 import library.electro.FFTAtom;
+import library.electro.BufferingAtom; // ← ДОБАВЛЕНО
 import library.drivers.MiniAudioAtom;
 import library.drivers.SignalGenerator;
 import library.drivers.ComPortAtom;
@@ -19,7 +21,7 @@ import library.logic.PassThroughAtom;
 using StringTools;
 
 /**
-* ASSEMBLY FACTORY v1.1 (DisplayName Auto-Generation)
+* ASSEMBLY FACTORY v1.2 (BufferingAtom Added)
 *
 * Central factory that creates every Atom in the system.
 * It decides whether to instantiate a native C++ driver (SignalGenerator, MiniAudioAtom, etc.)
@@ -95,6 +97,7 @@ class AssemblyFactory
 			trace('ERROR: Blueprint not found: ${typeId}');
 			return null;
 		}
+
 // =====================================================================
 // NORMALIZATION: Make type names robust against different spellings
 // =====================================================================
@@ -166,6 +169,11 @@ class AssemblyFactory
 // ─────────────────────────────────────────────────────────────
 				case "PASSTHROUGH":
 				case "PASSTHROUGHLINE": normalizedTypeId = "PassThroughAtom";
+// ─────────────────────────────────────────────────────────────
+// BUFFERING
+// ─────────────────────────────────────────────────────────────
+				case "BUFFERINGATOM":
+				case "BUFFERING": normalizedTypeId = "BufferingAtom";
 				
 				default:
 // Keep original name if no special mapping is needed
@@ -254,7 +262,9 @@ class AssemblyFactory
 // LOGIC
 // =============================================================
 			case "PassThroughAtom":
-				atom = new PassThroughAtom(id); 
+				atom = new PassThroughAtom(id);
+			case "BufferingAtom": // ← ДОБАВЛЕНО
+				atom = new BufferingAtom(id);
 // =============================================================
 // DEFAULT: Composite user-created Assembly
 // =============================================================
@@ -269,6 +279,7 @@ class AssemblyFactory
 		}
 		return atom;
 	}
+
 // =====================================================================
 // DISPLAY NAME GENERATION (v1.1)
 // =====================================================================
@@ -300,16 +311,19 @@ class AssemblyFactory
 	{
 		if (typeId == null) return "Unknown";
 		if (assembly == null) return typeId;
+
 // Get human-readable name from registry
 		var bp = AtomRegistry.get(typeId);
 		var baseName:String = (bp != null && bp.name != null && bp.name.length > 0)
 		? bp.name
 		: typeId;
+
 // First try: use base name as-is
 		if (!assembly.hasAtomWithName(baseName))
 		{
 			return baseName;
 		}
+
 // Base name taken — find next available number
 		var counter:Int = 1;
 		var candidate:String = baseName + "_" + counter;
@@ -320,6 +334,7 @@ class AssemblyFactory
 		}
 		return candidate;
 	}
+
 	/**
 	* Convenience method — always returns an Assembly (never a native atom).
 	* Used when you explicitly want a composite node.
@@ -337,6 +352,7 @@ class AssemblyFactory
 			return null;
 		}
 	}
+
 	/**
 	* Returns true if the given typeId is a user-created composite blueprint
 	* (contains internalAtoms and connections).
