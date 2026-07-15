@@ -1370,9 +1370,15 @@ private function isPortTarget(target:DisplayObject):Bool
 			_isEditingName = true; // Re-set so user can continue editing
 			return;
 		}
-		// === Apply new name ===
+		// === Check new name ===
 		atom.displayName = newName;
+		if (Std.isOfType(atom, Assembly)) {
+			var asm:Assembly = cast(atom, Assembly);
+			asm.blueprint.name = newName;
+		}
+		// === Apply new name ===
 		_titleLabel.text = newName;
+
 		_nameInput.visible = false;
 		_titleLabel.visible = true;
 		// Save project

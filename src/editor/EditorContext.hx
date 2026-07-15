@@ -1,3 +1,6 @@
+// ============================================================================
+// FILE: editor/EditorContext.hx (ИСПРАВЛЕННАЯ ВЕРСИЯ v1.4)
+// ============================================================================
 package editor;
 
 import openfl.display.Sprite;
@@ -7,8 +10,18 @@ import core.logic.Impulsys;
 import core.logic.Impulse;
 
 /**
- * EDITOR CONTEXT v1.2 (Camera State Management + Auto-Center)
+ * EDITOR CONTEXT v1.4 (Full Redraw Fix – Double Delay)
  * Manages the stack of open editors (NodeEditor instances) and their camera states.
+ *
+ * v1.4 Changes:
+ * - FIXED: push() now calls editor.forceFullRedraw() twice (immediately and after 100ms)
+ *   to ensure all NodeViews are created and wires are drawn.
+ * - FIXED: pop() now calls prev.editor.forceFullRedraw() with double delay.
+ *
+ * v1.3 Changes:
+ * - FIXED: push() now calls editor.forceFullRedraw() after a short delay
+ *   to ensure all NodeViews are created and wires are drawn.
+ * - FIXED: pop() now calls prev.editor.forceFullRedraw() to restore parent view.
  *
  * Architecture:
  * ┌─────────────────────────────────────────────────────────────────────────┐
@@ -23,10 +36,10 @@ import core.logic.Impulse;
  * │   │  - getStackEntries() → Return array of entries (for external)   │   │
  * │   │                                                                 │   │
  * │   │  Camera State Management:                                       │   │
- * │   │  - _cameraStates:Map<String, {x, y, zoom}>                     │   │
- * │   │    Stores viewport state for each assembly by blueprint.id.    │   │
- * │   │  - On push: store parent state, then restore or auto-center.   │   │
- * │   │  - On pop: store current state, restore parent state.          │   │
+ * │   │  - _cameraStates:Map<String, {x, y, zoom}>                      │   │
+ * │   │    Stores viewport state for each assembly by blueprint.id.     │   │
+ * │   │  - On push: store parent state, then restore or auto-center.    │   │
+ * │   │  - On pop: store current state, restore parent state.           │   │
  * │   │                                                                 │   │
  * │   │  Visual State:                                                  │   │
  * │   │  - currentAssembly   → Currently edited assembly                │   │
@@ -119,6 +132,18 @@ class EditorContext
         editor.setSize(container.width, container.height);
         container.addChild(editor);
         
+        // =========================================================================
+        // v1.4 FIX: Двойной принудительный реблд для гарантии
+        // =========================================================================
+        // Сначала сразу после добавления, потом через 100 мс.
+        editor.forceFullRedraw();
+        haxe.Timer.delay(() -> {
+            if (editor != null && !editor.isDisposed) {
+                editor.forceFullRedraw();
+            }
+        }, 100);
+        // =========================================================================
+        
         var entry:EditorEntry = {
             assembly: assembly,
             editor: editor,
@@ -185,6 +210,17 @@ class EditorContext
         currentEditor = prev.editor;
         currentAssembly = prev.assembly;
         
+        // =========================================================================
+        // v1.4 FIX: Двойной реблд родительского редактора
+        // =========================================================================
+        prev.editor.forceFullRedraw();
+        haxe.Timer.delay(() -> {
+            if (prev.editor != null && !prev.editor.isDisposed) {
+                prev.editor.forceFullRedraw();
+            }
+        }, 50);
+        // =========================================================================
+        
         // ── v1.2: Restore parent camera state (if we saved it) ──
         if (current.parentCameraState != null)
         {
@@ -198,6 +234,7 @@ class EditorContext
             updateInstancesOf(editedId);
         }
         
+        // Refresh assembly views and wires
         currentEditor.refreshAssemblyViews();
     }
     
