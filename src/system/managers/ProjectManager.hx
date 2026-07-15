@@ -14,42 +14,58 @@ import sys.io.File;
 #end
 
 /**
- * PROJECT MANAGER v2.3 (Dual Naming Support)
- * Manages file system, paths, and project save/load operations.
- * Extracts all IO logic from Main.
- *
- * Architecture:
- * ┌─────────────────────────────────────────────────────────────────────────┐
- * │   ProjectManager (Singleton)                                            │
- * │                                                                         │
- * │   ┌─────────────────────────────────────────────────────────────────┐   │
- * │   │  File Paths:                                                    │   │
- * │   │  - documentsPath: String  → User documents folder               │   │
- * │   │  - libraryPath: String    → Custom atoms library                │   │
- * │   │  - selfrunPath: String    → Main project file                   │   │
- * │   │                                                                 │   │
- * │   │  Save Operations:                                               │   │
- * │   │  - saveSelfrun()          → Save root project                   │   │
- * │   │  - saveAssemblyToLibrary()→ Save assembly to library folder     │   │
- * │   │  - deleteAssemblyFile()   → Delete assembly file                │   │
- * │   │                                                                 │   │
- * │   │  Load Operations:                                               │   │
- * │   │  - loadSelfrun()          → Load root project                   │   │
- * │   │  - parseBlueprintFromJson()→ Parse JSON to Blueprint            │   │
- * │   │                                                                 │   │
- * │   │  Initialization:                                                │   │
- * │   │  - init()                 → Create directories, scan library    │   │
- * │   └─────────────────────────────────────────────────────────────────┘   │
- * │                                                                         │
- * │   v2.3 Changes:                                                         │
- * │   - FIXED: saveSelfrun() now serializes pins with externalName          │
- * │   - FIXED: dataType null handling (no more "null" string)               │
- * │   - Preserves ConductorPort dual naming (externalName + internalName)   │
- * │                                                                         │
- * │   v2.2 Changes:                                                         │
- * │   - Added windowX/windowY to saved data and return types                │
- * │                                                                         │
- * └─────────────────────────────────────────────────────────────────────────┘
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║                     PROJECT MANAGER v2.4                                  ║
+ * ║              (Blueprint Sanitization + Dual Naming Support)               ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  Manages file system, paths, and project save/load operations.            ║
+ * ║  Extracts all IO logic from Main.                                         ║
+ * ║                                                                           ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                        ARCHITECTURE                                       ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │   ProjectManager (Singleton)                                        │  ║
+ * ║  │                                                                     │  ║
+ * ║  │   ┌─────────────────────────────────────────────────────────────┐   │  ║
+ * ║  │   │  File Paths:                                                │   │  ║
+ * ║  │   │  - documentsPath: String  → User documents folder           │   │  ║
+ * ║  │   │  - libraryPath: String    → Custom atoms library            │   │  ║
+ * ║  │   │  - selfrunPath: String    → Main project file               │   │  ║
+ * ║  │   │                                                             │   │  ║
+ * ║  │   │  Save Operations:                                           │   │  ║
+ * ║  │   │  - saveSelfrun()          → Save root project               │   │  ║
+ * ║  │   │  - saveAssemblyToLibrary()→ Save assembly to library folder │   │  ║
+ * ║  │   │  - deleteAssemblyFile()   → Delete assembly file            │   │  ║
+ * ║  │   │                                                             │   │  ║
+ * ║  │   │  Load Operations:                                           │   │  ║
+ * ║  │   │  - loadSelfrun()          → Load root project               │   │  ║
+ * ║  │   │  - parseBlueprintFromJson()→ Parse JSON to Blueprint        │   │  ║
+ * ║  │   │  - _sanitizeBlueprint()  → Remove ghost connections (v2.4)  │   │  ║
+ * ║  │   │                                                             │   │  ║
+ * ║  │   │  Initialization:                                            │   │  ║
+ * ║  │   │  - init()                 → Create directories, scan library│   │  ║
+ * ║  │   └─────────────────────────────────────────────────────────────┘   │  ║
+ * ║  │                                                                     │  ║
+ * ║  │   v2.4 Changes:                                                     │  ║
+ * ║  │   - ADDED _sanitizeBlueprint(): removes ghost connections at load   │  ║
+ * ║  │   - Ghost = connection referencing non-existent atom or SELF port   │  ║
+ * ║  │   - Prevents WireRenderer from drawing wires to null endpoints      │  ║
+ * ║  │   - Prevents Assembly._createInternalConnections() from crashing    │  ║
+ * ║  │                                                                     │  ║
+ * ║  │   v2.3 Changes:                                                     │  ║
+ * ║  │   - FIXED: saveSelfrun() now serializes pins with externalName      │  ║
+ * ║  │   - FIXED: dataType null handling (no more "null" string)           │  ║
+ * ║  │   - Preserves ConductorPort dual naming (externalName + internalName)│  ║
+ * ║  │                                                                     │  ║
+ * ║  │   v2.2 Changes:                                                     │  ║
+ * ║  │   - Added windowX/windowY to saved data and return types            │  ║
+ * ║  │                                                                     │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 class ProjectManager
 {
@@ -116,17 +132,8 @@ class ProjectManager
     
     /**
      * Save root project (Selfrun).
-     * v2.3 FIX: Pins are now serialized with externalName support.
+     * v2.3: Pins serialized with externalName support.
      * v2.2: Added windowX, windowY parameters.
-     *
-     * @param rootAssembly       Root assembly to save
-     * @param viewState          Editor viewport state (x, y, zoom)
-     * @param deviceWindowData   Array of device window positions
-     * @param isDeviceWindowOpen Whether device window is open
-     * @param windowWidth        Device window width
-     * @param windowHeight       Device window height
-     * @param windowX            Device window X position
-     * @param windowY            Device window Y position
      */
     public function saveSelfrun(
         rootAssembly:Assembly,
@@ -174,7 +181,6 @@ class ProjectManager
             var fromId = conn.from.atomId;
             var toId = conn.to.atomId;
             
-            // Convert runtime IDs to template IDs for persistence
             if (fromId != "SELF") fromId = rootAssembly.getTemplateId(fromId);
             if (toId != "SELF") toId = rootAssembly.getTemplateId(toId);
             
@@ -187,12 +193,7 @@ class ProjectManager
         
         var bp = rootAssembly.blueprint;
         
-        // ═══════════════════════════════════════════════════════════════════
-        // v2.3 FIX: Serialize pins with externalName support
-        // ═══════════════════════════════════════════════════════════════════
-        // Previously pins were serialized directly (bp.pins), which lost
-        // externalName and serialized ContactType as numeric index.
-        // Now we serialize manually like saveAssemblyToLibrary() does.
+        // v2.3: Serialize pins with externalName
         var pinsToSave:Array<Dynamic> = [];
         for (pin in bp.pins)
         {
@@ -201,13 +202,11 @@ class ProjectManager
                 type: Std.string(pin.type),
                 defaultValue: pin.defaultValue
             };
-            if (pin.dataType != null)
+            if (pin.dataType != null) pinData.dataType = pin.dataType;
+            if (Reflect.hasField(pin, "externalName"))
             {
-                pinData.dataType = pin.dataType;
-            }
-            if (pin.externalName != null)
-            {
-                pinData.externalName = pin.externalName;
+                var extName = Reflect.field(pin, "externalName");
+                if (extName != null) pinData.externalName = extName;
             }
             pinsToSave.push(pinData);
         }
@@ -234,12 +233,12 @@ class ProjectManager
         
         // Build complete save data
         var data:Dynamic = {
-            version: "2.3",
+            version: "2.4",
             blueprint: {
                 id: bp.id,
                 name: bp.name,
                 category: bp.category,
-                pins: pinsToSave,                // v2.3: serialized with externalName
+                pins: pinsToSave,
                 internalAtoms: atomsToSave,
                 internalConnections: connsToSave
             },
@@ -256,7 +255,7 @@ class ProjectManager
         
         try {
             File.saveContent(selfrunPath, haxe.Json.stringify(data, null, "  "));
-            trace("ProjectManager: Selfrun saved (v2.3 with dual naming).");
+            trace("ProjectManager: Selfrun saved (v2.4 with dual naming).");
         }
         catch (e:Dynamic)
         {
@@ -302,7 +301,7 @@ class ProjectManager
             var json = haxe.Json.parse(content);
             var rawBp:Dynamic = json.blueprint;
             
-            // Parse blueprint
+            // Parse blueprint (includes v2.4 sanitization)
             var bp = parseBlueprintFromJson(rawBp);
             
             // Parse editor viewport state
@@ -445,14 +444,11 @@ class ProjectManager
                 type: Std.string(pin.type),
                 defaultValue: pin.defaultValue
             };
-            // v2.3 FIX: Only add dataType if not null (prevents "null" string)
-            if (pin.dataType != null)
+            if (pin.dataType != null) pinData.dataType = pin.dataType;
+            if (Reflect.hasField(pin, "externalName"))
             {
-                pinData.dataType = pin.dataType;
-            }
-            if (pin.externalName != null)
-            {
-                pinData.externalName = pin.externalName;
+                var extName = Reflect.field(pin, "externalName");
+                if (extName != null) pinData.externalName = extName;
             }
             pinsData.push(pinData);
         }
@@ -526,7 +522,6 @@ class ProjectManager
             {
                 var subAsm = cast(sub, Assembly);
                 
-                // Save only assemblies with internal atoms
                 if (subAsm.blueprint.internalAtoms != null && subAsm.blueprint.internalAtoms.length > 0)
                 {
                     saveAssemblyToLibrary(subAsm);
@@ -541,6 +536,8 @@ class ProjectManager
      * Parse blueprint from JSON data.
      * Handles String → ContactType conversion for pins.
      *
+     * v2.4: Calls _sanitizeBlueprint() after parsing to remove ghost connections.
+     *
      * @param rawBp Raw blueprint data from JSON
      * @return Parsed Blueprint instance
      */
@@ -554,13 +551,10 @@ class ProjectManager
             for (p in (cast(rawBp.pins, Array<Dynamic>)))
             {
                 // v2.3 FIX: Handle dataType null correctly
-                // Std.string(null) returns "null" string, which is wrong.
-                // Use null directly if not present.
                 var dt:String = null;
                 if (p.dataType != null)
                 {
                     dt = Std.string(p.dataType);
-                    // Guard against literal "null" string from old saves
                     if (dt == "null") dt = null;
                 }
                 
@@ -575,7 +569,7 @@ class ProjectManager
         }
         
         // Parse connections
-        var conns = [];
+        var conns:Array<core.data.Blueprint.ConnectionDef> = [];
         if (rawBp.internalConnections != null)
         {
             for (c in (cast(rawBp.internalConnections, Array<Dynamic>)))
@@ -595,7 +589,7 @@ class ProjectManager
         }
         
         // Parse atom definitions
-        var atoms = [];
+        var atoms:Array<core.data.Blueprint.AtomDef> = [];
         if (rawBp.internalAtoms != null)
         {
             for (a in (cast(rawBp.internalAtoms, Array<Dynamic>)))
@@ -611,6 +605,13 @@ class ProjectManager
             }
         }
         
+        // ═══════════════════════════════════════════════════════════════════
+        // v2.4: Sanitize blueprint BEFORE creating Blueprint object
+        // ═══════════════════════════════════════════════════════════════════
+        // Remove connections referencing non-existent atoms or SELF ports.
+        // This prevents ghost wires and null reference crashes at runtime.
+        _sanitizeConnections(conns, atoms, pins, Std.string(rawBp.id));
+        
         return new Blueprint(
             Std.string(rawBp.id),
             Std.string(rawBp.name),
@@ -620,6 +621,112 @@ class ProjectManager
             conns,
             Std.string(rawBp.category)
         );
+    }
+    
+    /**
+     * v2.4: Remove ghost connections from parsed blueprint data.
+     *
+     * A connection is "ghost" if:
+     *   - It references an atomId that doesn't exist in internalAtoms (and != "SELF")
+     *   - It references a SELF port that doesn't exist in pins
+     *
+     * This is the FIRST LINE OF DEFENSE against corrupted save files.
+     * Assembly._createInternalConnections() is the SECOND line (runtime).
+     *
+     * ┌─────────────────────────────────────────────────────────────────────┐
+     * │  SANITIZATION FLOW:                                                 │
+     * │                                                                     │
+     * │  For each connection:                                               │
+     * │    1. Check from.atomId:                                            │
+     * │       - If "SELF": verify from.contactName exists in pins           │
+     * │       - Else: verify from.atomId exists in internalAtoms            │
+     * │    2. Check to.atomId:                                              │
+     * │       - If "SELF": verify to.contactName exists in pins             │
+     * │       - Else: verify to.atomId exists in internalAtoms              │
+     * │    3. If either check fails: REMOVE connection                      │
+     * │                                                                     │
+     * │  Result: Only valid connections survive into Blueprint               │
+     * └─────────────────────────────────────────────────────────────────────┘
+     *
+     * @param conns  Parsed connections array (modified in-place)
+     * @param atoms  Parsed atom definitions
+     * @param pins   Parsed pin definitions
+     * @param bpId   Blueprint ID (for logging)
+     */
+    private function _sanitizeConnections(
+        conns:Array<core.data.Blueprint.ConnectionDef>,
+        atoms:Array<core.data.Blueprint.AtomDef>,
+        pins:Array<core.data.Blueprint.PinDef>,
+        bpId:String
+    ):Void
+    {
+        if (conns == null || conns.length == 0) return;
+        
+        // Build lookup sets
+        var atomIds = new Map<String, Bool>();
+        for (a in atoms) atomIds.set(a.instanceId, true);
+        
+        var pinNames = new Map<String, Bool>();
+        for (p in pins) pinNames.set(p.name, true);
+        
+        // Find ghost connections
+        var toRemove:Array<core.data.Blueprint.ConnectionDef> = [];
+        
+        for (conn in conns)
+        {
+            var fromValid = _isEndpointValid(conn.from.atomId, conn.from.contactName, atomIds, pinNames);
+            var toValid = _isEndpointValid(conn.to.atomId, conn.to.contactName, atomIds, pinNames);
+            
+            if (!fromValid || !toValid)
+            {
+                toRemove.push(conn);
+            }
+        }
+        
+        // Remove ghost connections
+        for (conn in toRemove)
+        {
+            conns.remove(conn);
+            trace('  🔧 SANITIZE [${bpId}]: Removed ghost connection: ' +
+                  '${conn.from.atomId}.${conn.from.contactName} → ' +
+                  '${conn.to.atomId}.${conn.to.contactName}');
+        }
+        
+        #if DEBUG
+        if (toRemove.length > 0)
+        {
+            trace('  📋 SANITIZE [${bpId}]: Removed ${toRemove.length} ghost connections ' +
+                  '(${conns.length} valid remaining)');
+        }
+        #end
+    }
+    
+    /**
+     * v2.4: Check if a connection endpoint is valid.
+     *
+     * @param atomId      "SELF" or atom instance ID
+     * @param contactName Port name (for SELF) or contact name (for atom)
+     * @param atomIds     Set of valid atom instance IDs
+     * @param pinNames    Set of valid pin names (for SELF ports)
+     * @return true if endpoint is valid, false if ghost
+     */
+    private function _isEndpointValid(
+        atomId:String,
+        contactName:String,
+        atomIds:Map<String, Bool>,
+        pinNames:Map<String, Bool>
+    ):Bool
+    {
+        if (atomId == "SELF")
+        {
+            // SELF endpoint: contactName must be a valid pin name
+            return pinNames.exists(contactName);
+        }
+        else
+        {
+            // Atom endpoint: atomId must exist in internalAtoms
+            return atomIds.exists(atomId);
+        }
     }
     
     /**

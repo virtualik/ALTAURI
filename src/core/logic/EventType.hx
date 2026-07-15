@@ -1,7 +1,7 @@
 package core.logic;
 
 /**
- * EVENT TYPE v1.2 (Device Window Events)
+ * EVENT TYPE v1.3 (Port Removed Event)
  *
  * Type-safe enumeration of all system events (Impulse types).
  *
@@ -10,8 +10,8 @@ package core.logic;
  * - No string typos in event names
  * - Efficient string representation at runtime
  *
- * v1.2 Changes:
- * - Added DEVICE_WINDOW_CHANGED for saving window position/size after interaction
+ * v1.3 Changes:
+ * - Added PORT_REMOVED for handling external wire cleanup when ports are deleted.
  */
 abstract EventType(String) from String to String {
     public inline function new(s: String) this = s;
@@ -23,10 +23,13 @@ abstract EventType(String) from String to String {
     public static var ASSEMBLY_PORTS_CHANGED(default, never) = new EventType("ASSEMBLY_PORTS_CHANGED");
     public static var VALUE_COMMITTED(default, never) = new EventType("VALUE_COMMITTED");
     public static var DEVICE_WINDOW_CHANGED(default, never) = new EventType("DEVICE_WINDOW_CHANGED");
-	public static var OSCILLOSCOPE_SHAPE_CHANGED(default, never) = new EventType("OSCILLOSCOPE_SHAPE_CHANGED");
-	public static var OSCILLOSCOPE_FRAME_READY:String = "oscilloscopeFrameReady";
+    public static var OSCILLOSCOPE_SHAPE_CHANGED(default, never) = new EventType("OSCILLOSCOPE_SHAPE_CHANGED");
+    public static var OSCILLOSCOPE_FRAME_READY:String = "oscilloscopeFrameReady";
     
-	// === INTERACTION (Mouse/Click) ===
+    // === v1.3: Port removal notification ===
+    public static var PORT_REMOVED(default, never) = new EventType("PORT_REMOVED");
+    
+    // === INTERACTION (Mouse/Click) ===
     public static var PORT_DRAG_START(default, never) = new EventType("PORT_DRAG_START");
     public static var NODE_CLICKED(default, never) = new EventType("NODE_CLICKED");
     public static var NODE_RIGHT_CLICKED(default, never) = new EventType("NODE_RIGHT_CLICKED");
@@ -48,7 +51,7 @@ abstract EventType(String) from String to String {
 
     // === CONTEXT MENU ===
     public static var CONTEXT_MENU_ACTION(default, never) = new EventType("CONTEXT_MENU_ACTION");
-	
-	// === FFT  === 
-	public static var FFT_SPECTRUM_READY(default, never) = new EventType("FFT_SPECTRUM_READY");
+    
+    // === FFT  === 
+    public static var FFT_SPECTRUM_READY(default, never) = new EventType("FFT_SPECTRUM_READY");
 }

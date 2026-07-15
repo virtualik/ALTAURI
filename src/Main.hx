@@ -893,6 +893,7 @@ class Main extends Sprite
 		Impulsys.subscribeToImpulse(EventType.REQUEST_NEW_ASSEMBLY_CONTEXT, onRequestNewContext);
 		Impulsys.subscribeToImpulse(EventType.VALUE_COMMITTED, onValueCommitted);
 		Impulsys.subscribeToImpulse(EventType.DEVICE_WINDOW_CHANGED, onDeviceWindowChanged);
+		Impulsys.subscribeToImpulse(EventType.PORT_REMOVED, onPortRemoved);
 
 		// v2.5: Initialize DevicePanel
 		_devicePanel = new DevicePanel();
@@ -1253,7 +1254,90 @@ class Main extends Sprite
 		createEmptyProject();
 		log("System Reset.");
 	}
-
+	
+	/**
+	 * Handle PORT_REMOVED event: remove external wires connected to the deleted port.
+	 */
+	private function onPortRemoved(impulse:Impulse):Void
+	{
+		if (impulse == null || impulse.data == null) return;
+		
+		var asmId:String = impulse.data.assemblyId;
+		var portName:String = impulse.data.portName;
+		
+		// Get current stack
+		var stack = _editorContext.getStackEntries();
+		if (stack.length == 0) return;
+		
+		// Find the parent assembly (the one that contains asmId as an internal atom)
+		var parentAssembly:Assembly = null;
+		// Start from the bottom of the stack (root) upwards
+		for (i in 0...stack.length)
+		{
+			var entry = stack[i];
+			// Check if this assembly contains the deleted assembly as an internal atom
+			var contains = false;
+			for (runtimeId in entry.assembly.internalAtoms.keys())
+			{
+				var atom = entry.assembly.internalAtoms.get(runtimeId);
+				if (atom != null && atom.id == asmId)
+				{
+					contains = true;
+					break;
+				}
+			}
+			// Also check via idMap (for template IDs)
+			if (!contains)
+			{
+				for (templateId in entry.assembly.idMap.keys())
+				{
+					if (templateId == asmId)
+					{
+						contains = true;
+						break;
+					}
+				}
+			}
+			if (contains)
+			{
+				parentAssembly = entry.assembly;
+				break;
+			}
+		}
+		
+		if (parentAssembly == null)
+		{
+			// No parent found (maybe it's the root itself) — nothing to do
+			return;
+		}
+		
+		// Remove wires from parent blueprint that reference SELF.portName
+		var bp = parentAssembly.blueprint;
+		var toRemove:Array<core.data.Blueprint.ConnectionDef> = [];
+		for (conn in bp.internalConnections)
+		{
+			if (conn.from.atomId == "SELF" && conn.from.contactName == portName)
+			{
+				toRemove.push(conn);
+			}
+			else if (conn.to.atomId == "SELF" && conn.to.contactName == portName)
+			{
+				toRemove.push(conn);
+			}
+		}
+		
+		if (toRemove.length > 0)
+		{
+			for (conn in toRemove)
+			{
+				bp.internalConnections.remove(conn);
+			}
+			// Notify editor to redraw wires
+			Impulsys.quickEmit(EventType.REDRAW_WIRES);
+			trace('Removed ${toRemove.length} external wires connected to port "$portName" of assembly $asmId');
+		}
+	}
+	
 	/**
 	 * Hard reset - clears all state and managers.
 	 */
@@ -1383,7 +1467,16 @@ class Main extends Sprite
 		if (e.ctrlKey && e.keyCode == Keyboard.X) { if (_editorContext.currentEditor != null) _editorContext.currentEditor.cutSelection(); return; }
 		if (e.ctrlKey && e.keyCode == Keyboard.V) { if (_editorContext.currentEditor != null) _editorContext.currentEditor.pasteSelection(); return; }
 		if (e.ctrlKey && e.keyCode == Keyboard.A) { if (_editorContext.currentEditor != null) _editorContext.currentEditor.selectAll(); return; }
-
+		
+		// Reset Viewport
+		if (e.ctrlKey && e.keyCode == Keyboard.NUMBER_0)
+		{
+			if (_editorContext.currentEditor != null)
+			{
+				_editorContext.currentEditor.centerOnContent();
+			}
+			return;
+		}
 		if (e.keyCode == Keyboard.ESCAPE)
 		{
 			if (_settingsPanel.visible) { _settingsPanel.visible = false; return; }

@@ -7,9 +7,8 @@ import core.logic.Impulsys;
 import core.logic.Impulse;
 
 /**
- * EDITOR CONTEXT v1.0
- * Manages the stack of open editors (NodeEditor instances).
- * Responsible for creating containers, background blocking, and context switching.
+ * EDITOR CONTEXT v1.2 (Camera State Management + Auto-Center)
+ * Manages the stack of open editors (NodeEditor instances) and their camera states.
  *
  * Architecture:
  * ┌─────────────────────────────────────────────────────────────────────────┐
@@ -21,23 +20,20 @@ import core.logic.Impulse;
  * │   │  - push(assembly)    → Open new assembly (drill down)           │   │
  * │   │  - pop()             → Close current assembly (go back)         │   │
  * │   │  - clear()           → Reset entire stack                       │   │
+ * │   │  - getStackEntries() → Return array of entries (for external)   │   │
+ * │   │                                                                 │   │
+ * │   │  Camera State Management:                                       │   │
+ * │   │  - _cameraStates:Map<String, {x, y, zoom}>                     │   │
+ * │   │    Stores viewport state for each assembly by blueprint.id.    │   │
+ * │   │  - On push: store parent state, then restore or auto-center.   │   │
+ * │   │  - On pop: store current state, restore parent state.          │   │
  * │   │                                                                 │   │
  * │   │  Visual State:                                                  │   │
  * │   │  - currentAssembly   → Currently edited assembly                │   │
  * │   │  - currentEditor     → Active NodeEditor instance               │   │
  * │   │  - blocker:Sprite    → Semi-transparent overlay (blocks input)  │   │
  * │   │                                                                 │   │
- * │   │  Container Management:                                          │   │
- * │   │  - _layer:Sprite     → Parent layer for all editors             │   │
- * │   │  - container:Sprite  → Frame with border for each editor        │   │
  * │   └─────────────────────────────────────────────────────────────────┘   │
- * │                                                                         │
- * │   Usage:                                                                │
- * │   ───────                                                               │
- * │   var context = new EditorContext(editorLayer);                         │
- * │   context.push(rootAssembly, true);  // Open root                      │
- * │   context.push(nestedAssembly);      // Drill down                     │
- * │   context.pop();                     // Go back                        │
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
@@ -58,6 +54,16 @@ class EditorContext
     public var currentEditor(default, null):NodeEditor;
     
     // =========================================================================
+    // v1.2: CAMERA STATE STORAGE
+    // =========================================================================
+    /**
+     * Map: blueprint.id → {x, y, zoom}
+     * Stores the last known camera state for each assembly.
+     * Used to restore viewport when re-entering a previously visited assembly.
+     */
+    private var _cameraStates:Map<String, {x:Float, y:Float, zoom:Float}>;
+    
+    // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
     public function new(layer:Sprite)
@@ -65,6 +71,7 @@ class EditorContext
         _layer = layer;
         _stack = [];
         _theme = EditorTheme.getInstance();
+        _cameraStates = new Map();
     }
     
     // =========================================================================
@@ -80,9 +87,14 @@ class EditorContext
     public function push(assembly:Assembly, ?isRoot:Bool = false):Void
     {
         // If not root, block the previous editor
+        var parentState: {x:Float, y:Float, zoom:Float} = null;
         if (!isRoot && _stack.length > 0)
         {
             var top = _stack[_stack.length - 1];
+            
+            // ── Save parent camera state before entering child ──
+            parentState = top.editor.getViewState();
+            
             var blocker = new Sprite();
             blocker.graphics.beginFill(0x808080, 0.6);
             blocker.graphics.drawRect(0, 0, _layer.stage.stageWidth, _layer.stage.stageHeight);
@@ -111,12 +123,31 @@ class EditorContext
             assembly: assembly,
             editor: editor,
             blocker: null,
-            container: container
+            container: container,
+            parentCameraState: parentState
         };
         _stack.push(entry);
         
         currentEditor = editor;
         currentAssembly = assembly;
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // v1.2: RESTORE OR AUTO-CENTER CAMERA
+        // ═══════════════════════════════════════════════════════════════════
+        var bpId = assembly.blueprint.id;
+        if (_cameraStates.exists(bpId))
+        {
+            // Restore previously saved state
+            var state = _cameraStates.get(bpId);
+            editor.setViewState(state);
+            trace('EditorContext: Restored camera state for "$bpId"');
+        }
+        else
+        {
+            // First time entering this assembly — auto-center on content
+            editor.centerOnContent();
+            trace('EditorContext: Auto-centered on "$bpId"');
+        }
     }
     
     /**
@@ -130,6 +161,11 @@ class EditorContext
         
         var current = _stack.pop();
         var editedId = current.assembly.blueprint.id;
+        
+        // ── v1.2: Save current camera state for this assembly ──
+        var currentState = current.editor.getViewState();
+        _cameraStates.set(editedId, currentState);
+        trace('EditorContext: Saved camera state for "$editedId"');
         
         // Remove current editor
         current.editor.dispose();
@@ -148,6 +184,13 @@ class EditorContext
         
         currentEditor = prev.editor;
         currentAssembly = prev.assembly;
+        
+        // ── v1.2: Restore parent camera state (if we saved it) ──
+        if (current.parentCameraState != null)
+        {
+            currentEditor.setViewState(current.parentCameraState);
+            trace('EditorContext: Restored parent camera state');
+        }
         
         // Update assembly preview in parent if it changed
         if (updateInstances)
@@ -182,7 +225,7 @@ class EditorContext
     }
     
     /**
-     * Reset entire stack (on project reload).
+     * Reset entire stack (on project reload) and clear camera states.
      */
     public function clear():Void
     {
@@ -195,9 +238,24 @@ class EditorContext
         }
         currentEditor = null;
         currentAssembly = null;
+        _cameraStates.clear();
     }
     
     public function getStackLength():Int return _stack.length;
+    
+    // =========================================================================
+    // v1.1: GET STACK ENTRIES (for external operations)
+    // =========================================================================
+    /**
+     * Returns a copy of the current editor stack entries.
+     * Used by Main to find parent assemblies when handling PORT_REMOVED events.
+     *
+     * @return Array of EditorEntry (copy)
+     */
+    public function getStackEntries():Array<EditorEntry>
+    {
+        return _stack.copy();
+    }
     
     // =========================================================================
     // VISUAL
@@ -224,4 +282,5 @@ typedef EditorEntry = {
     var editor:NodeEditor;
     var blocker:Sprite;
     var container:Sprite;
+    @:optional var parentCameraState:{x:Float, y:Float, zoom:Float};
 }

@@ -18,48 +18,74 @@ import core.types.ContactType;
 import library.AtomRegistry;
 
 /**
- * ╔═══════════════════════════════════════════════════════════════════════════╗
- * ║                      GROUP ATOMS COMMAND v3.0                             ║
- * ║                 (Semantic Port Naming: incoming/outgoing)                  ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                           ║
- * ║  Command to group selected atoms into a new Assembly.                     ║
- * ║  Supports full Undo/Redo with complete state restoration.                 ║
- * ║                                                                           ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                     v3.0 CHANGES (Semantic Naming)                        ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                           ║
- * ║  PORT NAMING CONVENTION:                                                  ║
- * ║  ────────────────────────                                                 ║
- * ║                                                                           ║
- * ║  External name (parent sees):  "{AtomDisplayName}_{ContactName}"          ║
- * ║  Internal name (wall inside):  "incoming_N" (INPUT) / "outgoing_N" (OUT) ║
- * ║                                                                           ║
- * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
- * ║  │  PARENT SCHEMA:                                                     │  ║
- * ║  │                                                                     │  ║
- * ║  │  Button [Out] ──wire──► Assembly [PassThrough_1_in]                 │  ║
- * ║  │                                                                     │  ║
- * ║  │                    Assembly [PassThrough_1_out] ──wire──► LED [In]  │  ║
- * ║  │                                                                     │  ║
- * ║  │  INSIDE ASSEMBLY:                                                   │  ║
- * ║  │                                                                     │  ║
- * ║  │  ┌── incoming_1 ──► PassThrough_1 [In]                             │  ║
- * ║  │  │                                                                 │  ║
- * ║  │  │     PassThrough_1 [Out] ──► outgoing_1 ──┘                     │  ║
- * ║  │  │                                                                 │  ║
- * ║  │  └─────────────────────────────────────────────────────────────────│  ║
- * ║  └─────────────────────────────────────────────────────────────────────┘  ║
- * ║                                                                           ║
- * ║  Collision handling:                                                      ║
- * ║  ─────────────────────                                                    ║
- * ║  If two atoms have same contact name (e.g., both have "out"):            ║
- * ║  - External: "PassThrough_1_out", "PassThrough_2_out"                    ║
- * ║  - Internal: "outgoing_1", "outgoing_2"                                  ║
- * ║                                                                           ║
- * ╚═══════════════════════════════════════════════════════════════════════════╝
- */
+* ╔═══════════════════════════════════════════════════════════════════════════╗
+* ║                      GROUP ATOMS COMMAND v3.3                             ║
+* ║                 (Spatial Port Sorting: Top-to-Bottom)                     ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  Command to group selected atoms into a new Assembly.                     ║
+* ║  Supports full Undo/Redo with complete state restoration.                 ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     v3.3 CHANGES (Spatial Sorting)                        ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  PROBLEM:                                                                 ║
+* ║  Ports on the Assembly boundary were sorted alphabetically by Atom ID.    ║
+* ║  This resulted in a random-looking order that didn't match the visual     ║
+* ║  layout of the schematic (e.g., an atom at the bottom could end up        ║
+* ║  with a port at the top of the assembly).                                 ║
+* ║                                                                           ║
+* ║  SOLUTION:                                                                ║
+* ║  - Ports are now sorted by the Y-coordinate of the internal atom          ║
+* ║    they connect to (Top -> Bottom).                                       ║
+* ║  - Fallback to X-coordinate (Left -> Right) if Y is identical.            ║
+* ║  - Fallback to Contact Name for deterministic order.                      ║
+* ║                                                                           ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │  Atom A (Y=100)  ──► Port 1 (Top)                                   │  ║
+* ║  │                                                                     │  ║
+* ║  │  Atom B (Y=300)  ──► Port 2 (Middle)                                │  ║
+* ║  │                                                                     │  ║
+* ║  │  Atom C (Y=500)  ──► Port 3 (Bottom)                                │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     v3.2 CHANGES (Dual Naming Fix)                        ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  - FIXED: External connections now correctly use `externalName`           ║
+* ║    instead of `internalName`, ensuring wires connect to the correct       ║
+* ║    port sprites on the Assembly boundary.                                 ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     v3.0 CHANGES (Semantic Naming)                        ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  PORT NAMING CONVENTION:                                                  ║
+* ║  ────────────────────────                                                 ║
+* ║                                                                           ║
+* ║  External name (parent sees):  "{AtomDisplayName}_{ContactName}"          ║
+* ║  Internal name (wall inside):  "incoming_N" (INPUT) / "outgoing_N" (OUT)  ║
+* ║                                                                           ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │  PARENT SCHEMA:                                                     │  ║
+* ║  │                                                                     │  ║
+* ║  │  Button [Out] ──wire──► Assembly [PassThrough_1_in]                 │  ║
+* ║  │                                                                     │  ║
+* ║  │                    Assembly [PassThrough_1_out] ──wire──► LED [In]  │  ║
+* ║  │                                                                     │  ║
+* ║  │  INSIDE ASSEMBLY:                                                   │  ║
+* ║  │                                                                     │  ║
+* ║  │  ┌── incoming_1 ──► PassThrough_1 [In]                              │  ║
+* ║  │  │                                                                  │  ║
+* ║  │  │     PassThrough_1 [Out] ──► outgoing_1 ──┘                       │  ║
+* ║  │  │                                                                  │  ║
+* ║  │  └───────────────────────────────────────────────────────────────── │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║                                                                           ║
+* ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
 class GroupAtomsCommand extends Command
 {
     // ========================================================================
@@ -124,11 +150,11 @@ class GroupAtomsCommand extends Command
     }
 
     /**
-     * Main grouping logic with semantic port naming.
+     * Main grouping logic with semantic port naming and spatial sorting.
      */
     private function executeGrouping():Void
     {
-        trace('GroupAtomsCommand v3.0: Grouping ${_selectedNodeIds.length} atoms...');
+        trace('GroupAtomsCommand v3.3: Grouping ${_selectedNodeIds.length} atoms...');
 
         // =====================================================================
         // PHASE 0: ID RESOLUTION (Runtime → Template)
@@ -206,8 +232,13 @@ class GroupAtomsCommand extends Command
         // Track used external names to handle collisions
         var usedExternalNames:Map<String, Int> = new Map();
 
-        // Sort for deterministic ordering
-        externalConnMeta.sort(sortByAtomId);
+        // ═══════════════════════════════════════════════════════════════════
+        // v3.3 FIX: SPATIAL SORTING
+        // Sort connections by the Y-coordinate of the internal atom involved.
+        // This ensures ports on the Assembly boundary appear in the same
+        // vertical order as the atoms on the schematic.
+        // ═══════════════════════════════════════════════════════════════════
+        externalConnMeta.sort(sortByAtomPosition);
 
         for (meta in externalConnMeta)
         {
@@ -226,17 +257,12 @@ class GroupAtomsCommand extends Command
             if (isFromSelected)
             {
                 // ── OUTPUT PORT: data LEAVES assembly ──
-                // Internal atom's output → external world
                 portType = OUTPUT;
-                
-                // Get the source atom's display name
                 atomDisplayName = getAtomDisplayName(conn.from.atomId);
                 contactName = conn.from.contactName;
                 
-                // External name: "{AtomDisplayName}_{ContactName}"
                 externalName = atomDisplayName + "_" + contactName;
                 
-                // Handle external name collisions
                 if (usedExternalNames.exists(externalName))
                 {
                     var count = usedExternalNames.get(externalName);
@@ -247,25 +273,19 @@ class GroupAtomsCommand extends Command
                 {
                     usedExternalNames.set(externalName, 1);
                 }
-                
-                // Internal name: "outgoing_N"
+
                 outgoingCount++;
                 internalName = "outgoing_" + outgoingCount;
             }
             else
             {
                 // ── INPUT PORT: data ENTERS assembly ──
-                // External world → internal atom's input
                 portType = INPUT;
-                
-                // Get the target atom's display name
                 atomDisplayName = getAtomDisplayName(conn.to.atomId);
                 contactName = conn.to.contactName;
                 
-                // External name: "{AtomDisplayName}_{ContactName}"
                 externalName = atomDisplayName + "_" + contactName;
                 
-                // Handle external name collisions
                 if (usedExternalNames.exists(externalName))
                 {
                     var count = usedExternalNames.get(externalName);
@@ -276,8 +296,7 @@ class GroupAtomsCommand extends Command
                 {
                     usedExternalNames.set(externalName, 1);
                 }
-                
-                // Internal name: "incoming_N"
+
                 incomingCount++;
                 internalName = "incoming_" + incomingCount;
             }
@@ -288,8 +307,6 @@ class GroupAtomsCommand extends Command
             _snapshot.addPortMapping(conn, internalName, portType == INPUT);
 
             // Add pin to blueprint
-            // PinDef.name = internalName (used for Assembly.ports map lookup)
-            // PinDef.externalName = externalName (visible on parent)
             newPins.push({
                 name: internalName,
                 type: portType,
@@ -297,10 +314,8 @@ class GroupAtomsCommand extends Command
             });
 
             // Create internal connection to SELF port
-            // Uses internalName for SELF reference
             if (isFromSelected)
             {
-                // atom.output → SELF.outgoing_N
                 newInternalConnections.push({
                     from: {atomId: conn.from.atomId, contactName: conn.from.contactName},
                     to: {atomId: "SELF", contactName: internalName}
@@ -308,7 +323,6 @@ class GroupAtomsCommand extends Command
             }
             else
             {
-                // SELF.incoming_N → atom.input
                 newInternalConnections.push({
                     from: {atomId: "SELF", contactName: internalName},
                     to: {atomId: conn.to.atomId, contactName: conn.to.contactName}
@@ -343,6 +357,7 @@ class GroupAtomsCommand extends Command
         // PHASE 4: MODIFY PARENT BLUEPRINT
         // =====================================================================
         var allConnsToRemove = internalConns.concat(externalConns);
+        
         for (conn in allConnsToRemove)
         {
             var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
@@ -350,7 +365,6 @@ class GroupAtomsCommand extends Command
             if (cOut != null && cIn != null) cOut.unlink(cIn);
         }
 
-        // Remove atom definitions
         var atomDefsToRemove:Array<AtomDef> = [];
         for (atomDef in _blueprint.internalAtoms)
         {
@@ -359,10 +373,8 @@ class GroupAtomsCommand extends Command
         }
         for (atomDef in atomDefsToRemove) _blueprint.internalAtoms.remove(atomDef);
 
-        // Remove connections
         for (conn in allConnsToRemove) _blueprint.internalConnections.remove(conn);
 
-        // Remove atom instances
         for (nodeId in _selectedNodeIds) _assembly.internalAtoms.remove(nodeId);
 
         // =====================================================================
@@ -390,31 +402,33 @@ class GroupAtomsCommand extends Command
         _blueprint.internalAtoms.push(newAtomDef);
 
         // =====================================================================
-        // PHASE 6: RECONNECT EXTERNAL CONNECTIONS
+        // PHASE 6: RECONNECT EXTERNAL CONNECTIONS (FIXED v3.2)
         // =====================================================================
         var createdExternalConns:Array<ConnectionDef> = [];
+        
         for (pm in _snapshot.getPortMappings())
         {
             var originalConn = pm.originalConnection;
             var newConn:ConnectionDef;
+            
+            // FIX: Resolve the EXTERNAL name for the parent connection.
+            var externalPortName = resolveExternalPortName(newPins, pm.portName);
 
             if (pm.isInput)
             {
-                // External source → Assembly input port (uses internalName)
                 newConn = {
                     from: originalConn.from,
-                    to: {atomId: newInstance.id, contactName: pm.portName}
+                    to: {atomId: newInstance.id, contactName: externalPortName}
                 };
             }
             else
             {
-                // Assembly output port → External target (uses internalName)
                 newConn = {
-                    from: {atomId: newInstance.id, contactName: pm.portName},
+                    from: {atomId: newInstance.id, contactName: externalPortName},
                     to: originalConn.to
                 };
             }
-
+            
             _blueprint.internalConnections.push(newConn);
             createdExternalConns.push(newConn);
 
@@ -422,6 +436,9 @@ class GroupAtomsCommand extends Command
             var cIn = resolveContact(newConn.to.atomId, newConn.to.contactName, INPUT);
             if (cOut != null && cIn != null) cOut.link(cIn);
         }
+
+        // Notify parent assembly that its ports have changed
+        Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });
 
         // =====================================================================
         // PHASE 7: CAPTURE SNAPSHOT - AFTER STATE
@@ -435,6 +452,7 @@ class GroupAtomsCommand extends Command
         {
             Impulsys.quickEmit(EventType.ATOM_DELETED, {assemblyId: _assembly.id, id: nodeId});
         }
+        
         Impulsys.quickEmit(EventType.ATOM_RESTORED, {
             assemblyId: _assembly.id,
             id: newInstance.id,
@@ -442,50 +460,54 @@ class GroupAtomsCommand extends Command
             y: centerPos.y,
             atom: newInstance
         });
-        Impulsys.quickEmit(EventType.REDRAW_WIRES);
-        _isExecuted = true;
 
-        trace('GroupAtomsCommand v3.0: Created $newTypeId with ${newPins.length} semantic ports');
+        haxe.Timer.delay(function() {
+            Impulsys.quickEmit(EventType.REDRAW_WIRES);
+        }, 50);
+
+        _isExecuted = true;
+        trace('GroupAtomsCommand v3.3: Created $newTypeId with ${newPins.length} semantic ports (Spatially Sorted)');
     }
 
     // ========================================================================
-    // HELPER: Get atom display name from template/runtime ID
+    // HELPER: Resolve External Port Name
     // ========================================================================
-    /**
-     * Get human-readable display name for an atom.
-     * Used to generate external port names like "PassThrough_1_in".
-     *
-     * @param atomId Template or Runtime ID
-     * @return Display name (e.g., "PassThrough_1", "Button", "SignalGenerator")
-     */
+    private function resolveExternalPortName(pins:Array<core.data.Blueprint.PinDef>, internalName:String):String
+    {
+        for (pin in pins)
+        {
+            if (pin.name == internalName)
+            {
+                if (Reflect.hasField(pin, "externalName"))
+                {
+                    var extName = Reflect.field(pin, "externalName");
+                    if (extName != null && extName != "") return extName;
+                }
+                return pin.name; // Fallback
+            }
+        }
+        return internalName; // Ultimate fallback
+    }
+
+    // ========================================================================
+    // HELPER: Get atom display name
+    // ========================================================================
     private function getAtomDisplayName(atomId:String):String
     {
-        // Try runtime ID first
         var atom = _assembly.internalAtoms.get(atomId);
-        
-        // Try via ID map (template → runtime)
         if (atom == null)
         {
             var runtimeId = _assembly.idMap.get(atomId);
             if (runtimeId != null) atom = _assembly.internalAtoms.get(runtimeId);
         }
-        
-        // Try direct template ID
         if (atom == null) atom = _assembly.internalAtoms.get(atomId);
         
         if (atom != null)
         {
-            // Use displayName if available, otherwise type
             var name = atom.displayName;
-            if (name == null || name == "" || name == atom.type)
-            {
-                name = atom.type;
-            }
-            // Sanitize: replace spaces with underscores
+            if (name == null || name == "" || name == atom.type) name = atom.type;
             return StringTools.replace(name, " ", "_");
         }
-        
-        // Fallback: use the ID itself
         return atomId;
     }
 
@@ -537,6 +559,7 @@ class GroupAtomsCommand extends Command
                 y: atomDef.y
             });
         }
+
         for (conn in _snapshot.getRemovedInternalConnections()) _blueprint.internalConnections.push(conn);
         for (conn in _snapshot.getRemovedExternalConnections()) _blueprint.internalConnections.push(conn);
 
@@ -549,6 +572,7 @@ class GroupAtomsCommand extends Command
         haxe.Timer.delay(restorePhysicalConnections, 15);
 
         Impulsys.quickEmit(EventType.ATOM_DELETED, {assemblyId: _assembly.id, id: createdId});
+        
         for (atomDef in _snapshot.getRemovedAtomDefs())
         {
             var atom = _assembly.internalAtoms.get(atomDef.instanceId);
@@ -560,6 +584,7 @@ class GroupAtomsCommand extends Command
                 atom: atom
             });
         }
+
         Impulsys.quickEmit(EventType.REDRAW_WIRES);
         _isUndone = true;
     }
@@ -663,14 +688,85 @@ class GroupAtomsCommand extends Command
         return false;
     }
 
-    private function sortByAtomId(
+    // ════════════════════════════════════════════════════════════════════════
+    // v3.3: SPATIAL SORTING LOGIC
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Sort connections by the vertical position (Y) of the internal atom involved.
+     * This ensures that ports on the Assembly boundary appear in the same order
+     * as the atoms are visually arranged on the schematic (top-to-bottom).
+     * 
+     * Fallback to X coordinate, then contact name.
+     */
+    private function sortByAtomPosition(
         a:{conn:ConnectionDef, isFromSelected:Bool},
         b:{conn:ConnectionDef, isFromSelected:Bool}
     ):Int
     {
-        var nameA = a.conn.from.atomId + "_" + a.conn.from.contactName;
-        var nameB = b.conn.from.atomId + "_" + b.conn.from.contactName;
+        // Identify the internal atom ID for each connection
+        var idA = a.isFromSelected ? a.conn.from.atomId : a.conn.to.atomId;
+        var idB = b.isFromSelected ? b.conn.from.atomId : b.conn.to.atomId;
+
+        var yA = getAtomY(idA);
+        var yB = getAtomY(idB);
+
+        // Primary sort: Y coordinate (Top -> Bottom)
+        if (yA != yB) return yA < yB ? -1 : 1;
+
+        // Secondary sort: X coordinate (Left -> Right)
+        var xA = getAtomX(idA);
+        var xB = getAtomX(idB);
+        if (xA != xB) return xA < xB ? -1 : 1;
+
+        // Tertiary sort: Contact name (for deterministic order if atoms overlap perfectly)
+        var nameA = a.isFromSelected ? a.conn.from.contactName : a.conn.to.contactName;
+        var nameB = b.isFromSelected ? b.conn.from.contactName : b.conn.to.contactName;
         return Reflect.compare(nameA, nameB);
+    }
+
+    /**
+     * Get Y coordinate of an atom by its ID (Template or Runtime).
+     */
+    private function getAtomY(atomId:String):Float
+    {
+        // 1. Try direct match in blueprint (Template ID)
+        for (def in _blueprint.internalAtoms)
+        {
+            if (def.instanceId == atomId) return def.y != null ? def.y : 0;
+        }
+        // 2. Try resolving Runtime ID -> Template ID
+        var templateId = _assembly.getTemplateId(atomId);
+        if (templateId != atomId)
+        {
+            for (def in _blueprint.internalAtoms)
+            {
+                if (def.instanceId == templateId) return def.y != null ? def.y : 0;
+            }
+        }
+        return 0; // Fallback
+    }
+
+    /**
+     * Get X coordinate of an atom by its ID (Template or Runtime).
+     */
+    private function getAtomX(atomId:String):Float
+    {
+        // 1. Try direct match in blueprint (Template ID)
+        for (def in _blueprint.internalAtoms)
+        {
+            if (def.instanceId == atomId) return def.x != null ? def.x : 0;
+        }
+        // 2. Try resolving Runtime ID -> Template ID
+        var templateId = _assembly.getTemplateId(atomId);
+        if (templateId != atomId)
+        {
+            for (def in _blueprint.internalAtoms)
+            {
+                if (def.instanceId == templateId) return def.x != null ? def.x : 0;
+            }
+        }
+        return 0; // Fallback
     }
 
     private function generateShortId():String
@@ -687,14 +783,14 @@ class GroupAtomsCommand extends Command
         var atomsData:Array<Dynamic> = [];
         for (atomDef in bp.internalAtoms)
             atomsData.push({instanceId: atomDef.instanceId, typeId: atomDef.typeId, x: atomDef.x, y: atomDef.y});
-
+            
         var connsData:Array<Dynamic> = [];
         for (conn in bp.internalConnections)
             connsData.push({
                 from: {atomId: conn.from.atomId, contactName: conn.from.contactName},
                 to: {atomId: conn.to.atomId, contactName: conn.to.contactName}
             });
-
+            
         var pinsData:Array<Dynamic> = [];
         for (pin in bp.pins)
         {
@@ -704,7 +800,6 @@ class GroupAtomsCommand extends Command
                 dataType: pin.dataType,
                 defaultValue: pin.defaultValue
             };
-            // v2.0: Save externalName if present
             if (Reflect.hasField(pin, "externalName"))
             {
                 pinData.externalName = Reflect.field(pin, "externalName");
@@ -724,7 +819,7 @@ class GroupAtomsCommand extends Command
             ? library.AtomRegistry.customLibraryPath : "library";
         if (!sys.FileSystem.exists(libPath))
             try { sys.FileSystem.createDirectory(libPath); } catch(e:Dynamic) {}
-
+            
         var path = libPath + "/" + bp.id + ".atom";
         try {
             sys.io.File.saveContent(path, haxe.Json.stringify(data, null, "  "));

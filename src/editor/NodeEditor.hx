@@ -825,7 +825,158 @@ class NodeEditor extends Sprite
 
 		_viewport.updateVisibility(_nodes.iterator(), w, h);
 	}
-
+	
+    // =========================================================================
+    // v1.2: AUTO-CENTER VIEWPORT ON CONTENT
+    // =========================================================================
+    /**
+     * Automatically centers the viewport so that all internal atoms and ports
+     * are visible with a comfortable margin.
+     * 
+     * This is called when entering an assembly for the first time, or when
+     * the user requests a reset view (e.g., via a shortcut).
+     * 
+     * Algorithm:
+     * 1. Iterate over all NodeViews in _nodes.
+     * 2. Compute their bounding box (including port positions).
+     * 3. Add the assembly's edge ports (SELF) to the bounding box.
+     * 4. If no nodes exist, center on (0,0) with zoom=1.0.
+     * 5. Calculate required zoom to fit everything in view (with margin).
+     * 6. Center the viewport on the middle of the bounding box.
+     */
+    public function centerOnContent():Void
+    {
+        // 1. Collect all node positions and sizes
+        var minX:Float = 0, minY:Float = 0, maxX:Float = 0, maxY:Float = 0;
+        var hasNodes = false;
+        
+        for (view in _nodes)
+        {
+            if (view == null) continue;
+            var size = view.getNodeSize();
+            var x = view.x;
+            var y = view.y;
+            
+            // Include port positions (extend bounding box)
+            var nodeMinX = x;
+            var nodeMinY = y;
+            var nodeMaxX = x + size.width;
+            var nodeMaxY = y + size.height;
+            
+            // Also check input/output port positions (they may extend beyond node bounds)
+            for (port in view.inputPorts)
+            {
+                if (port == null) continue;
+                var globalPos = port.localToGlobal(new openfl.geom.Point(0, 0));
+                var localPos = _canvas.globalToLocal(globalPos);
+                if (localPos.x < nodeMinX) nodeMinX = localPos.x;
+                if (localPos.y < nodeMinY) nodeMinY = localPos.y;
+                if (localPos.x > nodeMaxX) nodeMaxX = localPos.x;
+                if (localPos.y > nodeMaxY) nodeMaxY = localPos.y;
+            }
+            for (port in view.outputPorts)
+            {
+                if (port == null) continue;
+                var globalPos = port.localToGlobal(new openfl.geom.Point(0, 0));
+                var localPos = _canvas.globalToLocal(globalPos);
+                if (localPos.x < nodeMinX) nodeMinX = localPos.x;
+                if (localPos.y < nodeMinY) nodeMinY = localPos.y;
+                if (localPos.x > nodeMaxX) nodeMaxX = localPos.x;
+                if (localPos.y > nodeMaxY) nodeMaxY = localPos.y;
+            }
+            
+            if (!hasNodes)
+            {
+                minX = nodeMinX; minY = nodeMinY;
+                maxX = nodeMaxX; maxY = nodeMaxY;
+                hasNodes = true;
+            }
+            else
+            {
+                if (nodeMinX < minX) minX = nodeMinX;
+                if (nodeMinY < minY) minY = nodeMinY;
+                if (nodeMaxX > maxX) maxX = nodeMaxX;
+                if (nodeMaxY > maxY) maxY = nodeMaxY;
+            }
+        }
+        
+        // 2. Also include edge ports (SELF) from assembly frame
+        // The frame is drawn on _frame sprite, but its coordinates are in _canvas space
+        if (_frame != null)
+        {
+            var frameBounds = _frame.getBounds(_canvas);
+            if (frameBounds != null && frameBounds.width > 0 && frameBounds.height > 0)
+            {
+                if (!hasNodes)
+                {
+                    minX = frameBounds.x; minY = frameBounds.y;
+                    maxX = frameBounds.x + frameBounds.width;
+                    maxY = frameBounds.y + frameBounds.height;
+                    hasNodes = true;
+                }
+                else
+                {
+                    if (frameBounds.x < minX) minX = frameBounds.x;
+                    if (frameBounds.y < minY) minY = frameBounds.y;
+                    if (frameBounds.x + frameBounds.width > maxX) maxX = frameBounds.x + frameBounds.width;
+                    if (frameBounds.y + frameBounds.height > maxY) maxY = frameBounds.y + frameBounds.height;
+                }
+            }
+        }
+        
+        // 3. If no nodes or ports, center on (0,0)
+        if (!hasNodes)
+        {
+            _viewport.setViewState({x: 0, y: 0, zoom: 1.0});
+            return;
+        }
+        
+        // 4. Add margin (10% of viewport size, but at least 50 pixels)
+        var margin = 50.0;
+        var viewWidth = _forcedWidth > 0 ? _forcedWidth : (stage != null ? stage.stageWidth : 1024);
+        var viewHeight = _forcedHeight > 0 ? _forcedHeight : (stage != null ? stage.stageHeight : 600);
+        var marginX = Math.max(margin, viewWidth * 0.1);
+        var marginY = Math.max(margin, viewHeight * 0.1);
+        
+        var contentWidth = maxX - minX;
+        var contentHeight = maxY - minY;
+        if (contentWidth < 1) contentWidth = 1;
+        if (contentHeight < 1) contentHeight = 1;
+        
+        // 5. Calculate required zoom to fit content with margins
+        var zoomX = (viewWidth - marginX * 2) / contentWidth;
+        var zoomY = (viewHeight - marginY * 2) / contentHeight;
+        var zoom = Math.min(zoomX, zoomY);
+        // Clamp zoom to reasonable range
+        if (zoom < 0.1) zoom = 0.1;
+        if (zoom > 3.0) zoom = 3.0;
+        
+        // 6. Calculate center position in canvas coordinates
+        var centerX = (minX + maxX) / 2;
+        var centerY = (minY + maxY) / 2;
+        
+        // 7. Set viewport so that the center is in the middle of the view
+        // We need to set _canvas.x and _canvas.y such that the point (centerX, centerY)
+        // in canvas space maps to the center of the visible area.
+        // The visible center in world coordinates is ( -_canvas.x / _canvas.scaleX + viewWidth/2, ... )
+        // We want: centerX = -_canvas.x / zoom + viewWidth/2
+        // => _canvas.x = -(centerX - viewWidth/2) * zoom
+        // => _canvas.x = (viewWidth/2 - centerX) * zoom
+        var targetX = (viewWidth / 2 - centerX) * zoom;
+        var targetY = (viewHeight / 2 - centerY) * zoom;
+        
+        // Apply
+        _canvas.scaleX = zoom;
+        _canvas.scaleY = zoom;
+        _canvas.x = targetX;
+        _canvas.y = targetY;
+        
+        // Force redraw
+        _wireRenderer.rebuildAll();
+        updateVisibility();
+        
+        trace('NodeEditor: Auto-centered on content (zoom=$zoom)');
+    }
 // =========================================================================
 // DELETE
 // =========================================================================

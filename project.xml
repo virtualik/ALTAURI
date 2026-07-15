@@ -2,7 +2,7 @@
 <project>
 		
 	<meta title="ALTAURI" package="com.virtualik.altauri" version="1.0.0" company="ViRTUALiK" />
-	
+
 	<!-- Условная компиляция главного класса -->
     <app main="MainHTML5" if="html5" />
     <app main="Main" if="cpp" file="ALTAURI" path="bin" />
@@ -30,4 +30,5 @@
 	<haxelib name="hxcpp" if="cpp" />
 	<haxedef name="utf8" />
 	<icon path="assets/openfl.svg" />
+
 </project>

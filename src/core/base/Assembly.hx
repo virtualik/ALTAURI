@@ -15,7 +15,7 @@ import core.logic.EventType;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     ASSEMBLY v1.9                                         ║
+* ║                     ASSEMBLY v1.11                                        ║
 * ║          (Async Safety + Link Restore + Safety Net + Direct Input)        ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
@@ -38,10 +38,34 @@ import core.logic.EventType;
 * ║  - v1.5: ADDED Ghost Connection Safety Net (defensive sanitization)       ║
 * ║  - v1.8: FIXED _restoreInternalPortLinks() contact name resolution        ║
 * ║  - v1.9: FIXED async NullRef crash in OUTPUT port callback                ║
+* ║  - v1.10: FIXED direct port-to-port connections (SELF→SELF)              ║
+* ║           even when no internal atoms exist.                              ║
+* ║  - v1.11: FIXED external wires not removed when port is deleted.          ║
+* ║           Added PORT_REMOVED event notification.                          ║
 * ║                                                                           ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                     VERSION HISTORY                                       ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  v1.11 — Fix external wire cleanup on port deletion                       ║
+* ║  ─────────────────────────────────────────────────                         ║
+* ║  - removePort() now emits PORT_REMOVED event with assemblyId and portName ║
+* ║  - Parent assembly (Main) listens to this event and removes wires         ║
+* ║    that reference SELF.portName from the parent blueprint.                ║
+* ║  - Prevents "ghost" wires that point to (0,0) after port deletion.        ║
+* ║                                                                           ║
+* ║  v1.10 — Fix direct port-to-port connections (SELF→SELF)                 ║
+* ║  ────────────────────────────────────────────────────                      ║
+* ║  - Changed constructor to call _createInternalConnections()              ║
+* ║    even when blueprint.internalAtoms is empty.                           ║
+* ║  - Added rebuildInternalConnections() method to refresh all              ║
+* ║    internal port links after blueprint changes.                          ║
+* ║  - rebuildInternalConnections() now removes old port-to-port links       ║
+* ║    using only public Contact API (hasLink / unlink) — no private access. ║
+* ║  - Call rebuildInternalConnections() in updateFromBlueprint(),           ║
+* ║    addPort(), removePort() to keep links in sync.                        ║
+* ║  - Now a simple SELF.incoming_1 → SELF.outgoing_1 wire works             ║
+* ║    immediately without needing an internal atom.                         ║
 * ║                                                                           ║
 * ║  v1.9 — Async NullReference Protection                                    ║
 * ║  ─────────────────────────────────────                                    ║
@@ -306,25 +330,47 @@ class Assembly extends Atom
             }
         }
         
-        // Initialize internal structure
-        if (blueprint.logic == null && blueprint.internalAtoms != null && blueprint.internalAtoms.length > 0)
+        // ═══════════════════════════════════════════════════════════════════
+        // v1.10 FIX: Initialize internal structure even if no internal atoms
+        //            but there are internal connections (SELF→SELF wires)
+        // ═══════════════════════════════════════════════════════════════════
+        var hasInternalAtoms = (blueprint.internalAtoms != null && blueprint.internalAtoms.length > 0);
+        var hasInternalConns = (blueprint.internalConnections != null && blueprint.internalConnections.length > 0);
+        
+        // Suspend tick generator only if we have internal atoms
+        if (hasInternalAtoms)
         {
-            // Suspend tick generator during initialization
             TickGenerator.getInstance().suspend();
             try
             {
                 _createInternalInstances();
-                _createInternalConnections();
-                _initializeLogicState();
-                _updatePortLinks();
             }
             catch (e:Dynamic)
             {
-                trace('ERROR during Assembly($id) initialization: $e');
-                trace('  Stack: ${haxe.CallStack.toString(haxe.CallStack.exceptionStack())}');
+                trace('ERROR during Assembly($id) internal instances creation: $e');
             }
-            
-            // Unfreeze this assembly (internal atoms remain frozen until _processPendingSignals)
+        }
+        
+        // ALWAYS create internal connections if there are any (even without atoms)
+        if (hasInternalConns)
+        {
+            try
+            {
+                _createInternalConnections();
+            }
+            catch (e:Dynamic)
+            {
+                trace('ERROR during Assembly($id) internal connections creation: $e');
+            }
+        }
+        
+        // Initialize logic state and port links (always)
+        _initializeLogicState();
+        _updatePortLinks();
+        
+        // Process pending signals only if we have internal atoms
+        if (hasInternalAtoms)
+        {
             isInitializing = false;
             TickGenerator.getInstance().resume();
             _processPendingSignals();
@@ -715,26 +761,20 @@ class Assembly extends Atom
             
             if (this.isLogic)
             {
+                // ── Logic Mode (digital) ──
                 if (port.type == INPUT)
                 {
-                    // Input: direct link (always works)
+                    // Input: direct link external → internal
                     port.external.link(port.internal);
                 }
-                else
+                else // OUTPUT
                 {
-                    // ═══════════════════════════════════════════════════════
-                    // v1.9 FIX: Safe async output callback
-                    // ═══════════════════════════════════════════════════════
-                    // Output: subscribe + instant delivery
+                    // Output: subscribe to internal → async delivery to external
                     var callback = function(v:Dynamic)
                     {
                         var targetPort = port;
                         TickGenerator.getInstance().scheduleNextTick(function()
                         {
-                            // Triple safety check:
-                            // 1. Assembly not disposed
-                            // 2. Port not disposed (v1.1 isDisposed flag)
-                            // 3. External contact still exists
                             if (!_isDisposed 
                                 && targetPort != null 
                                 && !targetPort.isDisposed 
@@ -750,14 +790,24 @@ class Assembly extends Atom
                     _portCallbacks.set(name, callback);
                     
                     // Instant delivery of current value (if already present)
-                    // Solves problem when TextInput set value BEFORE subscription
                     if (port.internal.value != null && port.external != null)
                     {
                         port.external.value = port.internal.value;
-                        // Don't use propagateCurrentValue here to avoid
-                        // oscillation during initialization.
-                        // Propagation will happen in _processPendingSignals()
                     }
+                }
+            }
+            else
+            {
+                // ── Analog Mode (immediate) ──
+                if (port.type == INPUT)
+                {
+                    // Input: direct link external → internal
+                    port.external.link(port.internal);
+                }
+                else // OUTPUT
+                {
+                    // Output: direct link internal → external
+                    port.internal.link(port.external);
                 }
             }
         }
@@ -778,6 +828,7 @@ class Assembly extends Atom
     * - Adds new ports from blueprint
     * - Preserves existing connections where possible
     * - v1.8: Re-establishes internal atom ↔ port.internal connections
+    * - v1.10: Also rebuilds all internal port-to-port connections
     */
     public function updateFromBlueprint(newBp:Blueprint):Void
     {
@@ -850,6 +901,11 @@ class Assembly extends Atom
         // v1.8 FIX: Restore internal atom ↔ port links with correct names
         // ═══════════════════════════════════════════════════════════════════
         _restoreInternalPortLinks();
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // v1.10 FIX: Rebuild all internal port-to-port connections
+        // ═══════════════════════════════════════════════════════════════════
+        rebuildInternalConnections();
         
         Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
     }
@@ -1110,6 +1166,10 @@ class Assembly extends Atom
             // ═══════════════════════════════════════════════════════════════════
             // v1.2 FIX: Ensure internal atom is connected to port for SELF connections
             // ═══════════════════════════════════════════════════════════════════
+            // NOTE: For direct port-to-port connections (SELF→SELF), these calls
+            // will not find any internal atom, but that's OK — they'll just do nothing.
+            // The connection will still be made by the link() below because
+            // resolveContact() returns the port.internal contact for SELF.
             if (conn.from.atomId == "SELF")
             {
                 _ensureInternalAtomConnectedToPort(conn.from.contactName, OUTPUT);
@@ -1396,10 +1456,16 @@ class Assembly extends Atom
         }
         
         _updatePortLinks();
+        // v1.10: Rebuild internal connections to include new port in existing SELF links
+        rebuildInternalConnections();
         Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
         return port;
     }
 
+    /**
+     * v1.11: Removes a port and its internal connections, then notifies the parent
+     * assembly via PORT_REMOVED so that external wires are cleaned up.
+     */
     public function removePort(name:String):Void
     {
         var port = ports.get(name);
@@ -1435,7 +1501,75 @@ class Assembly extends Atom
         
         port.dispose();
         ports.remove(name);
+        // v1.10: Rebuild internal connections after removing port
+        rebuildInternalConnections();
         Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // v1.11: Notify parent assembly to remove external wires connected to this port
+        // ═══════════════════════════════════════════════════════════════════
+        Impulsys.quickEmit(EventType.PORT_REMOVED, { assemblyId: this.id, portName: name });
+    }
+
+    // ========================================================================
+    // v1.10: REBUILD INTERNAL PORT-TO-PORT CONNECTIONS
+    // ========================================================================
+    /**
+    * Rebuilds all internal connections between ports (SELF→SELF) based on
+    * the current blueprint.internalConnections.
+    *
+    * This method:
+    * 1. Removes all existing links between internal contacts of ports,
+    *    but preserves links between external and internal contacts of the same port
+    *    (those are managed by _updatePortLinks()).
+    * 2. Calls _createInternalConnections() to recreate links from blueprint.
+    * 3. Calls _updatePortLinks() to re-establish external↔internal links
+    *    (important after port changes).
+    *
+    * The removal is done using only public Contact API (hasLink / unlink)
+    * to avoid accessing private fields.
+    *
+    * Call this method whenever the blueprint's internal connections change
+    * (e.g., after adding/removing atoms, adding/removing connections, or
+    * after hot-reload).
+    */
+    public function rebuildInternalConnections():Void
+    {
+        // 1. Collect all port internal contacts
+        var portInternals = [];
+        for (port in ports)
+        {
+            if (port != null && port.internal != null)
+            {
+                portInternals.push(port.internal);
+            }
+        }
+        
+        // 2. Remove all links between port internals (but NOT with external contacts)
+        for (i in 0...portInternals.length)
+        {
+            var contactA = portInternals[i];
+            if (contactA == null) continue;
+            
+            for (j in 0...portInternals.length)
+            {
+                if (i == j) continue;
+                var contactB = portInternals[j];
+                if (contactB == null) continue;
+                
+                // If there is a link from A to B, remove it
+                if (contactA.hasLink(contactB))
+                {
+                    contactA.unlink(contactB);
+                }
+            }
+        }
+        
+        // 3. Recreate internal connections from blueprint
+        _createInternalConnections();
+        
+        // 4. Re-establish external↔internal port links (logic mode)
+        _updatePortLinks();
     }
 
     // ========================================================================
