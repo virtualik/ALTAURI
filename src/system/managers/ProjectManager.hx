@@ -14,7 +14,7 @@ import sys.io.File;
 #end
 
 /**
- * PROJECT MANAGER v2.2 (Window Position Persistence)
+ * PROJECT MANAGER v2.3 (Dual Naming Support)
  * Manages file system, paths, and project save/load operations.
  * Extracts all IO logic from Main.
  *
@@ -40,6 +40,11 @@ import sys.io.File;
  * │   │  Initialization:                                                │   │
  * │   │  - init()                 → Create directories, scan library    │   │
  * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   v2.3 Changes:                                                         │
+ * │   - FIXED: saveSelfrun() now serializes pins with externalName          │
+ * │   - FIXED: dataType null handling (no more "null" string)               │
+ * │   - Preserves ConductorPort dual naming (externalName + internalName)   │
  * │                                                                         │
  * │   v2.2 Changes:                                                         │
  * │   - Added windowX/windowY to saved data and return types                │
@@ -111,6 +116,7 @@ class ProjectManager
     
     /**
      * Save root project (Selfrun).
+     * v2.3 FIX: Pins are now serialized with externalName support.
      * v2.2: Added windowX, windowY parameters.
      *
      * @param rootAssembly       Root assembly to save
@@ -181,6 +187,31 @@ class ProjectManager
         
         var bp = rootAssembly.blueprint;
         
+        // ═══════════════════════════════════════════════════════════════════
+        // v2.3 FIX: Serialize pins with externalName support
+        // ═══════════════════════════════════════════════════════════════════
+        // Previously pins were serialized directly (bp.pins), which lost
+        // externalName and serialized ContactType as numeric index.
+        // Now we serialize manually like saveAssemblyToLibrary() does.
+        var pinsToSave:Array<Dynamic> = [];
+        for (pin in bp.pins)
+        {
+            var pinData:Dynamic = {
+                name: pin.name,
+                type: Std.string(pin.type),
+                defaultValue: pin.defaultValue
+            };
+            if (pin.dataType != null)
+            {
+                pinData.dataType = pin.dataType;
+            }
+            if (pin.externalName != null)
+            {
+                pinData.externalName = pin.externalName;
+            }
+            pinsToSave.push(pinData);
+        }
+        
         // Serialize device window data
         var devicesToSave:Array<Dynamic> = [];
         if (deviceWindowData != null)
@@ -203,12 +234,12 @@ class ProjectManager
         
         // Build complete save data
         var data:Dynamic = {
-            version: "2.2",
+            version: "2.3",
             blueprint: {
                 id: bp.id,
                 name: bp.name,
                 category: bp.category,
-                pins: bp.pins,
+                pins: pinsToSave,                // v2.3: serialized with externalName
                 internalAtoms: atomsToSave,
                 internalConnections: connsToSave
             },
@@ -225,7 +256,7 @@ class ProjectManager
         
         try {
             File.saveContent(selfrunPath, haxe.Json.stringify(data, null, "  "));
-            trace("ProjectManager: Selfrun saved (v2.2 with window pos).");
+            trace("ProjectManager: Selfrun saved (v2.3 with dual naming).");
         }
         catch (e:Dynamic)
         {
@@ -405,19 +436,30 @@ class ProjectManager
             });
         }
         
-        // Serialize pins
+        // Serialize pins with externalName
         var pinsData:Array<Dynamic> = [];
-        for (pin in bp.pins) 
-            pinsData.push({ 
-                name: pin.name, 
-                type: Std.string(pin.type), 
-                defaultValue: pin.defaultValue, 
-                dataType: pin.dataType 
-            });
+        for (pin in bp.pins)
+        {
+            var pinData:Dynamic = {
+                name: pin.name,
+                type: Std.string(pin.type),
+                defaultValue: pin.defaultValue
+            };
+            // v2.3 FIX: Only add dataType if not null (prevents "null" string)
+            if (pin.dataType != null)
+            {
+                pinData.dataType = pin.dataType;
+            }
+            if (pin.externalName != null)
+            {
+                pinData.externalName = pin.externalName;
+            }
+            pinsData.push(pinData);
+        }
         
         // Build save data
         var data:Dynamic = { 
-            version: "1.1", 
+            version: "1.2", 
             blueprint: { 
                 id: bp.id, 
                 name: bp.name, 
@@ -511,14 +553,24 @@ class ProjectManager
         {
             for (p in (cast(rawBp.pins, Array<Dynamic>)))
             {
-                pins.push(
-                    {
-                        name: Std.string(p.name),
-                        // FIX: Use _parseContactType for String → ContactType conversion
-                        type: _parseContactType(p.type),
-                        defaultValue: p.defaultValue,
-                        dataType: Std.string(p.dataType)
-                    });
+                // v2.3 FIX: Handle dataType null correctly
+                // Std.string(null) returns "null" string, which is wrong.
+                // Use null directly if not present.
+                var dt:String = null;
+                if (p.dataType != null)
+                {
+                    dt = Std.string(p.dataType);
+                    // Guard against literal "null" string from old saves
+                    if (dt == "null") dt = null;
+                }
+                
+                pins.push({
+                    name: Std.string(p.name),
+                    type: _parseContactType(p.type),
+                    defaultValue: p.defaultValue,
+                    dataType: dt,
+                    externalName: p.externalName  // v2.0: preserve externalName
+                });
             }
         }
         

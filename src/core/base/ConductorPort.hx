@@ -4,33 +4,44 @@ import core.types.ContactType;
 import core.types.ContactType.*;
 
 /**
- * CONDUCTOR PORT
- * 
- * A bidirectional gateway that exposes an Atom's internal contact to the outside world.
- * 
- * Each port has two sides:
- * - internal: Connected to the atom's internal logic
- * - external: Connected to wires and other atoms
- * 
- * Architecture:
- * ┌─────────────────────────────────────────────────────────────────┐
- * │                        CONDUCTOR PORT                           │
- * │                                                                 │
- * │   INTERNAL SIDE          │          EXTERNAL SIDE               │
- * │   (Atom Logic)           │          (Wires/Other Atoms)         │
- * │        ●                 │                 ●                    │
- * │        │                 │                 │                    │
- * │   [internal:Contact] ────┼──── [external:Contact]               │
- * │        │                 │                 │                    │
- * │        ▼                 │                 ▼                    │
- * │   To Atom Process        │          To Other Atoms              │
- * │                                                                 │
- * └─────────────────────────────────────────────────────────────────┘
- * 
- * Port Types:
- * - INPUT: external → internal (signal flows inward)
- * - OUTPUT: internal → external (signal flows outward)
- * - BIDIRECTIONAL: both directions allowed
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║                     CONDUCTOR PORT v2.0 (Dual Naming)                     ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  A bidirectional gateway that exposes an Atom's internal contact          ║
+ * ║  to the outside world.                                                    ║
+ * ║                                                                           ║
+ * ║  v2.0: Supports DIFFERENT names for external and internal contacts.       ║
+ * ║                                                                           ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                        DUAL NAMING ARCHITECTURE                           ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │                    CONDUCTOR PORT                                    │  ║
+ * ║  │                                                                     │  ║
+ * ║  │   EXTERNAL SIDE (Parent Schema)    │    INTERNAL SIDE (Inside)      │  ║
+ * ║  │   ┌─────────────────────────┐      │    ┌────────────────────────┐ │  ║
+ * ║  │   │ name: "PassThrough_in"  │      │    │ name: "incoming_1"     │ │  ║
+ * ║  │   │ type: INPUT             │──────┼────│ type: INPUT            │ │  ║
+ * ║  │   │ (visible to parent)     │      │    │ (visible on wall)      │ │  ║
+ * ║  │   └─────────────────────────┘      │    └────────────────────────┘ │  ║
+ * ║  │                                                                     │  ║
+ * ║  │   port.name = internalName (used for lookup in Assembly.ports map)  │  ║
+ * ║  │                                                                     │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
+ * ║  Naming Convention:                                                       ║
+ * ║  ─────────────────                                                        ║
+ * ║  External: "{AtomDisplayName}_{ContactName}" or "{ContactName}_N"        ║
+ * ║  Internal: "incoming_N" (INPUT) or "outgoing_N" (OUTPUT)                 ║
+ * ║                                                                           ║
+ * ║  Example:                                                                 ║
+ * ║  ─────────                                                                ║
+ * ║  External name: "PassThrough_1_in"  (parent sees this on assembly node)  ║
+ * ║  Internal name: "incoming_1"        (wall contact inside assembly)       ║
+ * ║                                                                           ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 class ConductorPort
 {
@@ -38,43 +49,59 @@ class ConductorPort
     // PROPERTIES
     // ========================================================================
     
-    /** Port name (must be unique within parent assembly). */
+    /** Port name (used as key in Assembly.ports map). Equals internalName. */
     public var name(default, null):String;
     
     /** Port type (INPUT, OUTPUT, or BIDIRECTIONAL). */
     public var type(default, null):ContactType;
     
-    /** Internal contact (connects to atom's logic). */
+    /** Internal contact (connects to atom's logic, visible on wall inside). */
     public var internal(default, null):Contact;
     
-    /** External contact (connects to wires/other atoms). */
+    /** External contact (connects to wires/other atoms, visible on parent). */
     public var external(default, null):Contact;
     
     /** Default value for this port (used in blueprint). */
     public var defaultValue:Dynamic;
+    
+    /** v2.0: External display name (visible on parent schema). */
+    public var externalName(default, null):String;
+    
+    /** v2.0: Internal display name (visible on wall inside assembly). */
+    public var internalName(default, null):String;
+    
+    /** v1.1: Lifecycle flag for safe async operations. */
+    public var isDisposed(default, null):Bool = false;
     
     // ========================================================================
     // CONSTRUCTOR
     // ========================================================================
     
     /**
-     * Create a new ConductorPort.
+     * Create a new ConductorPort with dual naming support.
      * 
-     * @param name         Port name
-     * @param type         Port type (INPUT, OUTPUT, BIDIRECTIONAL)
-     * @param defaultValue Default value for the contacts
+     * @param externalName  Name visible on parent schema (e.g., "PassThrough_1_in")
+     * @param internalName  Name visible on wall inside assembly (e.g., "incoming_1")
+     * @param type          Port type (INPUT, OUTPUT, BIDIRECTIONAL)
+     * @param defaultValue  Default value for the contacts
+     * 
+     * v2.0: If internalName is null, it defaults to externalName (backward compat).
      */
-    public function new(name:String, type:ContactType, ?defaultValue:Dynamic = null)
+    public function new(externalName:String, type:ContactType, ?internalName:String = null, ?defaultValue:Dynamic = null)
     {
-        this.name = name;
+        this.externalName = externalName;
+        this.internalName = (internalName != null) ? internalName : externalName;
         this.type = type;
         this.defaultValue = defaultValue;
         
-        // Create internal contact
-        this.internal = new Contact(defaultValue, type, name);
+        // port.name = internalName (used for lookup in Assembly.ports map)
+        this.name = this.internalName;
         
-        // Create external contact
-        this.external = new Contact(defaultValue, type, name);
+        // Create internal contact with INTERNAL name (visible on wall)
+        this.internal = new Contact(defaultValue, type, this.internalName);
+        
+        // Create external contact with EXTERNAL name (visible on parent)
+        this.external = new Contact(defaultValue, type, this.externalName);
     }
 
     // ========================================================================
@@ -93,20 +120,22 @@ class ConductorPort
      */
     public function link(suppressPropagation:Bool = false):Void
     {
+        if (isDisposed) return;
+        
         if (type == INPUT || type == BIDIRECTIONAL)
         {
-            external.link(internal, suppressPropagation);
+            if (external != null && internal != null)
+                external.link(internal, suppressPropagation);
         }
         if (type == OUTPUT || type == BIDIRECTIONAL)
         {
-            internal.link(external, suppressPropagation);
+            if (internal != null && external != null)
+                internal.link(external, suppressPropagation);
         }
     }
     
     /**
      * Unlink internal and external contacts.
-     * 
-     * Breaks connections in both directions.
      */
     public function unlink():Void
     {
@@ -123,11 +152,12 @@ class ConductorPort
     
     /**
      * Dispose port and both contacts.
-     * 
-     * Called when parent assembly is destroyed.
      */
     public function dispose():Void
     {
+        if (isDisposed) return;
+        isDisposed = true;
+        
         if (internal != null) internal.dispose();
         if (external != null) external.dispose();
         
@@ -135,5 +165,7 @@ class ConductorPort
         external = null;
         name = null;
         type = null;
+        externalName = null;
+        internalName = null;
     }
 }

@@ -912,14 +912,14 @@ ApplicationMain.main = function() {
 };
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
-	app.meta.h["build"] = "136";
+	app.meta.h["build"] = "144";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "MyApplication";
 	app.meta.h["name"] = "ALTAURI";
 	app.meta.h["packageName"] = "com.virtualik.altauri";
 	app.meta.h["version"] = "1.0.0";
-	var attributes = { allowHighDPI : false, alwaysOnTop : false, borderless : true, element : null, frameRate : 120, height : 800, hidden : false, maximized : false, minimized : false, parameters : { }, resizable : true, title : "ALTAURI", width : 1024, x : null, y : null};
-	attributes.context = { antialiasing : 4, background : 16711935, colorDepth : 32, depth : true, hardware : true, stencil : true, type : null, vsync : true};
+	var attributes = { allowHighDPI : false, alwaysOnTop : false, borderless : true, element : null, frameRate : 60, height : 800, hidden : false, maximized : false, minimized : false, parameters : { }, resizable : true, title : "ALTAURI", width : 1280, x : null, y : null};
+	attributes.context = { antialiasing : 0, background : 16711935, colorDepth : 32, depth : true, hardware : true, stencil : true, type : null, vsync : true};
 	if(app.__window == null) {
 		if(config != null) {
 			var _g = 0;
@@ -4550,8 +4550,8 @@ var core_base_Assembly = function(id,blueprint) {
 		} catch( _g ) {
 			haxe_NativeStackTrace.lastError = _g;
 			var e = haxe_Exception.caught(_g).unwrap();
-			haxe_Log.trace("ERROR during Assembly(" + id + ") initialization: " + Std.string(e),{ fileName : "src/core/base/Assembly.hx", lineNumber : 271, className : "core.base.Assembly", methodName : "new"});
-			haxe_Log.trace("  Stack: " + haxe_CallStack.toString(haxe_CallStack.exceptionStack()),{ fileName : "src/core/base/Assembly.hx", lineNumber : 272, className : "core.base.Assembly", methodName : "new"});
+			haxe_Log.trace("ERROR during Assembly(" + id + ") initialization: " + Std.string(e),{ fileName : "src/core/base/Assembly.hx", lineNumber : 283, className : "core.base.Assembly", methodName : "new"});
+			haxe_Log.trace("  Stack: " + haxe_CallStack.toString(haxe_CallStack.exceptionStack()),{ fileName : "src/core/base/Assembly.hx", lineNumber : 284, className : "core.base.Assembly", methodName : "new"});
 		}
 		this.set_isInitializing(false);
 		core_logic_TickGenerator.getInstance().resume();
@@ -4628,7 +4628,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		}
 		this._isInQuarantine = true;
 		this._quarantineReason = reason;
-		haxe_Log.trace("🚨 ASSEMBLY QUARANTINE: " + this.get_id() + " - " + reason,{ fileName : "src/core/base/Assembly.hx", lineNumber : 178, className : "core.base.Assembly", methodName : "quarantine"});
+		haxe_Log.trace("🚨 ASSEMBLY QUARANTINE: " + this.get_id() + " - " + reason,{ fileName : "src/core/base/Assembly.hx", lineNumber : 179, className : "core.base.Assembly", methodName : "quarantine"});
 		var h = this.ports.h;
 		var name_h = h;
 		var name_keys = Object.keys(h);
@@ -4742,28 +4742,25 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		return count;
 	}
 	,_initializeLogicState: function() {
-		var h = this.ports.h;
-		var name_h = h;
-		var name_keys = Object.keys(h);
-		var name_length = name_keys.length;
-		var name_current = 0;
-		while(name_current < name_length) {
-			var name = name_keys[name_current++];
-			var port = this.ports.h[name];
-			if(port != null) {
-				if(port.type == core_types_ContactType.INPUT) {
+		if(this.blueprint != null && this.blueprint.pins != null) {
+			var _g = 0;
+			var _g1 = this.blueprint.pins;
+			while(_g < _g1.length) {
+				var pinDef = _g1[_g];
+				++_g;
+				if(pinDef == null || pinDef.name == null) {
+					continue;
+				}
+				var port = this.ports.h[pinDef.name];
+				if(port == null) {
+					continue;
+				}
+				if(pinDef.defaultValue != null) {
 					if(port.external != null && port.external.get_value() == null) {
-						port.external.set_value(true);
+						port.external.set_value(pinDef.defaultValue);
 					}
 					if(port.internal != null && port.internal.get_value() == null) {
-						port.internal.set_value(true);
-					}
-				} else if(port.type == core_types_ContactType.OUTPUT) {
-					if(port.external != null && port.external.get_value() == null) {
-						port.external.set_value(false);
-					}
-					if(port.internal != null && port.internal.get_value() == null) {
-						port.internal.set_value(false);
+						port.internal.set_value(pinDef.defaultValue);
 					}
 				}
 			}
@@ -4824,6 +4821,24 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		}
 	}
 	,_processPendingSignals: function() {
+		var _gthis = this;
+		var h = this.ports.h;
+		var name_h = h;
+		var name_keys = Object.keys(h);
+		var name_length = name_keys.length;
+		var name_current = 0;
+		while(name_current < name_length) {
+			var name = name_keys[name_current++];
+			var port = this.ports.h[name];
+			if(port != null && port.type == core_types_ContactType.INPUT) {
+				if(port.external != null && port.internal != null) {
+					if(port.external.get_value() != null && port.external.get_value() != port.internal.get_value()) {
+						port.internal.set_value(port.external.get_value());
+						port.internal.propagateCurrentValue();
+					}
+				}
+			}
+		}
 		var h = this.internalAtoms.h;
 		var runtimeId_h = h;
 		var runtimeId_keys = Object.keys(h);
@@ -4862,7 +4877,47 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 				}
 			}
 		}
-		haxe_Log.trace("Assembly(" + this.get_id() + "): Hot Start complete. Signals propagated, atoms unfrozen.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 548, className : "core.base.Assembly", methodName : "_processPendingSignals"});
+		core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
+			if(_gthis._isDisposed) {
+				return;
+			}
+			var h = _gthis.ports.h;
+			var name_h = h;
+			var name_keys = Object.keys(h);
+			var name_length = name_keys.length;
+			var name_current = 0;
+			while(name_current < name_length) {
+				var name = name_keys[name_current++];
+				var port = _gthis.ports.h[name];
+				if(port != null && port.type == core_types_ContactType.INPUT) {
+					if(port.external != null && port.internal != null) {
+						if(port.external.get_value() != null && port.external.get_value() != port.internal.get_value()) {
+							port.internal.set_value(port.external.get_value());
+							port.internal.propagateCurrentValue();
+						}
+					}
+				}
+			}
+			var h = _gthis.ports.h;
+			var name_h = h;
+			var name_keys = Object.keys(h);
+			var name_length = name_keys.length;
+			var name_current = 0;
+			while(name_current < name_length) {
+				var name = name_keys[name_current++];
+				var port = _gthis.ports.h[name];
+				if(port != null && port.type == core_types_ContactType.OUTPUT) {
+					if(port.internal != null && port.external != null) {
+						if(port.internal.get_value() != null) {
+							port.external.set_value(port.internal.get_value());
+						}
+						port.external.propagateCurrentValue();
+					}
+				}
+			}
+			haxe_Log.trace("Assembly(" + _gthis.get_id() + "): Final sync wave complete.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 644, className : "core.base.Assembly", methodName : "_processPendingSignals"});
+		});
+		haxe_Log.trace("Assembly(" + this.get_id() + "): Hot Start complete. Signals propagated, atoms unfrozen.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 647, className : "core.base.Assembly", methodName : "_processPendingSignals"});
 	}
 	,_updatePortLinks: function() {
 		var _gthis = this;
@@ -4910,6 +4965,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 								return function() {
 									if(!_gthis._isDisposed && targetPort != null && !_gthis.get_isInitializing()) {
 										targetPort.external.set_value(v);
+										targetPort.external.propagateCurrentValue();
 									}
 								};
 							})());
@@ -4917,11 +4973,10 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 					})(port);
 					port[0].internal.subscribe(callback);
 					this._portCallbacks.h[name] = callback;
+					if(port[0].internal.get_value() != null) {
+						port[0].external.set_value(port[0].internal.get_value());
+					}
 				}
-			} else if(port[0].type == core_types_ContactType.INPUT) {
-				port[0].external.link(port[0].internal);
-			} else {
-				port[0].internal.link(port[0].external);
 			}
 		}
 	}
@@ -5020,20 +5075,20 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 			var pinDef = _g1[_g];
 			++_g;
 			if(pinDef == null) {
-				haxe_Log.trace("ERROR: PinDef is null in Blueprint(" + this.blueprint.id + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 709, className : "core.base.Assembly", methodName : "_createInterface"});
+				haxe_Log.trace("ERROR: PinDef is null in Blueprint(" + this.blueprint.id + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 823, className : "core.base.Assembly", methodName : "_createInterface"});
 				continue;
 			}
 			if(pinDef.name == null) {
-				haxe_Log.trace("ERROR: PinDef.name is null in Blueprint(" + this.blueprint.id + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 714, className : "core.base.Assembly", methodName : "_createInterface"});
+				haxe_Log.trace("ERROR: PinDef.name is null in Blueprint(" + this.blueprint.id + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 828, className : "core.base.Assembly", methodName : "_createInterface"});
 				continue;
 			}
 			var portType = pinDef.type;
 			if(pinDef.type == null) {
-				haxe_Log.trace("WARN: PinDef \"" + pinDef.name + "\" has null.type, using UNDEFINED",{ fileName : "src/core/base/Assembly.hx", lineNumber : 721, className : "core.base.Assembly", methodName : "_createInterface"});
+				haxe_Log.trace("WARN: PinDef \"" + pinDef.name + "\" has null.type, using UNDEFINED",{ fileName : "src/core/base/Assembly.hx", lineNumber : 836, className : "core.base.Assembly", methodName : "_createInterface"});
 				portType = core_types_ContactType.UNDEFINED;
 			} else if(typeof(pinDef.type) == "string") {
 				var typeStr = pinDef.type;
-				haxe_Log.trace("DEBUG: Converting String type \"" + typeStr + "\" to ContactType for pin \"" + pinDef.name + "\"",{ fileName : "src/core/base/Assembly.hx", lineNumber : 727, className : "core.base.Assembly", methodName : "_createInterface"});
+				haxe_Log.trace("DEBUG: Converting String type \"" + typeStr + "\" to ContactType for pin \"" + pinDef.name + "\"",{ fileName : "src/core/base/Assembly.hx", lineNumber : 842, className : "core.base.Assembly", methodName : "_createInterface"});
 				switch(typeStr) {
 				case "BIDIRECTIONAL":
 					portType = core_types_ContactType.BIDIRECTIONAL;
@@ -5045,11 +5100,11 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 					portType = core_types_ContactType.OUTPUT;
 					break;
 				default:
-					haxe_Log.trace("WARN: Unknown type \"" + typeStr + "\", using UNDEFINED",{ fileName : "src/core/base/Assembly.hx", lineNumber : 734, className : "core.base.Assembly", methodName : "_createInterface"});
+					haxe_Log.trace("WARN: Unknown type \"" + typeStr + "\", using UNDEFINED",{ fileName : "src/core/base/Assembly.hx", lineNumber : 849, className : "core.base.Assembly", methodName : "_createInterface"});
 					portType = core_types_ContactType.UNDEFINED;
 				}
 			} else if(!js_Boot.__instanceof(pinDef.type,core_types_ContactType)) {
-				haxe_Log.trace("ERROR: PinDef \"" + pinDef.name + "\" has invalid type: " + Std.string(pinDef.type),{ fileName : "src/core/base/Assembly.hx", lineNumber : 740, className : "core.base.Assembly", methodName : "_createInterface"});
+				haxe_Log.trace("ERROR: PinDef \"" + pinDef.name + "\" has invalid type: " + Std.string(pinDef.type),{ fileName : "src/core/base/Assembly.hx", lineNumber : 855, className : "core.base.Assembly", methodName : "_createInterface"});
 				portType = core_types_ContactType.UNDEFINED;
 			}
 			var port = new core_base_ConductorPort(pinDef.name,portType,pinDef.defaultValue);
@@ -5067,7 +5122,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 			var atomDef = _g1[_g];
 			++_g;
 			if(atomDef.typeId == this.blueprint.id) {
-				haxe_Log.trace("WARN: Skipped recursive instantiation of " + atomDef.typeId + " inside itself.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 765, className : "core.base.Assembly", methodName : "_createInternalInstances"});
+				haxe_Log.trace("WARN: Skipped recursive instantiation of " + atomDef.typeId + " inside itself.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 882, className : "core.base.Assembly", methodName : "_createInternalInstances"});
 				continue;
 			}
 			var newInstanceID = utils_UID.generate();
@@ -5098,44 +5153,91 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 			var fromContact = this.resolveContact(conn.from);
 			var toContact = this.resolveContact(conn.to);
 			if(fromContact == null) {
-				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): fromContact NULL for " + conn.from.atomId + "." + conn.from.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 808, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): fromContact NULL for " + conn.from.atomId + "." + conn.from.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 934, className : "core.base.Assembly", methodName : "_createInternalConnections"});
 				continue;
 			}
 			if(toContact == null) {
-				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): toContact NULL for " + conn.to.atomId + "." + conn.to.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 813, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): toContact NULL for " + conn.to.atomId + "." + conn.to.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 939, className : "core.base.Assembly", methodName : "_createInternalConnections"});
 				continue;
 			}
 			if(fromContact.type == null) {
-				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): fromContact.type is NULL for " + conn.from.atomId + "." + conn.from.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 818, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact ID: " + fromContact.id,{ fileName : "src/core/base/Assembly.hx", lineNumber : 819, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact name: " + fromContact.name,{ fileName : "src/core/base/Assembly.hx", lineNumber : 820, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact owner: " + (fromContact.owner != null ? fromContact.owner.get_id() : "null"),{ fileName : "src/core/base/Assembly.hx", lineNumber : 821, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): fromContact.type is NULL for " + conn.from.atomId + "." + conn.from.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 944, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact ID: " + fromContact.id,{ fileName : "src/core/base/Assembly.hx", lineNumber : 945, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact name: " + fromContact.name,{ fileName : "src/core/base/Assembly.hx", lineNumber : 946, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact owner: " + (fromContact.owner != null ? fromContact.owner.get_id() : "null"),{ fileName : "src/core/base/Assembly.hx", lineNumber : 947, className : "core.base.Assembly", methodName : "_createInternalConnections"});
 				continue;
 			}
 			if(toContact.type == null) {
-				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): toContact.type is NULL for " + conn.to.atomId + "." + conn.to.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 826, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact ID: " + toContact.id,{ fileName : "src/core/base/Assembly.hx", lineNumber : 827, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact name: " + toContact.name,{ fileName : "src/core/base/Assembly.hx", lineNumber : 828, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact owner: " + (toContact.owner != null ? toContact.owner.get_id() : "null"),{ fileName : "src/core/base/Assembly.hx", lineNumber : 829, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): toContact.type is NULL for " + conn.to.atomId + "." + conn.to.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 952, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact ID: " + toContact.id,{ fileName : "src/core/base/Assembly.hx", lineNumber : 953, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact name: " + toContact.name,{ fileName : "src/core/base/Assembly.hx", lineNumber : 954, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact owner: " + (toContact.owner != null ? toContact.owner.get_id() : "null"),{ fileName : "src/core/base/Assembly.hx", lineNumber : 955, className : "core.base.Assembly", methodName : "_createInternalConnections"});
 				continue;
+			}
+			if(conn.from.atomId == "SELF") {
+				this._ensureInternalAtomConnectedToPort(conn.from.contactName,core_types_ContactType.OUTPUT);
+			}
+			if(conn.to.atomId == "SELF") {
+				this._ensureInternalAtomConnectedToPort(conn.to.contactName,core_types_ContactType.INPUT);
 			}
 			fromContact.link(toContact,true);
 		}
 	}
+	,_ensureInternalAtomConnectedToPort: function(portName,portType) {
+		if(this.internalAtoms == null) {
+			return;
+		}
+		var port = this.ports.h[portName];
+		if(port == null) {
+			return;
+		}
+		var h = this.internalAtoms.h;
+		var id_h = h;
+		var id_keys = Object.keys(h);
+		var id_length = id_keys.length;
+		var id_current = 0;
+		while(id_current < id_length) {
+			var id = id_keys[id_current++];
+			var atom = this.internalAtoms.h[id];
+			if(atom == null) {
+				continue;
+			}
+			if(portType == core_types_ContactType.OUTPUT) {
+				var atomOutput = atom.getOutput(portName);
+				if(atomOutput != null) {
+					if(!atomOutput.hasLink(port.internal)) {
+						atomOutput.link(port.internal,true);
+					}
+					break;
+				}
+			} else {
+				var atomInput = atom.getInput(portName);
+				if(atomInput != null) {
+					if(!port.external.hasLink(atomInput)) {
+						port.external.link(atomInput,true);
+					}
+					if(!port.external.hasLink(port.internal)) {
+						port.external.link(port.internal,true);
+					}
+					break;
+				}
+			}
+		}
+	}
 	,resolveContact: function(point) {
 		if(point == null) {
-			haxe_Log.trace("ERROR: resolveContact received null point",{ fileName : "src/core/base/Assembly.hx", lineNumber : 854, className : "core.base.Assembly", methodName : "resolveContact"});
+			haxe_Log.trace("ERROR: resolveContact received null point",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1080, className : "core.base.Assembly", methodName : "resolveContact"});
 			return null;
 		}
 		if(point.atomId == "SELF") {
 			var port = this.ports.h[point.contactName];
 			if(port == null) {
-				haxe_Log.trace("WARN: Port \"" + point.contactName + "\" not found in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 862, className : "core.base.Assembly", methodName : "resolveContact"});
+				haxe_Log.trace("WARN: Port \"" + point.contactName + "\" not found in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1089, className : "core.base.Assembly", methodName : "resolveContact"});
 				return null;
 			}
 			var contact = port.internal;
 			if(contact == null) {
-				haxe_Log.trace("ERROR: Port \"" + point.contactName + "\" internal contact is null!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 869, className : "core.base.Assembly", methodName : "resolveContact"});
+				haxe_Log.trace("ERROR: Port \"" + point.contactName + "\" internal contact is null!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1097, className : "core.base.Assembly", methodName : "resolveContact"});
 				return null;
 			}
 			return contact;
@@ -5145,7 +5247,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 				if(Object.prototype.hasOwnProperty.call(this.internalAtoms.h,point.atomId)) {
 					realAtomId = point.atomId;
 				} else {
-					haxe_Log.trace("WARN: Atom \"" + point.atomId + "\" not found in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 885, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("WARN: Atom \"" + point.atomId + "\" not found in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1113, className : "core.base.Assembly", methodName : "resolveContact"});
 					var _g = [];
 					var h = this.internalAtoms.h;
 					var k_h = h;
@@ -5156,13 +5258,13 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 						var k = k_keys[k_current++];
 						_g.push(k);
 					}
-					haxe_Log.trace("  Available keys: " + Std.string(_g),{ fileName : "src/core/base/Assembly.hx", lineNumber : 886, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("  Available keys: " + Std.string(_g),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1114, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 			}
 			var obj = this.internalAtoms.h[realAtomId];
 			if(obj == null) {
-				haxe_Log.trace("WARN: Instance \"" + realAtomId + "\" is null in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 893, className : "core.base.Assembly", methodName : "resolveContact"});
+				haxe_Log.trace("WARN: Instance \"" + realAtomId + "\" is null in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1122, className : "core.base.Assembly", methodName : "resolveContact"});
 				return null;
 			}
 			var atom = obj;
@@ -5170,7 +5272,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 				var asm = js_Boot.__cast(atom , core_base_Assembly);
 				var port = asm.ports.h[point.contactName];
 				if(port == null) {
-					haxe_Log.trace("ERROR: Port \"" + point.contactName + "\" NOT FOUND on Assembly " + atom.name + "(" + realAtomId + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 903, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("ERROR: Port \"" + point.contactName + "\" NOT FOUND on Assembly " + atom.name + "(" + realAtomId + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1133, className : "core.base.Assembly", methodName : "resolveContact"});
 					var _g = [];
 					var h = asm.ports.h;
 					var k_h = h;
@@ -5181,18 +5283,18 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 						var k = k_keys[k_current++];
 						_g.push(k);
 					}
-					haxe_Log.trace("  Available ports: " + Std.string(_g),{ fileName : "src/core/base/Assembly.hx", lineNumber : 904, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("  Available ports: " + Std.string(_g),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1134, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 				var contact = port.external;
 				if(contact == null) {
-					haxe_Log.trace("ERROR: External contact from port \"" + point.contactName + "\" is null!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 911, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("ERROR: External contact from port \"" + point.contactName + "\" is null!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1142, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 				if(contact.type == null) {
-					haxe_Log.trace("ERROR: Contact \"" + point.contactName + "\" has NULL type!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 916, className : "core.base.Assembly", methodName : "resolveContact"});
-					haxe_Log.trace("  Port type: " + Std.string(port.type),{ fileName : "src/core/base/Assembly.hx", lineNumber : 917, className : "core.base.Assembly", methodName : "resolveContact"});
-					haxe_Log.trace("  Atom: " + atom.name + " (" + atom.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 918, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("ERROR: Contact \"" + point.contactName + "\" has NULL type!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1147, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("  Port type: " + Std.string(port.type),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1148, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("  Atom: " + atom.name + " (" + atom.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1149, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 				return contact;
@@ -5202,11 +5304,11 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 					c = atom.getOutput(point.contactName);
 				}
 				if(c == null) {
-					haxe_Log.trace("WARN: Contact \"" + point.contactName + "\" not found on atom " + atom.name + "(" + realAtomId + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 930, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("WARN: Contact \"" + point.contactName + "\" not found on atom " + atom.name + "(" + realAtomId + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1161, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 				if(c.type == null) {
-					haxe_Log.trace("ERROR: Contact \"" + point.contactName + "\" on " + atom.name + " has null.type!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 935, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("ERROR: Contact \"" + point.contactName + "\" on " + atom.name + " has null.type!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1166, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 				return c;
@@ -5250,11 +5352,11 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		}
 		var max = type == core_types_ContactType.INPUT ? 20 : 20;
 		if(currentCount >= max) {
-			haxe_Log.trace("ERROR: Max ports limit reached for type " + Std.string(type),{ fileName : "src/core/base/Assembly.hx", lineNumber : 971, className : "core.base.Assembly", methodName : "addPort"});
+			haxe_Log.trace("ERROR: Max ports limit reached for type " + Std.string(type),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1205, className : "core.base.Assembly", methodName : "addPort"});
 			return null;
 		}
 		if(Object.prototype.hasOwnProperty.call(this.ports.h,name)) {
-			haxe_Log.trace("ERROR: Port name \"" + name + "\" already exists",{ fileName : "src/core/base/Assembly.hx", lineNumber : 976, className : "core.base.Assembly", methodName : "addPort"});
+			haxe_Log.trace("ERROR: Port name \"" + name + "\" already exists",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1210, className : "core.base.Assembly", methodName : "addPort"});
 			return null;
 		}
 		var pinDef = { name : name, type : type, defaultValue : defaultValue};
@@ -5405,7 +5507,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 					} catch( _g1 ) {
 						haxe_NativeStackTrace.lastError = _g1;
 						var e = haxe_Exception.caught(_g1).unwrap();
-						haxe_Log.trace("Error: " + Std.string(e),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1123, className : "core.base.Assembly", methodName : "dispose"});
+						haxe_Log.trace("Error: " + Std.string(e),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1372, className : "core.base.Assembly", methodName : "dispose"});
 					}
 				}
 			}
@@ -5446,13 +5548,18 @@ core_base_AssemblyFactory.createAtom = function(typeId,forcedId,initialState) {
 	var bp = library_AtomRegistry.get(typeId);
 	var id = forcedId != null ? forcedId : utils_UID.generate();
 	if(bp == null) {
-		haxe_Log.trace("ERROR: Blueprint not found: " + typeId,{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 92, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		haxe_Log.trace("ERROR: Blueprint not found: " + typeId,{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 97, className : "core.base.AssemblyFactory", methodName : "createAtom"});
 		return null;
 	}
 	var normalizedTypeId = typeId;
 	if(typeId != null) {
 		var upperId = StringTools.replace(typeId.toUpperCase()," ","");
 		switch(upperId) {
+		case "BUFFERING":
+			normalizedTypeId = "BufferingAtom";
+			break;
+		case "BUFFERINGATOM":
+			break;
 		case "BUTTON":
 			break;
 		case "COM ENUMERATOR":
@@ -5468,6 +5575,11 @@ core_base_AssemblyFactory.createAtom = function(typeId,forcedId,initialState) {
 			normalizedTypeId = "ComPortAtom";
 			break;
 		case "COMPORTATOM":
+			break;
+		case "FFT":
+			normalizedTypeId = "FFTAtom";
+			break;
+		case "FFTATOM":
 			break;
 		case "LED":
 			break;
@@ -5492,6 +5604,11 @@ core_base_AssemblyFactory.createAtom = function(typeId,forcedId,initialState) {
 			break;
 		case "OSCILLOSCOPE":
 			normalizedTypeId = "Oscilloscope";
+			break;
+		case "PASSTHROUGH":
+			break;
+		case "PASSTHROUGHLINE":
+			normalizedTypeId = "PassThroughAtom";
 			break;
 		case "PUSHBUTTON":
 			normalizedTypeId = "Button";
@@ -5528,6 +5645,9 @@ core_base_AssemblyFactory.createAtom = function(typeId,forcedId,initialState) {
 	}
 	var atom = null;
 	switch(normalizedTypeId) {
+	case "BufferingAtom":
+		atom = new library_electro_BufferingAtom(id);
+		break;
 	case "Button":
 		atom = new library_electro_ButtonAtom(id);
 		break;
@@ -5535,17 +5655,23 @@ core_base_AssemblyFactory.createAtom = function(typeId,forcedId,initialState) {
 		break;
 	case "ComPortAtom":
 		break;
+	case "FFTAtom":
+		atom = new library_electro_FFTAtom(id);
+		break;
 	case "LED":
 		atom = new library_electro_LedAtom(id);
 		break;
 	case "MiniAudioAtom":
-		haxe_Log.trace("⚠️ MiniAudioAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 183, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		haxe_Log.trace("⚠️ MiniAudioAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 202, className : "core.base.AssemblyFactory", methodName : "createAtom"});
 		break;
 	case "NETRadioPlayerAtom":
-		haxe_Log.trace("⚠️ NETRadioPlayerAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 203, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		haxe_Log.trace("⚠️ NETRadioPlayerAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 222, className : "core.base.AssemblyFactory", methodName : "createAtom"});
 		break;
 	case "Oscilloscope":
 		atom = new library_electro_OscilloscopeAtom(id);
+		break;
+	case "PassThroughAtom":
+		atom = new library_logic_PassThroughAtom(id);
 		break;
 	case "Relay":
 		atom = new library_electro_RelayAtom(id);
@@ -5560,8 +5686,8 @@ core_base_AssemblyFactory.createAtom = function(typeId,forcedId,initialState) {
 		atom = new library_electro_ToggleAtom(id);
 		break;
 	case "URLAudioStreamPlayerAtom":
-		haxe_Log.trace("⚠️ URLAudioStreamPlayerAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 213, className : "core.base.AssemblyFactory", methodName : "createAtom"});
-		haxe_Log.trace("⚠️ SystemVUMeterAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 223, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		haxe_Log.trace("⚠️ URLAudioStreamPlayerAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 232, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		haxe_Log.trace("⚠️ SystemVUMeterAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 242, className : "core.base.AssemblyFactory", methodName : "createAtom"});
 		break;
 	default:
 		atom = new core_base_Assembly(id,bp);
@@ -5596,7 +5722,7 @@ core_base_AssemblyFactory.createAssembly = function(typeId) {
 	if(((atom) instanceof core_base_Assembly)) {
 		return atom;
 	} else {
-		haxe_Log.trace("WARN: " + typeId + " is a native Atom, not an Assembly.",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 318, className : "core.base.AssemblyFactory", methodName : "createAssembly"});
+		haxe_Log.trace("WARN: " + typeId + " is a native Atom, not an Assembly.",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 351, className : "core.base.AssemblyFactory", methodName : "createAssembly"});
 		return null;
 	}
 };
@@ -6985,6 +7111,8 @@ core_view_DeviceWidgetFactory.createForAssembly = function(asm) {
 		return new core_view_PanelWidget(asm);
 	}
 	switch(deviceType.toLowerCase()) {
+	case "fft spectrum":case "fftatom":
+		return new core_view_FFTWidget(asm);
 	case "container":case "group":case "panel":
 		return new core_view_PanelWidget(asm);
 	case "display":case "label":case "text":
@@ -7011,12 +7139,8 @@ core_view_DeviceWidgetFactory.createByAtomType = function(atom) {
 	}
 	var type = atom.type.toLowerCase();
 	switch(type) {
-	case "audio":case "audioin":case "audioinput":
-		return new core_view_OscilloscopeWidget(atom,"samples");
 	case "led":case "led indicator":
 		return new core_view_LEDWidget(atom,"in");
-	case "oscilloscope":
-		return new core_view_OscilloscopeWidget(atom,"in");
 	case "button":case "push button":
 		return new core_view_ButtonWidget(atom,"out");
 	case "relay":
@@ -7076,12 +7200,204 @@ core_view_DeviceWidgetFactory.isSupported = function(atomType) {
 	}
 	var type = atomType.toLowerCase();
 	switch(type) {
-	case "audioin":case "audioinput":case "button":case "conductor":case "fpsmonitor":case "frametime":case "led":case "oscilloscope":case "relay":case "signalgen":case "textinput":case "toggle":case "universalgen":
+	case "audioin":case "audioinput":case "button":case "conductor":case "fftatom":case "fpsmonitor":case "frametime":case "led":case "oscilloscope":case "relay":case "signalgen":case "textinput":case "toggle":case "universalgen":
 		return true;
 	default:
 		return true;
 	}
 };
+var core_view_FFTWidget = function(atom) {
+	this._smoothingFactor = 0.9;
+	this._isRendering = false;
+	this._hasNewFrame = false;
+	this._targetBars = 16;
+	this._colorRed = 13378082;
+	this._colorYellow = 13412864;
+	this._colorGreen = 52292;
+	this._colorGrid = 1714714;
+	this._colorBg = 657938;
+	this.widgetHeight = 150;
+	this.widgetWidth = 300;
+	core_view_DeviceView.call(this,atom);
+	if(((atom) instanceof library_electro_FFTAtom)) {
+		this._fftAtom = js_Boot.__cast(atom , library_electro_FFTAtom);
+	} else if(((atom) instanceof core_base_Assembly)) {
+		var asm = js_Boot.__cast(atom , core_base_Assembly);
+		var h = asm.internalAtoms.h;
+		var internalAtom_h = h;
+		var internalAtom_keys = Object.keys(h);
+		var internalAtom_length = internalAtom_keys.length;
+		var internalAtom_current = 0;
+		while(internalAtom_current < internalAtom_length) {
+			var internalAtom = internalAtom_h[internalAtom_keys[internalAtom_current++]];
+			if(((internalAtom) instanceof library_electro_FFTAtom)) {
+				this._fftAtom = js_Boot.__cast(internalAtom , library_electro_FFTAtom);
+				break;
+			}
+		}
+	}
+	this.buildUI();
+	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.FFT_SPECTRUM_READY,$bind(this,this.onFrameReady));
+	this.addEventListener("enterFrame",$bind(this,this.onEnterFrame));
+};
+$hxClasses["core.view.FFTWidget"] = core_view_FFTWidget;
+core_view_FFTWidget.__name__ = "core.view.FFTWidget";
+core_view_FFTWidget.__super__ = core_view_DeviceView;
+core_view_FFTWidget.prototype = $extend(core_view_DeviceView.prototype,{
+	getWidgetSize: function() {
+		return { width : this.widgetWidth, height : this.widgetHeight};
+	}
+	,buildUI: function() {
+		this.get_graphics().clear();
+		this.get_graphics().beginFill(this._colorBg);
+		this.get_graphics().drawRect(0,0,this.widgetWidth,this.widgetHeight);
+		this.get_graphics().endFill();
+		this.get_graphics().lineStyle(2,3355477);
+		this.get_graphics().drawRect(0,0,this.widgetWidth,this.widgetHeight);
+	}
+	,onFrameReady: function(impulse) {
+		if(this.isDisposed || impulse == null || impulse.data == null) {
+			return;
+		}
+		if(this._fftAtom == null || impulse.data.atomId != this._fftAtom.get_id()) {
+			return;
+		}
+		this._hasNewFrame = true;
+	}
+	,onEnterFrame: function(e) {
+		if(this._hasNewFrame && !this._isRendering) {
+			this._hasNewFrame = false;
+			this.redrawSpectrum();
+		}
+	}
+	,redrawSpectrum: function() {
+		if(this._fftAtom == null) {
+			return;
+		}
+		var spectrumDB = this._fftAtom.getSpectrumDB();
+		if(spectrumDB == null || spectrumDB.length == 0) {
+			return;
+		}
+		this._isRendering = true;
+		var sampleRate = this._fftAtom.getSampleRate();
+		var fftSize = this._fftAtom.getFFTSize();
+		var binCount = spectrumDB.length;
+		var freqResolution = sampleRate / fftSize;
+		var minFreq = 2000.0;
+		var maxFreq = sampleRate / 2.7;
+		if(minFreq <= 0) {
+			minFreq = 1.0;
+		}
+		var numBars = this._targetBars;
+		var barWidth = this.widgetWidth / numBars;
+		var maxHeight = this.widgetHeight;
+		if(this._previousBarHeights == null || this._previousBarHeights.length != numBars) {
+			this._previousBarHeights = [];
+			var _g = 0;
+			var _g1 = numBars;
+			while(_g < _g1) {
+				var i = _g++;
+				this._previousBarHeights.push(0);
+			}
+		}
+		this.get_graphics().clear();
+		this.get_graphics().beginFill(this._colorBg);
+		this.get_graphics().drawRect(0,0,this.widgetWidth,this.widgetHeight);
+		this.get_graphics().endFill();
+		this.get_graphics().lineStyle(1,this._colorGrid,0.5);
+		var gridSteps = 4;
+		var _g = 1;
+		var _g1 = gridSteps;
+		while(_g < _g1) {
+			var i = _g++;
+			var y = maxHeight / gridSteps * i;
+			this.get_graphics().moveTo(0,y);
+			this.get_graphics().lineTo(this.widgetWidth,y);
+		}
+		var logMin = Math.log(minFreq) / Math.log(10);
+		var logMax = Math.log(maxFreq) / Math.log(10);
+		var logRange = logMax - logMin;
+		var currentBarHeights = [];
+		var _g = 0;
+		var _g1 = numBars;
+		while(_g < _g1) {
+			var i = _g++;
+			var tStart = i / numBars;
+			var tEnd = (i + 1) / numBars;
+			var freqStart = Math.pow(10,logMin + tStart * logRange);
+			var freqEnd = Math.pow(10,logMin + tEnd * logRange);
+			var binStart = freqStart / freqResolution | 0;
+			var binEnd = freqEnd / freqResolution | 0;
+			if(binStart < 0) {
+				binStart = 0;
+			}
+			if(binEnd >= binCount) {
+				binEnd = binCount - 1;
+			}
+			if(binStart > binEnd) {
+				binEnd = binStart;
+			}
+			var maxDB = -50.0;
+			var _g2 = binStart;
+			var _g3 = binEnd + 1;
+			while(_g2 < _g3) {
+				var b = _g2++;
+				if(spectrumDB[b] > maxDB) {
+					maxDB = spectrumDB[b];
+				}
+			}
+			var minDB = -10.0;
+			var normalized = (maxDB - minDB) / (0.0 - minDB);
+			if(normalized < 0) {
+				normalized = 0;
+			}
+			if(normalized > 1) {
+				normalized = 1;
+			}
+			var compressed = Math.pow(normalized,0.9);
+			var noiseGate = 0.03;
+			if(compressed < noiseGate) {
+				compressed = 0;
+			}
+			var targetHeight = compressed * maxHeight;
+			var smoothedHeight = this._previousBarHeights[i] * this._smoothingFactor + targetHeight * (1.0 - this._smoothingFactor);
+			currentBarHeights.push(smoothedHeight);
+			var barHeight = smoothedHeight;
+			var x = i * barWidth;
+			var y = maxHeight - barHeight;
+			if(barHeight > 0.5) {
+				var color = this.getColorForLevel(normalized);
+				this.get_graphics().beginFill(color);
+				this.get_graphics().drawRect(x + 1,y,barWidth - 2,barHeight);
+				this.get_graphics().endFill();
+			}
+		}
+		this._previousBarHeights = currentBarHeights;
+		this._isRendering = false;
+	}
+	,getColorForLevel: function(level) {
+		if(level >= 0.85) {
+			return this._colorRed;
+		} else if(level >= 0.60) {
+			return this._colorYellow;
+		} else {
+			return this._colorGreen;
+		}
+	}
+	,clearDisplay: function() {
+		this.get_graphics().clear();
+		this.get_graphics().beginFill(this._colorBg);
+		this.get_graphics().drawRect(0,0,this.widgetWidth,this.widgetHeight);
+		this.get_graphics().endFill();
+	}
+	,dispose: function() {
+		this.removeEventListener("enterFrame",$bind(this,this.onEnterFrame));
+		core_logic_Impulsys.removeImpulse(core_logic_EventType.FFT_SPECTRUM_READY,$bind(this,this.onFrameReady));
+		this._fftAtom = null;
+		core_view_DeviceView.prototype.dispose.call(this);
+	}
+	,__class__: core_view_FFTWidget
+});
 var core_view_InlineParameterEditor = function(contact,pinDef) {
 	this._isEditing = false;
 	openfl_display_Sprite.call(this);
@@ -7307,56 +7623,93 @@ var core_view_OscilloscopeWidget = function(atom,contactName) {
 	if(contactName == null) {
 		contactName = "in";
 	}
-	this._lastDrawTime = 0;
+	this._isRendering = false;
+	this._hasNewFrame = false;
+	this._historyFrameCount = 0;
+	this._currentLayer = 0;
+	this._historyMode = false;
 	this.colorGrid = 1714714;
 	this.colorBg = 657938;
-	this.colorLine = 65280;
+	this.colorLine = 16777215;
 	this.widgetHeight = 150;
 	this.widgetWidth = 300;
 	core_view_DeviceView.call(this,atom);
 	if(((atom) instanceof library_electro_OscilloscopeAtom)) {
 		this._oscAtom = js_Boot.__cast(atom , library_electro_OscilloscopeAtom);
+	} else if(((atom) instanceof core_base_Assembly)) {
+		var asm = js_Boot.__cast(atom , core_base_Assembly);
+		var h = asm.internalAtoms.h;
+		var internalAtom_h = h;
+		var internalAtom_keys = Object.keys(h);
+		var internalAtom_length = internalAtom_keys.length;
+		var internalAtom_current = 0;
+		while(internalAtom_current < internalAtom_length) {
+			var internalAtom = internalAtom_h[internalAtom_keys[internalAtom_current++]];
+			if(((internalAtom) instanceof library_electro_OscilloscopeAtom)) {
+				this._oscAtom = js_Boot.__cast(internalAtom , library_electro_OscilloscopeAtom);
+				break;
+			}
+		}
 	}
 	this.buildUI();
 	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.OSCILLOSCOPE_SHAPE_CHANGED,$bind(this,this.onShapeChanged));
 	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.OSCILLOSCOPE_FRAME_READY,$bind(this,this.onFrameReady));
+	this.addEventListener("enterFrame",$bind(this,this.onEnterFrame));
 };
 $hxClasses["core.view.OscilloscopeWidget"] = core_view_OscilloscopeWidget;
 core_view_OscilloscopeWidget.__name__ = "core.view.OscilloscopeWidget";
 core_view_OscilloscopeWidget.__super__ = core_view_DeviceView;
 core_view_OscilloscopeWidget.prototype = $extend(core_view_DeviceView.prototype,{
-	buildUI: function() {
+	getWidgetSize: function() {
+		if(this._historyMode) {
+			return { width : this.widgetWidth, height : this.widgetHeight * 5};
+		}
+		return { width : this.widgetWidth, height : this.widgetHeight};
+	}
+	,buildUI: function() {
 		this.updateDimensions();
 		this.drawBackground();
 		this._grid = new openfl_display_Sprite();
 		this.addChild(this._grid);
-		this._canvas = new openfl_display_Sprite();
-		this.addChild(this._canvas);
 		this._mask = new openfl_display_Shape();
 		this.addChild(this._mask);
-		this._canvas.set_mask(this._mask);
 		this._grid.set_mask(this._mask);
-		this._debugLabel = new openfl_text_TextField();
-		this._debugLabel.set_width(this.widgetWidth - 10);
-		this._debugLabel.set_height(20);
-		this._debugLabel.set_x(5);
-		this._debugLabel.set_y(5);
-		this._debugLabel.set_selectable(false);
-		this._debugLabel.mouseEnabled = false;
-		this._debugLabel.set_defaultTextFormat(new openfl_text_TextFormat("_sans",9,16776960));
-		this._debugLabel.set_text("Waiting for signal...");
-		this.addChild(this._debugLabel);
-		this._label = new openfl_text_TextField();
-		this._label.set_width(this.widgetWidth);
-		this._label.set_height(20);
-		this._label.set_y(this.widgetHeight - 20);
-		this._label.set_selectable(false);
-		this._label.mouseEnabled = false;
-		this._label.set_defaultTextFormat(new openfl_text_TextFormat("_sans",10,6710920,null,null,null,null,null,openfl_text_TextFormatAlign.fromString("center")));
-		this._label.set_text("Oscilloscope");
-		this.addChild(this._label);
 		this.drawGrid();
 		this.drawMask();
+		if(this._historyMode) {
+			this.initHistoryLayers();
+		} else {
+			this._canvas = new openfl_display_Sprite();
+			this.addChild(this._canvas);
+			this._canvas.set_mask(this._mask);
+		}
+	}
+	,initHistoryLayers: function() {
+		this._historyContainer = new openfl_display_Sprite();
+		this.addChild(this._historyContainer);
+		this._historyLayers = [];
+		var layer = new openfl_display_Sprite();
+		layer.set_y(0 * this.widgetHeight);
+		this._historyContainer.addChild(layer);
+		this._historyLayers.push(layer);
+		var layer = new openfl_display_Sprite();
+		layer.set_y(this.widgetHeight);
+		this._historyContainer.addChild(layer);
+		this._historyLayers.push(layer);
+		var layer = new openfl_display_Sprite();
+		layer.set_y(2 * this.widgetHeight);
+		this._historyContainer.addChild(layer);
+		this._historyLayers.push(layer);
+		var layer = new openfl_display_Sprite();
+		layer.set_y(3 * this.widgetHeight);
+		this._historyContainer.addChild(layer);
+		this._historyLayers.push(layer);
+		var layer = new openfl_display_Sprite();
+		layer.set_y(4 * this.widgetHeight);
+		this._historyContainer.addChild(layer);
+		this._historyLayers.push(layer);
+		this._currentLayer = 0;
+		this._historyFrameCount = 0;
 	}
 	,updateDimensions: function() {
 		if(this._oscAtom == null) {
@@ -7393,7 +7746,7 @@ core_view_OscilloscopeWidget.prototype = $extend(core_view_DeviceView.prototype,
 	,drawGrid: function() {
 		var g = this._grid.get_graphics();
 		g.clear();
-		g.lineStyle(1,this.colorGrid,0.5);
+		g.lineStyle(1,this.colorGrid,0.7);
 		var shape = this._oscAtom != null ? this._oscAtom.getDisplayShape() : 0;
 		if(shape == 2) {
 			var cx = this.widgetWidth / 2;
@@ -7451,23 +7804,37 @@ core_view_OscilloscopeWidget.prototype = $extend(core_view_DeviceView.prototype,
 			g.moveTo(0,this.widgetHeight / 2);
 			g.lineTo(this.widgetWidth,this.widgetHeight / 2);
 		}
-		var triggerLevel = this._oscAtom != null ? this._oscAtom.getTriggerLevel() : 0.0;
-		if(Math.abs(triggerLevel) > 0.01) {
-			g.lineStyle(1,16746632,0.8);
-			var y = (1 - triggerLevel) * this.widgetHeight / 2 + this.widgetHeight / 2;
-			g.moveTo(0,y);
-			g.lineTo(this.widgetWidth,y);
-		}
 	}
 	,drawMask: function() {
 		var g = this._mask.get_graphics();
 		g.clear();
-		var shape = this._oscAtom != null ? this._oscAtom.getDisplayShape() : 0;
-		if(shape == 2) {
-			g.beginFill(16777215);
+		g.beginFill(16777215);
+		if(this._oscAtom != null && this._oscAtom.getDisplayShape() == 2) {
 			g.drawCircle(this.widgetWidth / 2,this.widgetHeight / 2,this.widgetWidth / 2 - 2);
-			g.endFill();
+		} else {
+			g.drawRect(0,0,this.widgetWidth + 1,this.widgetHeight);
 		}
+		g.endFill();
+	}
+	,setHistoryMode: function(enabled) {
+		if(this._historyMode == enabled) {
+			return;
+		}
+		this._historyMode = enabled;
+		this.removeChildren();
+		this.buildUI();
+		if(this._oscAtom != null) {
+			this.syncFromAtom();
+		}
+	}
+	,isHistoryMode: function() {
+		return this._historyMode;
+	}
+	,getCurrentLayer: function() {
+		return this._currentLayer;
+	}
+	,getHistoryFrameCount: function() {
+		return this._historyFrameCount;
 	}
 	,onActivate: function() {
 		this.syncFromAtom();
@@ -7480,7 +7847,9 @@ core_view_OscilloscopeWidget.prototype = $extend(core_view_DeviceView.prototype,
 		this.drawBackground();
 		this.drawGrid();
 		this.drawMask();
-		this.redrawFromAtom();
+		if(!this._historyMode) {
+			this.redrawFromAtom();
+		}
 	}
 	,onContactChanged: function(contact,newValue) {
 		if(this.isDisposed || this._oscAtom == null) {
@@ -7489,32 +7858,23 @@ core_view_OscilloscopeWidget.prototype = $extend(core_view_DeviceView.prototype,
 		if(contact.name == "in") {
 			return;
 		}
-		var now = new Date().getTime() / 1000;
-		if(now - this._lastDrawTime < 0.016) {
-			return;
-		}
-		this._lastDrawTime = now;
-		if(contact.name == "triggerLevel" || contact.name == "triggerEdge") {
-			this.drawGrid();
-		} else {
-			this.drawGrid();
-			this.redrawFromAtom();
-		}
+		this.drawGrid();
+		this.redrawFromAtom();
 	}
 	,onFrameReady: function(impulse) {
 		if(this.isDisposed || impulse == null || impulse.data == null) {
 			return;
 		}
-		if(impulse.data.atomId != this.atom.get_id()) {
+		if(this._oscAtom == null || impulse.data.atomId != this._oscAtom.get_id()) {
 			return;
 		}
-		this.redrawFromAtom();
+		this._hasNewFrame = true;
 	}
 	,onShapeChanged: function(impulse) {
 		if(this.isDisposed || impulse == null || impulse.data == null) {
 			return;
 		}
-		if(impulse.data.atomId != this.atom.get_id()) {
+		if(this._oscAtom == null || impulse.data.atomId != this._oscAtom.get_id()) {
 			return;
 		}
 		var newShape = impulse.data.shape;
@@ -7527,164 +7887,212 @@ core_view_OscilloscopeWidget.prototype = $extend(core_view_DeviceView.prototype,
 			this.widgetWidth = 300;
 			this.widgetHeight = 150;
 		}
-		this.rebuildUI();
-	}
-	,rebuildUI: function() {
 		this.removeChildren();
-		this.drawBackground();
-		this._grid = new openfl_display_Sprite();
-		this.addChild(this._grid);
-		this._canvas = new openfl_display_Sprite();
-		this.addChild(this._canvas);
-		this._mask = new openfl_display_Shape();
-		this.addChild(this._mask);
-		this._canvas.set_mask(this._mask);
-		this._grid.set_mask(this._mask);
-		this._debugLabel = new openfl_text_TextField();
-		this._debugLabel.set_width(this.widgetWidth - 10);
-		this._debugLabel.set_height(20);
-		this._debugLabel.set_x(5);
-		this._debugLabel.set_y(5);
-		this._debugLabel.set_selectable(false);
-		this._debugLabel.mouseEnabled = false;
-		this._debugLabel.set_defaultTextFormat(new openfl_text_TextFormat("_sans",9,16776960));
-		this.addChild(this._debugLabel);
-		this._label = new openfl_text_TextField();
-		this._label.set_width(this.widgetWidth);
-		this._label.set_height(20);
-		this._label.set_y(this.widgetHeight - 20);
-		this._label.set_selectable(false);
-		this._label.mouseEnabled = false;
-		this._label.set_defaultTextFormat(new openfl_text_TextFormat("_sans",10,6710920,null,null,null,null,null,openfl_text_TextFormatAlign.fromString("center")));
-		this.addChild(this._label);
-		this.drawGrid();
-		this.drawMask();
-		this.redrawFromAtom();
+		this.buildUI();
+	}
+	,onEnterFrame: function(e) {
+		if(this._hasNewFrame && !this._isRendering) {
+			this._hasNewFrame = false;
+			this.redrawFromAtom();
+		}
 	}
 	,redrawFromAtom: function() {
-		if(this._oscAtom == null || this._canvas == null) {
+		if(this._oscAtom == null) {
 			return;
 		}
 		var buffer = this._oscAtom.getBuffer();
-		var triggerIndex = this._oscAtom.getTriggerIndex();
-		var samplesCollected = this._oscAtom.getSamplesCollected();
-		var totalSamples = this._oscAtom.getTotalSamples();
-		if(samplesCollected < 2) {
-			this.setLabel("Collecting: " + samplesCollected + " / " + this._oscAtom.getBufferSize());
-			return;
-		}
-		var shape = this._oscAtom.getDisplayShape();
-		if(shape == 2) {
-			this.drawWaveCircular(buffer,triggerIndex,samplesCollected);
-		} else {
-			this.drawWaveLinear(buffer,triggerIndex,samplesCollected);
-		}
-		this.setLabel("Samples: " + samplesCollected + " | Total: " + totalSamples);
-	}
-	,drawWaveLinear: function(buffer,triggerIndex,count) {
-		var g = this._canvas.get_graphics();
-		g.clear();
 		if(buffer == null || buffer.length == 0) {
 			return;
 		}
-		var totalSamples = buffer.length;
-		if(triggerIndex < 0) {
-			triggerIndex = 0;
-		}
-		if(triggerIndex >= totalSamples) {
-			triggerIndex = totalSamples - 1;
-		}
-		var zoom = this._oscAtom.getZoom();
-		var displayCount = Math.min(totalSamples,Math.max(256,totalSamples / Math.max(0.5,zoom))) | 0;
-		if(displayCount < 2) {
-			displayCount = 2;
-		}
-		var stepX = this.widgetWidth / (displayCount - 1);
-		var countToDraw = Math.min(count,displayCount) | 0;
-		var centerY = this.widgetHeight / 2.0;
-		var scale = this.widgetHeight / 2.0 * 0.9;
-		var startIdx;
-		if(this._oscAtom.isTriggered()) {
-			startIdx = triggerIndex;
-		} else {
-			startIdx = (triggerIndex - countToDraw + 1 + totalSamples) % totalSamples;
-		}
-		g.lineStyle(1.8,this.colorLine,1.0);
-		g.moveTo(0,centerY - buffer[startIdx] * scale);
-		var _g = 1;
-		var _g1 = countToDraw;
-		while(_g < _g1) {
-			var i = _g++;
-			var idx = (startIdx + i) % totalSamples;
-			var x = i * stepX;
-			g.lineTo(x,centerY - buffer[idx] * scale);
-		}
-	}
-	,drawWaveCircular: function(buffer,triggerIndex,count) {
-		var g = this._canvas.get_graphics();
-		g.clear();
-		if(buffer == null || buffer.length == 0) {
-			return;
-		}
-		if(triggerIndex < 0) {
-			triggerIndex = 0;
-		}
-		if(triggerIndex >= buffer.length) {
-			triggerIndex = buffer.length - 1;
-		}
-		var displayCount = Math.min(count,buffer.length) | 0;
-		var cx = this.widgetWidth / 2;
-		var cy = this.widgetHeight / 2;
-		var maxRadius = this.widgetWidth / 2 * 0.9;
-		var startIdx;
-		if(this._oscAtom.isTriggered()) {
-			startIdx = triggerIndex;
-		} else {
-			startIdx = (triggerIndex - displayCount + 1 + buffer.length) % buffer.length;
-		}
-		g.lineStyle(1.8,this.colorLine,1.0);
-		var _g = 0;
-		var _g1 = displayCount;
-		while(_g < _g1) {
-			var i = _g++;
-			var idx = (startIdx + i) % buffer.length;
-			var value = buffer[idx];
-			var angle = i / displayCount * Math.PI * 2;
-			var r = (value + 1) / 2.0 * maxRadius;
-			var px = cx + Math.cos(angle) * r;
-			var py = cy + Math.sin(angle) * r;
-			if(i == 0) {
-				g.moveTo(px,py);
-			} else {
-				g.lineTo(px,py);
+		this._isRendering = true;
+		var count = buffer.length;
+		if(this._renderBuffer == null || this._renderBuffer.length != count) {
+			this._renderBuffer = [];
+			var _g = 0;
+			var _g1 = count;
+			while(_g < _g1) {
+				var i = _g++;
+				this._renderBuffer.push(0.0);
 			}
 		}
+		var _g = 0;
+		var _g1 = count;
+		while(_g < _g1) {
+			var i = _g++;
+			this._renderBuffer[i] = buffer[i];
+		}
+		if(this._historyMode) {
+			this.redrawHistory(this._renderBuffer);
+		} else {
+			this.redrawNormal(this._renderBuffer);
+		}
+		this._isRendering = false;
 	}
-	,setLabel: function(text) {
-		if(this._label != null) {
-			this._label.set_text(text);
+	,redrawNormal: function(buffer) {
+		var shape = this._oscAtom.getDisplayShape();
+		if(shape == 2) {
+			this.drawWaveCircular(buffer);
+		} else {
+			this.drawWaveLinear(buffer);
+		}
+	}
+	,redrawHistory: function(buffer) {
+		var layer = this._historyLayers[this._currentLayer];
+		var g = layer.get_graphics();
+		g.clear();
+		var shape = this._oscAtom.getDisplayShape();
+		if(shape == 2) {
+			this.drawWaveCircular(buffer,g);
+		} else {
+			this.drawWaveLinear(buffer,g);
+		}
+		this._currentLayer = (this._currentLayer + 1) % 5;
+		this._historyFrameCount++;
+		if(this._historyFrameCount % 10 == 0) {
+			haxe_Log.trace("OscilloscopeWidget: History frame " + this._historyFrameCount + ", next layer to clear: " + this._currentLayer,{ fileName : "src/core/view/OscilloscopeWidget.hx", lineNumber : 532, className : "core.view.OscilloscopeWidget", methodName : "redrawHistory"});
+		}
+	}
+	,drawWaveLinear: function(buffer,targetGraphics) {
+		var g = targetGraphics != null ? targetGraphics : this._canvas.get_graphics();
+		g.clear();
+		if(targetGraphics == null) {
+			this._canvas.set_mask(this._mask);
+		}
+		var count = buffer.length;
+		if(count == 0) {
+			return;
+		}
+		var decimation = this._oscAtom != null ? this._oscAtom.getDecimation() : 1;
+		if(decimation < 1) {
+			decimation = 1;
+		}
+		var effectiveCount = Math.ceil(count / decimation);
+		if(effectiveCount < 2) {
+			effectiveCount = 2;
+		}
+		var zoom = this._oscAtom.getZoom();
+		var centerY = this.widgetHeight / 2.0;
+		var scale = this.widgetHeight / 2.0 * 0.9 * zoom;
+		var stepX = this.widgetWidth / (effectiveCount - 1);
+		g.lineStyle(1.0,this.colorLine,1.0);
+		var sample = buffer[0];
+		if(!isFinite(sample)) {
+			sample = 0.0;
+		}
+		if(sample > 1.0) {
+			sample = 1.0;
+		}
+		if(sample < -1.5) {
+			sample = -1.5;
+		}
+		g.moveTo(0,centerY - sample * scale);
+		var drawIndex = 0;
+		var _g = 1;
+		var _g1 = count;
+		while(_g < _g1) {
+			var i = _g++;
+			if(i % decimation != 0 && i != count - 1) {
+				continue;
+			}
+			sample = buffer[i];
+			if(!isFinite(sample)) {
+				sample = 0.0;
+			}
+			if(sample > 10) {
+				sample = 10;
+			}
+			if(sample < -1.5) {
+				sample = -1.5;
+			}
+			++drawIndex;
+			g.lineTo(drawIndex * stepX,centerY - sample * scale);
+		}
+	}
+	,drawWaveCircular: function(buffer,targetGraphics) {
+		var g = targetGraphics != null ? targetGraphics : this._canvas.get_graphics();
+		g.clear();
+		var count = buffer.length;
+		var decimation = this._oscAtom != null ? this._oscAtom.getDecimation() : 1;
+		if(decimation < 1) {
+			decimation = 1;
+		}
+		var effectiveCount = Math.ceil(count / decimation);
+		if(effectiveCount < 2) {
+			effectiveCount = 2;
+		}
+		var zoom = this._oscAtom.getZoom();
+		var cx = this.widgetWidth / 2;
+		var cy = this.widgetHeight / 2;
+		var maxRadius = this.widgetWidth / 2 * 0.9 * zoom;
+		g.lineStyle(0.5,this.colorLine,1.0);
+		var sample = buffer[0];
+		if(!isFinite(sample)) {
+			sample = 0.0;
+		}
+		if(sample > 1.0) {
+			sample = 1.0;
+		}
+		if(sample < -1.0) {
+			sample = -1.0;
+		}
+		var angle = 0.0;
+		var r = (sample + 1.0) / 2.0 * maxRadius;
+		g.moveTo(cx + Math.cos(angle) * r,cy + Math.sin(angle) * r);
+		var drawIndex = 0;
+		var _g = 1;
+		var _g1 = count;
+		while(_g < _g1) {
+			var i = _g++;
+			if(i % decimation != 0 && i != count - 1) {
+				continue;
+			}
+			sample = buffer[i];
+			if(!isFinite(sample)) {
+				sample = 0.0;
+			}
+			if(sample > 1.0) {
+				sample = 1.0;
+			}
+			if(sample < -1.0) {
+				sample = -1.0;
+			}
+			++drawIndex;
+			angle = drawIndex / effectiveCount * Math.PI * 2;
+			r = (sample + 1.0) / 2.0 * maxRadius;
+			g.lineTo(cx + Math.cos(angle) * r,cy + Math.sin(angle) * r);
 		}
 	}
 	,clearDisplay: function() {
-		if(this._canvas != null) {
+		if(this._historyMode) {
+			var _g = 0;
+			var _g1 = this._historyLayers;
+			while(_g < _g1.length) {
+				var layer = _g1[_g];
+				++_g;
+				if(layer != null) {
+					layer.get_graphics().clear();
+				}
+			}
+			this._currentLayer = 0;
+			this._historyFrameCount = 0;
+		} else if(this._canvas != null) {
 			this._canvas.get_graphics().clear();
 		}
 	}
 	,clearAll: function() {
-		if(this._oscAtom != null) {
-			this._oscAtom.clearBuffer();
-		}
 		this.clearDisplay();
 	}
 	,dispose: function() {
+		this.removeEventListener("enterFrame",$bind(this,this.onEnterFrame));
 		core_logic_Impulsys.removeImpulse(core_logic_EventType.OSCILLOSCOPE_SHAPE_CHANGED,$bind(this,this.onShapeChanged));
 		core_logic_Impulsys.removeImpulse(core_logic_EventType.OSCILLOSCOPE_FRAME_READY,$bind(this,this.onFrameReady));
 		this._canvas = null;
 		this._grid = null;
 		this._mask = null;
-		this._label = null;
-		this._debugLabel = null;
 		this._oscAtom = null;
+		this._renderBuffer = null;
+		this._historyLayers = null;
+		this._historyContainer = null;
 		core_view_DeviceView.prototype.dispose.call(this);
 	}
 	,__class__: core_view_OscilloscopeWidget
@@ -10185,6 +10593,9 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 	,onCanvasMouseDown: function(e) {
 		var local = this._canvas.globalToLocal(new openfl_geom_Point(e.stageX,e.stageY));
 		this._selection.handleCanvasMouseDown(local.x,local.y);
+		if(this.stage != null) {
+			this.stage.set_focus(null);
+		}
 	}
 	,onCanvasRightClick: function(e) {
 		e.stopPropagation();
@@ -11029,20 +11440,32 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 	}
 	,getPinDefForContact: function(contact) {
-		if(this.atom == null || !((this.atom) instanceof core_base_Assembly)) {
-			return null;
+		if(this.atom != null && ((this.atom) instanceof core_base_Assembly)) {
+			var asm = js_Boot.__cast(this.atom , core_base_Assembly);
+			if(asm.blueprint != null && asm.blueprint.pins != null) {
+				var _g = 0;
+				var _g1 = asm.blueprint.pins;
+				while(_g < _g1.length) {
+					var pin = _g1[_g];
+					++_g;
+					if(pin.name == contact.name) {
+						return pin;
+					}
+				}
+			}
 		}
-		var asm = js_Boot.__cast(this.atom , core_base_Assembly);
-		if(asm.blueprint == null || asm.blueprint.pins == null) {
-			return null;
-		}
-		var _g = 0;
-		var _g1 = asm.blueprint.pins;
-		while(_g < _g1.length) {
-			var pin = _g1[_g];
-			++_g;
-			if(pin.name == contact.name) {
-				return pin;
+		if(this.atom != null && this.atom.type != null) {
+			var bp = library_AtomRegistry.get(this.atom.type);
+			if(bp != null && bp.pins != null) {
+				var _g = 0;
+				var _g1 = bp.pins;
+				while(_g < _g1.length) {
+					var pin = _g1[_g];
+					++_g;
+					if(pin.name == contact.name) {
+						return pin;
+					}
+				}
 			}
 		}
 		return null;
@@ -11288,11 +11711,11 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		e.stopPropagation();
 		if(((this.atom) instanceof core_base_Assembly)) {
-			haxe_Log.trace("NodeView: Double-click detected on Assembly. Emitting request for ID: " + this.atom.get_id(),{ fileName : "src/editor/NodeView.hx", lineNumber : 958, className : "editor.NodeView", methodName : "onDoubleClick"});
+			haxe_Log.trace("NodeView: Double-click detected on Assembly. Emitting request for ID: " + this.atom.get_id(),{ fileName : "src/editor/NodeView.hx", lineNumber : 982, className : "editor.NodeView", methodName : "onDoubleClick"});
 			core_logic_Impulsys.quickEmit(core_logic_EventType.OPEN_ASSEMBLY_REQUEST,{ atomId : this.atom.get_id()});
 			return;
 		}
-		haxe_Log.trace("NodeView: Double-click on simple atom " + this.atom.get_id() + " (ignored)",{ fileName : "src/editor/NodeView.hx", lineNumber : 962, className : "editor.NodeView", methodName : "onDoubleClick"});
+		haxe_Log.trace("NodeView: Double-click on simple atom " + this.atom.get_id() + " (ignored)",{ fileName : "src/editor/NodeView.hx", lineNumber : 986, className : "editor.NodeView", methodName : "onDoubleClick"});
 	}
 	,onClick: function(e) {
 		if(this._isEditingName) {
@@ -11313,6 +11736,9 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 			core_logic_Impulsys.quickEmit(core_logic_EventType.NODE_CLICKED,{ view : null, id : null, ctrlKey : e.ctrlKey});
 			e.stopPropagation();
 			return;
+		}
+		if(this.stage != null) {
+			this.stage.set_focus(null);
 		}
 		if(this.onSelect != null) {
 			this.onSelect(this);
@@ -11390,6 +11816,9 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 			}
 			targetObj = targetObj.parent;
 		}
+		if(this.stage != null) {
+			this.stage.set_focus(null);
+		}
 		this._dragOffsetX = e.localX;
 		this._dragOffsetY = e.localY;
 		if(this.parent != null) {
@@ -11465,7 +11894,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		if(this.stage != null) {
 			this.stage.set_focus(this._nameInput);
 		}
-		haxe_Log.trace("NodeView: Started name editing for \"" + this.atom.get_displayName() + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1294, className : "editor.NodeView", methodName : "startNameEditing"});
+		haxe_Log.trace("NodeView: Started name editing for \"" + this.atom.get_displayName() + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1330, className : "editor.NodeView", methodName : "startNameEditing"});
 	}
 	,finishNameEditing: function() {
 		var _gthis = this;
@@ -11484,7 +11913,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 			return;
 		}
 		if(this._parentAssembly != null && this._parentAssembly.hasAtomWithName(newName,this.atom.get_id())) {
-			haxe_Log.trace("NodeView: Name \"" + newName + "\" already exists in assembly!",{ fileName : "src/editor/NodeView.hx", lineNumber : 1323, className : "editor.NodeView", methodName : "finishNameEditing"});
+			haxe_Log.trace("NodeView: Name \"" + newName + "\" already exists in assembly!",{ fileName : "src/editor/NodeView.hx", lineNumber : 1359, className : "editor.NodeView", methodName : "finishNameEditing"});
 			this._nameInput.set_borderColor(16724787);
 			haxe_Timer.delay(function() {
 				if(_gthis._nameInput != null) {
@@ -11499,7 +11928,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._nameInput.set_visible(false);
 		this._titleLabel.set_visible(true);
 		core_logic_Impulsys.quickEmit(core_logic_EventType.VALUE_COMMITTED);
-		haxe_Log.trace("NodeView: Renamed atom to \"" + newName + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1344, className : "editor.NodeView", methodName : "finishNameEditing"});
+		haxe_Log.trace("NodeView: Renamed atom to \"" + newName + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1380, className : "editor.NodeView", methodName : "finishNameEditing"});
 	}
 	,cancelNameEditing: function() {
 		this._isEditingName = false;
@@ -11569,9 +11998,12 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		var global = this.localToGlobal(new openfl_geom_Point(x,y));
 		return { x : global.x, y : global.y};
 	}
+	,getNodeSize: function() {
+		return { width : this._nodeWidth, height : this._nodeHeight};
+	}
 	,onAssemblyPortsChanged: function(impulse) {
 		if(impulse.data != null && impulse.data.assemblyId == this.atom.get_id()) {
-			haxe_Log.trace("NodeView: Ports changed event received for " + this.atom.get_displayName() + ". Rebuilding layout.",{ fileName : "src/editor/NodeView.hx", lineNumber : 1456, className : "editor.NodeView", methodName : "onAssemblyPortsChanged"});
+			haxe_Log.trace("NodeView: Ports changed event received for " + this.atom.get_displayName() + ". Rebuilding layout.",{ fileName : "src/editor/NodeView.hx", lineNumber : 1501, className : "editor.NodeView", methodName : "onAssemblyPortsChanged"});
 			this.updateLayout();
 			this.alignInlineEditors();
 		}
@@ -11629,7 +12061,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._previewContainer = null;
 		this._selectionHighlight = null;
 		this._settingsButton = null;
-		haxe_Log.trace("NodeView: Disposed",{ fileName : "src/editor/NodeView.hx", lineNumber : 1518, className : "editor.NodeView", methodName : "dispose"});
+		haxe_Log.trace("NodeView: Disposed",{ fileName : "src/editor/NodeView.hx", lineNumber : 1563, className : "editor.NodeView", methodName : "dispose"});
 	}
 	,__class__: editor_NodeView
 	,__properties__: $extend(openfl_display_Sprite.prototype.__properties__,{set_isSelected:"set_isSelected",get_isSelected:"get_isSelected",set_selected:"set_selected"})
@@ -11922,7 +12354,8 @@ editor_ViewportManager.prototype = {
 				continue;
 			}
 			var wasVisible = view1.get_visible();
-			var isVisible = view1.get_x() > viewLeft && view1.get_x() < viewRight && view1.get_y() > viewTop && view1.get_y() < viewBottom;
+			var size = view1.getNodeSize();
+			var isVisible = view1.get_x() + size.width > viewLeft && view1.get_x() < viewRight && view1.get_y() + size.height > viewTop && view1.get_y() < viewBottom;
 			if(isVisible) {
 				++visibleCount;
 			}
@@ -16351,13 +16784,16 @@ library_AtomRegistry.initialize = function() {
 	library_AtomRegistry.reg("TextInput","Text Input",[{ name : "set", type : core_types_ContactType.INPUT, dataType : "string"},{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "string"}],null,"textinput");
 	library_AtomRegistry.reg("Relay","Relay",[{ name : "signal", type : core_types_ContactType.INPUT, dataType : "any"},{ name : "control", type : core_types_ContactType.INPUT, dataType : "bool"},{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "any"}],null,"relay");
 	library_AtomRegistry.reg("SignalGenerator","Signal Generator",[{ name : "freq", type : core_types_ContactType.INPUT, defaultValue : 1.0, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Freq", visibleInEditor : true},{ name : "quantum", type : core_types_ContactType.INPUT, defaultValue : 0.1, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL, visibleInEditor : false},{ name : "mode", type : core_types_ContactType.INPUT, defaultValue : 3, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Mode", visibleInEditor : true},{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL}],null,"panel",true,true);
+	library_AtomRegistry.reg("BufferingAtom","Audio Buffer",[{ name : "bufferSize", type : core_types_ContactType.INPUT, defaultValue : 512, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Size", visibleInEditor : true},{ name : "quantum", type : core_types_ContactType.INPUT, defaultValue : 0.1, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL, visibleInEditor : false},{ name : "mode", type : core_types_ContactType.INPUT, defaultValue : 0, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Mode", visibleInEditor : true},{ name : "in", type : core_types_ContactType.INPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL},{ name : "buffer", type : core_types_ContactType.OUTPUT, dataType : "array", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "count", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Count"},{ name : "full", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.IMPORTANT, label : "Full"}],null,"buffer",true,true);
 	library_AtomRegistry.reg("MiniAudioAtom","Mini Audio Capture",[{ name : "mode", type : core_types_ContactType.INPUT, defaultValue : 1, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Mode"},{ name : "quantum", type : core_types_ContactType.INPUT, defaultValue : 0.01, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL},{ name : "gain", type : core_types_ContactType.INPUT, defaultValue : 1.0, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Gain"},{ name : "channel", type : core_types_ContactType.INPUT, defaultValue : 0, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL},{ name : "rate", type : core_types_ContactType.INPUT, defaultValue : 0, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL},{ name : "sample", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "rms", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "RMS"},{ name : "clip", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "tick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL},{ name : "level", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Level"},{ name : "device", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.OPTIONAL}],null,"miniaudio",true,true);
 	library_AtomRegistry.reg("SystemVUMeterAtom","System Stereo VU Meter",[{ name : "mode", type : core_types_ContactType.INPUT, defaultValue : 0, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Source"},{ name : "peakL", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL, label : "Peak L"},{ name : "peakR", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL, label : "Peak R"},{ name : "peakMono", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Peak Mono"},{ name : "percentL", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "% L"},{ name : "percentR", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "% R"},{ name : "dB_L", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "dB L"},{ name : "dB_R", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "dB R"},{ name : "channels", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "Channels"},{ name : "active", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "clipL", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Clip L"},{ name : "clipR", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Clip R"}],null,"vumeter",true,true);
 	library_AtomRegistry.reg("ComPortAtom","COM Port",[{ name : "portName", type : core_types_ContactType.INPUT, defaultValue : "COM1", dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Port"},{ name : "baudRate", type : core_types_ContactType.INPUT, defaultValue : 9600, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Baud"},{ name : "open", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "close", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "send", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "txData", type : core_types_ContactType.INPUT, defaultValue : "", dataType : "string", priority : core_data_ParameterPriority.OPTIONAL},{ name : "setDTR", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "isOpen", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL},{ name : "rxData", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "RX"},{ name : "rxTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL},{ name : "txTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Error"},{ name : "errorTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL}],null,"comport",true,true);
 	library_AtomRegistry.reg("ComEnumeratorAtom","COM Enumerator",[{ name : "ports", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL}],null,"comenumerator",true,true);
 	library_AtomRegistry.reg("NETRadioPlayerAtom","NET Radio Player",[{ name : "stream_url", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "URL"},{ name : "poll_interval", type : core_types_ContactType.INPUT, defaultValue : 5.0, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL, label : "Poll (s)"},{ name : "playCtrl", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, label : "Play"},{ name : "volume", type : core_types_ContactType.INPUT, defaultValue : 1.0, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Volume"},{ name : "title", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Title"},{ name : "artist", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Artist"},{ name : "track", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Track"},{ name : "raw_metadata", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.INTERNAL},{ name : "updated", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "state", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Error"},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.OPTIONAL, label : "Error Msg"}],null,"netradio",true,true);
 	library_AtomRegistry.reg("URLAudioStreamPlayer","URL Audio Player",[{ name : "url", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL, visibleInEditor : true, label : "URL"},{ name : "play", type : core_types_ContactType.INPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, visibleInEditor : true, label : "Play"},{ name : "volume", type : core_types_ContactType.INPUT, dataType : "float", defaultValue : 1.0, priority : core_data_ParameterPriority.OPTIONAL, visibleInEditor : true, label : "Vol"},{ name : "isPlaying", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, label : "Playing"},{ name : "isBuffering", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.IMPORTANT, label : "Buffering"},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Error"},{ name : "state", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "State"}],null,"urlplayer",true,true);
-	library_AtomRegistry.reg("Oscilloscope","Oscilloscope",[{ name : "in", type : core_types_ContactType.INPUT, dataType : "array", priority : core_data_ParameterPriority.CRITICAL}],null,"oscilloscope");
+	library_AtomRegistry.reg("PassThroughAtom","Pass Through",[{ name : "in", type : core_types_ContactType.INPUT, dataType : "any", priority : core_data_ParameterPriority.CRITICAL},{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "any", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL}],true,"wire",true,false);
+	library_AtomRegistry.reg("Oscilloscope","Oscilloscope",[{ name : "in", type : core_types_ContactType.INPUT, dataType : "array", priority : core_data_ParameterPriority.INTERNAL, visibleInEditor : false}],null,"oscilloscope");
+	library_AtomRegistry.reg("FFTAtom","FFT Spectrum",[{ name : "buffer", type : core_types_ContactType.INPUT, dataType : "array", priority : core_data_ParameterPriority.INTERNAL, visibleInEditor : false},{ name : "windowSize", type : core_types_ContactType.INPUT, defaultValue : 512, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Size"},{ name : "windowType", type : core_types_ContactType.INPUT, defaultValue : 1, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "Window"},{ name : "sampleRate", type : core_types_ContactType.INPUT, defaultValue : 48000, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "Rate"},{ name : "spectrum", type : core_types_ContactType.OUTPUT, dataType : "array", priority : core_data_ParameterPriority.CRITICAL},{ name : "spectrumDB", type : core_types_ContactType.OUTPUT, dataType : "array", priority : core_data_ParameterPriority.CRITICAL},{ name : "peak", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Peak Hz"},{ name : "peakAmp", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL},{ name : "bass", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Bass"},{ name : "mid", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Mid"},{ name : "treble", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Treble"},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL}],null,"fft",true,true);
 	library_AtomRegistry._initialized = true;
 };
 library_AtomRegistry.get = function(id) {
@@ -16372,10 +16808,10 @@ library_AtomRegistry.remove = function(id) {
 		if(Object.prototype.hasOwnProperty.call(_this.h,id)) {
 			delete(_this.h[id]);
 		}
-		haxe_Log.trace("AtomRegistry: Removed " + id,{ fileName : "src/library/AtomRegistry.hx", lineNumber : 275, className : "library.AtomRegistry", methodName : "remove"});
+		haxe_Log.trace("AtomRegistry: Removed " + id,{ fileName : "src/library/AtomRegistry.hx", lineNumber : 317, className : "library.AtomRegistry", methodName : "remove"});
 		return true;
 	}
-	haxe_Log.trace("AtomRegistry: " + id + " not found for removal",{ fileName : "src/library/AtomRegistry.hx", lineNumber : 278, className : "library.AtomRegistry", methodName : "remove"});
+	haxe_Log.trace("AtomRegistry: " + id + " not found for removal",{ fileName : "src/library/AtomRegistry.hx", lineNumber : 320, className : "library.AtomRegistry", methodName : "remove"});
 	return false;
 };
 library_AtomRegistry.exists = function(id) {
@@ -16749,6 +17185,180 @@ library_drivers_SignalGenerator.prototype = $extend(core_base_Atom.prototype,{
 	}
 	,__class__: library_drivers_SignalGenerator
 });
+var library_electro_BufferingAtom = function(id) {
+	this._pulseActive = false;
+	this._pulseTimer = 0.0;
+	this._count = 0;
+	this._size = 512;
+	core_base_Atom.call(this,[new core_base_Contact(null,core_types_ContactType.INPUT,"in"),new core_base_Contact(512,core_types_ContactType.INPUT,"size")],[new core_base_Contact(null,core_types_ContactType.OUTPUT,"buffer"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"changed"),new core_base_Contact(0,core_types_ContactType.OUTPUT,"count")],null,id,"BufferingAtom",true);
+	var bufferOut = this.getOutput("buffer");
+	if(bufferOut != null) {
+		bufferOut.ignoreOscillation = true;
+	}
+	this._buffer = [];
+	var _g = 0;
+	while(_g < 8192) {
+		var i = _g++;
+		this._buffer.push(0.0);
+	}
+	haxe_Log.trace("BufferingAtom: Created (id: " + id + ", default size: " + this._size + ")",{ fileName : "src/library/electro/BufferingAtom.hx", lineNumber : 183, className : "library.electro.BufferingAtom", methodName : "new"});
+};
+$hxClasses["library.electro.BufferingAtom"] = library_electro_BufferingAtom;
+library_electro_BufferingAtom.__name__ = "library.electro.BufferingAtom";
+library_electro_BufferingAtom.__interfaces__ = [system_managers_Driver];
+library_electro_BufferingAtom.__super__ = core_base_Atom;
+library_electro_BufferingAtom.prototype = $extend(core_base_Atom.prototype,{
+	init: function() {
+		this._count = 0;
+		this._pulseTimer = 0.0;
+		this._pulseActive = false;
+		haxe_Log.trace("BufferingAtom: Initialized",{ fileName : "src/library/electro/BufferingAtom.hx", lineNumber : 198, className : "library.electro.BufferingAtom", methodName : "init"});
+	}
+	,update: function(dt) {
+		if(this._isDisposed) {
+			return;
+		}
+		if(this._pulseActive) {
+			this._pulseTimer -= dt;
+			if(this._pulseTimer <= 0) {
+				var changedOut = this.getOutput("changed");
+				if(changedOut != null) {
+					changedOut.set_value(false);
+				}
+				this._pulseActive = false;
+			}
+		}
+	}
+	,dispose: function() {
+		system_managers_DriverManager.getInstance().unregister(this.get_id());
+		this._buffer = null;
+		core_base_Atom.prototype.dispose.call(this);
+		haxe_Log.trace("BufferingAtom: Disposed",{ fileName : "src/library/electro/BufferingAtom.hx", lineNumber : 237, className : "library.electro.BufferingAtom", methodName : "dispose"});
+	}
+	,onContactChanged: function(c) {
+		if(this._isDisposed) {
+			return;
+		}
+		if(c.name == "size" && c.get_value() != null) {
+			var newSize = c.get_value() | 0;
+			if(newSize >= 1 && newSize <= 8192) {
+				if(newSize != this._size) {
+					this._size = newSize;
+					if(this._count >= this._size) {
+						this.flush();
+					}
+					haxe_Log.trace("BufferingAtom: Buffer size changed to " + this._size,{ fileName : "src/library/electro/BufferingAtom.hx", lineNumber : 265, className : "library.electro.BufferingAtom", methodName : "onContactChanged"});
+				}
+			}
+			return;
+		}
+		if(c.name == "in" && c.get_value() != null) {
+			var sample = 0.0;
+			if(typeof(c.get_value()) == "number") {
+				sample = js_Boot.__cast(c.get_value() , Float);
+			} else {
+				var v = c.get_value();
+				if(typeof(v) == "number" && ((v | 0) === v)) {
+					sample = js_Boot.__cast(c.get_value() , Int) * 1.0;
+				} else if(typeof(c.get_value()) == "string") {
+					var parsed = parseFloat(js_Boot.__cast(c.get_value() , String));
+					if(!isNaN(parsed)) {
+						sample = parsed;
+					}
+				}
+			}
+			this._buffer[this._count] = sample;
+			this._count++;
+			var countOut = this.getOutput("count");
+			if(countOut != null) {
+				countOut.setValueSilent(this._count);
+				countOut.propagateCurrentValue();
+			}
+			if(this._count >= this._size) {
+				this.flush();
+			}
+		}
+		core_base_Atom.prototype.onContactChanged.call(this,c);
+	}
+	,flush: function() {
+		var bufferOut = this.getOutput("buffer");
+		var changedOut = this.getOutput("changed");
+		var countOut = this.getOutput("count");
+		if(bufferOut != null) {
+			var bufferCopy = this._buffer.slice(0,this._count);
+			bufferOut.setValueSilent(bufferCopy);
+		}
+		if(changedOut != null) {
+			changedOut.setValueSilent(true);
+		}
+		if(countOut != null) {
+			countOut.setValueSilent(0);
+		}
+		if(bufferOut != null) {
+			bufferOut.propagateCurrentValue();
+		}
+		if(changedOut != null) {
+			changedOut.propagateCurrentValue();
+		}
+		if(countOut != null) {
+			countOut.propagateCurrentValue();
+		}
+		this._pulseActive = true;
+		this._pulseTimer = 0.05;
+		this._count = 0;
+		haxe_Log.trace("BufferingAtom: Flushed " + this._size + " samples",{ fileName : "src/library/electro/BufferingAtom.hx", lineNumber : 369, className : "library.electro.BufferingAtom", methodName : "flush"});
+	}
+	,getBufferSize: function() {
+		return this._size;
+	}
+	,getFillLevel: function() {
+		return this._count;
+	}
+	,forceFlush: function() {
+		if(this._count > 0) {
+			this.flush();
+		}
+	}
+	,reset: function() {
+		this._count = 0;
+		var countOut = this.getOutput("count");
+		if(countOut != null) {
+			countOut.setValueSilent(0);
+			countOut.propagateCurrentValue();
+		}
+	}
+	,getPersistentState: function() {
+		var base = core_base_Atom.prototype.getPersistentState.call(this);
+		var result = { bufferSize : this._size};
+		if(base != null) {
+			var _g = 0;
+			var _g1 = Reflect.fields(base);
+			while(_g < _g1.length) {
+				var field = _g1[_g];
+				++_g;
+				result[field] = Reflect.field(base,field);
+			}
+		}
+		return result;
+	}
+	,restoreState: function(state) {
+		if(state == null) {
+			return;
+		}
+		core_base_Atom.prototype.restoreState.call(this,state);
+		if(state.bufferSize != null) {
+			var newSize = state.bufferSize | 0;
+			if(newSize >= 1 && newSize <= 8192) {
+				this._size = newSize;
+				var sizeContact = this.getInput("size");
+				if(sizeContact != null) {
+					sizeContact.set_value(this._size);
+				}
+			}
+		}
+	}
+	,__class__: library_electro_BufferingAtom
+});
 var library_electro_ButtonAtom = function(id) {
 	this._state = false;
 	core_base_Atom.call(this,[],[new core_base_Contact(false,core_types_ContactType.OUTPUT,"out")],null,id,"Button");
@@ -16800,6 +17410,348 @@ library_electro_ButtonAtom.prototype = $extend(core_base_Atom.prototype,{
 	}
 	,__class__: library_electro_ButtonAtom
 });
+var library_electro_FFTAtom = function(id) {
+	this._pulseTimer = 0.0;
+	this._trebleEnergy = 0.0;
+	this._midEnergy = 0.0;
+	this._bassEnergy = 0.0;
+	this._peakAmp = 0.0;
+	this._peakFreq = 0.0;
+	this._hasNewData = false;
+	this._sampleRate = 48000;
+	this._windowType = 1;
+	this._fftSize = 512;
+	core_base_Atom.call(this,[new core_base_Contact(null,core_types_ContactType.INPUT,"buffer"),new core_base_Contact(512,core_types_ContactType.INPUT,"windowSize"),new core_base_Contact(1,core_types_ContactType.INPUT,"windowType"),new core_base_Contact(48000,core_types_ContactType.INPUT,"sampleRate")],[new core_base_Contact(null,core_types_ContactType.OUTPUT,"spectrum"),new core_base_Contact(null,core_types_ContactType.OUTPUT,"spectrumDB"),new core_base_Contact(0.0,core_types_ContactType.OUTPUT,"peak"),new core_base_Contact(0.0,core_types_ContactType.OUTPUT,"peakAmp"),new core_base_Contact(0.0,core_types_ContactType.OUTPUT,"bass"),new core_base_Contact(0.0,core_types_ContactType.OUTPUT,"mid"),new core_base_Contact(0.0,core_types_ContactType.OUTPUT,"treble"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"changed")],null,id,"FFTAtom",true);
+	var spectrumOut = this.getOutput("spectrum");
+	if(spectrumOut != null) {
+		spectrumOut.ignoreOscillation = true;
+	}
+	this.init();
+};
+$hxClasses["library.electro.FFTAtom"] = library_electro_FFTAtom;
+library_electro_FFTAtom.__name__ = "library.electro.FFTAtom";
+library_electro_FFTAtom.__interfaces__ = [system_managers_Driver];
+library_electro_FFTAtom.__super__ = core_base_Atom;
+library_electro_FFTAtom.prototype = $extend(core_base_Atom.prototype,{
+	init: function() {
+		this._inputBuffer = [];
+		this._windowFunc = [];
+		this._re = [];
+		this._im = [];
+		this._spectrum = [];
+		this._spectrumDB = [];
+		var _g = 0;
+		while(_g < 4096) {
+			var i = _g++;
+			this._inputBuffer.push(0.0);
+			this._windowFunc.push(0.0);
+			this._re.push(0.0);
+			this._im.push(0.0);
+		}
+		var _g = 0;
+		var _g1 = 2048;
+		while(_g < _g1) {
+			var i = _g++;
+			this._spectrum.push(0.0);
+			this._spectrumDB.push(-120.0);
+		}
+		this.readInputs();
+		this.computeWindowFunction();
+	}
+	,update: function(dt) {
+		if(this._isDisposed) {
+			return;
+		}
+		this.readInputs();
+		if(this._hasNewData) {
+			this.processFFT();
+			this._hasNewData = false;
+		}
+		if(this._pulseTimer > 0) {
+			this._pulseTimer -= dt;
+			if(this._pulseTimer <= 0) {
+				var c = this.getOutput("changed");
+				if(c != null) {
+					c.set_value(false);
+				}
+			}
+		}
+	}
+	,dispose: function() {
+		system_managers_DriverManager.getInstance().unregister(this.get_id());
+		this._inputBuffer = null;
+		this._windowFunc = null;
+		this._re = null;
+		this._im = null;
+		this._spectrum = null;
+		this._spectrumDB = null;
+		core_base_Atom.prototype.dispose.call(this);
+	}
+	,readInputs: function() {
+		var bufferC = this.getInput("buffer");
+		if(bufferC != null && bufferC.get_value() != null) {
+			if(((bufferC.get_value()) instanceof Array)) {
+				var samples = bufferC.get_value();
+				if(samples != null && samples.length > 0) {
+					var count = Math.min(samples.length,this._fftSize) | 0;
+					var _g = 0;
+					var _g1 = count;
+					while(_g < _g1) {
+						var i = _g++;
+						this._inputBuffer[i] = samples[i];
+					}
+					this._hasNewData = true;
+				}
+			}
+		}
+		var sizeC = this.getInput("windowSize");
+		if(sizeC != null && sizeC.get_value() != null) {
+			var newSize = sizeC.get_value() | 0;
+			if(newSize >= 256 && newSize <= 4096 && this.isPowerOfTwo(newSize)) {
+				if(newSize != this._fftSize) {
+					this._fftSize = newSize;
+					this.computeWindowFunction();
+				}
+			}
+		}
+		var typeC = this.getInput("windowType");
+		if(typeC != null && typeC.get_value() != null) {
+			var newType = typeC.get_value() | 0;
+			if(newType >= 0 && newType <= 2) {
+				if(newType != this._windowType) {
+					this._windowType = newType;
+					this.computeWindowFunction();
+				}
+			}
+		}
+		var rateC = this.getInput("sampleRate");
+		if(rateC != null && rateC.get_value() != null) {
+			this._sampleRate = rateC.get_value() | 0;
+		}
+	}
+	,processFFT: function() {
+		var _g = 0;
+		var _g1 = this._fftSize;
+		while(_g < _g1) {
+			var i = _g++;
+			this._re[i] = this._inputBuffer[i] * this._windowFunc[i];
+			this._im[i] = 0.0;
+		}
+		this.fft(this._re,this._im,this._fftSize);
+		var halfSize = this._fftSize >> 1;
+		var peakBin = 0;
+		var peakMag = 0.0;
+		var _g = 0;
+		var _g1 = halfSize;
+		while(_g < _g1) {
+			var i = _g++;
+			var mag = Math.sqrt(this._re[i] * this._re[i] + this._im[i] * this._im[i]);
+			this._spectrum[i] = mag;
+			var db = mag > 0.0001 ? 20.0 * Math.log(mag) / Math.log(10) : -120.0;
+			this._spectrumDB[i] = db;
+			if(mag > peakMag) {
+				peakMag = mag;
+				peakBin = i;
+			}
+		}
+		var freqResolution = this._sampleRate / this._fftSize;
+		this._peakFreq = peakBin * freqResolution;
+		this._peakAmp = peakMag;
+		this.computeBandEnergies(freqResolution);
+		var spectrumOut = this.getOutput("spectrum");
+		var spectrumDBOut = this.getOutput("spectrumDB");
+		var peakOut = this.getOutput("peak");
+		var peakAmpOut = this.getOutput("peakAmp");
+		var bassOut = this.getOutput("bass");
+		var midOut = this.getOutput("mid");
+		var trebleOut = this.getOutput("treble");
+		var changedOut = this.getOutput("changed");
+		if(spectrumOut != null) {
+			spectrumOut.setValueSilent(this._spectrum);
+		}
+		if(spectrumDBOut != null) {
+			spectrumDBOut.setValueSilent(this._spectrumDB);
+		}
+		if(peakOut != null) {
+			peakOut.setValueSilent(this._peakFreq);
+		}
+		if(peakAmpOut != null) {
+			peakAmpOut.setValueSilent(this._peakAmp);
+		}
+		if(bassOut != null) {
+			bassOut.setValueSilent(this._bassEnergy);
+		}
+		if(midOut != null) {
+			midOut.setValueSilent(this._midEnergy);
+		}
+		if(trebleOut != null) {
+			trebleOut.setValueSilent(this._trebleEnergy);
+		}
+		if(spectrumOut != null) {
+			spectrumOut.propagateCurrentValue();
+		}
+		if(spectrumDBOut != null) {
+			spectrumDBOut.propagateCurrentValue();
+		}
+		if(peakOut != null) {
+			peakOut.propagateCurrentValue();
+		}
+		if(peakAmpOut != null) {
+			peakAmpOut.propagateCurrentValue();
+		}
+		if(bassOut != null) {
+			bassOut.propagateCurrentValue();
+		}
+		if(midOut != null) {
+			midOut.propagateCurrentValue();
+		}
+		if(trebleOut != null) {
+			trebleOut.propagateCurrentValue();
+		}
+		if(changedOut != null) {
+			changedOut.set_value(true);
+			this._pulseTimer = 0.05;
+		}
+		core_logic_Impulsys.quickEmit(core_logic_EventType.FFT_SPECTRUM_READY,{ atomId : this.get_id()});
+	}
+	,fft: function(re,im,n) {
+		var j = 0;
+		var _g = 0;
+		var _g1 = n - 1;
+		while(_g < _g1) {
+			var i = _g++;
+			if(i < j) {
+				var tempRe = re[i];
+				re[i] = re[j];
+				re[j] = tempRe;
+				var tempIm = im[i];
+				im[i] = im[j];
+				im[j] = tempIm;
+			}
+			var k = n >> 1;
+			while(k <= j) {
+				j -= k;
+				k >>= 1;
+			}
+			j += k;
+		}
+		var step = 2;
+		while(step <= n) {
+			var halfStep = step >> 1;
+			var angleStep = -2.0 * Math.PI / step;
+			var _g = 0;
+			var _g1 = halfStep;
+			while(_g < _g1) {
+				var i = _g++;
+				var angle = i * angleStep;
+				var wRe = Math.cos(angle);
+				var wIm = Math.sin(angle);
+				var k = i;
+				while(k < n) {
+					var idx1 = k;
+					var idx2 = k + halfStep;
+					var tRe = wRe * re[idx2] - wIm * im[idx2];
+					var tIm = wRe * im[idx2] + wIm * re[idx2];
+					re[idx2] = re[idx1] - tRe;
+					im[idx2] = im[idx1] - tIm;
+					re[idx1] += tRe;
+					im[idx1] += tIm;
+					k += step;
+				}
+			}
+			step <<= 1;
+		}
+	}
+	,computeBandEnergies: function(freqResolution) {
+		var halfSize = this._fftSize >> 1;
+		var bassStart = 20.0 / freqResolution | 0;
+		var bassEnd = 250.0 / freqResolution | 0;
+		this._bassEnergy = 0.0;
+		var _g = bassStart;
+		var _g1 = bassEnd;
+		while(_g < _g1) {
+			var i = _g++;
+			if(i < halfSize) {
+				this._bassEnergy += this._spectrum[i];
+			}
+		}
+		var midStart = bassEnd;
+		var midEnd = 4000.0 / freqResolution | 0;
+		this._midEnergy = 0.0;
+		var _g = midStart;
+		var _g1 = midEnd;
+		while(_g < _g1) {
+			var i = _g++;
+			if(i < halfSize) {
+				this._midEnergy += this._spectrum[i];
+			}
+		}
+		var trebleStart = midEnd;
+		var trebleEnd = 20000.0 / freqResolution | 0;
+		this._trebleEnergy = 0.0;
+		var _g = trebleStart;
+		var _g1 = trebleEnd;
+		while(_g < _g1) {
+			var i = _g++;
+			if(i < halfSize) {
+				this._trebleEnergy += this._spectrum[i];
+			}
+		}
+	}
+	,computeWindowFunction: function() {
+		var N = this._fftSize;
+		var _g = 0;
+		var _g1 = N;
+		while(_g < _g1) {
+			var n = _g++;
+			var w = 1.0;
+			switch(this._windowType) {
+			case 0:
+				w = 1.0;
+				break;
+			case 1:
+				w = 0.5 * (1.0 - Math.cos(2.0 * Math.PI * n / (N - 1)));
+				break;
+			case 2:
+				w = 0.54 - 0.46 * Math.cos(2.0 * Math.PI * n / (N - 1));
+				break;
+			}
+			this._windowFunc[n] = w;
+		}
+	}
+	,isPowerOfTwo: function(n) {
+		if(n > 0) {
+			return (n & n - 1) == 0;
+		} else {
+			return false;
+		}
+	}
+	,getSpectrum: function() {
+		return this._spectrum;
+	}
+	,getSpectrumDB: function() {
+		return this._spectrumDB;
+	}
+	,getFFTSize: function() {
+		return this._fftSize;
+	}
+	,getSampleRate: function() {
+		return this._sampleRate;
+	}
+	,getPeakFreq: function() {
+		return this._peakFreq;
+	}
+	,getBassEnergy: function() {
+		return this._bassEnergy;
+	}
+	,getMidEnergy: function() {
+		return this._midEnergy;
+	}
+	,getTrebleEnergy: function() {
+		return this._trebleEnergy;
+	}
+	,__class__: library_electro_FFTAtom
+});
 var library_electro_LedAtom = function(id) {
 	core_base_Atom.call(this,[new core_base_Contact(false,core_types_ContactType.INPUT,"in")],[],null,id,"LED",false);
 };
@@ -16810,149 +17762,64 @@ library_electro_LedAtom.prototype = $extend(core_base_Atom.prototype,{
 	__class__: library_electro_LedAtom
 });
 var library_electro_OscilloscopeAtom = function(id) {
+	this._lastEmitTime = 0.0;
+	this._frameAccumulator = 0.0;
+	this._decimation = 1;
+	this._targetFrameRate = 60.0;
+	this._timeScale = 1.0;
 	this._displayShape = 0;
-	this._triggerMode = 0;
-	this._triggerEdge = 0;
-	this._triggerLevel = 0.0;
 	this._zoom = 1.0;
-	this._timeScale = 0.1;
-	this._displayTimer = 0.0;
-	this._triggerArmed = true;
-	this._holdoffTimer = 0.0;
-	this._state = 0;
-	this._isTriggered = false;
-	this._lastInputValue = 0.0;
-	this._totalSamples = 0;
-	this._triggerIndex = 0;
-	this._writeIndex = 0;
-	this._bufferSize = 2048;
-	core_base_Atom.call(this,[new core_base_Contact(null,core_types_ContactType.INPUT,"in"),new core_base_Contact(0.1,core_types_ContactType.INPUT,"timeScale"),new core_base_Contact(0.0,core_types_ContactType.INPUT,"triggerLevel"),new core_base_Contact(0,core_types_ContactType.INPUT,"triggerEdge"),new core_base_Contact(0,core_types_ContactType.INPUT,"triggerMode"),new core_base_Contact(2048,core_types_ContactType.INPUT,"bufferSize"),new core_base_Contact(1.0,core_types_ContactType.INPUT,"zoom"),new core_base_Contact(0,core_types_ContactType.INPUT,"displayShape")],[],null,id,"Oscilloscope",true);
-	var inContact = this.getInput("in");
-	if(inContact != null) {
-		inContact.ignoreOscillation = true;
-		inContact.resetOscillation();
+	core_base_Atom.call(this,[new core_base_Contact(null,core_types_ContactType.INPUT,"in"),new core_base_Contact(1.0,core_types_ContactType.INPUT,"zoom"),new core_base_Contact(0,core_types_ContactType.INPUT,"displayShape"),new core_base_Contact(1.0,core_types_ContactType.INPUT,"timeScale"),new core_base_Contact(512,core_types_ContactType.INPUT,"bufferSize"),new core_base_Contact(60.0,core_types_ContactType.INPUT,"frameRate"),new core_base_Contact(1.0,core_types_ContactType.INPUT,"decimation")],[],null,id,"Oscilloscope",true);
+	var samplesContact = this.getInput("in");
+	if(samplesContact != null) {
+		samplesContact.ignoreOscillation = true;
+		samplesContact.resetOscillation();
 	}
-	haxe_Log.trace("OscilloscopeAtom v6.1: Created (id: " + id + ", bufferSize: " + this._bufferSize + ")",{ fileName : "src/library/electro/OscilloscopeAtom.hx", lineNumber : 255, className : "library.electro.OscilloscopeAtom", methodName : "new"});
-	haxe_Log.trace("OscilloscopeAtom v6.1: FIXED - Continuous sampling, 60FPS refresh rate.",{ fileName : "src/library/electro/OscilloscopeAtom.hx", lineNumber : 256, className : "library.electro.OscilloscopeAtom", methodName : "new"});
 };
 $hxClasses["library.electro.OscilloscopeAtom"] = library_electro_OscilloscopeAtom;
 library_electro_OscilloscopeAtom.__name__ = "library.electro.OscilloscopeAtom";
 library_electro_OscilloscopeAtom.__interfaces__ = [system_managers_Driver];
 library_electro_OscilloscopeAtom.__super__ = core_base_Atom;
 library_electro_OscilloscopeAtom.prototype = $extend(core_base_Atom.prototype,{
-	init: function() {
-		this._lastInputValue = 0.0;
-		this._triggerArmed = true;
-		this._state = 0;
-		this._holdoffTimer = 0.0;
-		this._displayTimer = 0.0;
-		this._totalSamples = 0;
-		this._writeIndex = 0;
-		this._buffer = [];
-		var _g = 0;
-		var _g1 = this._bufferSize;
-		while(_g < _g1) {
-			var i = _g++;
-			this._buffer.push(0.0);
-		}
-		this._lastCapturedBuffer = [];
-		var _g = 0;
-		var _g1 = this._bufferSize;
-		while(_g < _g1) {
-			var i = _g++;
-			this._lastCapturedBuffer.push(0.0);
-		}
-		haxe_Log.trace("OscilloscopeAtom: Initialized (Continuous Flow Active)",{ fileName : "src/library/electro/OscilloscopeAtom.hx", lineNumber : 279, className : "library.electro.OscilloscopeAtom", methodName : "init"});
+	getDecimation: function() {
+		return this._decimation;
+	}
+	,getTargetFrameRate: function() {
+		return this._targetFrameRate;
+	}
+	,init: function() {
 	}
 	,update: function(dt) {
 		if(this._isDisposed) {
 			return;
 		}
 		this.readParameters();
-		var inContact = this.getInput("in");
-		var currentInput = 0.0;
-		if(inContact != null && inContact.get_value() != null) {
-			currentInput = this.toFloat(inContact.get_value(),this._lastInputValue);
+		this._frameAccumulator += dt;
+		var targetInterval = 1.0 / this._targetFrameRate;
+		if(this._frameAccumulator < targetInterval) {
+			return;
 		}
-		this._buffer[this._writeIndex] = currentInput;
-		this._totalSamples++;
-		this._writeIndex = (this._writeIndex + 1) % this._bufferSize;
-		var triggered = false;
-		if(this._triggerArmed && this.checkTrigger(this._lastInputValue,currentInput)) {
-			triggered = true;
-		}
-		this._lastInputValue = currentInput;
-		if(triggered) {
-			this._isTriggered = true;
-			this._triggerIndex = (this._writeIndex - 1 + this._bufferSize) % this._bufferSize;
-			this.captureBuffer();
-			core_logic_Impulsys.quickEmit(core_logic_EventType.OSCILLOSCOPE_FRAME_READY,{ atomId : this.get_id()});
-			this._displayTimer = 0.0;
-			if(this._triggerMode == 2) {
-				this._triggerArmed = false;
+		this._frameAccumulator = 0.0;
+		var samplesContact = this.getInput("in");
+		if(samplesContact != null && samplesContact.get_value() != null) {
+			if(((samplesContact.get_value()) instanceof Array)) {
+				var samplesBuffer = samplesContact.get_value();
+				if(samplesBuffer != null && samplesBuffer.length > 0) {
+					this._currentBuffer = samplesBuffer;
+					core_logic_Impulsys.quickEmit(core_logic_EventType.OSCILLOSCOPE_FRAME_READY,{ atomId : this.get_id()});
+				}
 			}
-		} else if(this._triggerMode == 0) {
-			this._displayTimer += dt;
-			if(this._displayTimer >= 0.016) {
-				this._isTriggered = false;
-				this._triggerIndex = (this._writeIndex - 1 + this._bufferSize) % this._bufferSize;
-				this.captureBuffer();
-				core_logic_Impulsys.quickEmit(core_logic_EventType.OSCILLOSCOPE_FRAME_READY,{ atomId : this.get_id()});
-				this._displayTimer = 0.0;
-			}
-		}
-	}
-	,checkTrigger: function(lastValue,currentValue) {
-		if(this._triggerEdge == 0) {
-			if(lastValue < this._triggerLevel) {
-				return currentValue >= this._triggerLevel;
-			} else {
-				return false;
-			}
-		} else if(lastValue > this._triggerLevel) {
-			return currentValue <= this._triggerLevel;
-		} else {
-			return false;
-		}
-	}
-	,captureBuffer: function() {
-		var _g = 0;
-		var _g1 = this._bufferSize;
-		while(_g < _g1) {
-			var i = _g++;
-			this._lastCapturedBuffer[i] = this._buffer[i];
 		}
 	}
 	,readParameters: function() {
-		var timeScaleContact = this.getInput("timeScale");
-		if(timeScaleContact != null && timeScaleContact.get_value() != null) {
-			var ts = this.safeFloat(timeScaleContact.get_value(),this._timeScale);
-			if(ts >= 0.001 && ts <= 100.0) {
-				this._timeScale = ts;
-			}
-		}
-		var bufferSizeContact = this.getInput("bufferSize");
-		if(bufferSizeContact != null && bufferSizeContact.get_value() != null) {
-			var bs = this.safeInt(bufferSizeContact.get_value(),this._bufferSize);
-			if(bs < 128) {
-				bs = 128;
-			}
-			if(bs > 4096) {
-				bs = 4096;
-			}
-			if(bs != this._bufferSize) {
-				this._bufferSize = bs;
-				this.resizeBuffer(this._bufferSize);
-			}
-		}
 		var zoomContact = this.getInput("zoom");
 		if(zoomContact != null && zoomContact.get_value() != null) {
 			this._zoom = this.safeFloat(zoomContact.get_value(),1.0);
 			if(this._zoom < 0.1) {
 				this._zoom = 0.1;
 			}
-			if(this._zoom > 10.0) {
-				this._zoom = 10.0;
+			if(this._zoom > 1.5) {
+				this._zoom = 1.5;
 			}
 		}
 		var shapeContact = this.getInput("displayShape");
@@ -16963,102 +17830,48 @@ library_electro_OscilloscopeAtom.prototype = $extend(core_base_Atom.prototype,{
 				core_logic_Impulsys.quickEmit(core_logic_EventType.OSCILLOSCOPE_SHAPE_CHANGED,{ atomId : this.get_id(), shape : this._displayShape});
 			}
 		}
-		var triggerLevelContact = this.getInput("triggerLevel");
-		if(triggerLevelContact != null && triggerLevelContact.get_value() != null) {
-			this._triggerLevel = this.safeFloat(triggerLevelContact.get_value(),0.0);
-			this._triggerLevel = Math.max(-1.0,Math.min(1.0,this._triggerLevel));
+		var timeScaleContact = this.getInput("timeScale");
+		if(timeScaleContact != null && timeScaleContact.get_value() != null) {
+			this._timeScale = this.safeFloat(timeScaleContact.get_value(),1.0);
+			if(this._timeScale < 0.1) {
+				this._timeScale = 0.1;
+			}
+			if(this._timeScale > 1.5) {
+				this._timeScale = 1.5;
+			}
 		}
-		var triggerEdgeContact = this.getInput("triggerEdge");
-		if(triggerEdgeContact != null && triggerEdgeContact.get_value() != null) {
-			this._triggerEdge = this.safeInt(triggerEdgeContact.get_value(),0);
+		var frameRateContact = this.getInput("frameRate");
+		if(frameRateContact != null && frameRateContact.get_value() != null) {
+			var fr = this.safeFloat(frameRateContact.get_value(),60.0);
+			if(fr >= 10.0 && fr <= 120.0) {
+				this._targetFrameRate = fr;
+			}
 		}
-		var triggerModeContact = this.getInput("triggerMode");
-		if(triggerModeContact != null && triggerModeContact.get_value() != null) {
-			var newMode = this.safeInt(triggerModeContact.get_value(),this._triggerMode);
-			if(newMode != this._triggerMode) {
-				this._triggerMode = newMode;
-				if(this._triggerMode == 2) {
-					this._triggerArmed = true;
-				}
+		var decimationContact = this.getInput("decimation");
+		if(decimationContact != null && decimationContact.get_value() != null) {
+			var dec = this.safeInt(decimationContact.get_value(),1);
+			if(dec >= 1 && dec <= 16) {
+				this._decimation = dec;
 			}
 		}
 	}
 	,getBuffer: function() {
-		return this._lastCapturedBuffer;
-	}
-	,getTriggerIndex: function() {
-		return this._triggerIndex;
-	}
-	,getBufferSize: function() {
-		return this._bufferSize;
+		return this._currentBuffer;
 	}
 	,getZoom: function() {
 		return this._zoom;
 	}
-	,getTimeScale: function() {
-		return this._timeScale;
-	}
-	,getTriggerLevel: function() {
-		return this._triggerLevel;
-	}
 	,getDisplayShape: function() {
 		return this._displayShape;
 	}
-	,getFSMState: function() {
-		return this._state;
-	}
-	,isTriggered: function() {
-		return this._isTriggered;
-	}
-	,getSamplesCollected: function() {
-		return Math.min(this._totalSamples,this._bufferSize) | 0;
-	}
-	,getTotalSamples: function() {
-		return this._totalSamples;
+	,getTimeScale: function() {
+		return this._timeScale;
 	}
 	,setDisplayShape: function(shape) {
 		if(shape >= 0 && shape <= 2) {
 			this._displayShape = shape;
 			core_logic_Impulsys.quickEmit(core_logic_EventType.OSCILLOSCOPE_SHAPE_CHANGED,{ atomId : this.get_id(), shape : this._displayShape});
 		}
-	}
-	,clearBuffer: function() {
-		this._writeIndex = 0;
-		this._triggerIndex = 0;
-		this._totalSamples = 0;
-		this._lastInputValue = 0.0;
-		this._holdoffTimer = 0.0;
-		this._displayTimer = 0.0;
-		this._triggerArmed = true;
-		this._state = 0;
-		var _g = 0;
-		var _g1 = this._bufferSize;
-		while(_g < _g1) {
-			var i = _g++;
-			this._buffer[i] = 0.0;
-			this._lastCapturedBuffer[i] = 0.0;
-		}
-	}
-	,rearm: function() {
-		this._triggerArmed = true;
-		this._state = 0;
-		this._holdoffTimer = 0.0;
-	}
-	,resizeBuffer: function(newSize) {
-		var oldBuffer = this._buffer;
-		var oldCaptured = this._lastCapturedBuffer;
-		this._buffer = [];
-		this._lastCapturedBuffer = [];
-		var _g = 0;
-		var _g1 = newSize;
-		while(_g < _g1) {
-			var i = _g++;
-			this._buffer.push(i < oldBuffer.length ? oldBuffer[i] : 0.0);
-			this._lastCapturedBuffer.push(i < oldCaptured.length ? oldCaptured[i] : 0.0);
-		}
-		this._writeIndex %= newSize;
-		this._triggerIndex %= newSize;
-		this._bufferSize = newSize;
 	}
 	,safeFloat: function(value,defaultVal) {
 		if(value == null) {
@@ -17100,78 +17913,9 @@ library_electro_OscilloscopeAtom.prototype = $extend(core_base_Atom.prototype,{
 		}
 		return defaultVal;
 	}
-	,toFloat: function(value,defaultVal) {
-		if(value == null) {
-			return defaultVal;
-		}
-		if(typeof(value) == "number") {
-			return value;
-		}
-		if(typeof(value) == "number" && ((value | 0) === value)) {
-			return js_Boot.__cast(value , Int) * 1.0;
-		}
-		if(typeof(value) == "string") {
-			var f = parseFloat(value);
-			if(isNaN(f)) {
-				return defaultVal;
-			} else {
-				return f;
-			}
-		}
-		return defaultVal;
-	}
-	,getPersistentState: function() {
-		var base = core_base_Atom.prototype.getPersistentState.call(this);
-		var result = { displayShape : this._displayShape, timeScale : this._timeScale, zoom : this._zoom, bufferSize : this._bufferSize, triggerLevel : this._triggerLevel, triggerEdge : this._triggerEdge, triggerMode : this._triggerMode, totalSamples : this._totalSamples};
-		if(base != null) {
-			var _g = 0;
-			var _g1 = Reflect.fields(base);
-			while(_g < _g1.length) {
-				var field = _g1[_g];
-				++_g;
-				result[field] = Reflect.field(base,field);
-			}
-		}
-		return result;
-	}
-	,restoreState: function(state) {
-		if(state == null) {
-			return;
-		}
-		core_base_Atom.prototype.restoreState.call(this,state);
-		if(state.timeScale != null) {
-			this._timeScale = state.timeScale;
-		}
-		if(state.zoom != null) {
-			this._zoom = state.zoom;
-		}
-		if(state.bufferSize != null) {
-			var bs = state.bufferSize;
-			if(bs >= 128 && bs <= 4096 && bs != this._bufferSize) {
-				this._bufferSize = bs;
-				this.resizeBuffer(this._bufferSize);
-			}
-		}
-		if(state.triggerLevel != null) {
-			this._triggerLevel = state.triggerLevel;
-		}
-		if(state.triggerEdge != null) {
-			this._triggerEdge = state.triggerEdge;
-		}
-		if(state.triggerMode != null) {
-			this._triggerMode = state.triggerMode;
-		}
-		if(state.displayShape != null) {
-			this._displayShape = state.displayShape;
-		}
-		if(state.totalSamples != null) {
-			this._totalSamples = state.totalSamples;
-		}
-	}
 	,dispose: function() {
 		system_managers_DriverManager.getInstance().unregister(this.get_id());
-		this._buffer = null;
-		this._lastCapturedBuffer = null;
+		this._currentBuffer = null;
 		core_base_Atom.prototype.dispose.call(this);
 	}
 	,__class__: library_electro_OscilloscopeAtom
@@ -17389,6 +18133,49 @@ library_electro_ToggleAtom.prototype = $extend(core_base_Atom.prototype,{
 		}
 	}
 	,__class__: library_electro_ToggleAtom
+});
+var library_logic_PassThroughAtom = function(id) {
+	this._changedTimer = 0.0;
+	core_base_Atom.call(this,[new core_base_Contact(null,core_types_ContactType.INPUT,"in")],[new core_base_Contact(null,core_types_ContactType.OUTPUT,"out"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"changed")],null,id,"PassThrough",false);
+	var input = this.getInput("in");
+	var output = this.getOutput("out");
+	var changed = this.getOutput("changed");
+	if(input != null && output != null) {
+		input.link(output);
+		input.subscribe(function(v) {
+			if(changed != null && changed.get_value() == false) {
+				changed.set_value(true);
+				core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
+					core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
+						core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
+							if(changed != null) {
+								changed.set_value(false);
+							}
+						});
+					});
+				});
+			}
+		});
+		input.ignoreOscillation = true;
+	}
+};
+$hxClasses["library.logic.PassThroughAtom"] = library_logic_PassThroughAtom;
+library_logic_PassThroughAtom.__name__ = "library.logic.PassThroughAtom";
+library_logic_PassThroughAtom.__super__ = core_base_Atom;
+library_logic_PassThroughAtom.prototype = $extend(core_base_Atom.prototype,{
+	update: function(dt) {
+		core_base_Atom.prototype.update.call(this,dt);
+		if(this._changedTimer > 0) {
+			this._changedTimer -= dt;
+			if(this._changedTimer <= 0) {
+				var changed = this.getOutput("changed");
+				if(changed != null) {
+					changed.set_value(false);
+				}
+			}
+		}
+	}
+	,__class__: library_logic_PassThroughAtom
 });
 var lime__$internal_backend_html5_GameDeviceData = function() {
 	this.connected = true;
@@ -34596,7 +35383,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 554668;
+	this.version = 892408;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
@@ -91017,12 +91804,12 @@ system_commands_editor_GroupAtomsCommand.__super__ = system_commands_base_Comman
 system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_base_Command.prototype,{
 	executeInternal: function() {
 		if(this._selectedNodeIds == null || this._selectedNodeIds.length == 0) {
-			haxe_Log.trace("GroupAtomsCommand: Nothing to group",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 106, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeInternal"});
+			haxe_Log.trace("GroupAtomsCommand: Nothing to group",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 140, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeInternal"});
 			this.complete();
 			return;
 		}
 		if(!this.validateNoCircularReference()) {
-			haxe_Log.trace("GroupAtomsCommand: Aborted - circular reference detected",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 113, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeInternal"});
+			haxe_Log.trace("GroupAtomsCommand: Aborted - circular reference detected",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 148, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeInternal"});
 			this.complete();
 			return;
 		}
@@ -91034,7 +91821,20 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		this.complete();
 	}
 	,executeGrouping: function() {
-		haxe_Log.trace("GroupAtomsCommand: Grouping " + this._selectedNodeIds.length + " atoms...",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 133, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+		haxe_Log.trace("GroupAtomsCommand: Grouping " + this._selectedNodeIds.length + " atoms...",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 172, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+		var selectedTemplateIds = [];
+		var _g = 0;
+		var _g1 = this._selectedNodeIds;
+		while(_g < _g1.length) {
+			var runtimeId = _g1[_g];
+			++_g;
+			var templateId = this._assembly.getTemplateId(runtimeId);
+			if(selectedTemplateIds.indexOf(templateId) == -1) {
+				selectedTemplateIds.push(templateId);
+			}
+		}
+		haxe_Log.trace("GroupAtomsCommand: Runtime IDs: " + Std.string(this._selectedNodeIds),{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 189, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+		haxe_Log.trace("GroupAtomsCommand: Template IDs: " + Std.string(selectedTemplateIds),{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 190, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
 		var internalConns = [];
 		var externalConns = [];
 		var externalConnMeta = [];
@@ -91043,8 +91843,10 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		while(_g < _g1.length) {
 			var conn = _g1[_g];
 			++_g;
-			var fromSelected = this._selectedNodeIds.indexOf(conn.from.atomId) != -1;
-			var toSelected = this._selectedNodeIds.indexOf(conn.to.atomId) != -1;
+			var fromTemplateId = conn.from.atomId == "SELF" ? "SELF" : this._assembly.getTemplateId(conn.from.atomId);
+			var toTemplateId = conn.to.atomId == "SELF" ? "SELF" : this._assembly.getTemplateId(conn.to.atomId);
+			var fromSelected = selectedTemplateIds.indexOf(fromTemplateId) != -1;
+			var toSelected = selectedTemplateIds.indexOf(toTemplateId) != -1;
 			if(fromSelected && toSelected) {
 				internalConns.push(conn);
 			} else if(fromSelected || toSelected) {
@@ -91058,9 +91860,15 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		while(_g < _g1.length) {
 			var atomDef = _g1[_g];
 			++_g;
-			if(this._selectedNodeIds.indexOf(atomDef.instanceId) != -1) {
+			if(selectedTemplateIds.indexOf(atomDef.instanceId) != -1) {
 				atomsToMove.push(atomDef);
 			}
+		}
+		haxe_Log.trace("GroupAtomsCommand: atomsToMove=" + atomsToMove.length + ", internalConns=" + internalConns.length + ", externalConns=" + externalConns.length,{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 229, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+		if(atomsToMove.length == 0) {
+			haxe_Log.trace("ERROR: GroupAtomsCommand: No atoms to move! Check ID mapping.",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 233, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+			this.complete();
+			return;
 		}
 		this._snapshot.setSelectedNodeIds(this._selectedNodeIds);
 		var _g = 0;
@@ -91099,7 +91907,7 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 			var limit = portType == core_types_ContactType.INPUT ? 20 : 20;
 			var currentCount = portType == core_types_ContactType.INPUT ? inputCount : outputCount;
 			if(currentCount >= limit) {
-				haxe_Log.trace("WARN: Port limit (" + limit + ") reached, connection " + conn.from.atomId + "->" + conn.to.atomId + " ignored",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 210, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+				haxe_Log.trace("WARN: Port limit (" + limit + ") reached, connection " + conn.from.atomId + "->" + conn.to.atomId + " ignored",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 290, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
 				continue;
 			}
 			if(portType == core_types_ContactType.INPUT) {
@@ -91147,7 +91955,7 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		while(_g < _g1.length) {
 			var atomDef = _g1[_g];
 			++_g;
-			if(this._selectedNodeIds.indexOf(atomDef.instanceId) != -1) {
+			if(selectedTemplateIds.indexOf(atomDef.instanceId) != -1) {
 				atomDefsToRemove.push(atomDef);
 			}
 		}
@@ -91178,7 +91986,7 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		this.saveNewAssembly(newBp);
 		var newInstance = core_base_AssemblyFactory.createAtom(newTypeId);
 		if(newInstance == null) {
-			haxe_Log.trace("ERROR: GroupAtomsCommand failed to create assembly instance",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 323, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+			haxe_Log.trace("ERROR: GroupAtomsCommand failed to create assembly instance",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 416, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
 			return;
 		}
 		var centerPos = this.calculateCenterPosition(atomsToMove);
@@ -91219,15 +92027,15 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		core_logic_Impulsys.quickEmit(core_logic_EventType.ATOM_RESTORED,{ assemblyId : this._assembly.get_id(), id : newInstance.get_id(), x : centerPos.x, y : centerPos.y, atom : newInstance});
 		core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
 		this._isExecuted = true;
-		haxe_Log.trace("GroupAtomsCommand: Created " + newTypeId + " with " + newPins.length + " ports",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 404, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+		haxe_Log.trace("GroupAtomsCommand: Created " + newTypeId + " with " + newPins.length + " ports",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 502, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
 	}
 	,undo: function() {
 		var error = this._snapshot.validate();
 		if(error != null) {
-			haxe_Log.trace("ERROR: GroupAtomsCommand undo failed: " + error,{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 413, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
+			haxe_Log.trace("ERROR: GroupAtomsCommand undo failed: " + error,{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 517, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
 			return;
 		}
-		haxe_Log.trace("GroupAtomsCommand: Undoing grouping...",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 417, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
+		haxe_Log.trace("GroupAtomsCommand: Undoing grouping...",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 521, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
 		var _g = 0;
 		var _g1 = this._snapshot.getCreatedConnections();
 		while(_g < _g1.length) {
@@ -91253,7 +92061,7 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 				} catch( _g ) {
 					haxe_NativeStackTrace.lastError = _g;
 					var e = haxe_Exception.caught(_g).unwrap();
-					haxe_Log.trace("WARN: Error disposing created assembly: " + Std.string(e),{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 446, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
+					haxe_Log.trace("WARN: Error disposing created assembly: " + Std.string(e),{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 555, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
 				}
 			}
 			var _this = this._assembly.internalAtoms;
@@ -91306,7 +92114,7 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		}
 		core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
 		this._isUndone = true;
-		haxe_Log.trace("GroupAtomsCommand: Undo complete",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 521, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
+		haxe_Log.trace("GroupAtomsCommand: Undo complete",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 636, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
 	}
 	,restorePhysicalConnections: function() {
 		var _g = 0;
@@ -91334,7 +92142,7 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
 	}
 	,redoInternal: function() {
-		haxe_Log.trace("GroupAtomsCommand: Redoing grouping...",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 553, className : "system.commands.editor.GroupAtomsCommand", methodName : "redoInternal"});
+		haxe_Log.trace("GroupAtomsCommand: Redoing grouping...",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 679, className : "system.commands.editor.GroupAtomsCommand", methodName : "redoInternal"});
 		this._snapshot.dispose();
 		this._snapshot = new system_commands_editor_GroupAtomsSnapshot();
 		this._isUndone = false;
@@ -91348,7 +92156,15 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 			}
 			return port.internal;
 		} else {
-			var obj = this._assembly.internalAtoms.h[atomId];
+			var realAtomId = this._assembly.get_idMap().h[atomId];
+			if(realAtomId == null) {
+				if(Object.prototype.hasOwnProperty.call(this._assembly.internalAtoms.h,atomId)) {
+					realAtomId = atomId;
+				} else {
+					return null;
+				}
+			}
+			var obj = this._assembly.internalAtoms.h[realAtomId];
 			if(obj == null) {
 				return null;
 			}
@@ -91393,11 +92209,11 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 			if(atomInst != null && ((atomInst) instanceof core_base_Assembly)) {
 				var asm = js_Boot.__cast(atomInst , core_base_Assembly);
 				if(asm.blueprint != null && asm.blueprint.id == currentBpId) {
-					haxe_Log.trace("ERROR: Cannot group assembly into itself",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 609, className : "system.commands.editor.GroupAtomsCommand", methodName : "validateNoCircularReference"});
+					haxe_Log.trace("ERROR: Cannot group assembly into itself",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 784, className : "system.commands.editor.GroupAtomsCommand", methodName : "validateNoCircularReference"});
 					return false;
 				}
 				if(this.hasCircularReference(asm,currentBpId,0)) {
-					haxe_Log.trace("ERROR: Circular reference detected in nested assembly",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 615, className : "system.commands.editor.GroupAtomsCommand", methodName : "validateNoCircularReference"});
+					haxe_Log.trace("ERROR: Circular reference detected in nested assembly",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 791, className : "system.commands.editor.GroupAtomsCommand", methodName : "validateNoCircularReference"});
 					return false;
 				}
 			}
@@ -92520,11 +93336,12 @@ core_logic_EventType.REQUEST_NEW_ASSEMBLY_CONTEXT = "REQUEST_NEW_ASSEMBLY_CONTEX
 core_logic_EventType.REQUEST_CLOSE_CURRENT_CONTEXT = "REQUEST_CLOSE_CURRENT_CONTEXT";
 core_logic_EventType.ATOM_PROPERTIES_REQUEST = "ATOM_PROPERTIES_REQUEST";
 core_logic_EventType.CONTEXT_MENU_ACTION = "CONTEXT_MENU_ACTION";
+core_logic_EventType.FFT_SPECTRUM_READY = "FFT_SPECTRUM_READY";
 core_logic_Impulsys._bus = new haxe_ds_StringMap();
 core_logic_Impulsys._totalListeners = 0;
 core_view_DeviceViewRegistry.CONTAINER_NODE_VIEW = "NodeView";
 core_view_DeviceViewRegistry.CONTAINER_DEVICE_WINDOW = "DeviceWindow";
-core_view_OscilloscopeWidget.DRAW_INTERVAL = 0.016;
+core_view_OscilloscopeWidget.HISTORY_LAYERS = 5;
 core_view_SignalGeneratorWidget.MIN_FREQ = 0.1;
 core_view_SignalGeneratorWidget.MAX_FREQ = 20000.0;
 core_view_SignalGeneratorWidget.MIN_QUANTUM = 0.001;
@@ -92580,16 +93397,20 @@ library_drivers_SignalGenerator.MODE_SAWTOOTH = 2;
 library_drivers_SignalGenerator.MODE_SINE = 3;
 library_drivers_SignalGenerator.MODE_TRIANGLE = 4;
 library_drivers_SignalGenerator.MODE_NOISE = 5;
-library_electro_OscilloscopeAtom.DEFAULT_BUFFER_SIZE = 2048;
-library_electro_OscilloscopeAtom.MIN_BUFFER_SIZE = 128;
-library_electro_OscilloscopeAtom.MAX_BUFFER_SIZE = 4096;
-library_electro_OscilloscopeAtom.DISPLAY_REFRESH_INTERVAL = 0.016;
+library_electro_BufferingAtom.DEFAULT_BUFFER_SIZE = 512;
+library_electro_BufferingAtom.MIN_BUFFER_SIZE = 1;
+library_electro_BufferingAtom.MAX_BUFFER_SIZE = 8192;
+library_electro_BufferingAtom.PULSE_DURATION = 0.05;
+library_electro_FFTAtom.MIN_FFT_SIZE = 256;
+library_electro_FFTAtom.MAX_FFT_SIZE = 4096;
+library_electro_FFTAtom.PULSE_DURATION = 0.05;
+library_electro_FFTAtom.WINDOW_NONE = 0;
+library_electro_FFTAtom.WINDOW_HANN = 1;
+library_electro_FFTAtom.WINDOW_HAMMING = 2;
 library_electro_OscilloscopeAtom.SHAPE_RECTANGULAR = 0;
 library_electro_OscilloscopeAtom.SHAPE_SQUARE = 1;
 library_electro_OscilloscopeAtom.SHAPE_CIRCULAR = 2;
-library_electro_OscilloscopeAtom.STATE_IDLE = 0;
-library_electro_OscilloscopeAtom.STATE_CAPTURED = 1;
-library_electro_OscilloscopeAtom.STATE_HOLDOFF = 2;
+library_logic_PassThroughAtom.PULSE_DURATION = 0.05;
 lime__$internal_backend_html5_HTML5HTTPRequest.OPTION_REVOKE_URL = 1;
 lime__$internal_backend_html5_HTML5HTTPRequest.activeRequests = 0;
 lime__$internal_backend_html5_HTML5HTTPRequest.requestLimit = 17;

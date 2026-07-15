@@ -1,5 +1,4 @@
 package core.view;
-
 import openfl.display.Sprite;
 import openfl.display.Shape;
 import openfl.text.TextField;
@@ -11,257 +10,239 @@ import core.logic.Impulsys;
 import core.logic.Impulse;
 import core.logic.EventType;
 import library.electro.OscilloscopeAtom;
-
 /**
- * ╔═══════════════════════════════════════════════════════════════════════════╗
- * ║                     OSCILLOSCOPE WIDGET v2.5                              ║
- * ║                     (Real-Time Waveform Visualization)                    ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                           ║
- * ║  Визуальный компонент (Face) для атома OscilloscopeAtom.                  ║
- * ║  Отвечает за отрисовку волновых форм в реальном времени, поддержку        ║
- * ║  различных геометрий (линейная, квадратная, полярная) и режима            ║
- * ║  "Истории" (Ring Buffer) для создания эффекта послесвечения люминофора.   ║
- * ║                                                                           ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                        RENDERING PIPELINE                                 ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                           ║
- * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
- * ║  │  [Upstream Driver] ──(Array Ref)──► [OscilloscopeAtom]              │  ║
- * ║  │         │                               │                           │  ║
- * ║  │         │                               ▼                           │  ║
- * ║  │         │                  Impulsys: FRAME_READY                    │  ║
- * ║  │         │                               │                           │  ║
- * ║  │         ▼                               ▼                           │  ║
- * ║  │  [OscilloscopeWidget] ◄───────── onFrameReady()                     │  ║
- * ║  │         │                                                           │  ║
- * ║  │         ├─► _hasNewFrame = true (Dirty Flag)                        │  ║
- * ║  │         │                                                           │  ║
- * ║  │         ▼                                                           │  ║
- * ║  │  [OpenFL ENTER_FRAME] ──► redrawFromAtom()                          │  ║
- * ║  │         │                                                           │  ║
- * ║  │         ├─► Atomic Snapshot (Copy Array to _renderBuffer)           │  ║
- * ║  │         │                                                           │  ║
- * ║  │         ├─► [History Mode?] ──Yes──► Ring Buffer Layer (Sprite)     │  ║
- * ║  │         │               │                                           │  ║
- * ║  │         │               No                                          │  ║
- * ║  │         │               ▼                                           │  ║
- * ║  │         └────────► [Normal Mode] ──► Canvas (Sprite)                │  ║
- * ║  │                                                                     │  ║
- * ║  └─────────────────────────────────────────────────────────────────────┘  ║
- * ║                                                                           ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                     HISTORY MODE RING BUFFER                              ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                           ║
- * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
- * ║  │  Layer 0: [ Wave N-4 ]  ◄── Oldest (будет перезаписан следующим)    │  ║
- * ║  │  Layer 1: [ Wave N-3 ]                                              │  ║
- * ║  │  Layer 2: [ Wave N-2 ]                                              │  ║
- * ║  │  Layer 3: [ Wave N-1 ]                                              │  ║
- * ║  │  Layer 4: [ Wave N   ]  ◄── Newest (Текущий индекс записи)          │  ║
- * ║  │                                                                     │  ║
- * ║  │  _currentLayer указывает на СЛЕДУЮЩИЙ слой для перезаписи.          │  ║
- * ║  │  Это создает визуальный эффект "затухания люминофора" без           │  ║
- * ║  │  необходимости вручную менять альфа-канал или использовать шейдеры. │  ║
- * ║  └─────────────────────────────────────────────────────────────────────┘  ║
- * ║                                                                           ║
- * ╚═══════════════════════════════════════════════════════════════════════════╝
- */
+* ╔═══════════════════════════════════════════════════════════════════════════╗
+* ║                     OSCILLOSCOPE WIDGET v2.5                              ║
+* ║                     (Real-Time Waveform Visualization)                    ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  Visual component (Face) for OscilloscopeAtom.                            ║
+* ║  Responsible for real-time waveform rendering, support for various        ║
+* ║  geometries (linear, square, polar) and "History" mode (Ring Buffer)      ║
+* ║  for creating phosphor afterglow effect.                                  ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                        RENDERING PIPELINE                                 ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │  [Upstream Driver] ──(Array Ref)──► [OscilloscopeAtom]              │  ║
+* ║  │         │                               │                           │  ║
+* ║  │         │                               ▼                           │  ║
+* ║  │         │                  Impulsys: FRAME_READY                    │  ║
+* ║  │         │                               │                           │  ║
+* ║  │         ▼                               ▼                           │  ║
+* ║  │  [OscilloscopeWidget] ◄───────── onFrameReady()                     │  ║
+* ║  │         │                                                           │  ║
+* ║  │         ├─► _hasNewFrame = true (Dirty Flag)                        │  ║
+* ║  │         │                                                           │  ║
+* ║  │         ▼                                                           │  ║
+* ║  │  [OpenFL ENTER_FRAME] ──► redrawFromAtom()                          │  ║
+* ║  │         │                                                           │  ║
+* ║  │         ├─► Atomic Snapshot (Copy Array to _renderBuffer)           │  ║
+* ║  │         │                                                           │  ║
+* ║  │         ├─► [History Mode?] ──Yes──► Ring Buffer Layer (Sprite)     │  ║
+* ║  │         │               │                                           │  ║
+* ║  │         │               No                                          │  ║
+* ║  │         │               ▼                                           │  ║
+* ║  │         └────────► [Normal Mode] ──► Canvas (Sprite)                │  ║
+* ║  │                                                                     │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     HISTORY MODE RING BUFFER                              ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │  Layer 0: [ Wave N-4 ]  ◄── Oldest (will be overwritten next)       │  ║
+* ║  │  Layer 1: [ Wave N-3 ]                                              │  ║
+* ║  │  Layer 2: [ Wave N-2 ]                                              │  ║
+* ║  │  Layer 3: [ Wave N-1 ]                                              │  ║
+* ║  │  Layer 4: [ Wave N   ]  ◄── Newest (Current write index)            │  ║
+* ║  │                                                                     │  ║
+* ║  │  _currentLayer points to the NEXT layer to be overwritten.          │  ║
+* ║  │  This creates a visual "phosphor decay" effect without              │  ║
+* ║  │  manually changing alpha or using shaders.                          │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║                                                                           ║
+* ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
 class OscilloscopeWidget extends DeviceView
 {
-	// =========================================================================
-	// CONFIGURATION (Внешние параметры и цвета)
-	// =========================================================================
-	/** Базовая ширина виджета (для прямоугольной формы). */
+// =========================================================================
+// CONFIGURATION (External parameters and colors)
+// =========================================================================
+	/** Base widget width (for rectangular shape). */
 	public var widgetWidth:Float = 300;
-	/** Базовая высота виджета (для прямоугольной формы). */
+	/** Base widget height (for rectangular shape). */
 	public var widgetHeight:Float = 150;
-	/** Цвет линии осциллограммы (белый). */
+	/** Waveform line color (white). */
 	public var colorLine:Int = 0xFFFFFF;
-	/** Цвет фона виджета (темно-синий/черный). */
+	/** Widget background color (dark blue/black). */
 	public var colorBg:Int = 0x0a0a12;
-	/** Цвет сетки (темно-зеленый, полупрозрачный). */
+	/** Grid color (dark green, semi-transparent). */
 	public var colorGrid:Int = 0x1a2a1a;
-
-	// =========================================================================
-	// HISTORY MODE (Режим истории / Кольцевой буфер)
-	// =========================================================================
-	/** Количество слоев в кольцевом буфере (глубина истории). */
+// =========================================================================
+// HISTORY MODE (History Mode / Ring Buffer)
+// =========================================================================
+	/** Number of layers in the ring buffer (history depth). */
 	private static inline var HISTORY_LAYERS:Int = 5;
-	
-	/** Флаг включения режима истории. По умолчанию выключен, но может быть активирован. */
+	/** History mode flag. Disabled by default, can be activated. */
 	private var _historyMode:Bool = false;
-	
-	/** Контейнер (Sprite), содержащий все слои истории. Позволяет перемещать их вместе. */
+	/** Container (Sprite) holding all history layers. Allows moving them together. */
 	private var _historyContainer:Sprite;
-	
-	/** Массив спрайтов, каждый из которых представляет один кадр истории. */
+	/** Array of sprites, each representing one history frame. */
 	private var _historyLayers:Array<Sprite>;
-	
-	/** Текущая позиция записи в кольцевом буфере (индекс от 0 до HISTORY_LAYERS-1). */
+	/** Current write position in the ring buffer (index from 0 to HISTORY_LAYERS-1). */
 	private var _currentLayer:Int = 0;
-	
-	/** Счетчик обработанных кадров в режиме истории (используется для отладки и логирования). */
+	/** Counter of processed frames in history mode (used for debugging and logging). */
 	private var _historyFrameCount:Int = 0;
-
-	// =========================================================================
-	// NORMAL MODE COMPONENTS (Компоненты обычного режима)
-	// =========================================================================
-	/** Основной холст для отрисовки волны в обычном режиме (один кадр). */
+// =========================================================================
+// NORMAL MODE COMPONENTS
+// =========================================================================
+	/** Main canvas for waveform rendering in normal mode (single frame). */
 	private var _canvas:Sprite;
-	
-	/** Спрайт для отрисовки координатной сетки. */
+	/** Sprite for coordinate grid rendering. */
 	private var _grid:Sprite;
-	
-	/** Маска (Shape), которая обрезает отрисовку по границам виджета или форме круга. */
+	/** Mask (Shape) that clips rendering to widget bounds or circle shape. */
 	private var _mask:Shape;
-	
-	/** Ссылка на связанный атом осциллографа для чтения данных и параметров. */
+	/** Reference to the linked oscilloscope atom for reading data and parameters. */
 	private var _oscAtom:OscilloscopeAtom;
-
-	// =========================================================================
-	// FRAME SYNCHRONIZATION (Синхронизация кадров)
-	// =========================================================================
-	/** 
-	 * Флаг "грязного" кадра (Dirty Flag). 
-	 * Устанавливается в true при получении события OSCILLOSCOPE_FRAME_READY.
-	 * Сбрасывается в false после отрисовки в onEnterFrame.
-	 */
-	private var _hasNewFrame:Bool = false;
-	
-	/** Флаг блокировки рендеринга (защита от рекурсивных вызовов или гонок). */
-	private var _isRendering:Bool = false;
-	
-	/** 
-	 * Локальный буфер для атомарного снимка данных (Atomic Snapshot).
-	 * Копирует данные из атома, чтобы избежать "разрывов" (tearing), 
-	 * если upstream драйвер обновит массив прямо во время отрисовки.
-	 */
-	private var _renderBuffer:Array<Float>;
-
-	// =========================================================================
-	// CONSTRUCTOR (Конструктор)
-	// =========================================================================
+// =========================================================================
+// FRAME SYNCHRONIZATION
+// =========================================================================
 	/**
-	 * Создает виджет осциллографа и связывает его с атомом.
-	 * 
-	 * @param atom Базовый атом (может быть OscilloscopeAtom или Assembly, содержащий его).
-	 * @param contactName Имя входного контакта (по умолчанию "in").
-	 */
+	* "Dirty" frame flag.
+	* Set to true when OSCILLOSCOPE_FRAME_READY event is received.
+	* Reset to false after rendering in onEnterFrame.
+	*/
+	private var _hasNewFrame:Bool = false;
+	/** Rendering lock flag (protection against recursive calls or races). */
+	private var _isRendering:Bool = false;
+	/**
+	* Local buffer for atomic data snapshot.
+	* Copies data from the atom to avoid "tearing" if the upstream driver
+	* updates the array during rendering.
+	*/
+	private var _renderBuffer:Array<Float>;
+// =========================================================================
+// CONSTRUCTOR
+// =========================================================================
+	/**
+	* Creates an oscilloscope widget and links it to the atom.
+	*
+	* @param atom Base atom (can be OscilloscopeAtom or Assembly containing it).
+	* @param contactName Input contact name (default: "in").
+	*/
 	public function new(atom:Atom, contactName:String = "in")
 	{
 		super(atom);
-		
-		// --- Разрешение ссылки на OscilloscopeAtom ---
-		// Если передан сам осциллограф, берем его.
-		if (Std.isOfType(atom, OscilloscopeAtom)) {
+// --- Resolve OscilloscopeAtom reference ---
+// If the oscilloscope itself is passed, use it.
+		if (Std.isOfType(atom, OscilloscopeAtom))
+		{
 			_oscAtom = cast(atom, OscilloscopeAtom);
 		}
-		// Если передана Assembly (сборка), ищем осциллограф среди её внутренних атомов.
-		else if (Std.isOfType(atom, Assembly)) {
+// If an Assembly is passed, search for the oscilloscope among its internal atoms.
+		else if (Std.isOfType(atom, Assembly))
+		{
 			var asm = cast(atom, Assembly);
-			for (internalAtom in asm.internalAtoms) {
-				if (Std.isOfType(internalAtom, OscilloscopeAtom)) {
+			for (internalAtom in asm.internalAtoms)
+			{
+				if (Std.isOfType(internalAtom, OscilloscopeAtom))
+				{
 					_oscAtom = cast(internalAtom, OscilloscopeAtom);
 					break;
 				}
 			}
 		}
-		
-		// --- Инициализация UI и подписок ---
+// --- Initialize UI and subscriptions ---
 		buildUI();
-		
-		// Подписываемся на глобальные события Impulsys для мгновенного реагирования
-		// на изменения формы и поступления новых данных, минуя стандартный цикл propagate.
+// Subscribe to global Impulsys events for instant response
+// to shape changes and new data, bypassing the standard propagate cycle.
 		Impulsys.subscribeToImpulse(EventType.OSCILLOSCOPE_SHAPE_CHANGED, onShapeChanged);
 		Impulsys.subscribeToImpulse(EventType.OSCILLOSCOPE_FRAME_READY, onFrameReady);
-		
-		// Синхронизируем отрисовку с частотой обновления экрана (ENTER_FRAME).
+// Synchronize rendering with screen refresh rate (ENTER_FRAME).
 		addEventListener(openfl.events.Event.ENTER_FRAME, onEnterFrame);
 	}
-
-	// =========================================================================
-	// WIDGET SIZE (Размеры виджета)
-	// =========================================================================
+// =========================================================================
+// WIDGET SIZE
+// =========================================================================
 	/**
-	 * Возвращает текущие габариты виджета для системы компоновки (Layout Manager).
-	 * В режиме истории высота умножается на количество слоев.
-	 */
-	override public function getWidgetSize():{width:Float, height:Float} {
-		if (_historyMode) {
+	* Returns current widget dimensions for the layout manager.
+	* In history mode, height is multiplied by the number of layers.
+	*/
+	override public function getWidgetSize(): {width:Float, height:Float}
+	{
+		if (_historyMode)
+		{
 			return {width: widgetWidth, height: widgetHeight * HISTORY_LAYERS};
 		}
 		return {width: widgetWidth, height: widgetHeight};
 	}
-
-	// =========================================================================
-	// UI CONSTRUCTION (Построение интерфейса)
-	// =========================================================================
+// =========================================================================
+// UI CONSTRUCTION
+// =========================================================================
 	/**
-	 * Оркестрирует создание всех визуальных компонентов: фона, сетки, маски и холста.
-	 */
+	* Orchestrates creation of all visual components: background, grid, mask, and canvas.
+	*/
 	private function buildUI():Void
 	{
 		updateDimensions();
 		drawBackground();
-		
-		// Создаем и добавляем сетку
+// Create and add the grid
 		_grid = new Sprite();
 		addChild(_grid);
-		
-		// Создаем маску и применяем её к сетке, чтобы линии сетки не выходили за границы
+// Create mask and apply it to the grid so grid lines don't exceed bounds
 		_mask = new Shape();
 		addChild(_mask);
 		_grid.mask = _mask;
-		
 		drawGrid();
 		drawMask();
-		
-		// Инициализируем холст в зависимости от выбранного режима
-		if (_historyMode) {
+// Initialize canvas depending on the selected mode
+		if (_historyMode)
+		{
 			initHistoryLayers();
-		} else {
+		}
+		else {
 			_canvas = new Sprite();
 			addChild(_canvas);
-			_canvas.mask = _mask; // Маска также применяется к холсту с волной
+			_canvas.mask = _mask; // Mask also applies to the waveform canvas
 		}
 	}
-
 	/**
-	 * Инициализирует кольцевой буфер спрайтов для режима истории.
-	 * Каждый слой смещен по оси Y, чтобы они не перекрывались визуально 
-	 * (хотя в текущей реализации они рисуются в одном месте, просто перезаписываются).
-	 * Примечание: В v2.5 слои рисуются друг поверх друга в одном месте, 
-	 * создавая эффект наложения, но y = i * widgetHeight используется для 
-	 * потенциального вертикального стека, если это потребуется в будущем.
-	 */
+	* Initializes the ring buffer of sprites for history mode.
+	* Each layer is offset on the Y axis so they don't visually overlap
+	* (although in the current rendering logic they are drawn in the same place, just overwritten).
+	* Note: In v2.5, layers are drawn on top of each other in the same place,
+	* creating a superposition effect, but y = i * widgetHeight is used for
+	* potential vertical stacking if needed in the future.
+	*/
 	private function initHistoryLayers():Void
 	{
 		_historyContainer = new Sprite();
 		addChild(_historyContainer);
 		_historyLayers = [];
-		
-		for (i in 0...HISTORY_LAYERS) {
+		for (i in 0...HISTORY_LAYERS)
+		{
 			var layer = new Sprite();
-			layer.y = i * widgetHeight; // Смещение (в текущей логике отрисовки они накладываются)
+			layer.y = i * widgetHeight; // Offset (in current rendering logic they overlap)
 			_historyContainer.addChild(layer);
 			_historyLayers.push(layer);
 		}
-		
 		_currentLayer = 0;
 		_historyFrameCount = 0;
 	}
-
 	/**
-	 * Обновляет базовые размеры виджета в зависимости от выбранной геометрии (Shape).
-	 * Квадрат и Круг требуют равных пропорций (200x200).
-	 */
-	private function updateDimensions():Void {
+	* Updates base widget dimensions depending on the selected geometry (Shape).
+	* Square and Circle require equal proportions (200x200).
+	*/
+	private function updateDimensions():Void
+	{
 		if (_oscAtom == null) return;
 		var shape = _oscAtom.getDisplayShape();
-		switch (shape) {
+		switch (shape)
+		{
 			case OscilloscopeAtom.SHAPE_SQUARE, OscilloscopeAtom.SHAPE_CIRCULAR:
 				widgetWidth = 200;
 				widgetHeight = 200;
@@ -270,186 +251,181 @@ class OscilloscopeWidget extends DeviceView
 				widgetHeight = 150;
 		}
 	}
-
 	/**
-	 * Отрисовывает фон и рамку виджета.
-	 * Для круглой формы использует drawCircle, для остальных — drawRoundRect.
-	 */
-	private function drawBackground():Void {
+	* Draws the widget background and frame.
+	* Uses drawCircle for circular shape, drawRoundRect for others.
+	*/
+	private function drawBackground():Void
+	{
 		var shape = (_oscAtom != null) ? _oscAtom.getDisplayShape() : OscilloscopeAtom.SHAPE_RECTANGULAR;
 		graphics.clear();
 		graphics.beginFill(colorBg);
-		
 		if (shape == OscilloscopeAtom.SHAPE_CIRCULAR)
 			graphics.drawCircle(widgetWidth / 2, widgetHeight / 2, widgetWidth / 2);
 		else
 			graphics.drawRoundRect(0, 0, widgetWidth, widgetHeight, 5, 5);
-			
 		graphics.endFill();
-		
-		// Рамка
+// Frame
 		graphics.lineStyle(3, 0x333355);
 		if (shape == OscilloscopeAtom.SHAPE_CIRCULAR)
 			graphics.drawCircle(widgetWidth / 2, widgetHeight / 2, widgetWidth / 2);
 		else
 			graphics.drawRoundRect(0, 0, widgetWidth, widgetHeight, 5, 5);
 	}
-
 	/**
-	 * Отрисовывает координатную сетку.
-	 * Для круга: концентрические окружности и перекрестие.
-	 * Для прямоугольника: вертикальные и горизонтальные линии с выделением центральной оси.
-	 */
-	private function drawGrid():Void {
+	* Draws the coordinate grid.
+	* For circle: concentric circles and crosshair.
+	* For rectangle: vertical and horizontal lines with highlighted central axis.
+	*/
+	private function drawGrid():Void
+	{
 		var g = _grid.graphics;
 		g.clear();
 		g.lineStyle(1, colorGrid, 0.7);
 		var shape = (_oscAtom != null) ? _oscAtom.getDisplayShape() : OscilloscopeAtom.SHAPE_RECTANGULAR;
-		
-		if (shape == OscilloscopeAtom.SHAPE_CIRCULAR) {
+		if (shape == OscilloscopeAtom.SHAPE_CIRCULAR)
+		{
 			var cx = widgetWidth / 2;
 			var cy = widgetHeight / 2;
 			var radius = widgetWidth / 2;
-			// Рисуем 5 концентрических кругов
+// Draw 5 concentric circles
 			for (i in 1...6) g.drawCircle(cx, cy, radius * (i / 5.0));
-			// Рисуем перекрестие (оси X и Y)
+// Draw crosshair (X and Y axes)
 			g.moveTo(cx - radius, cy); g.lineTo(cx + radius, cy);
 			g.moveTo(cx, cy - radius); g.lineTo(cx, cy + radius);
-		} else {
-			// Вертикальные линии (10 делений)
+		}
+		else {
+// Vertical lines (10 divisions)
 			var stepX = widgetWidth / 10;
-			for (i in 0...11) {
+			for (i in 0...11)
+			{
 				g.moveTo(i * stepX, 0);
 				g.lineTo(i * stepX, widgetHeight);
 			}
-			// Горизонтальные линии (6 делений)
+// Horizontal lines (6 divisions)
 			var stepY = widgetHeight / 6;
-			for (i in 0...7) {
+			for (i in 0...7)
+			{
 				g.moveTo(0, i * stepY);
 				g.lineTo(widgetWidth, i * stepY);
 			}
-			// Центральная горизонтальная ось (нулевая линия) — делаем её ярче
+// Central horizontal axis (zero line) — make it brighter
 			g.lineStyle(1, colorGrid, 1.0);
 			g.moveTo(0, widgetHeight / 2);
 			g.lineTo(widgetWidth, widgetHeight / 2);
 		}
 	}
-
-    /**
-     * Создает векторную маску для обрезки холста.
-     * Это предотвращает выход линии осциллограммы за пределы виджета 
-     * или за пределы круга при полярной развертке.
-     */
-    private function drawMask():Void {
-        var g = _mask.graphics;
-        g.clear();
-        g.beginFill(0xFFFFFF); // Цвет не важен, важна альфа (непрозрачность)
-        
-        if ((_oscAtom != null) && (_oscAtom.getDisplayShape() == OscilloscopeAtom.SHAPE_CIRCULAR)) {
-            // Радиус маски чуть меньше фона, чтобы скрыть артефакты на границе
-            g.drawCircle(widgetWidth / 2, widgetHeight / 2, widgetWidth / 2 - 2);
-        } else {
-            // ИСПРАВЛЕНО: Добавили +1 к ширине, чтобы крайний правый пиксель волны 
-            // (при x = widgetWidth) не был обрезан из-за особенностей растеризации OpenFL.
-            g.drawRect(0, 0, widgetWidth + 1, widgetHeight); 
-        }
-        g.endFill();
-    }
-
-	// =========================================================================
-	// HISTORY MODE API (Публичный API для управления режимом истории)
-	// =========================================================================
 	/**
-	 * Включает или выключает режим истории.
-	 * При изменении режима полностью перестраивает UI.
-	 * 
-	 * @param enabled Флаг включения.
-	 */
+	* Creates a vector mask for canvas clipping.
+	* This prevents the waveform line from exceeding widget bounds
+	* or the circle during polar sweep.
+	*/
+	private function drawMask():Void
+	{
+		var g = _mask.graphics;
+		g.clear();
+		g.beginFill(0xFFFFFF); // Color doesn't matter, alpha (opacity) does
+		if ((_oscAtom != null) && (_oscAtom.getDisplayShape() == OscilloscopeAtom.SHAPE_CIRCULAR))
+		{
+// Mask radius slightly smaller than background to hide boundary artifacts
+			g.drawCircle(widgetWidth / 2, widgetHeight / 2, widgetWidth / 2 - 2);
+		}
+		else {
+// FIXED: Added +1 to width so the rightmost pixel of the waveform
+// (at x = widgetWidth) is not clipped due to OpenFL rasterization specifics.
+			g.drawRect(0, 0, widgetWidth + 1, widgetHeight);
+		}
+		g.endFill();
+	}
+// =========================================================================
+// HISTORY MODE API (Public API for history mode control)
+// =========================================================================
+	/**
+	* Enables or disables history mode.
+	* Completely rebuilds UI when mode changes.
+	*
+	* @param enabled Enable flag.
+	*/
 	public function setHistoryMode(enabled:Bool):Void
 	{
 		if (_historyMode == enabled) return;
 		_historyMode = enabled;
-		
-		// Полная пересборка UI для корректного переключения между Canvas и HistoryLayers
+// Full UI rebuild for correct switching between Canvas and HistoryLayers
 		removeChildren();
 		buildUI();
 		if (_oscAtom != null) syncFromAtom();
 	}
-
-	/** Возвращает текущий статус режима истории. */
+	/** Returns current history mode status. */
 	public function isHistoryMode():Bool return _historyMode;
-	
-	/** Возвращает индекс текущего активного слоя в кольцевом буфере. */
+	/** Returns the index of the current active layer in the ring buffer. */
 	public function getCurrentLayer():Int return _currentLayer;
-	
-	/** Возвращает общее количество отрисованных кадров в режиме истории. */
+	/** Returns the total number of rendered frames in history mode. */
 	public function getHistoryFrameCount():Int return _historyFrameCount;
-
-	// =========================================================================
-	// LIFECYCLE & EVENT HANDLERS (Жизненный цикл и обработчики событий)
-	// =========================================================================
+// =========================================================================
+// LIFECYCLE & EVENT HANDLERS
+// =========================================================================
 	/**
-	 * Вызывается при активации виджета. Синхронизирует начальное состояние.
-	 */
-	override private function onActivate():Void {
+	* Called when the widget is activated. Synchronizes initial state.
+	*/
+	override private function onActivate():Void
+	{
 		syncFromAtom();
 	}
-
 	/**
-	 * Принудительная синхронизация визуала с текущим состоянием атома.
-	 * Перерисовывает фон, сетку и саму волну.
-	 */
-	override private function syncFromAtom():Void {
+	* Force synchronization of visual with current atom state.
+	* Redraws background, grid, and the waveform.
+	*/
+	override private function syncFromAtom():Void
+	{
 		if (_oscAtom == null) return;
 		updateDimensions();
 		drawBackground();
 		drawGrid();
 		drawMask();
-		
-		if (_historyMode) {
-			// В режиме истории ждем прихода новых кадров через onFrameReady
-		} else {
-			// В обычном режиме рисуем сразу, если есть данные
+		if (_historyMode)
+		{
+// In history mode, wait for new frames via onFrameReady
+		}
+		else {
+// In normal mode, draw immediately if data is available
 			redrawFromAtom();
 		}
 	}
-
 	/**
-	 * Реакция на изменение входных контактов (например, zoom, timeScale).
-	 * Игнорирует контакт "in" (сырые данные), так как он обрабатывается через Impulsys.
-	 */
-	override private function onContactChanged(contact:Contact, newValue:Dynamic):Void {
+	* Reaction to input contact changes (e.g., zoom, timeScale).
+	* Ignores the "in" contact (raw data) as it's handled via Impulsys.
+	*/
+	override private function onContactChanged(contact:Contact, newValue:Dynamic):Void
+	{
 		if (isDisposed || _oscAtom == null) return;
-		if (contact.name == "in") return; // Данные обрабатываются в onFrameReady
-		
-		// При изменении параметров перерисовываем сетку и волну
+		if (contact.name == "in") return; // Data is handled in onFrameReady
+// When parameters change, redraw grid and waveform
 		drawGrid();
 		redrawFromAtom();
 	}
-
 	/**
-	 * Обработчик события OSCILLOSCOPE_FRAME_READY.
-	 * Устанавливает флаг _hasNewFrame, чтобы отрисовка произошла в следующем ENTER_FRAME.
-	 * Это критически важно для синхронизации с частотой монитора и предотвращения tearing.
-	 */
-	private function onFrameReady(impulse:Impulse):Void {
+	* OSCILLOSCOPE_FRAME_READY event handler.
+	* Sets the _hasNewFrame flag so rendering happens in the next ENTER_FRAME.
+	* This is critical for synchronizing with monitor refresh rate and preventing tearing.
+	*/
+	private function onFrameReady(impulse:Impulse):Void
+	{
 		if (isDisposed || impulse == null || impulse.data == null) return;
 		if (_oscAtom == null || impulse.data.atomId != _oscAtom.id) return;
-		
 		_hasNewFrame = true;
 	}
-
 	/**
-	 * Обработчик события OSCILLOSCOPE_SHAPE_CHANGED.
-	 * Мгновенно перестраивает UI при смене формы (например, с прямоугольника на круг) 
-	 * из окна Properties, без необходимости переключать вкладки.
-	 */
-	private function onShapeChanged(impulse:Impulse):Void {
+	* OSCILLOSCOPE_SHAPE_CHANGED event handler.
+	* Instantly rebuilds UI when shape changes (e.g., from rectangle to circle)
+	* from the Properties window, without needing to switch tabs.
+	*/
+	private function onShapeChanged(impulse:Impulse):Void
+	{
 		if (isDisposed || impulse == null || impulse.data == null) return;
 		if (_oscAtom == null || impulse.data.atomId != _oscAtom.id) return;
-		
 		var newShape:Int = impulse.data.shape;
-		switch (newShape) {
+		switch (newShape)
+		{
 			case OscilloscopeAtom.SHAPE_SQUARE, OscilloscopeAtom.SHAPE_CIRCULAR:
 				widgetWidth = 200;
 				widgetHeight = 200;
@@ -457,259 +433,241 @@ class OscilloscopeWidget extends DeviceView
 				widgetWidth = 300;
 				widgetHeight = 150;
 		}
-		
-		// Полная пересборка UI под новую геометрию
+// Full UI rebuild for new geometry
 		removeChildren();
 		buildUI();
 	}
-
 	/**
-	 * Главный цикл рендеринга, привязанный к частоте обновления экрана (ENTER_FRAME).
-	 * Проверяет флаг _hasNewFrame и запускает отрисовку, если есть новые данные.
-	 */
-	private function onEnterFrame(e:openfl.events.Event):Void {
-		if (_hasNewFrame && !_isRendering) {
+	* Main rendering loop, tied to screen refresh rate (ENTER_FRAME).
+	* Checks the _hasNewFrame flag and triggers rendering if new data is available.
+	*/
+	private function onEnterFrame(e:openfl.events.Event):Void
+	{
+		if (_hasNewFrame && !_isRendering)
+		{
 			_hasNewFrame = false;
 			redrawFromAtom();
 		}
 	}
-
-	// =========================================================================
-	// REDRAW LOGIC (Логика перерисовки)
-	// =========================================================================
+// =========================================================================
+// REDRAW LOGIC
+// =========================================================================
 	/**
-	 * Основная функция отрисовки.
-	 * Реализует паттерн "Atomic Snapshot": копирует массив данных из атома 
-	 * в локальный _renderBuffer перед началом отрисовки.
-	 * Это гарантирует, что даже если upstream драйвер изменит массив 
-	 * прямо в середине цикла отрисовки, мы будем работать с консистентным снимком.
-	 */
-	private function redrawFromAtom():Void {
+	* Main rendering function.
+	* Implements the "Atomic Snapshot" pattern: copies the data array from the atom
+	* into a local _renderBuffer before starting rendering.
+	* This guarantees that even if the upstream driver changes the array
+	* in the middle of the rendering cycle, we work with a consistent snapshot.
+	*/
+	private function redrawFromAtom():Void
+	{
 		if (_oscAtom == null) return;
 		var buffer = _oscAtom.getBuffer();
 		if (buffer == null || buffer.length == 0) return;
-		
 		_isRendering = true;
-		
-		// --- Atomic Snapshot ---
+// --- Atomic Snapshot ---
 		var count = buffer.length;
-		
-		// Переаллоцируем локальный буфер только если изменился размер
-		if (_renderBuffer == null || _renderBuffer.length != count) {
+// Reallocate local buffer only if size changed
+		if (_renderBuffer == null || _renderBuffer.length != count)
+		{
 			_renderBuffer = new Array<Float>();
 			for (i in 0...count) _renderBuffer.push(0.0);
 		}
-		
-		// Быстрое копирование данных
-		for (i in 0...count) {
+// Fast data copy
+		for (i in 0...count)
+		{
 			_renderBuffer[i] = buffer[i];
 		}
-		
-		// Маршрутизация в нужный режим отрисовки
-		if (_historyMode) {
+// Route to the appropriate rendering mode
+		if (_historyMode)
+		{
 			redrawHistory(_renderBuffer);
-		} else {
+		}
+		else {
 			redrawNormal(_renderBuffer);
 		}
-		
 		_isRendering = false;
 	}
-
 	/**
-	 * Отрисовка в обычном режиме (один холст).
-	 * Маршрутизирует вызов к линейному или круговому алгоритму.
-	 */
-	private function redrawNormal(buffer:Array<Float>):Void {
+	* Rendering in normal mode (single canvas).
+	* Routes the call to linear or circular algorithm.
+	*/
+	private function redrawNormal(buffer:Array<Float>):Void
+	{
 		var shape = _oscAtom.getDisplayShape();
-		if (shape == OscilloscopeAtom.SHAPE_CIRCULAR) {
+		if (shape == OscilloscopeAtom.SHAPE_CIRCULAR)
+		{
 			drawWaveCircular(buffer);
-		} else {
+		}
+		else {
 			drawWaveLinear(buffer);
 		}
 	}
-
 	/**
-	 * Отрисовка в режиме истории (Ring Buffer).
-	 * Очищает самый старый слой и рисует на нем новую волну, 
-	 * затем сдвигает указатель _currentLayer.
-	 */
-	private function redrawHistory(buffer:Array<Float>):Void {
+	* Rendering in history mode (Ring Buffer).
+	* Clears the oldest layer and draws the new waveform on it,
+	* then shifts the _currentLayer pointer.
+	*/
+	private function redrawHistory(buffer:Array<Float>):Void
+	{
 		var layer = _historyLayers[_currentLayer];
 		var g = layer.graphics;
-		
-		// Очищаем текущий слой (который является самым старым в кольцевом буфере)
+// Clear the current layer (which is the oldest in the ring buffer)
 		g.clear();
-		
-		// Рисуем новую волну на этом слое
+// Draw the new waveform on this layer
 		var shape = _oscAtom.getDisplayShape();
-		if (shape == OscilloscopeAtom.SHAPE_CIRCULAR) {
+		if (shape == OscilloscopeAtom.SHAPE_CIRCULAR)
+		{
 			drawWaveCircular(buffer, g);
-		} else {
+		}
+		else {
 			drawWaveLinear(buffer, g);
 		}
-		
-		// Сдвигаем указатель кольцевого буфера
+// Shift the ring buffer pointer
 		_currentLayer = (_currentLayer + 1) % HISTORY_LAYERS;
 		_historyFrameCount++;
-		
-		// Отладочный вывод каждые 10 кадров
-		if (_historyFrameCount % 10 == 0) {
+// Debug output every 10 frames
+		if (_historyFrameCount % 10 == 0)
+		{
 			trace('OscilloscopeWidget: History frame $_historyFrameCount, next layer to clear: $_currentLayer');
 		}
 	}
-
-	// =========================================================================
-	// WAVE DRAWING (Алгоритмы отрисовки волн)
-	// =========================================================================
+// =========================================================================
+// WAVE DRAWING (Waveform rendering algorithms)
+// =========================================================================
 	/**
-	 * Отрисовка линейной (декартовой) волны.
-	 * 
-	 * ИСПРАВЛЕНО: Шаг по X (stepX) рассчитывается как `widgetWidth / (count - 1)`.
-	 * Это гарантирует, что последняя точка волны будет иметь координату X = widgetWidth,
-	 * и волна физически растянется на всю ширину виджета без отступов по краям.
-	 * 
-	 * @param buffer Массив сэмплов (снимок).
-	 * @param targetGraphics Целевой контекст графики (если null, используется _canvas).
-	 */
-	private function drawWaveLinear(buffer:Array<Float>, ?targetGraphics:openfl.display.Graphics = null):Void {
+	* Linear (Cartesian) waveform rendering.
+	*
+	* FIXED: X step (stepX) is calculated as `widgetWidth / (count - 1)`.
+	* This guarantees that the last waveform point has X coordinate = widgetWidth,
+	* and the waveform physically stretches across the full widget width without edge gaps.
+	*
+	* @param buffer Array of samples (snapshot).
+	* @param targetGraphics Target graphics context (if null, _canvas is used).
+	*/
+	private function drawWaveLinear(buffer:Array<Float>, ?targetGraphics:openfl.display.Graphics = null):Void
+	{
 		var g = targetGraphics != null ? targetGraphics : _canvas.graphics;
-		
-		// === КРИТИЧЕСКИЙ FIX: Всегда очищаем холст перед отрисовкой ===
+// === CRITICAL FIX: Always clear canvas before rendering ===
 		g.clear();
-		
-		if (targetGraphics == null) {
+		if (targetGraphics == null)
+		{
 			_canvas.mask = _mask;
 		}
-		
 		var count = buffer.length;
 		if (count == 0) return;
-		
-		// === Decimation: прореживание сэмплов ===
+// === Decimation: sample thinning ===
 		var decimation = (_oscAtom != null) ? _oscAtom.getDecimation() : 1;
 		if (decimation < 1) decimation = 1;
-		
 		var effectiveCount = Math.ceil(count / decimation);
 		if (effectiveCount < 2) effectiveCount = 2;
-		
 		var zoom = _oscAtom.getZoom();
 		var centerY = widgetHeight / 2.0;
 		var scale = (widgetHeight / 2.0) * 0.9 * zoom;
-		
-		// === FIX: Рассчитываем шаг для эффективного количества точек ===
+// === FIX: Calculate step for effective number of points ===
 		var stepX = widgetWidth / (effectiveCount - 1);
-		
 		g.lineStyle(1.0, colorLine, 1.0);
-		
-		// Первая точка
+// First point
 		var sample = buffer[0];
 		if (!Math.isFinite(sample)) sample = 0.0;
 		if (sample > 1.0) sample = 1.0;
 		if (sample < -1.5) sample = -1.5;
-		
 		g.moveTo(0, centerY - sample * scale);
-		
-		// Отрисовка с прореживанием
+// Rendering with decimation
 		var drawIndex = 0;
-		for (i in 1...count) {
-			if (i % decimation != 0 && i != count - 1) continue;  // ← Пропускаем сэмплы
-			
+		for (i in 1...count)
+		{
+			if (i % decimation != 0 && i != count - 1) continue;  // ← Skip samples
 			sample = buffer[i];
 			if (!Math.isFinite(sample)) sample = 0.0;
 			if (sample > 10) sample = 10;
 			if (sample < -1.5) sample = -1.5;
-			
 			drawIndex++;
 			g.lineTo(drawIndex * stepX, centerY - sample * scale);
 		}
 	}
-
 	/**
-	 * Отрисовка круговой (полярной) волны.
-	 * Амплитуда сэмпла маппится на радиус. 
-	 * Угол равномерно распределяется по длине буфера (от 0 до 2*PI).
-	 * 
-	 * @param buffer Массив сэмплов.
-	 * @param targetGraphics Целевой контекст графики.
-	 */
-	private function drawWaveCircular(buffer:Array<Float>, ?targetGraphics:openfl.display.Graphics = null):Void {
+	* Circular (polar) waveform rendering.
+	* Sample amplitude maps to radius.
+	* Angle is evenly distributed across the buffer length (from 0 to 2*PI).
+	*
+	* @param buffer Array of samples.
+	* @param targetGraphics Target graphics context.
+	*/
+	private function drawWaveCircular(buffer:Array<Float>, ?targetGraphics:openfl.display.Graphics = null):Void
+	{
 		var g = targetGraphics != null ? targetGraphics : _canvas.graphics;
-		
-		// === КРИТИЧЕСКИЙ FIX: Всегда очищаем холст ===
+// === CRITICAL FIX: Always clear canvas ===
 		g.clear();
-		
 		var count = buffer.length;
 		var decimation = (_oscAtom != null) ? _oscAtom.getDecimation() : 1;
 		if (decimation < 1) decimation = 1;
-		
 		var effectiveCount = Math.ceil(count / decimation);
 		if (effectiveCount < 2) effectiveCount = 2;
-		
 		var zoom = _oscAtom.getZoom();
 		var cx = widgetWidth / 2;
 		var cy = widgetHeight / 2;
 		var maxRadius = (widgetWidth / 2) * 0.9 * zoom;
-		
 		g.lineStyle(0.5, colorLine, 1.0);
-		
 		var sample = buffer[0];
 		if (!Math.isFinite(sample)) sample = 0.0;
 		if (sample > 1.0) sample = 1.0;
 		if (sample < -1.0) sample = -1.0;
-		
 		var angle:Float = 0.0;
 		var r = ((sample + 1.0) / 2.0) * maxRadius;
 		g.moveTo(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r);
-		
 		var drawIndex = 0;
-		for (i in 1...count) {
+		for (i in 1...count)
+		{
 			if (i % decimation != 0 && i != count - 1) continue;
-			
 			sample = buffer[i];
 			if (!Math.isFinite(sample)) sample = 0.0;
 			if (sample > 1.0) sample = 1.0;
 			if (sample < -1.0) sample = -1.0;
-			
 			drawIndex++;
 			angle = (drawIndex / effectiveCount) * Math.PI * 2;
 			r = ((sample + 1.0) / 2.0) * maxRadius;
 			g.lineTo(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r);
 		}
 	}
-
-	// =========================================================================
-	// CLEAR & DISPOSE (Очистка и освобождение ресурсов)
-	// =========================================================================
+// =========================================================================
+// CLEAR & DISPOSE
+// =========================================================================
 	/**
-	 * Очищает экран от нарисованных волн.
-	 * В режиме истории очищает все слои кольцевого буфера и сбрасывает указатели.
-	 */
-	public function clearDisplay():Void {
-		if (_historyMode) {
-			for (layer in _historyLayers) {
+	* Clears the screen of drawn waveforms.
+	* In history mode, clears all ring buffer layers and resets pointers.
+	*/
+	public function clearDisplay():Void
+	{
+		if (_historyMode)
+		{
+			for (layer in _historyLayers)
+			{
 				if (layer != null) layer.graphics.clear();
 			}
 			_currentLayer = 0;
 			_historyFrameCount = 0;
-		} else if (_canvas != null) {
+		}
+		else if (_canvas != null)
+		{
 			_canvas.graphics.clear();
 		}
 	}
-
-	/** Алиас для полной очистки (совместимость). */
-	public function clearAll():Void {
+	/** Alias for full clear (compatibility). */
+	public function clearAll():Void
+	{
 		clearDisplay();
 	}
-
 	/**
-	 * Освобождение ресурсов виджета.
-	 * Отписывается от событий Impulsys, удаляет слушатели ENTER_FRAME 
-	 * и обнуляет ссылки для помощи Garbage Collector'у.
-	 */
-	override public function dispose():Void {
+	* Releases widget resources.
+	* Unsubscribes from Impulsys events, removes ENTER_FRAME listeners
+	* and nullifies references to help the Garbage Collector.
+	*/
+	override public function dispose():Void
+	{
 		removeEventListener(openfl.events.Event.ENTER_FRAME, onEnterFrame);
 		Impulsys.removeImpulse(EventType.OSCILLOSCOPE_SHAPE_CHANGED, onShapeChanged);
 		Impulsys.removeImpulse(EventType.OSCILLOSCOPE_FRAME_READY, onFrameReady);
-		
 		_canvas = null;
 		_grid = null;
 		_mask = null;
@@ -717,7 +675,6 @@ class OscilloscopeWidget extends DeviceView
 		_renderBuffer = null;
 		_historyLayers = null;
 		_historyContainer = null;
-		
 		super.dispose();
 	}
 }

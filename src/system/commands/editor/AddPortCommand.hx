@@ -7,33 +7,29 @@ import core.logic.Impulsys;
 import core.logic.EventType;
 
 /**
- * ADD PORT COMMAND v1.0
- * Adds a new gateway port to an Assembly.
- * Supports Undo/Redo.
- *
- * Architecture:
- * ┌─────────────────────────────────────────────────────────────────────────┐
- * │   AddPortCommand                                                        │
- * │                                                                         │
- * │   ┌─────────────────────────────────────────────────────────────────┐   │
- * │   │  execute():                                                     │   │
- * │   │  - Generate port name if not provided (In_1, Out_1, etc.)       │   │
- * │   │  - Check for name conflicts in ports and blueprint.pins         │   │
- * │   │  - Call assembly.addPort()                                      │   │
- * │   │  - Emit ASSEMBLY_PORTS_CHANGED event                            │   │
- * │   │                                                                 │   │
- * │   │  undo():                                                        │   │
- * │   │  - Remove connected wires from blueprint                        │   │
- * │   │  - Call assembly.removePort()                                   │   │
- * │   │  - Emit ASSEMBLY_PORTS_CHANGED event                            │   │
- * │   └─────────────────────────────────────────────────────────────────┘   │
- * │                                                                         │
- * │   Port Naming:                                                          │
- * │   - INPUT ports: In_1, In_2, In_3...                                    │
- * │   - OUTPUT ports: Out_1, Out_2, Out_3...                                │
- * │   - Auto-increment to avoid conflicts                                   │
- * │                                                                         │
- * └─────────────────────────────────────────────────────────────────────────┘
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║                     ADD PORT COMMAND v2.0                                 ║
+ * ║                (Semantic Naming: incoming_N / outgoing_N)                  ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  Adds a new gateway port to an Assembly with semantic naming.             ║
+ * ║                                                                           ║
+ * ║  v2.0 Changes:                                                            ║
+ * ║  - INPUT ports:  internal = "incoming_N", external = "incoming_N"         ║
+ * ║  - OUTPUT ports: internal = "outgoing_N", external = "outgoing_N"         ║
+ * ║  - N is auto-incremented based on existing port count                     ║
+ * ║                                                                           ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │  Adding INPUT port:                                                 │  ║
+ * ║  │  Existing: incoming_1, incoming_2                                   │  ║
+ * ║  │  New:      incoming_3                                              │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  Adding OUTPUT port:                                                │  ║
+ * ║  │  Existing: outgoing_1                                               │  ║
+ * ║  │  New:      outgoing_2                                              │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 class AddPortCommand extends Command {
     private var _assembly:Assembly;
@@ -50,23 +46,28 @@ class AddPortCommand extends Command {
     }
 
     override private function executeInternal():Void {
-        // Generate name if not provided
+        // v2.0: Generate semantic name if not provided
         if (_name == null) {
-            var prefix = (_type == INPUT) ? "In_" : "Out_";
+            var prefix = (_type == INPUT) ? "incoming_" : "outgoing_";
             var count = 0;
+            
             // Count existing ports of this type
             for (p in _assembly.ports) {
                 if (p.type == _type) count++;
             }
+            
             var candidate = prefix + Std.string(count + 1);
-            // FIX: Check both in ports and in blueprint.pins
+            
+            // Ensure uniqueness in both ports map and blueprint pins
             while (_assembly.ports.exists(candidate) || isPinInBlueprint(candidate)) {
                 count++;
                 candidate = prefix + Std.string(count + 1);
             }
+            
             _name = candidate;
         }
 
+        // v2.0: For manually added ports, external = internal name
         var port = _assembly.addPort(_name, _type, _defaultValue);
         if (port != null) {
             Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });
@@ -87,7 +88,6 @@ class AddPortCommand extends Command {
 
     override public function undo():Void {
         if (_name != null) {
-            // Before removing port, we should remove connected wires to keep Blueprint clean
             removeConnectedWires(_name);
             _assembly.removePort(_name);
             Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });

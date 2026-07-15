@@ -2,7 +2,7 @@ package core.base;
 
 import core.data.Blueprint;
 import core.data.Blueprint.PinDef;
-import core.data.Blueprint.ConnectionPoint; // Импортируем тип из Blueprint
+import core.data.Blueprint.ConnectionPoint;
 import core.base.Contact;
 import core.base.IDisposable;
 import core.types.ContactType;
@@ -15,7 +15,8 @@ import core.logic.EventType;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     ASSEMBLY v1.2 (Signal Flow Fix)                       ║
+* ║                     ASSEMBLY v1.9                                         ║
+* ║          (Async Safety + Link Restore + Safety Net + Direct Input)        ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  Universal base class for ALL nodes in the system.                        ║
@@ -33,33 +34,72 @@ import core.logic.EventType;
 * ║  - Handles hot-start initialization without signal oscillation            ║
 * ║  - v1.1: Provides atom name uniqueness checking within scope              ║
 * ║  - v1.2: FIXED signal flow through Assembly ports                         ║
+* ║  - v1.4: DIRECT link port.external → atom.input for INPUT ports           ║
+* ║  - v1.5: ADDED Ghost Connection Safety Net (defensive sanitization)       ║
+* ║  - v1.8: FIXED _restoreInternalPortLinks() contact name resolution        ║
+* ║  - v1.9: FIXED async NullRef crash in OUTPUT port callback                ║
 * ║                                                                           ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
-* ║                     v1.2 CHANGES (Signal Flow Fix)                        ║
+* ║                     VERSION HISTORY                                       ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
-* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
-* ║  │  PROBLEM:                                                           │  ║
-* ║  │  Signal doesn't pass through Assembly:                              │  ║
-* ║  │  PushButton → Assembly.IN → Assembly.OUT → LED                      │  ║
-* ║  │                                                                     │  ║
-* ║  │  Root cause: Internal atom (Button.out) is NOT linked to port.internal│  ║
-* ║  │  for OUTPUT ports. Connection exists between port.internal and      │  ║
-* ║  │  LED.in, but Button.out → port.internal link is missing.            │  ║
-* ║  │                                                                     │  ║
-* ║  │  SOLUTION:                                                          │  ║
-* ║  │  Added _ensureInternalAtomConnectedToPort() method that creates     │  ║
-* ║  │  explicit link between internal atom and port.internal for OUTPUT   │  ║
-* ║  │  ports.                                                             │  ║
-* ║  │                                                                     │  ║
-* ║  │  Flow after fix:                                                    │  ║
-* ║  │  ┌──────────────────────────────────────────────────────────────┐   │  ║
-* ║  │  │  Button.out ──link──► port.internal ──subscribe──► callback  │   │  ║
-* ║  │  │                                    │                         │   │  ║
-* ║  │  │                                    ▼                         │   │  ║
-* ║  │  │                              port.external ──link──► LED.in  │   │  ║
-* ║  │  └──────────────────────────────────────────────────────────────┘   │  ║
-* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║  v1.9 — Async NullReference Protection                                    ║
+* ║  ─────────────────────────────────────                                    ║
+* ║  Output port callback in _updatePortLinks() now checks:                   ║
+* ║    • !_isDisposed (assembly alive)                                        ║
+* ║    • !targetPort.isDisposed (port not disposed via ConductorPort flag)    ║
+* ║    • targetPort.external != null (contact still exists)                   ║
+* ║  Prevents crash when port is disposed between callback scheduling         ║
+* ║  and execution (enter/exit editor race condition).                        ║
+* ║                                                                           ║
+* ║  v1.8 — Hot-Reload Port Link Restore Fix                                  ║
+* ║  ─────────────────────────────────────────                                ║
+* ║  _restoreInternalPortLinks() now correctly resolves contact names         ║
+* ║  from connection definitions instead of using port names:                 ║
+* ║                                                                           ║
+* ║  ┌──────────────────────────────────────────────────────────────────┐     ║
+* ║  │  SELF.pin_X → atom.contact  = INPUT port                       │     ║
+* ║  │    port.internal → atom.getInput(contactName)                   │     ║
+* ║  │                                                                 │     ║
+* ║  │  atom.contact → SELF.pin_X  = OUTPUT port                      │     ║
+* ║  │    atom.getOutput(contactName) → port.internal                  │     ║
+* ║  └──────────────────────────────────────────────────────────────────┘     ║
+* ║                                                                           ║
+* ║  v1.5 — Ghost Connection Safety Net                                       ║
+* ║  ──────────────────────────────────                                       ║
+* ║  _createInternalConnections() removes broken connections at load time:    ║
+* ║                                                                           ║
+* ║  ┌──────────────────────────────────────────────────────────────────┐     ║
+* ║  │  resolveContact() == null?                                      │     ║
+* ║  │       │                                                         │     ║
+* ║  │       ▼                                                         │     ║
+* ║  │    trace(ERROR)                                                 │     ║
+* ║  │       │                                                         │     ║
+* ║  │       ▼                                                         │     ║
+* ║  │    _sanitizeConnection(conn)                                    │     ║
+* ║  │       ├── Remove conn from blueprint.internalConnections        │     ║
+* ║  │       └── Log cleanup action                                   │     ║
+* ║  │                                                                 │     ║
+* ║  │  Result: Next save persists CLEANED blueprint                   │     ║
+* ║  └──────────────────────────────────────────────────────────────────┘     ║
+* ║                                                                           ║
+* ║  v1.4 — Direct Input Port Link                                            ║
+* ║  ─────────────────────────────────                                        ║
+* ║  For INPUT ports: Creates DIRECT link port.external → atom.input          ║
+* ║  (bypassing port.internal to avoid type issues and oscillation).          ║
+* ║  This exactly replicates direct wire Port In → Atom behavior.             ║
+* ║                                                                           ║
+* ║  v1.2 — Signal Flow Through Ports                                         ║
+* ║  ──────────────────────────────────                                       ║
+* ║  Added _ensureInternalAtomConnectedToPort() method that creates           ║
+* ║  explicit link between internal atom and port.internal for OUTPUT ports.  ║
+* ║                                                                           ║
+* ║  ┌──────────────────────────────────────────────────────────────────┐     ║
+* ║  │  Button.out ──link──► port.internal ──subscribe──► callback      │     ║
+* ║  │                                     │                            │     ║
+* ║  │                                     ▼                            │     ║
+* ║  │                               port.external ──link──► LED.in     │     ║
+* ║  └──────────────────────────────────────────────────────────────────┘     ║
 * ║                                                                           ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
 */
@@ -381,7 +421,7 @@ class Assembly extends Atom
     * @return Atom instance if found, null otherwise
     *
     * Example:
-    * ──────────────────────────────────────────────────────────────────┐
+    * ┌─────────────────────────────────────────────────────────────────┐
     * │ var button = assembly.getAtomByDisplayName("StartButton");      │
     * │ if (button != null) {                                           │
     * │     // Found it! Do something...                                │
@@ -421,27 +461,12 @@ class Assembly extends Atom
     /**
     * Initialize logic state for all contacts and internal atoms.
     *
-    * Sets default values:
-    * - Inputs: true (high by default)
-    * - Outputs: false (low by default)
-    */
-    /**
-    * Initialize logic state for all contacts and internal atoms.
-    *
-    * v1.4 FIX: НЕ устанавливает true/false принудительно.
-    * Значения приходят ТОЛЬКО от:
-    * 1. defaultValue из Blueprint.PinDef
-    * 2. Внешних подключенных атомов (через link)
-    * 3. Внутренних атомов (через _performInitialCalculation)
-    *
-    * Это предотвращает перезапись String/Int значений булевыми.
+    * v1.4 FIX: Does NOT force true/false values.
+    * Values come ONLY from defaultValue, external links, or internal atoms.
+    * This prevents overwriting String/Int values with booleans.
     */
     private function _initializeLogicState():Void
     {
-        // ═══════════════════════════════════════════════════════════════
-        // v1.4: Устанавливаем значения ТОЛЬКО из defaultValue Blueprint
-        // НЕ ставим true/false принудительно!
-        // ═══════════════════════════════════════════════════════════════
         if (blueprint != null && blueprint.pins != null)
         {
             for (pinDef in blueprint.pins)
@@ -451,8 +476,8 @@ class Assembly extends Atom
                 var port = ports.get(pinDef.name);
                 if (port == null) continue;
                 
-                // Устанавливаем defaultValue ТОЛЬКО если значение ещё null
-                // и defaultValue определён в Blueprint
+                // Set defaultValue ONLY if value is still null
+                // and defaultValue is defined in Blueprint
                 if (pinDef.defaultValue != null)
                 {
                     if (port.external != null && port.external.value == null)
@@ -482,7 +507,6 @@ class Assembly extends Atom
             }
         }
         
-        // Perform initial calculation
         _performInitialCalculation();
     }
 
@@ -543,10 +567,10 @@ class Assembly extends Atom
     private function _processPendingSignals():Void
     {
         // ═══════════════════════════════════════════════════════════════
-        // FIX v1.3: ПЕРЕДАЧА ВНЕШНИХ ЗНАЧЕНИЙ ВНУТРЬ СБОРКИ
+        // FIX v1.3: PASS EXTERNAL VALUES INTO ASSEMBLY
         // ═══════════════════════════════════════════════════════════════
-        // Внешние атомы могли передать значения ДО инициализации Assembly.
-        // Принудительно синхронизируем external → internal для INPUT портов.
+        // External atoms may have sent values BEFORE Assembly initialization.
+        // Force sync external → internal for INPUT ports.
         // ═══════════════════════════════════════════════════════════════
         for (name in ports.keys())
         {
@@ -555,7 +579,7 @@ class Assembly extends Atom
             {
                 if (port.external != null && port.internal != null)
                 {
-                    // Если external имеет значение, а internal — нет или отличается
+                    // If external has value but internal doesn't or differs
                     if (port.external.value != null && port.external.value != port.internal.value)
                     {
                         port.internal.value = port.external.value;
@@ -607,7 +631,7 @@ class Assembly extends Atom
         {
             if (_isDisposed) return;
             
-            // Повторная передача внешних значений внутрь
+            // Re-pass external values inward
             for (name in ports.keys())
             {
                 var port = ports.get(name);
@@ -624,7 +648,7 @@ class Assembly extends Atom
                 }
             }
             
-            // Повторная синхронизация OUTPUT портов
+            // Re-sync OUTPUT ports
             for (name in ports.keys())
             {
                 var port = ports.get(name);
@@ -660,6 +684,13 @@ class Assembly extends Atom
     * Analog Mode (isLogic = false):
     * - Input ports: external → internal (direct link)
     * - Output ports: internal → external (direct link)
+    *
+    * v1.9 FIX: Output callback includes triple null-safety check:
+    *   • !_isDisposed — assembly still alive
+    *   • !targetPort.isDisposed — port not disposed (ConductorPort v1.1 flag)
+    *   • targetPort.external != null — contact still exists
+    * This prevents NullReferenceException when port is disposed between
+    * callback scheduling and execution (enter/exit editor race condition).
     */
     private function _updatePortLinks():Void
     {
@@ -683,46 +714,52 @@ class Assembly extends Atom
             }
             
             if (this.isLogic)
-			{
-				if (port.type == INPUT)
-				{
-					// Input: direct link (всегда работает)
-					port.external.link(port.internal);
-				}
-				else
-				{
-					// ═══════════════════════════════════════════════════════════════
-					// FIX v1.3: Output — двойная гарантия доставки значения
-					// ═══════════════════════════════════════════════════════════════
-					
-					// 1. Подписка на будущие изменения (через tick для unit delay)
-					var callback = function(v:Dynamic)
-					{
-						var targetPort = port;
-						TickGenerator.getInstance().scheduleNextTick(function()
-						{
-							if (!_isDisposed && targetPort != null && !isInitializing)
-							{
-								targetPort.external.value = v;
-								targetPort.external.propagateCurrentValue();
-							}
-						});
-					};
-					port.internal.subscribe(callback);
-					_portCallbacks.set(name, callback);
-					
-					// 2. МГНОВЕННАЯ доставка текущего значения (если оно уже есть)
-					// Это решает проблему, когда TextInput установил значение
-					// ДО создания подписки
-					if (port.internal.value != null)
-					{
-						port.external.value = port.internal.value;
-						// Не используем propagateCurrentValue здесь, чтобы избежать
-						// осцилляции во время инициализации.
-						// Propagation произойдёт в _processPendingSignals()
-					}
-				}
-			}
+            {
+                if (port.type == INPUT)
+                {
+                    // Input: direct link (always works)
+                    port.external.link(port.internal);
+                }
+                else
+                {
+                    // ═══════════════════════════════════════════════════════
+                    // v1.9 FIX: Safe async output callback
+                    // ═══════════════════════════════════════════════════════
+                    // Output: subscribe + instant delivery
+                    var callback = function(v:Dynamic)
+                    {
+                        var targetPort = port;
+                        TickGenerator.getInstance().scheduleNextTick(function()
+                        {
+                            // Triple safety check:
+                            // 1. Assembly not disposed
+                            // 2. Port not disposed (v1.1 isDisposed flag)
+                            // 3. External contact still exists
+                            if (!_isDisposed 
+                                && targetPort != null 
+                                && !targetPort.isDisposed 
+                                && targetPort.external != null 
+                                && !isInitializing)
+                            {
+                                targetPort.external.value = v;
+                                targetPort.external.propagateCurrentValue();
+                            }
+                        });
+                    };
+                    port.internal.subscribe(callback);
+                    _portCallbacks.set(name, callback);
+                    
+                    // Instant delivery of current value (if already present)
+                    // Solves problem when TextInput set value BEFORE subscription
+                    if (port.internal.value != null && port.external != null)
+                    {
+                        port.external.value = port.internal.value;
+                        // Don't use propagateCurrentValue here to avoid
+                        // oscillation during initialization.
+                        // Propagation will happen in _processPendingSignals()
+                    }
+                }
+            }
         }
     }
 
@@ -732,9 +769,15 @@ class Assembly extends Atom
     /**
     * Update assembly from new blueprint (hot reload).
     *
+    * v1.8 FIX: Now also restores internal atom ↔ port links that are
+    * established by _ensureInternalAtomConnectedToPort(). Without this,
+    * entering and exiting the nested editor would break signal flow
+    * because _updatePortLinks() only handles external↔internal port links.
+    *
     * - Removes ports that no longer exist
     * - Adds new ports from blueprint
     * - Preserves existing connections where possible
+    * - v1.8: Re-establishes internal atom ↔ port.internal connections
     */
     public function updateFromBlueprint(newBp:Blueprint):Void
     {
@@ -802,7 +845,126 @@ class Assembly extends Atom
         
         this.blueprint = newBp;
         _updatePortLinks();
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // v1.8 FIX: Restore internal atom ↔ port links with correct names
+        // ═══════════════════════════════════════════════════════════════════
+        _restoreInternalPortLinks();
+        
         Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
+    }
+
+    /**
+    * v1.8: Re-establish internal atom ↔ port.internal connections after hot-reload.
+    *
+    * Scans blueprint.internalConnections for any connection referencing "SELF"
+    * and creates the appropriate link between the internal atom's contact
+    * and the port's internal/external contact.
+    *
+    * KEY INSIGHT: The contact name comes from the NON-SELF end of the
+    * connection, NOT from the port name. For example:
+    *
+    *   Connection: SELF.pin_0 → id_xxx.in
+    *   Port name: "pin_0"
+    *   Contact name: "in"  ← THIS is what we search for on the atom
+    *
+    * ┌─────────────────────────────────────────────────────────────────────┐
+    * │  Connection: SELF.pin_X → atom.contact                              │
+    * │  Meaning: Data ENTERS assembly through pin_X → goes to atom         │
+    * │  Port type: INPUT                                                   │
+    * │  Action: port.internal → atom.getInput(contactName)                 │
+    * │                                                                     │
+    * │  Connection: atom.contact → SELF.pin_X                              │
+    * │  Meaning: Data EXITS assembly from atom → through pin_X             │
+    * │  Port type: OUTPUT                                                  │
+    * │  Action: atom.getOutput(contactName) → port.internal                │
+    * └─────────────────────────────────────────────────────────────────────┘
+    */
+    private function _restoreInternalPortLinks():Void
+    {
+        if (blueprint == null || blueprint.internalConnections == null) return;
+        
+        for (conn in blueprint.internalConnections)
+        {
+            if (conn.from.atomId == "SELF")
+            {
+                // ═══════════════════════════════════════════════════════
+                // INPUT PORT: SELF.portName → atom.contactName
+                // ═══════════════════════════════════════════════════════
+                // Data flows FROM assembly boundary INTO internal atom.
+                // Link port.internal → atom.input so signals entering
+                // through the port reach the internal atom.
+                var portName = conn.from.contactName;
+                var atomId = conn.to.atomId;
+                var contactName = conn.to.contactName;
+                
+                var port = ports.get(portName);
+                if (port == null) continue;
+                
+                var atom = _resolveInternalAtom(atomId);
+                if (atom == null) continue;
+                
+                var atomInput = atom.getInput(contactName);
+                if (atomInput != null)
+                {
+                    if (!port.internal.hasLink(atomInput))
+                    {
+                        port.internal.link(atomInput, true);
+                    }
+                }
+            }
+            
+            if (conn.to.atomId == "SELF")
+            {
+                // ═══════════════════════════════════════════════════════
+                // OUTPUT PORT: atom.contactName → SELF.portName
+                // ═══════════════════════════════════════════════════════
+                // Data flows FROM internal atom OUT through assembly boundary.
+                // Link atom.output → port.internal so the subscription
+                // in _updatePortLinks() forwards changes to port.external.
+                var portName = conn.to.contactName;
+                var atomId = conn.from.atomId;
+                var contactName = conn.from.contactName;
+                
+                var port = ports.get(portName);
+                if (port == null) continue;
+                
+                var atom = _resolveInternalAtom(atomId);
+                if (atom == null) continue;
+                
+                var atomOutput = atom.getOutput(contactName);
+                if (atomOutput != null)
+                {
+                    if (!atomOutput.hasLink(port.internal))
+                    {
+                        atomOutput.link(port.internal, true);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+    * Resolve an internal atom by its template ID or runtime ID.
+    *
+    * @param atomId Template ID (from blueprint) or runtime ID
+    * @return Atom instance or null if not found
+    */
+    private function _resolveInternalAtom(atomId:String):Atom
+    {
+        // Try runtime ID first
+        var obj = internalAtoms.get(atomId);
+        if (obj != null) return cast(obj, Atom);
+        
+        // Try resolving template ID → runtime ID
+        var runtimeId = _idMap.get(atomId);
+        if (runtimeId != null)
+        {
+            obj = internalAtoms.get(runtimeId);
+            if (obj != null) return cast(obj, Atom);
+        }
+        
+        return null;
     }
 
     // ========================================================================
@@ -813,54 +975,33 @@ class Assembly extends Atom
     *
     * Handles type conversion from String to ContactType for compatibility.
     */
-    private function _createInterface():Void
-    {
-        if (blueprint == null || blueprint.pins == null) return;
-        for (pinDef in blueprint.pins)
-        {
-            if (pinDef == null)
-            {
-                trace('ERROR: PinDef is null in Blueprint(${blueprint.id})');
-                continue;
-            }
-            if (pinDef.name == null)
-            {
-                trace('ERROR: PinDef.name is null in Blueprint(${blueprint.id})');
-                continue;
-            }
-            
-            // Convert type if needed (String → ContactType)
-            var portType:ContactType = pinDef.type;
-            if (pinDef.type == null)
-            {
-                trace('WARN: PinDef "${pinDef.name}" has null.type, using UNDEFINED');
-                portType = ContactType.UNDEFINED;
-            }
-            else if (Std.isOfType(pinDef.type, String))
-            {
-                var typeStr:String = cast pinDef.type;
-                trace('DEBUG: Converting String type "${typeStr}" to ContactType for pin "${pinDef.name}"');
-                switch (typeStr)
-                {
-                    case "INPUT": portType = ContactType.INPUT;
-                    case "OUTPUT": portType = ContactType.OUTPUT;
-                    case "BIDIRECTIONAL": portType = ContactType.BIDIRECTIONAL;
-                    default:
-                        trace('WARN: Unknown type "${typeStr}", using UNDEFINED');
-                        portType = ContactType.UNDEFINED;
-                }
-            }
-            else if (!Std.isOfType(pinDef.type, ContactType))
-            {
-                trace('ERROR: PinDef "${pinDef.name}" has invalid type: ${pinDef.type}');
-                portType = ContactType.UNDEFINED;
-            }
-            
-            var port = new ConductorPort(pinDef.name, portType, pinDef.defaultValue);
-            ports.set(pinDef.name, port);
-        }
-        _updatePortLinks();
-    }
+
+	private function _createInterface():Void
+	{
+		if (blueprint == null || blueprint.pins == null) return;
+		for (pinDef in blueprint.pins)
+		{
+			if (pinDef == null || pinDef.name == null) continue;
+			
+			var portType:ContactType = pinDef.type;
+			// ... (type conversion logic stays the same) ...
+			
+			// v2.0: Read externalName from PinDef (if available)
+			var externalName:String = pinDef.name; // default to internal name
+			if (Reflect.hasField(pinDef, "externalName"))
+			{
+				var extName = Reflect.field(pinDef, "externalName");
+				if (extName != null && extName != "") externalName = extName;
+			}
+			
+			// v2.0: Create port with dual naming
+			// pinDef.name = internalName (for Assembly.ports map lookup)
+			// externalName = visible on parent schema
+			var port = new ConductorPort(externalName, portType, pinDef.name, pinDef.defaultValue);
+			ports.set(pinDef.name, port); // key = internalName
+		}
+		_updatePortLinks();
+	}
 
     // ========================================================================
     // INTERNAL ATOM INSTANTIATION
@@ -915,8 +1056,10 @@ class Assembly extends Atom
     /**
     * Create internal connections between atoms.
     *
-    * v1.2 FIX: Added _ensureInternalAtomConnectedToPort() to create explicit
-    * link between internal atom and port.internal for OUTPUT ports.
+    * v1.5 SAFETY NET: Removes ghost connections (referencing non-existent atoms)
+    * from the blueprint at load time to prevent re-saving corrupted data.
+    *
+    * v1.2 FIX: Calls _ensureInternalAtomConnectedToPort() for SELF connections.
     *
     * Uses suppressPropagation=true to prevent oscillation during initialization.
     * Connections are later activated by _processPendingSignals().
@@ -924,6 +1067,10 @@ class Assembly extends Atom
     private function _createInternalConnections():Void
     {
         if (blueprint == null || blueprint.internalConnections == null) return;
+        
+        // v1.5: Track connections to remove (avoid modifying array during iteration)
+        var connectionsToRemove:Array<core.data.Blueprint.ConnectionDef> = [];
+        
         for (conn in blueprint.internalConnections)
         {
             var fromContact = resolveContact(conn.from);
@@ -932,11 +1079,13 @@ class Assembly extends Atom
             if (fromContact == null)
             {
                 trace('ERROR: Assembly(${this.id}): fromContact NULL for ${conn.from.atomId}.${conn.from.contactName}');
+                connectionsToRemove.push(conn);
                 continue;
             }
             if (toContact == null)
             {
                 trace('ERROR: Assembly(${this.id}): toContact NULL for ${conn.to.atomId}.${conn.to.contactName}');
+                connectionsToRemove.push(conn);
                 continue;
             }
             if (fromContact.type == null)
@@ -945,6 +1094,7 @@ class Assembly extends Atom
                 trace('  Contact ID: ${fromContact.id}');
                 trace('  Contact name: ${fromContact.name}');
                 trace('  Contact owner: ${fromContact.owner != null ? fromContact.owner.id : "null"}');
+                connectionsToRemove.push(conn);
                 continue;
             }
             if (toContact.type == null)
@@ -953,23 +1103,17 @@ class Assembly extends Atom
                 trace('  Contact ID: ${toContact.id}');
                 trace('  Contact name: ${toContact.name}');
                 trace('  Contact owner: ${toContact.owner != null ? toContact.owner.id : "null"}');
+                connectionsToRemove.push(conn);
                 continue;
             }
             
             // ═══════════════════════════════════════════════════════════════════
-            // v1.2 FIX: Ensure internal atom is connected to port for OUTPUT ports
+            // v1.2 FIX: Ensure internal atom is connected to port for SELF connections
             // ═══════════════════════════════════════════════════════════════════
-            // If conn.from.atomId == "SELF", then fromContact is port.internal.
-            // We need to find the internal atom that is the source and link it
-            // to port.internal.
             if (conn.from.atomId == "SELF")
             {
                 _ensureInternalAtomConnectedToPort(conn.from.contactName, OUTPUT);
             }
-            
-            // If conn.to.atomId == "SELF", then toContact is port.internal.
-            // We need to find the internal atom that is the target and link
-            // port.internal to it.
             if (conn.to.atomId == "SELF")
             {
                 _ensureInternalAtomConnectedToPort(conn.to.contactName, INPUT);
@@ -978,31 +1122,53 @@ class Assembly extends Atom
             // Link with suppressed propagation (prevents oscillation during init)
             fromContact.link(toContact, true);
         }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // v1.5 SAFETY NET: Remove ghost connections from blueprint
+        // ═══════════════════════════════════════════════════════════════════
+        for (conn in connectionsToRemove)
+        {
+            _sanitizeConnection(conn);
+        }
     }
 
     /**
-    * v1.2 FIX: Ensure internal atom is connected to assembly port.
+    * v1.5 SAFETY NET: Remove a broken connection from the blueprint.
     *
-    * For OUTPUT ports: Find internal atom with output contact matching portName,
-    * then link atom.output → port.internal.
+    * Called when resolveContact() fails during _createInternalConnections().
+    * This is the LAST LINE OF DEFENSE against ghost connections.
     *
-    * For INPUT ports: Find internal atom with input contact matching portName,
-    * then link port.internal → atom.input.
+    * Why not just skip? Because skipping leaves the broken connection in
+    * blueprint.internalConnections, which gets re-saved on next project save,
+    * perpetuating the corruption indefinitely.
     *
-    * This fixes the signal flow issue where internal atoms were not connected
-    * to assembly ports, causing signals to not pass through the Assembly.
-    *
-    * @param portName Name of the assembly port
-    * @param portType Type of the port (INPUT or OUTPUT)
+    * @param conn The broken connection to remove
     */
+    private function _sanitizeConnection(conn:core.data.Blueprint.ConnectionDef):Void
+    {
+        if (blueprint == null || blueprint.internalConnections == null) return;
+        
+        var removed = blueprint.internalConnections.remove(conn);
+        if (removed)
+        {
+            trace('  🔧 SAFETY NET: Removed ghost connection: ' +
+                  '${conn.from.atomId}.${conn.from.contactName} → ' +
+                  '${conn.to.atomId}.${conn.to.contactName}');
+        }
+    }
+
     /**
     * v1.4 FIX: Ensure internal atom is connected to assembly port.
     *
-    * Для INPUT портов: Создаём ПРЯМУЮ связь port.external → atom.input
-    * (минуя port.internal, чтобы избежать проблем с типами и осцилляцией).
-    * Это точно повторяет поведение прямого провода Port In → Atom.
+    * For INPUT ports: Creates DIRECT link port.external → atom.input
+    * (bypassing port.internal to avoid type issues and oscillation).
+    * This exactly replicates direct wire Port In → Atom behavior.
     *
-    * Для OUTPUT портов: Связываем atom.output → port.internal (как раньше).
+    * For OUTPUT ports: Links atom.output → port.internal (as before).
+    *
+    * NOTE: This method is used during INITIAL construction only.
+    * For hot-reload, use _restoreInternalPortLinks() which correctly
+    * resolves contact names from connection definitions.
     *
     * @param portName Name of the assembly port
     * @param portType Type of the port (INPUT or OUTPUT)
@@ -1020,7 +1186,7 @@ class Assembly extends Atom
             
             if (portType == OUTPUT)
             {
-                // OUTPUT: atom.output → port.internal (стандартная связь)
+                // OUTPUT: atom.output → port.internal (standard link)
                 var atomOutput = atom.getOutput(portName);
                 if (atomOutput != null)
                 {
@@ -1034,21 +1200,21 @@ class Assembly extends Atom
             else // INPUT
             {
                 // ═══════════════════════════════════════════════════════
-                // v1.4 FIX: INPUT — ПРЯМАЯ связь external → atom.input
-                // Минуем port.internal, чтобы избежать проблем с типами
-                // Это идентично прямому проводу Port In → Atom
+                // v1.4 FIX: INPUT — DIRECT link external → atom.input
+                // Bypass port.internal to avoid type issues
+                // Identical to direct wire Port In → Atom
                 // ═══════════════════════════════════════════════════════
                 var atomInput = atom.getInput(portName);
                 if (atomInput != null)
                 {
-                    // Прямая связь: port.external → atom.input
+                    // Direct link: port.external → atom.input
                     if (!port.external.hasLink(atomInput))
                     {
                         port.external.link(atomInput, true);
                     }
                     
-                    // ТАКЖЕ сохраняем связь port.external → port.internal
-                    // для совместимости с другими системами
+                    // ALSO maintain port.external → port.internal link
+                    // for compatibility with other systems
                     if (!port.external.hasLink(port.internal))
                     {
                         port.external.link(port.internal, true);

@@ -37,7 +37,7 @@ enum ParameterPriority {
  * └─────────────────┴────────────────────────────────────────────┘
  */
 typedef PinDef = {
-    var name:String;
+    var name:String;              // Internal name (wall contact, used as map key)
     var type:ContactType;
     @:optional var defaultValue:Dynamic;
     @:optional var dataType:String;
@@ -45,6 +45,7 @@ typedef PinDef = {
     @:optional var visibleInEditor:Bool;
     @:optional var label:String;
     @:optional var editable:Bool;
+    @:optional var externalName:String;  // v2.0: Name visible on parent schema
 }
 
 /**

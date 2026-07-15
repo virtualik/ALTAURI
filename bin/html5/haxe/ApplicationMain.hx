@@ -20,7 +20,7 @@ class ApplicationMain
 
 		#if (js && html5)
 		#if (munit || (utest && openfl_enable_utest_legacy_mode))
-		lime.system.System.embed("MyApplication", null, 1024, 800);
+		lime.system.System.embed("MyApplication", null, 1280, 800);
 		#end
 		#else
 		create(null);
@@ -35,7 +35,7 @@ class ApplicationMain
 		ManifestResources.init(config);
 		#end
 
-		app.meta["build"] = "136";
+		app.meta["build"] = "144";
 		app.meta["company"] = "ViRTUALiK";
 		app.meta["file"] = "MyApplication";
 		app.meta["name"] = "ALTAURI";
@@ -52,7 +52,7 @@ class ApplicationMain
 			borderless: true,
 			// display: 0,
 			element: null,
-			frameRate: 120,
+			frameRate: 60,
 			#if !web fullscreen: false, #end
 			height: 800,
 			hidden: #if munit true #else false #end,
@@ -61,13 +61,13 @@ class ApplicationMain
 			parameters: {},
 			resizable: true,
 			title: "ALTAURI",
-			width: 1024,
+			width: 1280,
 			x: null,
 			y: null,
 		};
 
 		attributes.context = {
-			antialiasing: 4,
+			antialiasing: 0,
 			background: 16711935,
 			colorDepth: 32,
 			depth: true,
@@ -105,7 +105,7 @@ class ApplicationMain
 		app.window.title = "ALTAURI";
 		#else
 		app.window.context.attributes.background = 16711935;
-		app.window.frameRate = 120;
+		app.window.frameRate = 60;
 		#end
 
 		var preloader = getPreloader();
