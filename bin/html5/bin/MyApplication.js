@@ -912,7 +912,7 @@ ApplicationMain.main = function() {
 };
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
-	app.meta.h["build"] = "144";
+	app.meta.h["build"] = "147";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "MyApplication";
 	app.meta.h["name"] = "ALTAURI";
@@ -4540,19 +4540,30 @@ var core_base_Assembly = function(id,blueprint) {
 			this._isLogic = true;
 		}
 	}
-	if(blueprint.logic == null && blueprint.internalAtoms != null && blueprint.internalAtoms.length > 0) {
+	var hasInternalAtoms = blueprint.internalAtoms != null && blueprint.internalAtoms.length > 0;
+	var hasInternalConns = blueprint.internalConnections != null && blueprint.internalConnections.length > 0;
+	if(hasInternalAtoms) {
 		core_logic_TickGenerator.getInstance().suspend();
 		try {
 			this._createInternalInstances();
-			this._createInternalConnections();
-			this._initializeLogicState();
-			this._updatePortLinks();
 		} catch( _g ) {
 			haxe_NativeStackTrace.lastError = _g;
 			var e = haxe_Exception.caught(_g).unwrap();
-			haxe_Log.trace("ERROR during Assembly(" + id + ") initialization: " + Std.string(e),{ fileName : "src/core/base/Assembly.hx", lineNumber : 283, className : "core.base.Assembly", methodName : "new"});
-			haxe_Log.trace("  Stack: " + haxe_CallStack.toString(haxe_CallStack.exceptionStack()),{ fileName : "src/core/base/Assembly.hx", lineNumber : 284, className : "core.base.Assembly", methodName : "new"});
+			haxe_Log.trace("ERROR during Assembly(" + id + ") internal instances creation: " + Std.string(e),{ fileName : "src/core/base/Assembly.hx", lineNumber : 362, className : "core.base.Assembly", methodName : "new"});
 		}
+	}
+	if(hasInternalConns) {
+		try {
+			this._createInternalConnections();
+		} catch( _g ) {
+			haxe_NativeStackTrace.lastError = _g;
+			var e = haxe_Exception.caught(_g).unwrap();
+			haxe_Log.trace("ERROR during Assembly(" + id + ") internal connections creation: " + Std.string(e),{ fileName : "src/core/base/Assembly.hx", lineNumber : 375, className : "core.base.Assembly", methodName : "new"});
+		}
+	}
+	this._initializeLogicState();
+	this._updatePortLinks();
+	if(hasInternalAtoms) {
 		this.set_isInitializing(false);
 		core_logic_TickGenerator.getInstance().resume();
 		this._processPendingSignals();
@@ -4628,7 +4639,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		}
 		this._isInQuarantine = true;
 		this._quarantineReason = reason;
-		haxe_Log.trace("🚨 ASSEMBLY QUARANTINE: " + this.get_id() + " - " + reason,{ fileName : "src/core/base/Assembly.hx", lineNumber : 179, className : "core.base.Assembly", methodName : "quarantine"});
+		haxe_Log.trace("🚨 ASSEMBLY QUARANTINE: " + this.get_id() + " - " + reason,{ fileName : "src/core/base/Assembly.hx", lineNumber : 255, className : "core.base.Assembly", methodName : "quarantine"});
 		var h = this.ports.h;
 		var name_h = h;
 		var name_keys = Object.keys(h);
@@ -4915,9 +4926,9 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 					}
 				}
 			}
-			haxe_Log.trace("Assembly(" + _gthis.get_id() + "): Final sync wave complete.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 644, className : "core.base.Assembly", methodName : "_processPendingSignals"});
+			haxe_Log.trace("Assembly(" + _gthis.get_id() + "): Final sync wave complete.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 726, className : "core.base.Assembly", methodName : "_processPendingSignals"});
 		});
-		haxe_Log.trace("Assembly(" + this.get_id() + "): Hot Start complete. Signals propagated, atoms unfrozen.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 647, className : "core.base.Assembly", methodName : "_processPendingSignals"});
+		haxe_Log.trace("Assembly(" + this.get_id() + "): Hot Start complete. Signals propagated, atoms unfrozen.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 729, className : "core.base.Assembly", methodName : "_processPendingSignals"});
 	}
 	,_updatePortLinks: function() {
 		var _gthis = this;
@@ -4963,7 +4974,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 							var targetPort = port[0];
 							core_logic_TickGenerator.getInstance().scheduleNextTick((function() {
 								return function() {
-									if(!_gthis._isDisposed && targetPort != null && !_gthis.get_isInitializing()) {
+									if(!_gthis._isDisposed && targetPort != null && !targetPort.isDisposed && targetPort.external != null && !_gthis.get_isInitializing()) {
 										targetPort.external.set_value(v);
 										targetPort.external.propagateCurrentValue();
 									}
@@ -4973,10 +4984,14 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 					})(port);
 					port[0].internal.subscribe(callback);
 					this._portCallbacks.h[name] = callback;
-					if(port[0].internal.get_value() != null) {
+					if(port[0].internal.get_value() != null && port[0].external != null) {
 						port[0].external.set_value(port[0].internal.get_value());
 					}
 				}
+			} else if(port[0].type == core_types_ContactType.INPUT) {
+				port[0].external.link(port[0].internal);
+			} else {
+				port[0].internal.link(port[0].external);
 			}
 		}
 	}
@@ -5063,7 +5078,72 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		}
 		this.blueprint = newBp;
 		this._updatePortLinks();
+		this._restoreInternalPortLinks();
+		this.rebuildInternalConnections();
 		core_logic_Impulsys.quickEmit(core_logic_EventType.ASSEMBLY_PORTS_CHANGED,{ assemblyId : this.get_id()});
+	}
+	,_restoreInternalPortLinks: function() {
+		if(this.blueprint == null || this.blueprint.internalConnections == null) {
+			return;
+		}
+		var _g = 0;
+		var _g1 = this.blueprint.internalConnections;
+		while(_g < _g1.length) {
+			var conn = _g1[_g];
+			++_g;
+			if(conn.from.atomId == "SELF") {
+				var portName = conn.from.contactName;
+				var atomId = conn.to.atomId;
+				var contactName = conn.to.contactName;
+				var port = this.ports.h[portName];
+				if(port == null) {
+					continue;
+				}
+				var atom = this._resolveInternalAtom(atomId);
+				if(atom == null) {
+					continue;
+				}
+				var atomInput = atom.getInput(contactName);
+				if(atomInput != null) {
+					if(!port.internal.hasLink(atomInput)) {
+						port.internal.link(atomInput,true);
+					}
+				}
+			}
+			if(conn.to.atomId == "SELF") {
+				var portName1 = conn.to.contactName;
+				var atomId1 = conn.from.atomId;
+				var contactName1 = conn.from.contactName;
+				var port1 = this.ports.h[portName1];
+				if(port1 == null) {
+					continue;
+				}
+				var atom1 = this._resolveInternalAtom(atomId1);
+				if(atom1 == null) {
+					continue;
+				}
+				var atomOutput = atom1.getOutput(contactName1);
+				if(atomOutput != null) {
+					if(!atomOutput.hasLink(port1.internal)) {
+						atomOutput.link(port1.internal,true);
+					}
+				}
+			}
+		}
+	}
+	,_resolveInternalAtom: function(atomId) {
+		var obj = this.internalAtoms.h[atomId];
+		if(obj != null) {
+			return js_Boot.__cast(obj , core_base_Atom);
+		}
+		var runtimeId = this._idMap.h[atomId];
+		if(runtimeId != null) {
+			obj = this.internalAtoms.h[runtimeId];
+			if(obj != null) {
+				return js_Boot.__cast(obj , core_base_Atom);
+			}
+		}
+		return null;
 	}
 	,_createInterface: function() {
 		if(this.blueprint == null || this.blueprint.pins == null) {
@@ -5074,40 +5154,18 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		while(_g < _g1.length) {
 			var pinDef = _g1[_g];
 			++_g;
-			if(pinDef == null) {
-				haxe_Log.trace("ERROR: PinDef is null in Blueprint(" + this.blueprint.id + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 823, className : "core.base.Assembly", methodName : "_createInterface"});
-				continue;
-			}
-			if(pinDef.name == null) {
-				haxe_Log.trace("ERROR: PinDef.name is null in Blueprint(" + this.blueprint.id + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 828, className : "core.base.Assembly", methodName : "_createInterface"});
+			if(pinDef == null || pinDef.name == null) {
 				continue;
 			}
 			var portType = pinDef.type;
-			if(pinDef.type == null) {
-				haxe_Log.trace("WARN: PinDef \"" + pinDef.name + "\" has null.type, using UNDEFINED",{ fileName : "src/core/base/Assembly.hx", lineNumber : 836, className : "core.base.Assembly", methodName : "_createInterface"});
-				portType = core_types_ContactType.UNDEFINED;
-			} else if(typeof(pinDef.type) == "string") {
-				var typeStr = pinDef.type;
-				haxe_Log.trace("DEBUG: Converting String type \"" + typeStr + "\" to ContactType for pin \"" + pinDef.name + "\"",{ fileName : "src/core/base/Assembly.hx", lineNumber : 842, className : "core.base.Assembly", methodName : "_createInterface"});
-				switch(typeStr) {
-				case "BIDIRECTIONAL":
-					portType = core_types_ContactType.BIDIRECTIONAL;
-					break;
-				case "INPUT":
-					portType = core_types_ContactType.INPUT;
-					break;
-				case "OUTPUT":
-					portType = core_types_ContactType.OUTPUT;
-					break;
-				default:
-					haxe_Log.trace("WARN: Unknown type \"" + typeStr + "\", using UNDEFINED",{ fileName : "src/core/base/Assembly.hx", lineNumber : 849, className : "core.base.Assembly", methodName : "_createInterface"});
-					portType = core_types_ContactType.UNDEFINED;
+			var externalName = pinDef.name;
+			if(Object.prototype.hasOwnProperty.call(pinDef,"externalName")) {
+				var extName = Reflect.field(pinDef,"externalName");
+				if(extName != null && extName != "") {
+					externalName = extName;
 				}
-			} else if(!js_Boot.__instanceof(pinDef.type,core_types_ContactType)) {
-				haxe_Log.trace("ERROR: PinDef \"" + pinDef.name + "\" has invalid type: " + Std.string(pinDef.type),{ fileName : "src/core/base/Assembly.hx", lineNumber : 855, className : "core.base.Assembly", methodName : "_createInterface"});
-				portType = core_types_ContactType.UNDEFINED;
 			}
-			var port = new core_base_ConductorPort(pinDef.name,portType,pinDef.defaultValue);
+			var port = new core_base_ConductorPort(externalName,portType,pinDef.name,pinDef.defaultValue);
 			this.ports.h[pinDef.name] = port;
 		}
 		this._updatePortLinks();
@@ -5122,7 +5180,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 			var atomDef = _g1[_g];
 			++_g;
 			if(atomDef.typeId == this.blueprint.id) {
-				haxe_Log.trace("WARN: Skipped recursive instantiation of " + atomDef.typeId + " inside itself.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 882, className : "core.base.Assembly", methodName : "_createInternalInstances"});
+				haxe_Log.trace("WARN: Skipped recursive instantiation of " + atomDef.typeId + " inside itself.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1089, className : "core.base.Assembly", methodName : "_createInternalInstances"});
 				continue;
 			}
 			var newInstanceID = utils_UID.generate();
@@ -5145,6 +5203,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		if(this.blueprint == null || this.blueprint.internalConnections == null) {
 			return;
 		}
+		var connectionsToRemove = [];
 		var _g = 0;
 		var _g1 = this.blueprint.internalConnections;
 		while(_g < _g1.length) {
@@ -5153,25 +5212,29 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 			var fromContact = this.resolveContact(conn.from);
 			var toContact = this.resolveContact(conn.to);
 			if(fromContact == null) {
-				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): fromContact NULL for " + conn.from.atomId + "." + conn.from.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 934, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): fromContact NULL for " + conn.from.atomId + "." + conn.from.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1147, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				connectionsToRemove.push(conn);
 				continue;
 			}
 			if(toContact == null) {
-				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): toContact NULL for " + conn.to.atomId + "." + conn.to.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 939, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): toContact NULL for " + conn.to.atomId + "." + conn.to.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1153, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				connectionsToRemove.push(conn);
 				continue;
 			}
 			if(fromContact.type == null) {
-				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): fromContact.type is NULL for " + conn.from.atomId + "." + conn.from.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 944, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact ID: " + fromContact.id,{ fileName : "src/core/base/Assembly.hx", lineNumber : 945, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact name: " + fromContact.name,{ fileName : "src/core/base/Assembly.hx", lineNumber : 946, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact owner: " + (fromContact.owner != null ? fromContact.owner.get_id() : "null"),{ fileName : "src/core/base/Assembly.hx", lineNumber : 947, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): fromContact.type is NULL for " + conn.from.atomId + "." + conn.from.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1159, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact ID: " + fromContact.id,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1160, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact name: " + fromContact.name,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1161, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact owner: " + (fromContact.owner != null ? fromContact.owner.get_id() : "null"),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1162, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				connectionsToRemove.push(conn);
 				continue;
 			}
 			if(toContact.type == null) {
-				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): toContact.type is NULL for " + conn.to.atomId + "." + conn.to.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 952, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact ID: " + toContact.id,{ fileName : "src/core/base/Assembly.hx", lineNumber : 953, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact name: " + toContact.name,{ fileName : "src/core/base/Assembly.hx", lineNumber : 954, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact owner: " + (toContact.owner != null ? toContact.owner.get_id() : "null"),{ fileName : "src/core/base/Assembly.hx", lineNumber : 955, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): toContact.type is NULL for " + conn.to.atomId + "." + conn.to.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1168, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact ID: " + toContact.id,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1169, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact name: " + toContact.name,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1170, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact owner: " + (toContact.owner != null ? toContact.owner.get_id() : "null"),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1171, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				connectionsToRemove.push(conn);
 				continue;
 			}
 			if(conn.from.atomId == "SELF") {
@@ -5181,6 +5244,21 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 				this._ensureInternalAtomConnectedToPort(conn.to.contactName,core_types_ContactType.INPUT);
 			}
 			fromContact.link(toContact,true);
+		}
+		var _g = 0;
+		while(_g < connectionsToRemove.length) {
+			var conn = connectionsToRemove[_g];
+			++_g;
+			this._sanitizeConnection(conn);
+		}
+	}
+	,_sanitizeConnection: function(conn) {
+		if(this.blueprint == null || this.blueprint.internalConnections == null) {
+			return;
+		}
+		var removed = HxOverrides.remove(this.blueprint.internalConnections,conn);
+		if(removed) {
+			haxe_Log.trace("  🔧 SAFETY NET: Removed ghost connection: " + ("" + conn.from.atomId + "." + conn.from.contactName + " → ") + ("" + conn.to.atomId + "." + conn.to.contactName),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1224, className : "core.base.Assembly", methodName : "_sanitizeConnection"});
 		}
 	}
 	,_ensureInternalAtomConnectedToPort: function(portName,portType) {
@@ -5211,33 +5289,24 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 					break;
 				}
 			} else {
-				var atomInput = atom.getInput(portName);
-				if(atomInput != null) {
-					if(!port.external.hasLink(atomInput)) {
-						port.external.link(atomInput,true);
-					}
-					if(!port.external.hasLink(port.internal)) {
-						port.external.link(port.internal,true);
-					}
-					break;
-				}
+				break;
 			}
 		}
 	}
 	,resolveContact: function(point) {
 		if(point == null) {
-			haxe_Log.trace("ERROR: resolveContact received null point",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1080, className : "core.base.Assembly", methodName : "resolveContact"});
+			haxe_Log.trace("ERROR: resolveContact received null point",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1300, className : "core.base.Assembly", methodName : "resolveContact"});
 			return null;
 		}
 		if(point.atomId == "SELF") {
 			var port = this.ports.h[point.contactName];
 			if(port == null) {
-				haxe_Log.trace("WARN: Port \"" + point.contactName + "\" not found in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1089, className : "core.base.Assembly", methodName : "resolveContact"});
+				haxe_Log.trace("WARN: Port \"" + point.contactName + "\" not found in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1309, className : "core.base.Assembly", methodName : "resolveContact"});
 				return null;
 			}
 			var contact = port.internal;
 			if(contact == null) {
-				haxe_Log.trace("ERROR: Port \"" + point.contactName + "\" internal contact is null!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1097, className : "core.base.Assembly", methodName : "resolveContact"});
+				haxe_Log.trace("ERROR: Port \"" + point.contactName + "\" internal contact is null!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1317, className : "core.base.Assembly", methodName : "resolveContact"});
 				return null;
 			}
 			return contact;
@@ -5247,7 +5316,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 				if(Object.prototype.hasOwnProperty.call(this.internalAtoms.h,point.atomId)) {
 					realAtomId = point.atomId;
 				} else {
-					haxe_Log.trace("WARN: Atom \"" + point.atomId + "\" not found in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1113, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("WARN: Atom \"" + point.atomId + "\" not found in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1333, className : "core.base.Assembly", methodName : "resolveContact"});
 					var _g = [];
 					var h = this.internalAtoms.h;
 					var k_h = h;
@@ -5258,13 +5327,13 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 						var k = k_keys[k_current++];
 						_g.push(k);
 					}
-					haxe_Log.trace("  Available keys: " + Std.string(_g),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1114, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("  Available keys: " + Std.string(_g),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1334, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 			}
 			var obj = this.internalAtoms.h[realAtomId];
 			if(obj == null) {
-				haxe_Log.trace("WARN: Instance \"" + realAtomId + "\" is null in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1122, className : "core.base.Assembly", methodName : "resolveContact"});
+				haxe_Log.trace("WARN: Instance \"" + realAtomId + "\" is null in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1342, className : "core.base.Assembly", methodName : "resolveContact"});
 				return null;
 			}
 			var atom = obj;
@@ -5272,7 +5341,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 				var asm = js_Boot.__cast(atom , core_base_Assembly);
 				var port = asm.ports.h[point.contactName];
 				if(port == null) {
-					haxe_Log.trace("ERROR: Port \"" + point.contactName + "\" NOT FOUND on Assembly " + atom.name + "(" + realAtomId + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1133, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("ERROR: Port \"" + point.contactName + "\" NOT FOUND on Assembly " + atom.name + "(" + realAtomId + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1353, className : "core.base.Assembly", methodName : "resolveContact"});
 					var _g = [];
 					var h = asm.ports.h;
 					var k_h = h;
@@ -5283,18 +5352,18 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 						var k = k_keys[k_current++];
 						_g.push(k);
 					}
-					haxe_Log.trace("  Available ports: " + Std.string(_g),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1134, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("  Available ports: " + Std.string(_g),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1354, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 				var contact = port.external;
 				if(contact == null) {
-					haxe_Log.trace("ERROR: External contact from port \"" + point.contactName + "\" is null!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1142, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("ERROR: External contact from port \"" + point.contactName + "\" is null!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1362, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 				if(contact.type == null) {
-					haxe_Log.trace("ERROR: Contact \"" + point.contactName + "\" has NULL type!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1147, className : "core.base.Assembly", methodName : "resolveContact"});
-					haxe_Log.trace("  Port type: " + Std.string(port.type),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1148, className : "core.base.Assembly", methodName : "resolveContact"});
-					haxe_Log.trace("  Atom: " + atom.name + " (" + atom.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1149, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("ERROR: Contact \"" + point.contactName + "\" has NULL type!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1367, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("  Port type: " + Std.string(port.type),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1368, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("  Atom: " + atom.name + " (" + atom.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1369, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 				return contact;
@@ -5304,11 +5373,11 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 					c = atom.getOutput(point.contactName);
 				}
 				if(c == null) {
-					haxe_Log.trace("WARN: Contact \"" + point.contactName + "\" not found on atom " + atom.name + "(" + realAtomId + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1161, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("WARN: Contact \"" + point.contactName + "\" not found on atom " + atom.name + "(" + realAtomId + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1381, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 				if(c.type == null) {
-					haxe_Log.trace("ERROR: Contact \"" + point.contactName + "\" on " + atom.name + " has null.type!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1166, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("ERROR: Contact \"" + point.contactName + "\" on " + atom.name + " has null.type!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1386, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 				return c;
@@ -5352,11 +5421,11 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		}
 		var max = type == core_types_ContactType.INPUT ? 20 : 20;
 		if(currentCount >= max) {
-			haxe_Log.trace("ERROR: Max ports limit reached for type " + Std.string(type),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1205, className : "core.base.Assembly", methodName : "addPort"});
+			haxe_Log.trace("ERROR: Max ports limit reached for type " + Std.string(type),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1425, className : "core.base.Assembly", methodName : "addPort"});
 			return null;
 		}
 		if(Object.prototype.hasOwnProperty.call(this.ports.h,name)) {
-			haxe_Log.trace("ERROR: Port name \"" + name + "\" already exists",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1210, className : "core.base.Assembly", methodName : "addPort"});
+			haxe_Log.trace("ERROR: Port name \"" + name + "\" already exists",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1430, className : "core.base.Assembly", methodName : "addPort"});
 			return null;
 		}
 		var pinDef = { name : name, type : type, defaultValue : defaultValue};
@@ -5374,6 +5443,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 			port.external.owner = this;
 		}
 		this._updatePortLinks();
+		this.rebuildInternalConnections();
 		core_logic_Impulsys.quickEmit(core_logic_EventType.ASSEMBLY_PORTS_CHANGED,{ assemblyId : this.get_id()});
 		return port;
 	}
@@ -5411,7 +5481,49 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		if(Object.prototype.hasOwnProperty.call(_this.h,name)) {
 			delete(_this.h[name]);
 		}
+		this.rebuildInternalConnections();
 		core_logic_Impulsys.quickEmit(core_logic_EventType.ASSEMBLY_PORTS_CHANGED,{ assemblyId : this.get_id()});
+		core_logic_Impulsys.quickEmit(core_logic_EventType.PORT_REMOVED,{ assemblyId : this.get_id(), portName : name});
+	}
+	,rebuildInternalConnections: function() {
+		var portInternals = [];
+		var h = this.ports.h;
+		var port_h = h;
+		var port_keys = Object.keys(h);
+		var port_length = port_keys.length;
+		var port_current = 0;
+		while(port_current < port_length) {
+			var port = port_h[port_keys[port_current++]];
+			if(port != null && port.internal != null && !port.internal.isDisposed) {
+				portInternals.push(port.internal);
+			}
+		}
+		var _g = 0;
+		var _g1 = portInternals.length;
+		while(_g < _g1) {
+			var i = _g++;
+			var contactA = portInternals[i];
+			if(contactA == null || contactA.isDisposed) {
+				continue;
+			}
+			var _g2 = 0;
+			var _g3 = portInternals.length;
+			while(_g2 < _g3) {
+				var j = _g2++;
+				if(i == j) {
+					continue;
+				}
+				var contactB = portInternals[j];
+				if(contactB == null || contactB.isDisposed) {
+					continue;
+				}
+				if(contactA.hasLink(contactB)) {
+					contactA.unlink(contactB);
+				}
+			}
+		}
+		this._createInternalConnections();
+		this._updatePortLinks();
 	}
 	,getPersistentState: function() {
 		var states = { };
@@ -5427,7 +5539,8 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 				if(atom != null) {
 					var state = atom.getPersistentState();
 					if(state != null) {
-						states[runtimeId] = state;
+						var templateId = this.getTemplateId(runtimeId);
+						states[templateId] = state;
 					}
 				}
 			}
@@ -5473,10 +5586,11 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 			var runtimeId_current = 0;
 			while(runtimeId_current < runtimeId_length) {
 				var runtimeId = runtimeId_keys[runtimeId_current++];
-				if(Object.prototype.hasOwnProperty.call(states,runtimeId)) {
+				var templateId = this.getTemplateId(runtimeId);
+				if(Object.prototype.hasOwnProperty.call(states,templateId)) {
 					var atom = this.internalAtoms.h[runtimeId];
 					if(atom != null) {
-						var atomState = Reflect.field(states,runtimeId);
+						var atomState = Reflect.field(states,templateId);
 						atom.restoreState(atomState);
 					}
 				}
@@ -5507,7 +5621,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 					} catch( _g1 ) {
 						haxe_NativeStackTrace.lastError = _g1;
 						var e = haxe_Exception.caught(_g1).unwrap();
-						haxe_Log.trace("Error: " + Std.string(e),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1372, className : "core.base.Assembly", methodName : "dispose"});
+						haxe_Log.trace("Error: " + Std.string(e),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1692, className : "core.base.Assembly", methodName : "dispose"});
 					}
 				}
 			}
@@ -5737,12 +5851,15 @@ core_base_AssemblyFactory.isComposite = function(typeId) {
 		return false;
 	}
 };
-var core_base_ConductorPort = function(name,type,defaultValue) {
-	this.name = name;
+var core_base_ConductorPort = function(externalName,type,internalName,defaultValue) {
+	this.isDisposed = false;
+	this.externalName = externalName;
+	this.internalName = internalName != null ? internalName : externalName;
 	this.type = type;
 	this.defaultValue = defaultValue;
-	this.internal = new core_base_Contact(defaultValue,type,name);
-	this.external = new core_base_Contact(defaultValue,type,name);
+	this.name = this.internalName;
+	this.internal = new core_base_Contact(defaultValue,type,this.internalName);
+	this.external = new core_base_Contact(defaultValue,type,this.externalName);
 };
 $hxClasses["core.base.ConductorPort"] = core_base_ConductorPort;
 core_base_ConductorPort.__name__ = "core.base.ConductorPort";
@@ -5751,11 +5868,18 @@ core_base_ConductorPort.prototype = {
 		if(suppressPropagation == null) {
 			suppressPropagation = false;
 		}
+		if(this.isDisposed) {
+			return;
+		}
 		if(this.type == core_types_ContactType.INPUT || this.type == core_types_ContactType.BIDIRECTIONAL) {
-			this.external.link(this.internal,suppressPropagation);
+			if(this.external != null && this.internal != null) {
+				this.external.link(this.internal,suppressPropagation);
+			}
 		}
 		if(this.type == core_types_ContactType.OUTPUT || this.type == core_types_ContactType.BIDIRECTIONAL) {
-			this.internal.link(this.external,suppressPropagation);
+			if(this.internal != null && this.external != null) {
+				this.internal.link(this.external,suppressPropagation);
+			}
 		}
 	}
 	,unlink: function() {
@@ -5765,6 +5889,10 @@ core_base_ConductorPort.prototype = {
 		}
 	}
 	,dispose: function() {
+		if(this.isDisposed) {
+			return;
+		}
+		this.isDisposed = true;
 		if(this.internal != null) {
 			this.internal.dispose();
 		}
@@ -5775,6 +5903,8 @@ core_base_ConductorPort.prototype = {
 		this.external = null;
 		this.name = null;
 		this.type = null;
+		this.externalName = null;
+		this.internalName = null;
 	}
 	,__class__: core_base_ConductorPort
 };
@@ -6030,6 +6160,13 @@ core_base_Contact.prototype = {
 			return this.linkedTargets.length;
 		} else {
 			return 0;
+		}
+	}
+	,getLinkedTargets: function() {
+		if(this.linkedTargets != null) {
+			return this.linkedTargets.slice();
+		} else {
+			return [];
 		}
 	}
 	,dispose: function() {
@@ -7207,10 +7344,10 @@ core_view_DeviceWidgetFactory.isSupported = function(atomType) {
 	}
 };
 var core_view_FFTWidget = function(atom) {
+	this._peakFallSpeed = 0.03;
 	this._smoothingFactor = 0.9;
 	this._isRendering = false;
 	this._hasNewFrame = false;
-	this._targetBars = 16;
 	this._colorRed = 13378082;
 	this._colorYellow = 13412864;
 	this._colorGreen = 52292;
@@ -7283,12 +7420,21 @@ core_view_FFTWidget.prototype = $extend(core_view_DeviceView.prototype,{
 		var fftSize = this._fftAtom.getFFTSize();
 		var binCount = spectrumDB.length;
 		var freqResolution = sampleRate / fftSize;
-		var minFreq = 2000.0;
-		var maxFreq = sampleRate / 2.7;
+		var numBars = this._fftAtom.getTargetBars();
+		var minFreq = this._fftAtom.getMinFreq();
+		var maxFreq = this._fftAtom.getMaxFreq();
+		var minDB = this._fftAtom.getMinDB();
+		var maxDB = this._fftAtom.getMaxDB();
+		var compressionExponent = this._fftAtom.getCompressionExponent();
+		var noiseGate = this._fftAtom.getNoiseGate();
+		var gain = this._fftAtom.getGain();
+		var mode = this._fftAtom.getMode();
 		if(minFreq <= 0) {
 			minFreq = 1.0;
 		}
-		var numBars = this._targetBars;
+		if(maxFreq <= minFreq) {
+			maxFreq = sampleRate / 2.0;
+		}
 		var barWidth = this.widgetWidth / numBars;
 		var maxHeight = this.widgetHeight;
 		if(this._previousBarHeights == null || this._previousBarHeights.length != numBars) {
@@ -7298,6 +7444,15 @@ core_view_FFTWidget.prototype = $extend(core_view_DeviceView.prototype,{
 			while(_g < _g1) {
 				var i = _g++;
 				this._previousBarHeights.push(0);
+			}
+		}
+		if(this._peakHeights == null || this._peakHeights.length != numBars) {
+			this._peakHeights = [];
+			var _g = 0;
+			var _g1 = numBars;
+			while(_g < _g1) {
+				var i = _g++;
+				this._peakHeights.push(0);
 			}
 		}
 		this.get_graphics().clear();
@@ -7337,35 +7492,53 @@ core_view_FFTWidget.prototype = $extend(core_view_DeviceView.prototype,{
 			if(binStart > binEnd) {
 				binEnd = binStart;
 			}
-			var maxDB = -50.0;
+			var maxDBVal = minDB;
 			var _g2 = binStart;
 			var _g3 = binEnd + 1;
 			while(_g2 < _g3) {
 				var b = _g2++;
-				if(spectrumDB[b] > maxDB) {
-					maxDB = spectrumDB[b];
+				if(spectrumDB[b] > maxDBVal) {
+					maxDBVal = spectrumDB[b];
 				}
 			}
-			var minDB = -10.0;
-			var normalized = (maxDB - minDB) / (0.0 - minDB);
+			maxDBVal += gain * 20.0;
+			var range = maxDB - minDB;
+			if(range <= 0) {
+				range = 1.0;
+			}
+			var normalized = (maxDBVal - minDB) / range;
 			if(normalized < 0) {
 				normalized = 0;
 			}
 			if(normalized > 1) {
 				normalized = 1;
 			}
-			var compressed = Math.pow(normalized,0.9);
-			var noiseGate = 0.03;
+			if(normalized > 1.0) {
+				normalized = 1.0;
+			}
+			var compressed = Math.pow(normalized,compressionExponent);
 			if(compressed < noiseGate) {
 				compressed = 0;
 			}
 			var targetHeight = compressed * maxHeight;
 			var smoothedHeight = this._previousBarHeights[i] * this._smoothingFactor + targetHeight * (1.0 - this._smoothingFactor);
 			currentBarHeights.push(smoothedHeight);
+			var currentPeak = this._peakHeights[i];
+			if(smoothedHeight > currentPeak) {
+				currentPeak = smoothedHeight;
+			} else {
+				currentPeak -= this._peakFallSpeed * maxHeight;
+				if(currentPeak < 0) {
+					currentPeak = 0;
+				}
+			}
+			this._peakHeights[i] = currentPeak;
 			var barHeight = smoothedHeight;
 			var x = i * barWidth;
 			var y = maxHeight - barHeight;
-			if(barHeight > 0.5) {
+			if(mode == 1) {
+				this.drawBrickBar(x,barWidth,maxHeight,barHeight,currentPeak);
+			} else if(barHeight > 0.5) {
 				var color = this.getColorForLevel(normalized);
 				this.get_graphics().beginFill(color);
 				this.get_graphics().drawRect(x + 1,y,barWidth - 2,barHeight);
@@ -7374,6 +7547,43 @@ core_view_FFTWidget.prototype = $extend(core_view_DeviceView.prototype,{
 		}
 		this._previousBarHeights = currentBarHeights;
 		this._isRendering = false;
+	}
+	,drawBrickBar: function(x,barWidth,maxHeight,height,peakHeight) {
+		var brickHeight = 4.0;
+		var gap = 1.0;
+		var step = brickHeight + gap;
+		var numBricks = maxHeight / step | 0;
+		var targetBricks = height / step | 0;
+		var peakBrick = peakHeight / step | 0;
+		var bWidth = barWidth - 2;
+		if(bWidth <= 0) {
+			bWidth = 1;
+		}
+		var brickX = x + 1;
+		var _g = 0;
+		var _g1 = numBricks;
+		while(_g < _g1) {
+			var i = _g++;
+			var brickY = maxHeight - (i + 1) * step;
+			if(i < targetBricks) {
+				var pct = (i + 1) / numBricks;
+				var color;
+				if(pct <= 0.60) {
+					color = this._colorGreen;
+				} else if(pct <= 0.80) {
+					color = this._colorYellow;
+				} else {
+					color = this._colorRed;
+				}
+				this.get_graphics().beginFill(color);
+				this.get_graphics().drawRect(brickX,brickY,bWidth,brickHeight);
+				this.get_graphics().endFill();
+			} else if(i == peakBrick && peakBrick >= targetBricks) {
+				this.get_graphics().beginFill(16777215);
+				this.get_graphics().drawRect(brickX,brickY,bWidth,brickHeight);
+				this.get_graphics().endFill();
+			}
+		}
 	}
 	,getColorForLevel: function(level) {
 		if(level >= 0.85) {
@@ -9987,6 +10197,7 @@ var editor_EditorContext = function(layer) {
 	this._layer = layer;
 	this._stack = [];
 	this._theme = editor_EditorTheme.getInstance();
+	this._cameraStates = new haxe_ds_StringMap();
 };
 $hxClasses["editor.EditorContext"] = editor_EditorContext;
 editor_EditorContext.__name__ = "editor.EditorContext";
@@ -9995,8 +10206,10 @@ editor_EditorContext.prototype = {
 		if(isRoot == null) {
 			isRoot = false;
 		}
+		var parentState = null;
 		if(!isRoot && this._stack.length > 0) {
 			var top = this._stack[this._stack.length - 1];
+			parentState = top.editor.getViewState();
 			var blocker = new openfl_display_Sprite();
 			blocker.get_graphics().beginFill(8421504,0.6);
 			blocker.get_graphics().drawRect(0,0,this._layer.stage.stageWidth,this._layer.stage.stageHeight);
@@ -10015,10 +10228,25 @@ editor_EditorContext.prototype = {
 		var editor = new editor_NodeEditor(assembly);
 		editor.setSize(container.get_width(),container.get_height());
 		container.addChild(editor);
-		var entry = { assembly : assembly, editor : editor, blocker : null, container : container};
+		editor.forceFullRedraw();
+		haxe_Timer.delay(function() {
+			if(editor != null && !editor.isDisposed) {
+				editor.forceFullRedraw();
+			}
+		},100);
+		var entry = { assembly : assembly, editor : editor, blocker : null, container : container, parentCameraState : parentState};
 		this._stack.push(entry);
 		this.currentEditor = editor;
 		this.currentAssembly = assembly;
+		var bpId = assembly.blueprint.id;
+		if(Object.prototype.hasOwnProperty.call(this._cameraStates.h,bpId)) {
+			var state = this._cameraStates.h[bpId];
+			editor.setViewState(state);
+			haxe_Log.trace("EditorContext: Restored camera state for \"" + bpId + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 168, className : "editor.EditorContext", methodName : "push"});
+		} else {
+			editor.centerOnContent();
+			haxe_Log.trace("EditorContext: Auto-centered on \"" + bpId + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 174, className : "editor.EditorContext", methodName : "push"});
+		}
 	}
 	,pop: function(updateInstances) {
 		if(updateInstances == null) {
@@ -10029,6 +10257,9 @@ editor_EditorContext.prototype = {
 		}
 		var current = this._stack.pop();
 		var editedId = current.assembly.blueprint.id;
+		var currentState = current.editor.getViewState();
+		this._cameraStates.h[editedId] = currentState;
+		haxe_Log.trace("EditorContext: Saved camera state for \"" + editedId + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 193, className : "editor.EditorContext", methodName : "pop"});
 		current.editor.dispose();
 		if(this._layer.contains(current.container)) {
 			this._layer.removeChild(current.container);
@@ -10044,6 +10275,16 @@ editor_EditorContext.prototype = {
 		prev.editor.mouseChildren = true;
 		this.currentEditor = prev.editor;
 		this.currentAssembly = prev.assembly;
+		prev.editor.forceFullRedraw();
+		haxe_Timer.delay(function() {
+			if(prev.editor != null && !prev.editor.isDisposed) {
+				prev.editor.forceFullRedraw();
+			}
+		},50);
+		if(current.parentCameraState != null) {
+			this.currentEditor.setViewState(current.parentCameraState);
+			haxe_Log.trace("EditorContext: Restored parent camera state",{ fileName : "src/editor/EditorContext.hx", lineNumber : 228, className : "editor.EditorContext", methodName : "pop"});
+		}
 		if(updateInstances) {
 			this.updateInstancesOf(editedId);
 		}
@@ -10083,9 +10324,13 @@ editor_EditorContext.prototype = {
 		}
 		this.currentEditor = null;
 		this.currentAssembly = null;
+		this._cameraStates.h = Object.create(null);
 	}
 	,getStackLength: function() {
 		return this._stack.length;
+	}
+	,getStackEntries: function() {
+		return this._stack.slice();
 	}
 	,drawContainerFrame: function(container) {
 		var margin = 12;
@@ -10269,6 +10514,7 @@ editor_GroupSelectionManager.prototype = {
 	,__class__: editor_GroupSelectionManager
 };
 var editor_NodeEditor = function(assembly) {
+	this.isDisposed = false;
 	this._lastVisibilityUpdate = 0;
 	this._forcedHeight = 0;
 	this._forcedWidth = 0;
@@ -10357,6 +10603,13 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 			_gthis._selection.setWires(ids);
 			_gthis._wireRenderer.rebuildAll();
 		});
+		this._wireRenderer.rebuildAll();
+		this.updateVisibility();
+		haxe_Timer.delay(function() {
+			if(!_gthis.isDisposed) {
+				_gthis.forceFullRedraw();
+			}
+		},10);
 	}
 	,onResize: function(e) {
 		if(this._forcedWidth == 0 && this._forcedHeight == 0) {
@@ -10485,6 +10738,9 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._wireRenderer.rebuildAll();
 	}
 	,forceFullRedraw: function() {
+		if(this.isDisposed) {
+			return;
+		}
 		this._lastVisibilityUpdate = 0;
 		var h = this._nodes.h;
 		var view_h = h;
@@ -10501,6 +10757,10 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._wireRenderer.rebuildAll();
 		this.updateVisibility();
 		this._wireRenderer.updateEdgeWires();
+		this.drawFrame();
+		if(this.stage != null) {
+			this.stage.invalidate();
+		}
 	}
 	,restoreAllWidgets: function() {
 		var h = this._nodes.h;
@@ -10784,6 +11044,163 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		var h = this._forcedHeight > 0 ? this._forcedHeight : this.stage != null ? this.stage.stageHeight : 600;
 		this._viewport.updateVisibility(new haxe_ds__$StringMap_StringMapValueIterator(this._nodes.h),w,h);
 	}
+	,centerOnContent: function() {
+		var minX = 0;
+		var minY = 0;
+		var maxX = 0;
+		var maxY = 0;
+		var hasNodes = false;
+		var h = this._nodes.h;
+		var view_h = h;
+		var view_keys = Object.keys(h);
+		var view_length = view_keys.length;
+		var view_current = 0;
+		while(view_current < view_length) {
+			var view = view_h[view_keys[view_current++]];
+			if(view == null) {
+				continue;
+			}
+			var size = view.getNodeSize();
+			var x = view.get_x();
+			var y = view.get_y();
+			var nodeMinX = x;
+			var nodeMinY = y;
+			var nodeMaxX = x + size.width;
+			var nodeMaxY = y + size.height;
+			var h = view.inputPorts.h;
+			var port_h = h;
+			var port_keys = Object.keys(h);
+			var port_length = port_keys.length;
+			var port_current = 0;
+			while(port_current < port_length) {
+				var port = port_h[port_keys[port_current++]];
+				if(port == null) {
+					continue;
+				}
+				var globalPos = port.localToGlobal(new openfl_geom_Point(0,0));
+				var localPos = this._canvas.globalToLocal(globalPos);
+				if(localPos.x < nodeMinX) {
+					nodeMinX = localPos.x;
+				}
+				if(localPos.y < nodeMinY) {
+					nodeMinY = localPos.y;
+				}
+				if(localPos.x > nodeMaxX) {
+					nodeMaxX = localPos.x;
+				}
+				if(localPos.y > nodeMaxY) {
+					nodeMaxY = localPos.y;
+				}
+			}
+			var h1 = view.outputPorts.h;
+			var port_h1 = h1;
+			var port_keys1 = Object.keys(h1);
+			var port_length1 = port_keys1.length;
+			var port_current1 = 0;
+			while(port_current1 < port_length1) {
+				var port1 = port_h1[port_keys1[port_current1++]];
+				if(port1 == null) {
+					continue;
+				}
+				var globalPos1 = port1.localToGlobal(new openfl_geom_Point(0,0));
+				var localPos1 = this._canvas.globalToLocal(globalPos1);
+				if(localPos1.x < nodeMinX) {
+					nodeMinX = localPos1.x;
+				}
+				if(localPos1.y < nodeMinY) {
+					nodeMinY = localPos1.y;
+				}
+				if(localPos1.x > nodeMaxX) {
+					nodeMaxX = localPos1.x;
+				}
+				if(localPos1.y > nodeMaxY) {
+					nodeMaxY = localPos1.y;
+				}
+			}
+			if(!hasNodes) {
+				minX = nodeMinX;
+				minY = nodeMinY;
+				maxX = nodeMaxX;
+				maxY = nodeMaxY;
+				hasNodes = true;
+			} else {
+				if(nodeMinX < minX) {
+					minX = nodeMinX;
+				}
+				if(nodeMinY < minY) {
+					minY = nodeMinY;
+				}
+				if(nodeMaxX > maxX) {
+					maxX = nodeMaxX;
+				}
+				if(nodeMaxY > maxY) {
+					maxY = nodeMaxY;
+				}
+			}
+		}
+		if(this._frame != null) {
+			var frameBounds = this._frame.getBounds(this._canvas);
+			if(frameBounds != null && frameBounds.width > 0 && frameBounds.height > 0) {
+				if(!hasNodes) {
+					minX = frameBounds.x;
+					minY = frameBounds.y;
+					maxX = frameBounds.x + frameBounds.width;
+					maxY = frameBounds.y + frameBounds.height;
+					hasNodes = true;
+				} else {
+					if(frameBounds.x < minX) {
+						minX = frameBounds.x;
+					}
+					if(frameBounds.y < minY) {
+						minY = frameBounds.y;
+					}
+					if(frameBounds.x + frameBounds.width > maxX) {
+						maxX = frameBounds.x + frameBounds.width;
+					}
+					if(frameBounds.y + frameBounds.height > maxY) {
+						maxY = frameBounds.y + frameBounds.height;
+					}
+				}
+			}
+		}
+		if(!hasNodes) {
+			this._viewport.setViewState({ x : 0, y : 0, zoom : 1.0});
+			return;
+		}
+		var margin = 50.0;
+		var viewWidth = this._forcedWidth > 0 ? this._forcedWidth : this.stage != null ? this.stage.stageWidth : 1024;
+		var viewHeight = this._forcedHeight > 0 ? this._forcedHeight : this.stage != null ? this.stage.stageHeight : 600;
+		var marginX = Math.max(margin,viewWidth * 0.1);
+		var marginY = Math.max(margin,viewHeight * 0.1);
+		var contentWidth = maxX - minX;
+		var contentHeight = maxY - minY;
+		if(contentWidth < 1) {
+			contentWidth = 1;
+		}
+		if(contentHeight < 1) {
+			contentHeight = 1;
+		}
+		var zoomX = (viewWidth - marginX * 2) / contentWidth;
+		var zoomY = (viewHeight - marginY * 2) / contentHeight;
+		var zoom = Math.min(zoomX,zoomY);
+		if(zoom < 0.1) {
+			zoom = 0.1;
+		}
+		if(zoom > 3.0) {
+			zoom = 3.0;
+		}
+		var centerX = (minX + maxX) / 2;
+		var centerY = (minY + maxY) / 2;
+		var targetX = (viewWidth / 2 - centerX) * zoom;
+		var targetY = (viewHeight / 2 - centerY) * zoom;
+		this._canvas.set_scaleX(zoom);
+		this._canvas.set_scaleY(zoom);
+		this._canvas.set_x(targetX);
+		this._canvas.set_y(targetY);
+		this._wireRenderer.rebuildAll();
+		this.updateVisibility();
+		haxe_Log.trace("NodeEditor: Auto-centered on content (zoom=" + zoom + ")",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 1014, className : "editor.NodeEditor", methodName : "centerOnContent"});
+	}
 	,deleteSelectedNodes: function() {
 		var ids = this._selection.getSelectedNodeIds();
 		this._actions.deleteAtoms(ids);
@@ -10944,6 +11361,10 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 	}
 	,dispose: function() {
 		var _gthis = this;
+		if(this.isDisposed) {
+			return;
+		}
+		this.isDisposed = true;
 		if(this.stage != null) {
 			this.stage.removeEventListener("resize",$bind(this,this.onResize));
 			this.stage.removeEventListener("mouseMove",$bind(this,this.onMouseMove));
@@ -11924,11 +12345,15 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 			return;
 		}
 		this.atom.set_displayName(newName);
+		if(((this.atom) instanceof core_base_Assembly)) {
+			var asm = js_Boot.__cast(this.atom , core_base_Assembly);
+			asm.blueprint.name = newName;
+		}
 		this._titleLabel.set_text(newName);
 		this._nameInput.set_visible(false);
 		this._titleLabel.set_visible(true);
 		core_logic_Impulsys.quickEmit(core_logic_EventType.VALUE_COMMITTED);
-		haxe_Log.trace("NodeView: Renamed atom to \"" + newName + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1380, className : "editor.NodeView", methodName : "finishNameEditing"});
+		haxe_Log.trace("NodeView: Renamed atom to \"" + newName + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1386, className : "editor.NodeView", methodName : "finishNameEditing"});
 	}
 	,cancelNameEditing: function() {
 		this._isEditingName = false;
@@ -12003,7 +12428,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 	}
 	,onAssemblyPortsChanged: function(impulse) {
 		if(impulse.data != null && impulse.data.assemblyId == this.atom.get_id()) {
-			haxe_Log.trace("NodeView: Ports changed event received for " + this.atom.get_displayName() + ". Rebuilding layout.",{ fileName : "src/editor/NodeView.hx", lineNumber : 1501, className : "editor.NodeView", methodName : "onAssemblyPortsChanged"});
+			haxe_Log.trace("NodeView: Ports changed event received for " + this.atom.get_displayName() + ". Rebuilding layout.",{ fileName : "src/editor/NodeView.hx", lineNumber : 1507, className : "editor.NodeView", methodName : "onAssemblyPortsChanged"});
 			this.updateLayout();
 			this.alignInlineEditors();
 		}
@@ -12061,7 +12486,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._previewContainer = null;
 		this._selectionHighlight = null;
 		this._settingsButton = null;
-		haxe_Log.trace("NodeView: Disposed",{ fileName : "src/editor/NodeView.hx", lineNumber : 1563, className : "editor.NodeView", methodName : "dispose"});
+		haxe_Log.trace("NodeView: Disposed",{ fileName : "src/editor/NodeView.hx", lineNumber : 1569, className : "editor.NodeView", methodName : "dispose"});
 	}
 	,__class__: editor_NodeView
 	,__properties__: $extend(openfl_display_Sprite.prototype.__properties__,{set_isSelected:"set_isSelected",get_isSelected:"get_isSelected",set_selected:"set_selected"})
@@ -12523,6 +12948,7 @@ editor_WireRenderer.prototype = {
 			return;
 		}
 		var activeWireIds_h = Object.create(null);
+		var ghostWireIds = [];
 		if(this._blueprint.internalConnections != null) {
 			var _g = 0;
 			var _g1 = this._blueprint.internalConnections;
@@ -12531,6 +12957,12 @@ editor_WireRenderer.prototype = {
 				++_g;
 				var id = editor_WireRenderer.getWireIDStatic(link);
 				activeWireIds_h[id] = true;
+				var p1 = this.getWirePoint(link.from);
+				var p2 = this.getWirePoint(link.to);
+				if(p1 == null || p2 == null) {
+					ghostWireIds.push(id);
+					continue;
+				}
 				var entry = this._wireSprites.h[id];
 				if(entry != null) {
 					var selectedIds = this._getSelectedWireIds();
@@ -12542,6 +12974,12 @@ editor_WireRenderer.prototype = {
 					this.createWireSprite(link);
 				}
 			}
+		}
+		var _g = 0;
+		while(_g < ghostWireIds.length) {
+			var id = ghostWireIds[_g];
+			++_g;
+			this.removeWireSprite(id);
 		}
 		var idsToRemove = [];
 		var h = this._wireSprites.h;
@@ -16869,7 +17307,7 @@ var library_drivers_SignalGenerator = function(id) {
 	if(outContact != null) {
 		outContact.ignoreOscillation = true;
 	}
-	haxe_Log.trace("SignalGenerator: Created (id: " + id + ")",{ fileName : "src/library/drivers/SignalGenerator.hx", lineNumber : 237, className : "library.drivers.SignalGenerator", methodName : "new"});
+	haxe_Log.trace("SignalGenerator: Created (id: " + id + ")",{ fileName : "src/library/drivers/SignalGenerator.hx", lineNumber : 216, className : "library.drivers.SignalGenerator", methodName : "new"});
 };
 $hxClasses["library.drivers.SignalGenerator"] = library_drivers_SignalGenerator;
 library_drivers_SignalGenerator.__name__ = "library.drivers.SignalGenerator";
@@ -16888,7 +17326,7 @@ library_drivers_SignalGenerator.prototype = $extend(core_base_Atom.prototype,{
 		this._pulseCount = 0;
 		this._totalTime = 0.0;
 		this._updateCount = 0;
-		haxe_Log.trace("SignalGenerator: Initialized",{ fileName : "src/library/drivers/SignalGenerator.hx", lineNumber : 257, className : "library.drivers.SignalGenerator", methodName : "init"});
+		haxe_Log.trace("SignalGenerator: Initialized",{ fileName : "src/library/drivers/SignalGenerator.hx", lineNumber : 234, className : "library.drivers.SignalGenerator", methodName : "init"});
 	}
 	,update: function(dt) {
 		if(this._isDisposed) {
@@ -16910,7 +17348,7 @@ library_drivers_SignalGenerator.prototype = $extend(core_base_Atom.prototype,{
 	,dispose: function() {
 		system_managers_DriverManager.getInstance().unregister(this.get_id());
 		core_base_Atom.prototype.dispose.call(this);
-		haxe_Log.trace("SignalGenerator: Disposed (pulses: " + this._pulseCount + ")",{ fileName : "src/library/drivers/SignalGenerator.hx", lineNumber : 307, className : "library.drivers.SignalGenerator", methodName : "dispose"});
+		haxe_Log.trace("SignalGenerator: Disposed (pulses: " + this._pulseCount + ")",{ fileName : "src/library/drivers/SignalGenerator.hx", lineNumber : 273, className : "library.drivers.SignalGenerator", methodName : "dispose"});
 	}
 	,readInputs: function() {
 		var freqContact = this.getInput("freq");
@@ -17141,7 +17579,7 @@ library_drivers_SignalGenerator.prototype = $extend(core_base_Atom.prototype,{
 		if(state.pulseCount != null) {
 			this._pulseCount = this.parseInt(state.pulseCount,0);
 		}
-		haxe_Log.trace("SignalGenerator: Restored state (freq: " + this._frequency + ", mode: " + this.getModeName() + ")",{ fileName : "src/library/drivers/SignalGenerator.hx", lineNumber : 815, className : "library.drivers.SignalGenerator", methodName : "restoreState"});
+		haxe_Log.trace("SignalGenerator: Restored state (freq: " + this._frequency + ", mode: " + this.getModeName() + ")",{ fileName : "src/library/drivers/SignalGenerator.hx", lineNumber : 736, className : "library.drivers.SignalGenerator", methodName : "restoreState"});
 	}
 	,parseFloat: function(value,defaultValue) {
 		if(value == null) {
@@ -17418,10 +17856,19 @@ var library_electro_FFTAtom = function(id) {
 	this._peakAmp = 0.0;
 	this._peakFreq = 0.0;
 	this._hasNewData = false;
+	this._mode = 0;
+	this._gain = 0.0;
+	this._noiseGate = 0.01;
+	this._compressionExponent = 0.6;
+	this._maxDB = 0.0;
+	this._minDB = -90.0;
+	this._maxFreq = 20000.0;
+	this._minFreq = 20.0;
+	this._targetBars = 16;
 	this._sampleRate = 48000;
 	this._windowType = 1;
 	this._fftSize = 512;
-	core_base_Atom.call(this,[new core_base_Contact(null,core_types_ContactType.INPUT,"buffer"),new core_base_Contact(512,core_types_ContactType.INPUT,"windowSize"),new core_base_Contact(1,core_types_ContactType.INPUT,"windowType"),new core_base_Contact(48000,core_types_ContactType.INPUT,"sampleRate")],[new core_base_Contact(null,core_types_ContactType.OUTPUT,"spectrum"),new core_base_Contact(null,core_types_ContactType.OUTPUT,"spectrumDB"),new core_base_Contact(0.0,core_types_ContactType.OUTPUT,"peak"),new core_base_Contact(0.0,core_types_ContactType.OUTPUT,"peakAmp"),new core_base_Contact(0.0,core_types_ContactType.OUTPUT,"bass"),new core_base_Contact(0.0,core_types_ContactType.OUTPUT,"mid"),new core_base_Contact(0.0,core_types_ContactType.OUTPUT,"treble"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"changed")],null,id,"FFTAtom",true);
+	core_base_Atom.call(this,[new core_base_Contact(null,core_types_ContactType.INPUT,"buffer"),new core_base_Contact(512,core_types_ContactType.INPUT,"windowSize"),new core_base_Contact(1,core_types_ContactType.INPUT,"windowType"),new core_base_Contact(48000,core_types_ContactType.INPUT,"sampleRate"),new core_base_Contact(16,core_types_ContactType.INPUT,"targetBars"),new core_base_Contact(20.0,core_types_ContactType.INPUT,"minFreq"),new core_base_Contact(20000.0,core_types_ContactType.INPUT,"maxFreq"),new core_base_Contact(-90.0,core_types_ContactType.INPUT,"minDB"),new core_base_Contact(0.0,core_types_ContactType.INPUT,"maxDB"),new core_base_Contact(0.6,core_types_ContactType.INPUT,"compressionExponent"),new core_base_Contact(0.01,core_types_ContactType.INPUT,"noiseGate"),new core_base_Contact(0.0,core_types_ContactType.INPUT,"gain"),new core_base_Contact(0,core_types_ContactType.INPUT,"mode")],[new core_base_Contact(null,core_types_ContactType.OUTPUT,"spectrum"),new core_base_Contact(null,core_types_ContactType.OUTPUT,"spectrumDB"),new core_base_Contact(0.0,core_types_ContactType.OUTPUT,"peak"),new core_base_Contact(0.0,core_types_ContactType.OUTPUT,"peakAmp"),new core_base_Contact(0.0,core_types_ContactType.OUTPUT,"bass"),new core_base_Contact(0.0,core_types_ContactType.OUTPUT,"mid"),new core_base_Contact(0.0,core_types_ContactType.OUTPUT,"treble"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"changed")],null,id,"FFTAtom",true);
 	var spectrumOut = this.getOutput("spectrum");
 	if(spectrumOut != null) {
 		spectrumOut.ignoreOscillation = true;
@@ -17527,6 +17974,63 @@ library_electro_FFTAtom.prototype = $extend(core_base_Atom.prototype,{
 		var rateC = this.getInput("sampleRate");
 		if(rateC != null && rateC.get_value() != null) {
 			this._sampleRate = rateC.get_value() | 0;
+		}
+		var barsC = this.getInput("targetBars");
+		if(barsC != null && barsC.get_value() != null) {
+			var v = barsC.get_value() | 0;
+			if(v >= 1 && v <= 128) {
+				this._targetBars = v;
+			}
+		}
+		var minFC = this.getInput("minFreq");
+		if(minFC != null && minFC.get_value() != null) {
+			var v = parseFloat(Std.string(minFC.get_value()));
+			if(v >= 1.0) {
+				this._minFreq = v;
+			}
+		}
+		var maxFC = this.getInput("maxFreq");
+		if(maxFC != null && maxFC.get_value() != null) {
+			var v = parseFloat(Std.string(maxFC.get_value()));
+			if(v >= 20.0) {
+				this._maxFreq = v;
+			}
+		}
+		var minDBC = this.getInput("minDB");
+		if(minDBC != null && minDBC.get_value() != null) {
+			this._minDB = parseFloat(Std.string(minDBC.get_value()));
+		}
+		var maxDBC = this.getInput("maxDB");
+		if(maxDBC != null && maxDBC.get_value() != null) {
+			this._maxDB = parseFloat(Std.string(maxDBC.get_value()));
+		}
+		var compC = this.getInput("compressionExponent");
+		if(compC != null && compC.get_value() != null) {
+			var v = parseFloat(Std.string(compC.get_value()));
+			if(v > 0.1 && v <= 2.0) {
+				this._compressionExponent = v;
+			}
+		}
+		var gateC = this.getInput("noiseGate");
+		if(gateC != null && gateC.get_value() != null) {
+			var v = parseFloat(Std.string(gateC.get_value()));
+			if(v >= 0.0 && v <= 1.0) {
+				this._noiseGate = v;
+			}
+		}
+		var gainC = this.getInput("gain");
+		if(gainC != null && gainC.get_value() != null) {
+			var v = parseFloat(Std.string(gainC.get_value()));
+			if(v >= -1.0 && v <= 1.0) {
+				this._gain = v;
+			}
+		}
+		var modeC = this.getInput("mode");
+		if(modeC != null && modeC.get_value() != null) {
+			var v = modeC.get_value() | 0;
+			if(v >= 0 && v <= 1) {
+				this._mode = v;
+			}
 		}
 	}
 	,processFFT: function() {
@@ -17749,6 +18253,33 @@ library_electro_FFTAtom.prototype = $extend(core_base_Atom.prototype,{
 	}
 	,getTrebleEnergy: function() {
 		return this._trebleEnergy;
+	}
+	,getTargetBars: function() {
+		return this._targetBars;
+	}
+	,getMinFreq: function() {
+		return this._minFreq;
+	}
+	,getMaxFreq: function() {
+		return this._maxFreq;
+	}
+	,getMinDB: function() {
+		return this._minDB;
+	}
+	,getMaxDB: function() {
+		return this._maxDB;
+	}
+	,getCompressionExponent: function() {
+		return this._compressionExponent;
+	}
+	,getNoiseGate: function() {
+		return this._noiseGate;
+	}
+	,getGain: function() {
+		return this._gain;
+	}
+	,getMode: function() {
+		return this._mode;
 	}
 	,__class__: library_electro_FFTAtom
 });
@@ -35383,7 +35914,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 892408;
+	this.version = 658106;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
@@ -91309,7 +91840,7 @@ system_commands_editor_AddPortCommand.__super__ = system_commands_base_Command;
 system_commands_editor_AddPortCommand.prototype = $extend(system_commands_base_Command.prototype,{
 	executeInternal: function() {
 		if(this._name == null) {
-			var prefix = this._type == core_types_ContactType.INPUT ? "In_" : "Out_";
+			var prefix = this._type == core_types_ContactType.INPUT ? "incoming_" : "outgoing_";
 			var count = 0;
 			var h = this._assembly.ports.h;
 			var p_h = h;
@@ -91333,7 +91864,7 @@ system_commands_editor_AddPortCommand.prototype = $extend(system_commands_base_C
 		if(port != null) {
 			core_logic_Impulsys.quickEmit(core_logic_EventType.ASSEMBLY_PORTS_CHANGED,{ assemblyId : this._assembly.get_id()});
 		} else {
-			haxe_Log.trace("AddPortCommand failed: could not create port (limit reached?).",{ fileName : "src/system/commands/editor/AddPortCommand.hx", lineNumber : 74, className : "system.commands.editor.AddPortCommand", methodName : "executeInternal"});
+			haxe_Log.trace("AddPortCommand failed: could not create port (limit reached?).",{ fileName : "src/system/commands/editor/AddPortCommand.hx", lineNumber : 75, className : "system.commands.editor.AddPortCommand", methodName : "executeInternal"});
 		}
 		this.complete();
 	}
@@ -91423,6 +91954,9 @@ system_commands_editor_ConnectCommand.prototype = $extend(system_commands_base_C
 		if(!exists) {
 			this._blueprint.internalConnections.push(this._createdLink);
 			cOut.link(cIn);
+			if(this._fromId == "SELF" || this._toId == "SELF") {
+				this._assembly.rebuildInternalConnections();
+			}
 		}
 		core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
 		this.complete();
@@ -91435,7 +91969,7 @@ system_commands_editor_ConnectCommand.prototype = $extend(system_commands_base_C
 			if(cOut != null && cIn != null) {
 				cOut.unlink(cIn);
 			} else {
-				haxe_Log.trace("ConnectCommand Undo: Contacts missing, skipping unlink.",{ fileName : "src/system/commands/editor/ConnectCommand.hx", lineNumber : 102, className : "system.commands.editor.ConnectCommand", methodName : "undo"});
+				haxe_Log.trace("ConnectCommand Undo: Contacts missing, skipping unlink.",{ fileName : "src/system/commands/editor/ConnectCommand.hx", lineNumber : 106, className : "system.commands.editor.ConnectCommand", methodName : "undo"});
 			}
 			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
 		}
@@ -91547,12 +92081,16 @@ system_commands_editor_DeleteAtomCommand.__super__ = system_commands_base_Comman
 system_commands_editor_DeleteAtomCommand.prototype = $extend(system_commands_base_Command.prototype,{
 	executeInternal: function() {
 		this.saveSnapshot();
+		var involvesSelf = false;
 		if(this._connections != null) {
 			var _g = 0;
 			var _g1 = this._connections;
 			while(_g < _g1.length) {
 				var conn = _g1[_g];
 				++_g;
+				if(conn.from.atomId == "SELF" || conn.to.atomId == "SELF") {
+					involvesSelf = true;
+				}
 				HxOverrides.remove(this._blueprint.internalConnections,conn);
 				var cOut = this.resolveContact(conn.from.atomId,conn.from.contactName,core_types_ContactType.OUTPUT);
 				var cIn = this.resolveContact(conn.to.atomId,conn.to.contactName,core_types_ContactType.INPUT);
@@ -91572,7 +92110,7 @@ system_commands_editor_DeleteAtomCommand.prototype = $extend(system_commands_bas
 				} catch( _g ) {
 					haxe_NativeStackTrace.lastError = _g;
 					var e = haxe_Exception.caught(_g).unwrap();
-					haxe_Log.trace("Error disposing: " + Std.string(e),{ fileName : "src/system/commands/editor/DeleteAtomCommand.hx", lineNumber : 101, className : "system.commands.editor.DeleteAtomCommand", methodName : "executeInternal"});
+					haxe_Log.trace("Error disposing: " + Std.string(e),{ fileName : "src/system/commands/editor/DeleteAtomCommand.hx", lineNumber : 106, className : "system.commands.editor.DeleteAtomCommand", methodName : "executeInternal"});
 				}
 			}
 			var key = this._atomId;
@@ -91580,6 +92118,9 @@ system_commands_editor_DeleteAtomCommand.prototype = $extend(system_commands_bas
 			if(Object.prototype.hasOwnProperty.call(_this.h,key)) {
 				delete(_this.h[key]);
 			}
+		}
+		if(involvesSelf) {
+			this._assembly.rebuildInternalConnections();
 		}
 		core_logic_Impulsys.quickEmit(core_logic_EventType.ATOM_DELETED,{ assemblyId : this._assembly.get_id(), id : this._atomId});
 		this.complete();
@@ -91597,7 +92138,7 @@ system_commands_editor_DeleteAtomCommand.prototype = $extend(system_commands_bas
 		}
 		var atom = core_base_AssemblyFactory.createAtom(this._atomType,this._atomId);
 		if(atom == null) {
-			haxe_Log.trace("DeleteAtomCommand.undo: Failed to create " + this._atomType,{ fileName : "src/system/commands/editor/DeleteAtomCommand.hx", lineNumber : 127, className : "system.commands.editor.DeleteAtomCommand", methodName : "undo"});
+			haxe_Log.trace("DeleteAtomCommand.undo: Failed to create " + this._atomType,{ fileName : "src/system/commands/editor/DeleteAtomCommand.hx", lineNumber : 137, className : "system.commands.editor.DeleteAtomCommand", methodName : "undo"});
 			return;
 		}
 		this._assembly.internalAtoms.h[this._atomId] = atom;
@@ -91710,6 +92251,7 @@ system_commands_editor_DeleteWiresCommand.__super__ = system_commands_base_Comma
 system_commands_editor_DeleteWiresCommand.prototype = $extend(system_commands_base_Command.prototype,{
 	executeInternal: function() {
 		this._deletedConnections = [];
+		var involvesSelf = false;
 		var _g = 0;
 		var _g1 = this._wireIds;
 		while(_g < _g1.length) {
@@ -91719,12 +92261,18 @@ system_commands_editor_DeleteWiresCommand.prototype = $extend(system_commands_ba
 			if(conn != null) {
 				this._deletedConnections.push(conn);
 				HxOverrides.remove(this._blueprint.internalConnections,conn);
+				if(conn.from.atomId == "SELF" || conn.to.atomId == "SELF") {
+					involvesSelf = true;
+				}
 				var cOut = this.resolveContact(conn.from.atomId,conn.from.contactName,core_types_ContactType.OUTPUT);
 				var cIn = this.resolveContact(conn.to.atomId,conn.to.contactName,core_types_ContactType.INPUT);
 				if(cOut != null && cIn != null) {
 					cOut.unlink(cIn);
 				}
 			}
+		}
+		if(involvesSelf) {
+			this._assembly.rebuildInternalConnections();
 		}
 		core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
 		this.complete();
@@ -91804,12 +92352,12 @@ system_commands_editor_GroupAtomsCommand.__super__ = system_commands_base_Comman
 system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_base_Command.prototype,{
 	executeInternal: function() {
 		if(this._selectedNodeIds == null || this._selectedNodeIds.length == 0) {
-			haxe_Log.trace("GroupAtomsCommand: Nothing to group",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 140, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeInternal"});
+			haxe_Log.trace("GroupAtomsCommand: Nothing to group",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 129, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeInternal"});
 			this.complete();
 			return;
 		}
 		if(!this.validateNoCircularReference()) {
-			haxe_Log.trace("GroupAtomsCommand: Aborted - circular reference detected",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 148, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeInternal"});
+			haxe_Log.trace("GroupAtomsCommand: Aborted - circular reference detected",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 136, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeInternal"});
 			this.complete();
 			return;
 		}
@@ -91821,7 +92369,7 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		this.complete();
 	}
 	,executeGrouping: function() {
-		haxe_Log.trace("GroupAtomsCommand: Grouping " + this._selectedNodeIds.length + " atoms...",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 172, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+		haxe_Log.trace("GroupAtomsCommand v3.3: Grouping " + this._selectedNodeIds.length + " atoms...",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 157, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
 		var selectedTemplateIds = [];
 		var _g = 0;
 		var _g1 = this._selectedNodeIds;
@@ -91833,8 +92381,6 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 				selectedTemplateIds.push(templateId);
 			}
 		}
-		haxe_Log.trace("GroupAtomsCommand: Runtime IDs: " + Std.string(this._selectedNodeIds),{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 189, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
-		haxe_Log.trace("GroupAtomsCommand: Template IDs: " + Std.string(selectedTemplateIds),{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 190, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
 		var internalConns = [];
 		var externalConns = [];
 		var externalConnMeta = [];
@@ -91864,10 +92410,8 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 				atomsToMove.push(atomDef);
 			}
 		}
-		haxe_Log.trace("GroupAtomsCommand: atomsToMove=" + atomsToMove.length + ", internalConns=" + internalConns.length + ", externalConns=" + externalConns.length,{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 229, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
 		if(atomsToMove.length == 0) {
-			haxe_Log.trace("ERROR: GroupAtomsCommand: No atoms to move! Check ID mapping.",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 233, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
-			this.complete();
+			haxe_Log.trace("ERROR: GroupAtomsCommand: No atoms to move!",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 209, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
 			return;
 		}
 		this._snapshot.setSelectedNodeIds(this._selectedNodeIds);
@@ -91893,35 +92437,57 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		var newPins = [];
 		var newInternalAtoms = [];
 		var newInternalConnections = [];
-		var inputCount = 0;
-		var outputCount = 0;
-		var portCounter = 0;
-		externalConnMeta.sort($bind(this,this.sortByAtomId));
+		var incomingCount = 0;
+		var outgoingCount = 0;
+		var usedExternalNames_h = Object.create(null);
+		externalConnMeta.sort($bind(this,this.sortByAtomPosition));
 		var _g = 0;
 		while(_g < externalConnMeta.length) {
 			var meta = externalConnMeta[_g];
 			++_g;
 			var conn = meta.conn;
 			var isFromSelected = meta.isFromSelected;
-			var portType = isFromSelected ? core_types_ContactType.OUTPUT : core_types_ContactType.INPUT;
-			var limit = portType == core_types_ContactType.INPUT ? 20 : 20;
-			var currentCount = portType == core_types_ContactType.INPUT ? inputCount : outputCount;
-			if(currentCount >= limit) {
-				haxe_Log.trace("WARN: Port limit (" + limit + ") reached, connection " + conn.from.atomId + "->" + conn.to.atomId + " ignored",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 290, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
-				continue;
-			}
-			if(portType == core_types_ContactType.INPUT) {
-				++inputCount;
-			} else {
-				++outputCount;
-			}
-			var portName = "pin_" + portCounter++;
-			this._snapshot.addPortMapping(conn,portName,portType == core_types_ContactType.INPUT);
-			newPins.push({ name : portName, type : portType});
+			var portType;
+			var externalName;
+			var internalName;
+			var atomDisplayName;
+			var contactName;
 			if(isFromSelected) {
-				newInternalConnections.push({ from : { atomId : conn.from.atomId, contactName : conn.from.contactName}, to : { atomId : "SELF", contactName : portName}});
+				portType = core_types_ContactType.OUTPUT;
+				atomDisplayName = this.getAtomDisplayName(conn.from.atomId);
+				contactName = conn.from.contactName;
+				externalName = atomDisplayName + "_" + contactName;
+				if(Object.prototype.hasOwnProperty.call(usedExternalNames_h,externalName)) {
+					var count = usedExternalNames_h[externalName];
+					usedExternalNames_h[externalName] = count + 1;
+					externalName = externalName + "_" + (count + 1);
+				} else {
+					usedExternalNames_h[externalName] = 1;
+				}
+				++outgoingCount;
+				internalName = "outgoing_" + outgoingCount;
 			} else {
-				newInternalConnections.push({ from : { atomId : "SELF", contactName : portName}, to : { atomId : conn.to.atomId, contactName : conn.to.contactName}});
+				portType = core_types_ContactType.INPUT;
+				atomDisplayName = this.getAtomDisplayName(conn.to.atomId);
+				contactName = conn.to.contactName;
+				externalName = atomDisplayName + "_" + contactName;
+				if(Object.prototype.hasOwnProperty.call(usedExternalNames_h,externalName)) {
+					var count1 = usedExternalNames_h[externalName];
+					usedExternalNames_h[externalName] = count1 + 1;
+					externalName = externalName + "_" + (count1 + 1);
+				} else {
+					usedExternalNames_h[externalName] = 1;
+				}
+				++incomingCount;
+				internalName = "incoming_" + incomingCount;
+			}
+			haxe_Log.trace("  Port: external=\"" + externalName + "\", internal=\"" + internalName + "\" (" + Std.string(portType) + ")",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 304, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+			this._snapshot.addPortMapping(conn,internalName,portType == core_types_ContactType.INPUT);
+			newPins.push({ name : internalName, type : portType, externalName : externalName});
+			if(isFromSelected) {
+				newInternalConnections.push({ from : { atomId : conn.from.atomId, contactName : conn.from.contactName}, to : { atomId : "SELF", contactName : internalName}});
+			} else {
+				newInternalConnections.push({ from : { atomId : "SELF", contactName : internalName}, to : { atomId : conn.to.atomId, contactName : conn.to.contactName}});
 			}
 		}
 		var _g = 0;
@@ -91976,7 +92542,6 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		while(_g < _g1.length) {
 			var nodeId = _g1[_g];
 			++_g;
-			var atomInst = this._assembly.internalAtoms.h[nodeId];
 			var _this = this._assembly.internalAtoms;
 			if(Object.prototype.hasOwnProperty.call(_this.h,nodeId)) {
 				delete(_this.h[nodeId]);
@@ -91986,7 +92551,7 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		this.saveNewAssembly(newBp);
 		var newInstance = core_base_AssemblyFactory.createAtom(newTypeId);
 		if(newInstance == null) {
-			haxe_Log.trace("ERROR: GroupAtomsCommand failed to create assembly instance",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 416, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+			haxe_Log.trace("ERROR: GroupAtomsCommand failed to create assembly instance",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 389, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
 			return;
 		}
 		var centerPos = this.calculateCenterPosition(atomsToMove);
@@ -92003,10 +92568,11 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 			++_g;
 			var originalConn = pm.originalConnection;
 			var newConn;
+			var externalPortName = this.resolveExternalPortName(newPins,pm.portName);
 			if(pm.isInput) {
-				newConn = { from : originalConn.from, to : { atomId : newInstance.get_id(), contactName : pm.portName}};
+				newConn = { from : originalConn.from, to : { atomId : newInstance.get_id(), contactName : externalPortName}};
 			} else {
-				newConn = { from : { atomId : newInstance.get_id(), contactName : pm.portName}, to : originalConn.to};
+				newConn = { from : { atomId : newInstance.get_id(), contactName : externalPortName}, to : originalConn.to};
 			}
 			this._blueprint.internalConnections.push(newConn);
 			createdExternalConns.push(newConn);
@@ -92016,6 +92582,8 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 				cOut.link(cIn);
 			}
 		}
+		this._assembly.rebuildInternalConnections();
+		core_logic_Impulsys.quickEmit(core_logic_EventType.ASSEMBLY_PORTS_CHANGED,{ assemblyId : this._assembly.get_id()});
 		this._snapshot.setCreatedData(newTypeId,newInstance.get_id(),newAtomDef,createdExternalConns);
 		var _g = 0;
 		var _g1 = this._selectedNodeIds;
@@ -92025,17 +92593,56 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 			core_logic_Impulsys.quickEmit(core_logic_EventType.ATOM_DELETED,{ assemblyId : this._assembly.get_id(), id : nodeId});
 		}
 		core_logic_Impulsys.quickEmit(core_logic_EventType.ATOM_RESTORED,{ assemblyId : this._assembly.get_id(), id : newInstance.get_id(), x : centerPos.x, y : centerPos.y, atom : newInstance});
-		core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
+		haxe_Timer.delay(function() {
+			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
+		},50);
 		this._isExecuted = true;
-		haxe_Log.trace("GroupAtomsCommand: Created " + newTypeId + " with " + newPins.length + " ports",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 502, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+		haxe_Log.trace("GroupAtomsCommand v3.3: Created " + newTypeId + " with " + newPins.length + " semantic ports (Spatially Sorted)",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 469, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+	}
+	,resolveExternalPortName: function(pins,internalName) {
+		var _g = 0;
+		while(_g < pins.length) {
+			var pin = pins[_g];
+			++_g;
+			if(pin.name == internalName) {
+				if(Object.prototype.hasOwnProperty.call(pin,"externalName")) {
+					var extName = Reflect.field(pin,"externalName");
+					if(extName != null && extName != "") {
+						return extName;
+					}
+				}
+				return pin.name;
+			}
+		}
+		return internalName;
+	}
+	,getAtomDisplayName: function(atomId) {
+		var atom = this._assembly.internalAtoms.h[atomId];
+		if(atom == null) {
+			var runtimeId = this._assembly.get_idMap().h[atomId];
+			if(runtimeId != null) {
+				atom = this._assembly.internalAtoms.h[runtimeId];
+			}
+		}
+		if(atom == null) {
+			atom = this._assembly.internalAtoms.h[atomId];
+		}
+		if(atom != null) {
+			var name = atom.displayName;
+			if(name == null || name == "" || name == atom.type) {
+				name = atom.type;
+			}
+			return StringTools.replace(name," ","_");
+		}
+		return atomId;
 	}
 	,undo: function() {
 		var error = this._snapshot.validate();
 		if(error != null) {
-			haxe_Log.trace("ERROR: GroupAtomsCommand undo failed: " + error,{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 517, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
+			haxe_Log.trace("ERROR: GroupAtomsCommand undo failed: " + error,{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 522, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
 			return;
 		}
-		haxe_Log.trace("GroupAtomsCommand: Undoing grouping...",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 521, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
+		haxe_Log.trace("GroupAtomsCommand: Undoing grouping...",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 526, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
 		var _g = 0;
 		var _g1 = this._snapshot.getCreatedConnections();
 		while(_g < _g1.length) {
@@ -92060,8 +92667,6 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 					(js_Boot.__cast(createdInst , core_base_IDisposable)).dispose();
 				} catch( _g ) {
 					haxe_NativeStackTrace.lastError = _g;
-					var e = haxe_Exception.caught(_g).unwrap();
-					haxe_Log.trace("WARN: Error disposing created assembly: " + Std.string(e),{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 555, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
 				}
 			}
 			var _this = this._assembly.internalAtoms;
@@ -92114,7 +92719,6 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		}
 		core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
 		this._isUndone = true;
-		haxe_Log.trace("GroupAtomsCommand: Undo complete",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 636, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
 	}
 	,restorePhysicalConnections: function() {
 		var _g = 0;
@@ -92142,7 +92746,6 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
 	}
 	,redoInternal: function() {
-		haxe_Log.trace("GroupAtomsCommand: Redoing grouping...",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 679, className : "system.commands.editor.GroupAtomsCommand", methodName : "redoInternal"});
 		this._snapshot.dispose();
 		this._snapshot = new system_commands_editor_GroupAtomsSnapshot();
 		this._isUndone = false;
@@ -92187,16 +92790,15 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		while(_g < atoms.length) {
 			var atom = atoms[_g];
 			++_g;
-			var ax = atom.x != null ? atom.x : 0;
-			var ay = atom.y != null ? atom.y : 0;
-			sumX += ax;
-			sumY += ay;
+			sumX += atom.x != null ? atom.x : 0;
+			sumY += atom.y != null ? atom.y : 0;
 			++count;
 		}
-		if(count == 0) {
+		if(count > 0) {
+			return { x : sumX / count, y : sumY / count};
+		} else {
 			return { x : 300, y : 300};
 		}
-		return { x : sumX / count, y : sumY / count};
 	}
 	,validateNoCircularReference: function() {
 		var currentBpId = this._blueprint.id;
@@ -92209,11 +92811,9 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 			if(atomInst != null && ((atomInst) instanceof core_base_Assembly)) {
 				var asm = js_Boot.__cast(atomInst , core_base_Assembly);
 				if(asm.blueprint != null && asm.blueprint.id == currentBpId) {
-					haxe_Log.trace("ERROR: Cannot group assembly into itself",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 784, className : "system.commands.editor.GroupAtomsCommand", methodName : "validateNoCircularReference"});
 					return false;
 				}
 				if(this.hasCircularReference(asm,currentBpId,0)) {
-					haxe_Log.trace("ERROR: Circular reference detected in nested assembly",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 791, className : "system.commands.editor.GroupAtomsCommand", methodName : "validateNoCircularReference"});
 					return false;
 				}
 			}
@@ -92236,19 +92836,101 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 			while(id_current < id_length) {
 				var id = id_keys[id_current++];
 				var atom = assembly.internalAtoms.h[id];
-				if(((atom) instanceof core_base_Assembly)) {
-					if(this.hasCircularReference(js_Boot.__cast(atom , core_base_Assembly),targetId,depth + 1)) {
-						return true;
-					}
+				if(((atom) instanceof core_base_Assembly) && this.hasCircularReference(js_Boot.__cast(atom , core_base_Assembly),targetId,depth + 1)) {
+					return true;
 				}
 			}
 		}
 		return false;
 	}
-	,sortByAtomId: function(a,b) {
-		var nameA = a.conn.from.atomId + "_" + a.conn.from.contactName;
-		var nameB = b.conn.from.atomId + "_" + b.conn.from.contactName;
+	,sortByAtomPosition: function(a,b) {
+		var idA = a.isFromSelected ? a.conn.from.atomId : a.conn.to.atomId;
+		var idB = b.isFromSelected ? b.conn.from.atomId : b.conn.to.atomId;
+		var yA = this.getAtomY(idA);
+		var yB = this.getAtomY(idB);
+		if(yA != yB) {
+			if(yA < yB) {
+				return -1;
+			} else {
+				return 1;
+			}
+		}
+		var xA = this.getAtomX(idA);
+		var xB = this.getAtomX(idB);
+		if(xA != xB) {
+			if(xA < xB) {
+				return -1;
+			} else {
+				return 1;
+			}
+		}
+		var nameA = a.isFromSelected ? a.conn.from.contactName : a.conn.to.contactName;
+		var nameB = b.isFromSelected ? b.conn.from.contactName : b.conn.to.contactName;
 		return Reflect.compare(nameA,nameB);
+	}
+	,getAtomY: function(atomId) {
+		var _g = 0;
+		var _g1 = this._blueprint.internalAtoms;
+		while(_g < _g1.length) {
+			var def = _g1[_g];
+			++_g;
+			if(def.instanceId == atomId) {
+				if(def.y != null) {
+					return def.y;
+				} else {
+					return 0;
+				}
+			}
+		}
+		var templateId = this._assembly.getTemplateId(atomId);
+		if(templateId != atomId) {
+			var _g = 0;
+			var _g1 = this._blueprint.internalAtoms;
+			while(_g < _g1.length) {
+				var def = _g1[_g];
+				++_g;
+				if(def.instanceId == templateId) {
+					if(def.y != null) {
+						return def.y;
+					} else {
+						return 0;
+					}
+				}
+			}
+		}
+		return 0;
+	}
+	,getAtomX: function(atomId) {
+		var _g = 0;
+		var _g1 = this._blueprint.internalAtoms;
+		while(_g < _g1.length) {
+			var def = _g1[_g];
+			++_g;
+			if(def.instanceId == atomId) {
+				if(def.x != null) {
+					return def.x;
+				} else {
+					return 0;
+				}
+			}
+		}
+		var templateId = this._assembly.getTemplateId(atomId);
+		if(templateId != atomId) {
+			var _g = 0;
+			var _g1 = this._blueprint.internalAtoms;
+			while(_g < _g1.length) {
+				var def = _g1[_g];
+				++_g;
+				if(def.instanceId == templateId) {
+					if(def.x != null) {
+						return def.x;
+					} else {
+						return 0;
+					}
+				}
+			}
+		}
+		return 0;
 	}
 	,generateShortId: function() {
 		var chars = "0123456789abcdef";
@@ -93321,6 +94003,7 @@ core_logic_EventType.VALUE_COMMITTED = "VALUE_COMMITTED";
 core_logic_EventType.DEVICE_WINDOW_CHANGED = "DEVICE_WINDOW_CHANGED";
 core_logic_EventType.OSCILLOSCOPE_SHAPE_CHANGED = "OSCILLOSCOPE_SHAPE_CHANGED";
 core_logic_EventType.OSCILLOSCOPE_FRAME_READY = "oscilloscopeFrameReady";
+core_logic_EventType.PORT_REMOVED = "PORT_REMOVED";
 core_logic_EventType.PORT_DRAG_START = "PORT_DRAG_START";
 core_logic_EventType.NODE_CLICKED = "NODE_CLICKED";
 core_logic_EventType.NODE_RIGHT_CLICKED = "NODE_RIGHT_CLICKED";

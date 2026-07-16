@@ -62,27 +62,37 @@ class DeleteWiresCommand extends Command {
         _deletedConnections = [];
     }
 
-    override private function executeInternal():Void {
-        _deletedConnections = [];
-
-        for (id in _wireIds) {
-            var conn = findLinkById(id);
-            if (conn != null) {
-                _deletedConnections.push(conn);
-                _blueprint.internalConnections.remove(conn);
-
-                // Resolve and unlink contacts
-                var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
-                var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
-                if (cOut != null && cIn != null) {
-                    cOut.unlink(cIn);
-                }
-            }
-        }
-
-        Impulsys.quickEmit(EventType.REDRAW_WIRES);
-        complete();
-    }
+	override private function executeInternal():Void {
+		_deletedConnections = [];
+		var involvesSelf = false;
+		
+		for (id in _wireIds) {
+			var conn = findLinkById(id);
+			if (conn != null) {
+				_deletedConnections.push(conn);
+				_blueprint.internalConnections.remove(conn);
+				
+				if (conn.from.atomId == "SELF" || conn.to.atomId == "SELF") {
+					involvesSelf = true;
+				}
+				
+				// Resolve and unlink contacts
+				var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
+				var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
+				if (cOut != null && cIn != null) {
+					cOut.unlink(cIn);
+				}
+			}
+		}
+		
+		// === FIX: Синхронизация рантайма, если удалялись связи с портами сборки ===
+		if (involvesSelf) {
+			_assembly.rebuildInternalConnections();
+		}
+		
+		Impulsys.quickEmit(EventType.REDRAW_WIRES);
+		complete();
+	}
 
     override public function undo():Void {
         for (conn in _deletedConnections) {

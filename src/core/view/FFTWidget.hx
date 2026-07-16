@@ -1,4 +1,5 @@
 package core.view;
+
 import openfl.display.Sprite;
 import openfl.events.Event;
 import core.base.Atom;
@@ -7,11 +8,18 @@ import core.logic.EventType;
 import core.logic.Impulse;
 import core.logic.Impulsys;
 import library.electro.FFTAtom;
+
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     FFT WIDGET v2.0                                       ║
+* ║                     FFT WIDGET v2.2                                       ║
 * ║                     (Logarithmic Spectrum Analyzer)                       ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  v2.2 Changes:                                                            ║
+* ║  - Added "Brick Mode" (mode=1) with segmented vertical bricks.            ║
+* ║  - Brick colors: 0-60% Green, 60-80% Yellow, 80-100% Red.                 ║
+* ║  - Added Peak Hold effect for Brick Mode (white brick that falls down).   ║
+* ║  - All visualization parameters are now read dynamically from FFTAtom.    ║
 * ║                                                                           ║
 * ║  v2.0 Changes:                                                            ║
 * ║  - Replaced linear bin grouping with LOGARITHMIC frequency mapping.       ║
@@ -84,9 +92,9 @@ import library.electro.FFTAtom;
 */
 class FFTWidget extends DeviceView
 {
-// =========================================================================
-// CONFIGURATION (External parameters and colors)
-// =========================================================================
+	// =========================================================================
+	// CONFIGURATION (External parameters and colors)
+	// =========================================================================
 	/** Base widget width. */
 	public var widgetWidth:Float = 300;
 	/** Base widget height. */
@@ -99,22 +107,25 @@ class FFTWidget extends DeviceView
 	private var _colorGreen:Int = 0x00CC44;
 	private var _colorYellow:Int = 0xCCAA00;
 	private var _colorRed:Int = 0xCC2222;
-	/** Target number of bars for visualization (logarithmic bands). */
-	private var _targetBars:Int = 16;
-// =========================================================================
-// STATE & DATA (Zero-GC)
-// =========================================================================
+
+	// =========================================================================
+	// STATE & DATA (Zero-GC)
+	// =========================================================================
 	/** Reference to the linked FFT atom for reading data. */
 	private var _fftAtom:FFTAtom;
 	/** "Dirty" frame flag. Set when an event is received from the atom. */
 	private var _hasNewFrame:Bool = false;
 	/** Rendering lock flag (protection against recursion). */
 	private var _isRendering:Bool = false;
+	
 	private var _previousBarHeights:Array<Float>;
+	private var _peakHeights:Array<Float>;
 	private var _smoothingFactor:Float = 0.9; // 0.0 = no smoothing, 1.0 = maximum smoothing
-// =========================================================================
-// CONSTRUCTOR
-// =========================================================================
+	private var _peakFallSpeed:Float = 0.03;  // 3% of maxHeight per frame
+
+	// =========================================================================
+	// CONSTRUCTOR
+	// =========================================================================
 	/**
 	* Creates a spectrum analyzer widget and links it to the atom.
 	*
@@ -123,7 +134,7 @@ class FFTWidget extends DeviceView
 	public function new(atom:Atom)
 	{
 		super(atom);
-// --- Resolve FFTAtom reference ---
+		// --- Resolve FFTAtom reference ---
 		if (Std.isOfType(atom, FFTAtom))
 		{
 			_fftAtom = cast(atom, FFTAtom);
@@ -140,16 +151,17 @@ class FFTWidget extends DeviceView
 				}
 			}
 		}
-// --- Initialize UI and subscriptions ---
+		// --- Initialize UI and subscriptions ---
 		buildUI();
-// Subscribe to global Impulsys events
+		// Subscribe to global Impulsys events
 		Impulsys.subscribeToImpulse(EventType.FFT_SPECTRUM_READY, onFrameReady);
-// Synchronize rendering with screen refresh rate (ENTER_FRAME).
+		// Synchronize rendering with screen refresh rate (ENTER_FRAME).
 		addEventListener(Event.ENTER_FRAME, onEnterFrame);
 	}
-// =========================================================================
-// WIDGET SIZE
-// =========================================================================
+
+	// =========================================================================
+	// WIDGET SIZE
+	// =========================================================================
 	/**
 	* Returns current widget dimensions for the layout manager.
 	*/
@@ -157,26 +169,28 @@ class FFTWidget extends DeviceView
 	{
 		return {width: widgetWidth, height: widgetHeight};
 	}
-// =========================================================================
-// UI CONSTRUCTION
-// =========================================================================
+
+	// =========================================================================
+	// UI CONSTRUCTION
+	// =========================================================================
 	/**
 	* Orchestrates creation of all visual components.
 	*/
 	private function buildUI():Void
 	{
-// Draw static background
+		// Draw static background
 		graphics.clear();
 		graphics.beginFill(_colorBg);
 		graphics.drawRect(0, 0, widgetWidth, widgetHeight);
 		graphics.endFill();
-// Frame
+		// Frame
 		graphics.lineStyle(2, 0x333355);
 		graphics.drawRect(0, 0, widgetWidth, widgetHeight);
 	}
-// =========================================================================
-// LIFECYCLE & EVENT HANDLERS
-// =========================================================================
+
+	// =========================================================================
+	// LIFECYCLE & EVENT HANDLERS
+	// =========================================================================
 	/**
 	* FFT_SPECTRUM_READY event handler.
 	* Sets the _hasNewFrame flag so rendering happens in the next ENTER_FRAME.
@@ -187,6 +201,7 @@ class FFTWidget extends DeviceView
 		if (_fftAtom == null || impulse.data.atomId != _fftAtom.id) return;
 		_hasNewFrame = true;
 	}
+
 	/**
 	* Main rendering loop, tied to screen refresh rate (ENTER_FRAME).
 	*/
@@ -198,16 +213,13 @@ class FFTWidget extends DeviceView
 			redrawSpectrum();
 		}
 	}
-// =========================================================================
-// REDRAW LOGIC (Spectrum Redrawing Logic)
-// =========================================================================
+
+	// =========================================================================
+	// REDRAW LOGIC (Spectrum Redrawing Logic)
+	// =========================================================================
 	/**
 	* Main spectrum drawing function.
-	* v2.0: Uses LOGARITHMIC frequency band division.
-	*
-	* Instead of uniform bin distribution, we divide the range from minFreq
-	* to maxFreq into equal logarithmic intervals. For each interval,
-	* we find the maximum dB value and draw a bar.
+	* v2.2: Improved sensitivity, dynamic range mapping, and added Brick Mode with Peak Hold.
 	*/
 	private function redrawSpectrum():Void
 	{
@@ -215,30 +227,51 @@ class FFTWidget extends DeviceView
 		var spectrumDB:Array<Float> = _fftAtom.getSpectrumDB();
 		if (spectrumDB == null || spectrumDB.length == 0) return;
 		_isRendering = true;
+
 		var sampleRate = _fftAtom.getSampleRate();
 		var fftSize = _fftAtom.getFFTSize();
 		var binCount = spectrumDB.length; // Usually fftSize / 2
 		var freqResolution = sampleRate / fftSize; // Hz per bin
-// Frequency range for display (20 Hz - 20 kHz)
-		var minFreq = 2000.0;
-		var maxFreq = sampleRate / 2.7; // Nyquist frequency
-// Protection against log(0)
+
+		// Read parameters dynamically from Atom
+		var numBars = _fftAtom.getTargetBars();
+		var minFreq = _fftAtom.getMinFreq();
+		var maxFreq = _fftAtom.getMaxFreq();
+		var minDB = _fftAtom.getMinDB();
+		var maxDB = _fftAtom.getMaxDB();
+		var compressionExponent = _fftAtom.getCompressionExponent();
+		var noiseGate = _fftAtom.getNoiseGate();
+		var gain = _fftAtom.getGain();
+		var mode = _fftAtom.getMode();
+
+		// Protection against log(0)
 		if (minFreq <= 0) minFreq = 1.0;
-		var numBars = _targetBars;
+		if (maxFreq <= minFreq) maxFreq = sampleRate / 2.0;
+		
 		var barWidth = widgetWidth / numBars;
 		var maxHeight = widgetHeight;
-// === SMOOTHING ARRAY INITIALIZATION ===
+
+		// === SMOOTHING ARRAY INITIALIZATION ===
 		if (_previousBarHeights == null || _previousBarHeights.length != numBars)
 		{
 			_previousBarHeights = [];
 			for (i in 0...numBars) _previousBarHeights.push(0);
 		}
-// === CLEAR AND BACKGROUND ===
+		
+		// === PEAK HOLD ARRAY INITIALIZATION ===
+		if (_peakHeights == null || _peakHeights.length != numBars)
+		{
+			_peakHeights = [];
+			for (i in 0...numBars) _peakHeights.push(0);
+		}
+
+		// === CLEAR AND BACKGROUND ===
 		graphics.clear();
 		graphics.beginFill(_colorBg);
 		graphics.drawRect(0, 0, widgetWidth, widgetHeight);
 		graphics.endFill();
-// Draw grid (horizontal lines)
+
+		// Draw grid (horizontal lines)
 		graphics.lineStyle(1, _colorGrid, 0.5);
 		var gridSteps = 4;
 		for (i in 1...gridSteps)
@@ -247,67 +280,156 @@ class FFTWidget extends DeviceView
 			graphics.moveTo(0, y);
 			graphics.lineTo(widgetWidth, y);
 		}
-// === LOGARITHMIC DIVISION ===
+
+		// === LOGARITHMIC DIVISION ===
 		var logMin = Math.log(minFreq) / Math.log(10);
 		var logMax = Math.log(maxFreq) / Math.log(10);
 		var logRange = logMax - logMin;
 		var currentBarHeights:Array<Float> = [];
+
 		for (i in 0...numBars)
 		{
-// Calculate frequency boundaries for the current bar in logarithmic scale
+			// Calculate frequency boundaries for the current bar in logarithmic scale
 			var tStart = i / numBars;
 			var tEnd = (i + 1) / numBars;
 			var freqStart = Math.pow(10, logMin + tStart * logRange);
 			var freqEnd = Math.pow(10, logMin + tEnd * logRange);
-// Convert frequencies to FFT bin indices
+
+			// Convert frequencies to FFT bin indices
 			var binStart = Std.int(freqStart / freqResolution);
 			var binEnd = Std.int(freqEnd / freqResolution);
-// Clamp index range
+
+			// Clamp index range
 			if (binStart < 0) binStart = 0;
 			if (binEnd >= binCount) binEnd = binCount - 1;
 			if (binStart > binEnd) binEnd = binStart; // At high frequencies bins may merge
-// Find the MAXIMUM dB value in this bin range
-			var maxDB = -50.0;
+
+			// Find the MAXIMUM dB value in this bin range
+			var maxDBVal = minDB;
 			for (b in binStart...binEnd + 1)
 			{
-				if (spectrumDB[b] > maxDB)
+				if (spectrumDB[b] > maxDBVal)
 				{
-					maxDB = spectrumDB[b];
+					maxDBVal = spectrumDB[b];
 				}
 			}
-// Mapping dBFS [-120..0] -> Normalized [0.0..1.0]
-// range -120..0 dBFS):
-// 1. Compressed range (-120..0 dBFS)
-			var minDB:Float = -10.0;
-			var normalized = (maxDB - minDB) / (0.0 - minDB);
+			
+			// Apply gain (range -1.0 to 1.0 maps to -20dB to +20dB offset)
+			maxDBVal += gain * 20.0;
+
+			// 1. Mapping dBFS [minDB..maxDB] -> Normalized [0.0..1.0]
+			var range = maxDB - minDB;
+			if (range <= 0) range = 1.0; // Fallback
+			var normalized = (maxDBVal - minDB) / range;
 			if (normalized < 0) normalized = 0;
 			if (normalized > 1) normalized = 1;
-// 2. Power compression
-			var compressed = Math.pow(normalized, 0.9);
-// 3. Noise gate
-			var noiseGate:Float = 0.03;
+/**/
+			// 2. === ВИЗУАЛЬНЫЙ ПОДЪЕМ ВЫСОКИХ ЧАСТОТ (Tilt) для утехи глаз ===
+			// freqStart - это текущая частота бина. Делим на 1000 (1 кГц) как на опорную точку.
+			var tiltMultiplier = Math.pow(freqStart / 1000.0, 0.1);
+
+			// Ограничиваем множитель, чтобы не улететь в бесконечность
+			if (tiltMultiplier < 0.5) tiltMultiplier = 0.5;
+			if (tiltMultiplier > 1.5) tiltMultiplier = 1.5;
+
+			normalized *= tiltMultiplier;
+		
+			// Дополнительная защита от выхода за 1.0 после умножения
+			if (normalized > 1.0) normalized = 1.0;
+
+			// 3. Power compression (makes mid-level volumes visually taller)
+			var compressed = Math.pow(normalized, compressionExponent);
+
+			// 4. Noise gate
 			if (compressed < noiseGate) compressed = 0;
+
 			var targetHeight = compressed * maxHeight;
-// === SMOOTHING ===
+
+			// === SMOOTHING ===
 			var smoothedHeight = _previousBarHeights[i] * _smoothingFactor + targetHeight * (1.0 - _smoothingFactor);
 			currentBarHeights.push(smoothedHeight);
+			
+			// === PEAK HOLD LOGIC ===
+			var currentPeak = _peakHeights[i];
+			if (smoothedHeight > currentPeak) {
+				currentPeak = smoothedHeight;
+			} else {
+				currentPeak -= _peakFallSpeed * maxHeight;
+				if (currentPeak < 0) currentPeak = 0;
+			}
+			_peakHeights[i] = currentPeak;
+			
 			var barHeight = smoothedHeight;
 			var x = i * barWidth;
 			var y = maxHeight - barHeight;
-// Draw bar (if visible)
-			if (barHeight > 0.5)
-			{
-				var color = getColorForLevel(normalized);
-				graphics.beginFill(color);
-// Draw with small gap for aesthetics
-				graphics.drawRect(x + 1, y, barWidth - 2, barHeight);
-				graphics.endFill();
+
+			// Draw bar based on mode
+			if (mode == 1) {
+				drawBrickBar(x, barWidth, maxHeight, barHeight, currentPeak);
+			} else {
+				// Standard mode
+				if (barHeight > 0.5)
+				{
+					var color = getColorForLevel(normalized);
+					graphics.beginFill(color);
+					// Draw with small gap for aesthetics
+					graphics.drawRect(x + 1, y, barWidth - 2, barHeight);
+					graphics.endFill();
+				}
 			}
 		}
-// Save current heights for the next frame
+
+		// Save current heights for the next frame
 		_previousBarHeights = currentBarHeights;
 		_isRendering = false;
 	}
+
+	/**
+	* Draws the bar in "Brick Mode" with segmented colors and peak hold.
+	* 
+	* @param x X position of the bar
+	* @param barWidth Total width of the bar
+	* @param maxHeight Maximum height of the widget
+	* @param height Current smoothed height of the bar
+	* @param peakHeight Current height of the peak hold indicator
+	*/
+	private function drawBrickBar(x:Float, barWidth:Float, maxHeight:Float, height:Float, peakHeight:Float):Void
+	{
+		var brickHeight = 4.0;
+		var gap = 1.0;
+		var step = brickHeight + gap;
+		var numBricks = Std.int(maxHeight / step);
+		
+		var targetBricks = Std.int(height / step);
+		var peakBrick = Std.int(peakHeight / step);
+		
+		var bWidth = barWidth - 2;
+		if (bWidth <= 0) bWidth = 1;
+		var brickX = x + 1;
+		
+		for (i in 0...numBricks) {
+			var brickY = maxHeight - (i + 1) * step;
+			
+			if (i < targetBricks) {
+				// Determine color based on height percentage
+				var pct = (i + 1) / numBricks;
+				var color:Int;
+				if (pct <= 0.60) color = _colorGreen;
+				else if (pct <= 0.80) color = _colorYellow;
+				else color = _colorRed;
+				
+				graphics.beginFill(color);
+				graphics.drawRect(brickX, brickY, bWidth, brickHeight);
+				graphics.endFill();
+			} else if (i == peakBrick && peakBrick >= targetBricks) {
+				// Draw peak hold brick (white indicator)
+				graphics.beginFill(0xFFFFFF);
+				graphics.drawRect(brickX, brickY, bWidth, brickHeight);
+				graphics.endFill();
+			}
+		}
+	}
+
 	/**
 	* Returns color for the bar depending on normalized level (0.0 - 1.0).
 	* Implements gradient: Green -> Yellow -> Red.
@@ -329,9 +451,10 @@ class FFTWidget extends DeviceView
 			return _colorGreen;    // < -48 dBFS (Green)
 		}
 	}
-// =========================================================================
-// CLEAR & DISPOSE
-// =========================================================================
+
+	// =========================================================================
+	// CLEAR & DISPOSE
+	// =========================================================================
 	/**
 	* Clears the screen of drawn spectrum.
 	*/
@@ -342,6 +465,7 @@ class FFTWidget extends DeviceView
 		graphics.drawRect(0, 0, widgetWidth, widgetHeight);
 		graphics.endFill();
 	}
+
 	/**
 	* Releases widget resources.
 	* Unsubscribes from Impulsys events, removes ENTER_FRAME listeners

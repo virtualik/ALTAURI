@@ -476,6 +476,14 @@ class Contact
         return linkedTargets != null ? linkedTargets.length : 0;
     }
     
+	/**
+	* Get all linked target contacts.
+	* Used by Assembly to safely clean up topology before rebuilding.
+	*/
+	public function getLinkedTargets():Array<Contact> {
+		return (linkedTargets != null) ? linkedTargets.copy() : [];
+	}
+
     // ========================================================================
     // DISPOSE
     // ========================================================================

@@ -15,8 +15,8 @@ import core.logic.EventType;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     ASSEMBLY v1.11                                        ║
-* ║          (Async Safety + Link Restore + Safety Net + Direct Input)        ║
+* ║                     ASSEMBLY v2.0                                         ║
+* ║  (Full Integrity + Template ID Serialization + Clean Gateway Topology)    ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  Universal base class for ALL nodes in the system.                        ║
@@ -42,10 +42,22 @@ import core.logic.EventType;
 * ║           even when no internal atoms exist.                              ║
 * ║  - v1.11: FIXED external wires not removed when port is deleted.          ║
 * ║           Added PORT_REMOVED event notification.                          ║
+* ║  - v2.0: FIXED Template ID serialization for nested state persistence.    ║
+* ║  - v2.0: FIXED Delta Topology infinite loops in port linking.             ║
 * ║                                                                           ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                     VERSION HISTORY                                       ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  v2.0 — Template ID Serialization & Clean Gateway Topology                ║
+* ║  ─────────────────────────────────────────────────                         ║
+* ║  - getPersistentState() / restoreState() now use getTemplateId() for      ║
+* ║    JSON keys. This guarantees nested states survive app reloads, as       ║
+* ║    Runtime IDs change on every instantiation, but Template IDs are stable.║
+* ║  - _ensureInternalAtomConnectedToPort() no longer creates direct          ║
+* ║    port.external → atom.input links. This prevented "Delta Topology"      ║
+* ║    signal duplication (infinite loops) that caused app freezes.           ║
+* ║    Gateway flow (external → internal → atom) is now strictly enforced.    ║
 * ║                                                                           ║
 * ║  v1.11 — Fix external wire cleanup on port deletion                       ║
 * ║  ─────────────────────────────────────────────────                         ║
@@ -1031,7 +1043,6 @@ class Assembly extends Atom
     *
     * Handles type conversion from String to ContactType for compatibility.
     */
-
 	private function _createInterface():Void
 	{
 		if (blueprint == null || blueprint.pins == null) return;
@@ -1040,7 +1051,6 @@ class Assembly extends Atom
 			if (pinDef == null || pinDef.name == null) continue;
 			
 			var portType:ContactType = pinDef.type;
-			// ... (type conversion logic stays the same) ...
 			
 			// v2.0: Read externalName from PinDef (if available)
 			var externalName:String = pinDef.name; // default to internal name
@@ -1218,17 +1228,14 @@ class Assembly extends Atom
     }
 
     /**
-    * v1.4 FIX: Ensure internal atom is connected to assembly port.
+    * v1.4 FIX / v2.0 UPDATE: Ensure internal atom is connected to assembly port.
     *
-    * For INPUT ports: Creates DIRECT link port.external → atom.input
-    * (bypassing port.internal to avoid type issues and oscillation).
-    * This exactly replicates direct wire Port In → Atom behavior.
-    *
-    * For OUTPUT ports: Links atom.output → port.internal (as before).
-    *
-    * NOTE: This method is used during INITIAL construction only.
-    * For hot-reload, use _restoreInternalPortLinks() which correctly
-    * resolves contact names from connection definitions.
+    * v2.0 FIX: Clean Gateway Topology.
+    * Removed direct port.external → atom.input link. That caused "Delta Topology" 
+    * signal duplication (infinite loops) that froze the app.
+    * The correct gateway flow (port.external → port.internal → atom.input) 
+    * is already perfectly handled by _createInternalConnections() via resolveContact().
+    * This method is kept for API compatibility but safely neutralized for INPUTs.
     *
     * @param portName Name of the assembly port
     * @param portType Type of the port (INPUT or OUTPUT)
@@ -1260,27 +1267,14 @@ class Assembly extends Atom
             else // INPUT
             {
                 // ═══════════════════════════════════════════════════════
-                // v1.4 FIX: INPUT — DIRECT link external → atom.input
-                // Bypass port.internal to avoid type issues
-                // Identical to direct wire Port In → Atom
+                // v2.0 FIX: Clean Gateway Topology
+                // We do NOT create direct port.external → atom.input links here.
+                // That caused "Delta Topology" signal duplication (infinite loops).
+                // The correct gateway flow (port.external → port.internal → atom.input) 
+                // is already perfectly handled by _createInternalConnections() via resolveContact().
+                // We safely rely on that established link.
                 // ═══════════════════════════════════════════════════════
-                var atomInput = atom.getInput(portName);
-                if (atomInput != null)
-                {
-                    // Direct link: port.external → atom.input
-                    if (!port.external.hasLink(atomInput))
-                    {
-                        port.external.link(atomInput, true);
-                    }
-                    
-                    // ALSO maintain port.external → port.internal link
-                    // for compatibility with other systems
-                    if (!port.external.hasLink(port.internal))
-                    {
-                        port.external.link(port.internal, true);
-                    }
-                    break;
-                }
+                break;
             }
         }
     }
@@ -1533,48 +1527,65 @@ class Assembly extends Atom
     * (e.g., after adding/removing atoms, adding/removing connections, or
     * after hot-reload).
     */
-    public function rebuildInternalConnections():Void
-    {
-        // 1. Collect all port internal contacts
-        var portInternals = [];
-        for (port in ports)
-        {
-            if (port != null && port.internal != null)
-            {
-                portInternals.push(port.internal);
-            }
-        }
-        
-        // 2. Remove all links between port internals (but NOT with external contacts)
-        for (i in 0...portInternals.length)
-        {
-            var contactA = portInternals[i];
-            if (contactA == null) continue;
-            
-            for (j in 0...portInternals.length)
-            {
-                if (i == j) continue;
-                var contactB = portInternals[j];
-                if (contactB == null) continue;
-                
-                // If there is a link from A to B, remove it
-                if (contactA.hasLink(contactB))
-                {
-                    contactA.unlink(contactB);
-                }
-            }
-        }
-        
-        // 3. Recreate internal connections from blueprint
-        _createInternalConnections();
-        
-        // 4. Re-establish external↔internal port links (logic mode)
-        _updatePortLinks();
-    }
+	// ========================================================================
+	// REBUILD INTERNAL CONNECTIONS (v2.1 Crash Protection)
+	// ========================================================================
+	/**
+	* Rebuilds all internal connections between ports (SELF→SELF) based on
+	* the current blueprint.internalConnections.
+	*
+	* v2.1 FIX: Added !isDisposed checks to prevent Use-After-Free crashes
+	* during deep nesting pop() operations when TickGenerator holds stale refs.
+	*/
+	public function rebuildInternalConnections():Void
+	{
+		// 1. Collect all port internal contacts
+		var portInternals = [];
+		for (port in ports)
+		{
+			if (port != null && port.internal != null && !port.internal.isDisposed)
+			{
+				portInternals.push(port.internal);
+			}
+		}
+		
+		// 2. Remove all links between port internals (but NOT with external contacts)
+		for (i in 0...portInternals.length)
+		{
+			var contactA = portInternals[i];
+			if (contactA == null || contactA.isDisposed) continue;
+			
+			for (j in 0...portInternals.length)
+			{
+				if (i == j) continue;
+				var contactB = portInternals[j];
+				if (contactB == null || contactB.isDisposed) continue;
+				
+				// === FIX: Safe unlink ===
+				if (contactA.hasLink(contactB))
+				{
+					contactA.unlink(contactB);
+				}
+			}
+		}
+		
+		// 3. Recreate internal connections from blueprint
+		_createInternalConnections();
+		
+		// 4. Re-establish external↔internal port links (logic mode)
+		_updatePortLinks();
+	}
 
     // ========================================================================
     // STATE SERIALIZATION
     // ========================================================================
+    /**
+    * Save state for persistence.
+    * 
+    * v2.0 FIX: Uses TEMPLATE IDs for internalStates keys.
+    * This guarantees that nested states survive JSON save/load cycles,
+    * because Runtime IDs change on every application restart, but Template IDs are stable.
+    */
     override public function getPersistentState():Dynamic
     {
         var states:Dynamic = {};
@@ -1588,7 +1599,9 @@ class Assembly extends Atom
                     var state = atom.getPersistentState();
                     if (state != null)
                     {
-                        Reflect.setField(states, runtimeId, state);
+                        // v2.0 FIX: Map Runtime ID -> Template ID for stable JSON serialization
+                        var templateId = getTemplateId(runtimeId);
+                        Reflect.setField(states, templateId, state);
                     }
                 }
             }
@@ -1613,6 +1626,11 @@ class Assembly extends Atom
         return null;
     }
 
+    /**
+    * Restore state from saved data.
+    * 
+    * v2.0 FIX: Looks up states using TEMPLATE IDs.
+    */
     override public function restoreState(state:Dynamic):Void
     {
         if (state == null) return;
@@ -1641,12 +1659,14 @@ class Assembly extends Atom
             var states = Reflect.field(state, "internalStates");
             for (runtimeId in internalAtoms.keys())
             {
-                if (Reflect.hasField(states, runtimeId))
+                // v2.0 FIX: Map Runtime ID -> Template ID to find the saved state
+                var templateId = getTemplateId(runtimeId);
+                if (Reflect.hasField(states, templateId))
                 {
                     var atom:Atom = cast internalAtoms.get(runtimeId);
                     if (atom != null)
                     {
-                        var atomState = Reflect.field(states, runtimeId);
+                        var atomState = Reflect.field(states, templateId);
                         atom.restoreState(atomState);
                     }
                 }

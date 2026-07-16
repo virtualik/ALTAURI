@@ -406,39 +406,39 @@ class GroupAtomsCommand extends Command
         // =====================================================================
         var createdExternalConns:Array<ConnectionDef> = [];
         
-        for (pm in _snapshot.getPortMappings())
-        {
-            var originalConn = pm.originalConnection;
-            var newConn:ConnectionDef;
-            
-            // FIX: Resolve the EXTERNAL name for the parent connection.
-            var externalPortName = resolveExternalPortName(newPins, pm.portName);
+		for (pm in _snapshot.getPortMappings())
+		{
+			var originalConn = pm.originalConnection;
+			var newConn:ConnectionDef;
+			var externalPortName = resolveExternalPortName(newPins, pm.portName);
+			
+			if (pm.isInput)
+			{
+				newConn = {
+					from: originalConn.from,
+					to: {atomId: newInstance.id, contactName: externalPortName}
+				};
+			}
+			else
+			{
+				newConn = {
+					from: {atomId: newInstance.id, contactName: externalPortName},
+					to: originalConn.to
+				};
+			}
+			_blueprint.internalConnections.push(newConn);
+			createdExternalConns.push(newConn);
+			
+			var cOut = resolveContact(newConn.from.atomId, newConn.from.contactName, OUTPUT);
+			var cIn = resolveContact(newConn.to.atomId, newConn.to.contactName, INPUT);
+			if (cOut != null && cIn != null) cOut.link(cIn);
+		}
 
-            if (pm.isInput)
-            {
-                newConn = {
-                    from: originalConn.from,
-                    to: {atomId: newInstance.id, contactName: externalPortName}
-                };
-            }
-            else
-            {
-                newConn = {
-                    from: {atomId: newInstance.id, contactName: externalPortName},
-                    to: originalConn.to
-                };
-            }
-            
-            _blueprint.internalConnections.push(newConn);
-            createdExternalConns.push(newConn);
+		// === FIX: КРИТИЧЕСКИ ВАЖНО! Синхронизируем родительскую сборку после добавления связей с SELF новой сборки ===
+		_assembly.rebuildInternalConnections();
 
-            var cOut = resolveContact(newConn.from.atomId, newConn.from.contactName, OUTPUT);
-            var cIn = resolveContact(newConn.to.atomId, newConn.to.contactName, INPUT);
-            if (cOut != null && cIn != null) cOut.link(cIn);
-        }
-
-        // Notify parent assembly that its ports have changed
-        Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });
+		// Notify parent assembly that its ports have changed
+		Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });
 
         // =====================================================================
         // PHASE 7: CAPTURE SNAPSHOT - AFTER STATE

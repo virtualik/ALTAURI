@@ -76,36 +76,46 @@ class DeleteAtomCommand extends Command {
         _atomId = atomId;
     }
 
-    override private function executeInternal():Void {
-        saveSnapshot();
-
-        // Remove connections
-        if (_connections != null) {
-            for (conn in _connections) {
-                _blueprint.internalConnections.remove(conn);
-                var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
-                var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
-                if (cOut != null && cIn != null) cOut.unlink(cIn);
-            }
-        }
-
-        // Remove atom definition
-        if (_atomDef != null) {
-            _blueprint.internalAtoms.remove(_atomDef);
-        }
-
-        // Remove atom instance
-        var atomInstance = _assembly.internalAtoms.get(_atomId);
-        if (atomInstance != null) {
-            if (Std.isOfType(atomInstance, IDisposable)) {
-                try { cast(atomInstance, IDisposable).dispose(); } catch (e:Dynamic) { trace('Error disposing: $e'); }
-            }
-            _assembly.internalAtoms.remove(_atomId);
-        }
-
-        Impulsys.quickEmit(EventType.ATOM_DELETED, {assemblyId: _assembly.id, id: _atomId});
-        complete();
-    }
+	override private function executeInternal():Void {
+		saveSnapshot();
+		
+		var involvesSelf = false;
+		
+		// Remove connections
+		if (_connections != null) {
+			for (conn in _connections) {
+				if (conn.from.atomId == "SELF" || conn.to.atomId == "SELF") {
+					involvesSelf = true;
+				}
+				_blueprint.internalConnections.remove(conn);
+				var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
+				var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
+				if (cOut != null && cIn != null) cOut.unlink(cIn);
+			}
+		}
+		
+		// Remove atom definition
+		if (_atomDef != null) {
+			_blueprint.internalAtoms.remove(_atomDef);
+		}
+		
+		// Remove atom instance
+		var atomInstance = _assembly.internalAtoms.get(_atomId);
+		if (atomInstance != null) {
+			if (Std.isOfType(atomInstance, IDisposable)) {
+				try { cast(atomInstance, IDisposable).dispose(); } catch (e:Dynamic) { trace('Error disposing: $e'); }
+			}
+			_assembly.internalAtoms.remove(_atomId);
+		}
+		
+		// === FIX: Синхронизация рантайма, если удаляемый атом был связан с портами сборки ===
+		if (involvesSelf) {
+			_assembly.rebuildInternalConnections();
+		}
+		
+		Impulsys.quickEmit(EventType.ATOM_DELETED, {assemblyId: _assembly.id, id: _atomId});
+		complete();
+	}
 
     override public function undo():Void {
         // Restore atom definition

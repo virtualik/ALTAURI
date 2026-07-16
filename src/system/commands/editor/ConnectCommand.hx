@@ -82,13 +82,17 @@ class ConnectCommand extends Command {
             }
         }
 
-        if (!exists) {
-            _blueprint.internalConnections.push(_createdLink);
-            cOut.link(cIn);
-        }
-
-        Impulsys.quickEmit(EventType.REDRAW_WIRES);
-        complete();
+		if (!exists) {
+			_blueprint.internalConnections.push(_createdLink);
+			cOut.link(cIn);
+			
+			// === FIX: Синхронизация рантайма, если затронут порт сборки ===
+			if (_fromId == "SELF" || _toId == "SELF") {
+				_assembly.rebuildInternalConnections();
+			}
+		}
+		Impulsys.quickEmit(EventType.REDRAW_WIRES);
+		complete();
     }
 
     override public function undo():Void {
