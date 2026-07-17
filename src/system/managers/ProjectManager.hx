@@ -54,11 +54,13 @@ import sys.io.File;
  * ║  │   - Ghost = connection referencing non-existent atom or SELF port   │  ║
  * ║  │   - Prevents WireRenderer from drawing wires to null endpoints      │  ║
  * ║  │   - Prevents Assembly._createInternalConnections() from crashing    │  ║
+ * ║  │   - FIXED: Replaced Reflect.field with direct property access for   │  ║
+ * ║  │     externalName to guarantee reliable serialization in Haxe.       │  ║
  * ║  │                                                                     │  ║
  * ║  │   v2.3 Changes:                                                     │  ║
  * ║  │   - FIXED: saveSelfrun() now serializes pins with externalName      │  ║
  * ║  │   - FIXED: dataType null handling (no more "null" string)           │  ║
- * ║  │   - Preserves ConductorPort dual naming (externalName + internalName)│  ║
+ * ║  │   - Preserves ConductorPort dual naming (externalName+internalName) │  ║
  * ║  │                                                                     │  ║
  * ║  │   v2.2 Changes:                                                     │  ║
  * ║  │   - Added windowX/windowY to saved data and return types            │  ║
@@ -193,7 +195,7 @@ class ProjectManager
         
         var bp = rootAssembly.blueprint;
         
-        // v2.3: Serialize pins with externalName
+        // v2.4 FIX: Serialize pins with direct externalName access
         var pinsToSave:Array<Dynamic> = [];
         for (pin in bp.pins)
         {
@@ -203,11 +205,13 @@ class ProjectManager
                 defaultValue: pin.defaultValue
             };
             if (pin.dataType != null) pinData.dataType = pin.dataType;
-            if (Reflect.hasField(pin, "externalName"))
+            
+            // Direct property access is 100% reliable for @:optional typedef fields in Haxe
+            if (pin.externalName != null && pin.externalName != "")
             {
-                var extName = Reflect.field(pin, "externalName");
-                if (extName != null) pinData.externalName = extName;
+                pinData.externalName = pin.externalName;
             }
+            
             pinsToSave.push(pinData);
         }
         
@@ -435,7 +439,7 @@ class ProjectManager
             });
         }
         
-        // Serialize pins with externalName
+        // v2.4 FIX: Serialize pins with direct externalName access
         var pinsData:Array<Dynamic> = [];
         for (pin in bp.pins)
         {
@@ -445,11 +449,13 @@ class ProjectManager
                 defaultValue: pin.defaultValue
             };
             if (pin.dataType != null) pinData.dataType = pin.dataType;
-            if (Reflect.hasField(pin, "externalName"))
+            
+            // Direct property access is 100% reliable for @:optional typedef fields in Haxe
+            if (pin.externalName != null && pin.externalName != "")
             {
-                var extName = Reflect.field(pin, "externalName");
-                if (extName != null) pinData.externalName = extName;
+                pinData.externalName = pin.externalName;
             }
+            
             pinsData.push(pinData);
         }
         
@@ -558,12 +564,20 @@ class ProjectManager
                     if (dt == "null") dt = null;
                 }
                 
+                // v2.4 FIX: Handle externalName null correctly with direct access
+                var extName:String = null;
+                if (p.externalName != null)
+                {
+                    extName = Std.string(p.externalName);
+                    if (extName == "null") extName = null;
+                }
+                
                 pins.push({
                     name: Std.string(p.name),
                     type: _parseContactType(p.type),
                     defaultValue: p.defaultValue,
                     dataType: dt,
-                    externalName: p.externalName  // v2.0: preserve externalName
+                    externalName: extName
                 });
             }
         }

@@ -18,7 +18,7 @@ import core.types.ContactType.*;
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
- * ║  │                    CONDUCTOR PORT                                    │  ║
+ * ║  │                    CONDUCTOR PORT                                   │  ║
  * ║  │                                                                     │  ║
  * ║  │   EXTERNAL SIDE (Parent Schema)    │    INTERNAL SIDE (Inside)      │  ║
  * ║  │   ┌─────────────────────────┐      │    ┌────────────────────────┐ │  ║
@@ -42,6 +42,31 @@ import core.types.ContactType.*;
  * ║  Internal name: "incoming_1"        (wall contact inside assembly)       ║
  * ║                                                                           ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
+ * 
+ * ШПАРГАЛКА
+ * ┌───────────────────────────────────────────────────────────────────────┐
+ * │                    CONDUCTOR PORT DUAL NAMING                         │
+ * ├───────────────────────────────────────────────────────────────────────┤
+ * │                                                                       │
+ * │  Assembly.ports map keyed by:  internalName (e.g., "incoming_1")      │
+ * │  port.name                   = internalName                           │
+ * │  port.internal.name          = internalName (wall contact inside)     │
+ * │  port.external.name          = externalName (visible on parent)       │
+ * │                                                                       │
+ * │  WHEN TO USE WHICH:                                                   │
+ * │  ─────────────────                                                    │
+ * │  ✓ internalName:                                                      │
+ * │    - Assembly.ports.get(name)                                         │
+ * │    - blueprint.internalConnections INSIDE assembly (SELF.xxx)         │
+ * │    - port.internal links                                              │
+ * │                                                                       │
+ * │  ✓ externalName:                                                      │
+ * │    - blueprint.internalConnections in PARENT assembly                 │
+ * │    - atom.getInput(name) / atom.getOutput(name) for Assembly          │
+ * │    - NodeView.inputPorts/outputPorts keys                             │
+ * │    - WireRenderer.getWirePoint()                                      │
+ * │                                                                       │
+ * └───────────────────────────────────────────────────────────────────────┘
  */
 class ConductorPort
 {
@@ -87,22 +112,22 @@ class ConductorPort
      * 
      * v2.0: If internalName is null, it defaults to externalName (backward compat).
      */
-    public function new(externalName:String, type:ContactType, ?internalName:String = null, ?defaultValue:Dynamic = null)
-    {
-        this.externalName = externalName;
-        this.internalName = (internalName != null) ? internalName : externalName;
-        this.type = type;
-        this.defaultValue = defaultValue;
-        
-        // port.name = internalName (used for lookup in Assembly.ports map)
-        this.name = this.internalName;
-        
-        // Create internal contact with INTERNAL name (visible on wall)
-        this.internal = new Contact(defaultValue, type, this.internalName);
-        
-        // Create external contact with EXTERNAL name (visible on parent)
-        this.external = new Contact(defaultValue, type, this.externalName);
-    }
+	public function new(externalName:String, type:ContactType, ?internalName:String = null, ?defaultValue:Dynamic = null)
+	{
+		this.externalName = externalName;
+		this.internalName = (internalName != null) ? internalName : externalName;
+		this.type = type;
+		this.defaultValue = defaultValue;
+		
+		// port.name = internalName (used for lookup in Assembly.ports map)
+		this.name = this.internalName;
+		
+		// Create internal contact with INTERNAL name (visible on wall)
+		this.internal = new Contact(defaultValue, type, this.internalName);
+		
+		// Create external contact with EXTERNAL name (visible on parent)
+		this.external = new Contact(defaultValue, type, this.externalName);
+	}
 
     // ========================================================================
     // LINKING

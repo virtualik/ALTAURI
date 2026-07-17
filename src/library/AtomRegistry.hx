@@ -394,27 +394,35 @@ class AtomRegistry
             var json = haxe.Json.parse(content);
             var rawBp:Dynamic = json.blueprint;
             
-            // Parse pins
-            var pins:Array<core.data.Blueprint.PinDef> = [];
-            if (rawBp.pins != null)
-            {
-                var seenNames = new Map<String, Bool>();
-                for (p in (cast(rawBp.pins, Array<Dynamic>)))
-                {
-                    var pinName = Std.string(p.name);
-                    if (!seenNames.exists(pinName))
-                    {
-                        pins.push({
-                            name: pinName,
-                            type: _parseContactType(p.type),
-                            defaultValue: p.defaultValue,
-                            dataType: Std.string(p.dataType)
-                        });
-                        seenNames.set(pinName, true);
-                    }
-                }
-            }
-            
+			// Parse pins
+			var pins:Array<core.data.Blueprint.PinDef> = [];
+			if (rawBp.pins != null)
+			{
+				var seenNames = new Map<String, Bool>();
+				for (p in (cast(rawBp.pins, Array<Dynamic>)))
+				{
+					var pinName = Std.string(p.name);
+					if (!seenNames.exists(pinName))
+					{
+						// v2.4 FIX: Безопасное чтение externalName при загрузке из библиотеки
+						var extName:String = null;
+						if (p.externalName != null)
+						{
+							extName = Std.string(p.externalName);
+							if (extName == "null") extName = null;
+						}
+
+						pins.push({
+							name: pinName,
+							type: _parseContactType(p.type),
+							defaultValue: p.defaultValue,
+							dataType: Std.string(p.dataType),
+							externalName: extName  // ✅ ТЕПЕРЬ externalName СОХРАНЯЕТСЯ!
+						});
+						seenNames.set(pinName, true);
+					}
+				}
+			}            
             // Parse connections
             var conns:Array<core.data.ConnectionDef> = [];
             if (rawBp.internalConnections != null)

@@ -111,6 +111,12 @@ class PanelWidget extends DeviceView
 
         // Create ports
         createPorts();
+		trace('PanelWidget: assembly=${assembly != null}, blueprint=${assembly != null ? assembly.blueprint : null}');
+		
+		if (assembly != null && assembly.blueprint != null) {
+			trace('PanelWidget: blueprint.name="${assembly.blueprint.name}"');
+		}
+		_titleLabel.text = (assembly != null && assembly.blueprint != null) ? assembly.blueprint.name : "Panel";
     }
 
     // =========================================================================

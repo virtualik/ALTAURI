@@ -238,29 +238,126 @@ class EditorContext
         currentEditor.refreshAssemblyViews();
     }
     
-    /**
-     * Update visual representation of assemblies with specified ID
-     * in all open editors.
-     */
-    private function updateInstancesOf(typeId:String):Void
-    {
-        var newBp = library.AtomRegistry.get(typeId);
-        if (newBp == null) return;
-        
-        // Iterate through all atoms in CURRENT editor
-        // (stack is hierarchical, but cascade update not needed — 
-        // sufficient to update view in parent)
-        for (id in currentAssembly.internalAtoms.keys())
-        {
-            var atom = currentAssembly.internalAtoms.get(id);
-            if (Std.isOfType(atom, Assembly))
-            {
-                var asm = cast(atom, Assembly);
-                if (asm.blueprint.id == typeId) asm.updateFromBlueprint(newBp);
-            }
-        }
-    }
-    
+	/**
+	* Update visual representation of assemblies with specified ID
+	* in all open editors.
+	* 
+	* v2.2 FIX: After updating the assembly's internal structure, 
+	* we must reconnect the parent's wires to the newly created ports.
+	*/
+	private function updateInstancesOf(typeId:String):Void
+	{
+		var newBp = library.AtomRegistry.get(typeId);
+		if (newBp == null) return;
+		
+		// Iterate through all atoms in CURRENT editor (the parent)
+		for (id in currentAssembly.internalAtoms.keys())
+		{
+			var atom = currentAssembly.internalAtoms.get(id);
+			if (Std.isOfType(atom, Assembly))
+			{
+				var asm = cast(atom, Assembly);
+				if (asm.blueprint.id == typeId) 
+				{
+					// 1. Update the assembly's internal structure (ports, internal atoms)
+					asm.updateFromBlueprint(newBp);
+					
+					// 2. Reconnect parent's external links to this updated assembly
+					reconnectExternalLinksToAssembly(asm);
+				}
+			}
+		}
+	}
+
+	/**
+	* Reconnects wires from the parent assembly to the updated child assembly.
+	* 
+	* When a child assembly updates, its ports are recreated (new Contact instances).
+	* The parent's blueprint still has the correct ConnectionDef, but the physical 
+	* Contact.link() is broken. This method restores the physical links.
+	*/
+	private function reconnectExternalLinksToAssembly(targetAsm:Assembly):Void
+	{
+		var bp = currentAssembly.blueprint;
+		if (bp.internalConnections == null) return;
+		
+		for (conn in bp.internalConnections)
+		{
+			// Check if this connection involves our updated assembly
+			var isTarget = false;
+			
+			// Check 'to' side
+			if (conn.to.atomId != "SELF")
+			{
+				var realAtomId = currentAssembly.idMap.get(conn.to.atomId);
+				if (realAtomId == null) realAtomId = conn.to.atomId; // fallback if already runtime ID
+				
+				if (realAtomId == targetAsm.id || conn.to.atomId == targetAsm.id) 
+				{
+					isTarget = true;
+				}
+			}
+			
+			// Check 'from' side (for completeness)
+			if (!isTarget && conn.from.atomId != "SELF")
+			{
+				var realAtomId = currentAssembly.idMap.get(conn.from.atomId);
+				if (realAtomId == null) realAtomId = conn.from.atomId;
+				
+				if (realAtomId == targetAsm.id || conn.from.atomId == targetAsm.id)
+				{
+					isTarget = true;
+				}
+			}
+			
+			if (isTarget)
+			{
+				// Re-establish the physical link
+				var cOut = resolveContactInParent(conn.from);
+				var cIn = resolveContactInParent(conn.to);
+				
+				if (cOut != null && cIn != null && !cOut.hasLink(cIn))
+				{
+					cOut.link(cIn);
+				}
+			}
+		}
+	}
+
+	/**
+	* Resolves a Contact in the context of the CURRENT (parent) assembly.
+	* 
+	* This brilliantly leverages the existing Atom.getInput/getOutput methods,
+	* which already know how to find Assembly ports by their externalName!
+	*/
+	private function resolveContactInParent(point:core.data.Blueprint.ConnectionPoint):core.base.Contact
+	{
+		if (point.atomId == "SELF")
+		{
+			var port = currentAssembly.ports.get(point.contactName);
+			return port != null ? port.internal : null;
+		}
+		else
+		{
+			// Resolve Template ID to Runtime ID
+			var realAtomId = currentAssembly.idMap.get(point.atomId);
+			if (realAtomId == null) realAtomId = point.atomId;
+			
+			var obj = currentAssembly.internalAtoms.get(realAtomId);
+			if (obj == null) return null;
+			
+			var atom:core.base.Atom = cast obj;
+			
+			// getInput and getOutput search by Contact.name.
+			// For Assemblies, external contacts are registered with externalName.
+			// For simple atoms, contacts are registered with their standard name.
+			// This perfectly matches the contactName stored in the parent's blueprint!
+			var c = atom.getInput(point.contactName);
+			if (c != null) return c;
+			
+			return atom.getOutput(point.contactName);
+		}
+	}    
     /**
      * Reset entire stack (on project reload) and clear camera states.
      */
