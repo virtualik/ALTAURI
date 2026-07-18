@@ -120,8 +120,8 @@ class FFTWidget extends DeviceView
 	
 	private var _previousBarHeights:Array<Float>;
 	private var _peakHeights:Array<Float>;
-	private var _smoothingFactor:Float = 0.9; // 0.0 = no smoothing, 1.0 = maximum smoothing
-	private var _peakFallSpeed:Float = 0.03;  // 3% of maxHeight per frame
+	private var _smoothingFactor:Float = 0.0; // 0.0 = no smoothing, 1.0 = maximum smoothing
+	private var _peakFallSpeed:Float = 0.01;  // 3% of maxHeight per frame
 
 	// =========================================================================
 	// CONSTRUCTOR
@@ -326,7 +326,7 @@ class FFTWidget extends DeviceView
 /**/
 			// 2. === ВИЗУАЛЬНЫЙ ПОДЪЕМ ВЫСОКИХ ЧАСТОТ (Tilt) для утехи глаз ===
 			// freqStart - это текущая частота бина. Делим на 1000 (1 кГц) как на опорную точку.
-			var tiltMultiplier = Math.pow(freqStart / 1000.0, 0.1);
+			var tiltMultiplier = Math.pow(freqStart / 1000.0, 0.5);
 
 			// Ограничиваем множитель, чтобы не улететь в бесконечность
 			if (tiltMultiplier < 0.5) tiltMultiplier = 0.5;

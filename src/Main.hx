@@ -132,7 +132,7 @@ class Main extends Sprite
 	private var _devicePanel:DevicePanel;
 	private var _windowController:WindowController;
 	private var _isPanelMode:Bool = false; // false = Editor Mode, true = Device Panel Mode
-	
+
 	// =========================================================================
 	// v3.8: WINDOW MAXIMIZE/RESTORE STATE
 	// =========================================================================
@@ -149,7 +149,7 @@ class Main extends Sprite
 	private var _savedWindowY:Float = 100;
 	private var _savedWindowWidth:Float = 800;
 	private var _savedWindowHeight:Float = 600;
-	
+
 	// v2.2: Cache for window position
 	private var _cachedDeviceWindowState:Array<
 	{
@@ -186,12 +186,10 @@ class Main extends Sprite
 		if (canvas != null) canvas.oncontextmenu = function(e) { e.preventDefault(); return false; };
 		#end
 
-
 		_projectManager = ProjectManager.getInstance();
 		_projectManager.init();
 
 		AtomRegistry.initialize();
-
 
 		ECS.init();
 
@@ -326,7 +324,7 @@ class Main extends Sprite
 
 			_editorContext.push(rootAssembly, true);
 			_editorContext.currentEditor.setViewState(data.view);
-			
+
 			// === v4.3: Force full redraw after project load ===
 			// WireRenderer and ViewportManager may not have triggered
 			// their initial draw cycle yet. Delay ensures all nodes
@@ -687,36 +685,21 @@ class Main extends Sprite
 			// --- SWITCH TO EDITOR MODE ---
 			log("Mode: Node Editor");
 
-			// 1. Save current panel state to cache
 			syncDevicePanelToCache();
-
-			// 2. Hide the panel
 			if (_devicePanel != null) _devicePanel.visible = false;
-
-			// 3. Show the editor
 			_editorLayer.visible = true;
 			_uiLayer.visible = true;
-
-			// FIX: Clear the panel first!
-			// This releases widgets (registry.clearContainer) and deactivates them.
-			// Now NodeView can "pick them up" and reactivate them.
 			if (_devicePanel != null) _devicePanel.clearDevices();
 
-			// 4. Now return all widgets to NodeViews
 			if (_editorContext.currentEditor != null)
 			{
+				// Restore widgets synchronously
 				_editorContext.currentEditor.restoreAllWidgets();
-				
-				// === v4.3: Force full redraw after mode switch ===
-				// Nodes and wires may be invisible after returning from Device Panel
-				// because Widget deactivation/reactivation doesn't trigger wire rebuild.
-				haxe.Timer.delay(function()
-				{
-					if (_editorContext.currentEditor != null)
-					{
-						_editorContext.currentEditor.forceFullRedraw();
-					}
-				}, 50);
+
+				// v2.3 FIX: Single synchronous redraw. No timers needed.
+				// WireRenderer.rebuildAll() now safely skips unready nodes,
+				// so wires will appear as soon as NodeViews complete layout.
+				_editorContext.currentEditor.forceFullRedraw();
 			}
 		}
 	}
@@ -937,7 +920,7 @@ class Main extends Sprite
 		{
 			onCloseClicked();  // using existing closing method
 		};
-		
+
 		// v3.4: Move main window when dragging DevicePanel header
 		_devicePanel.onWindowDrag = function(dx:Float, dy:Float)
 		{
@@ -948,9 +931,10 @@ class Main extends Sprite
 				win.y = Std.int(win.y + dy);
 			}
 		};
-		
+
 		// DevicePanel app close callback
-		_devicePanel.onCloseApp = function() {
+		_devicePanel.onCloseApp = function()
+		{
 			onCloseClicked();  // using existing closing method
 		};
 
@@ -964,31 +948,38 @@ class Main extends Sprite
 		// private var _savedWindowWidth:Float = 800;
 		// private var _savedWindowHeight:Float = 600;
 
-		_devicePanel.onToggleMaximize = function() {
+		_devicePanel.onToggleMaximize = function()
+		{
 			var win = Lib.current.stage.window;
 			if (win == null) return;
-			
-			if (_isWindowMaximized) {
+
+			if (_isWindowMaximized)
+			{
 				// RESTORE: Return to saved windowed state
 				win.resize(Std.int(_savedWindowWidth), Std.int(_savedWindowHeight));
 				win.move(Std.int(_savedWindowX), Std.int(_savedWindowY));
 				_isWindowMaximized = false;
 				log("Window restored to " + Std.int(_savedWindowWidth) + "x" + Std.int(_savedWindowHeight));
-			} else {
+			}
+			else
+			{
 				// MAXIMIZE: Save current state and go fullscreen
 				_savedWindowX = win.x;
 				_savedWindowY = win.y;
 				_savedWindowWidth = win.width;
 				_savedWindowHeight = win.height;
-				
+
 				// Try to get screen size via window.display (works in most Lime versions)
 				var display = win.display;
-				if (display != null && display.currentMode != null) {
+				if (display != null && display.currentMode != null)
+				{
 					win.resize(display.currentMode.width, display.currentMode.height);
 					win.move(0, 0);
 					_isWindowMaximized = true;
 					log("Window maximized to " + display.currentMode.width + "x" + display.currentMode.height);
-				} else {
+				}
+				else
+				{
 					// Fallback: use stage dimensions (not true fullscreen, but works)
 					win.resize(Std.int(stage.stageWidth), Std.int(stage.stageHeight));
 					win.move(0, 0);
@@ -996,7 +987,7 @@ class Main extends Sprite
 					log("Window maximized to stage size: " + Std.int(stage.stageWidth) + "x" + Std.int(stage.stageHeight));
 				}
 			}
-			
+
 			// Update DevicePanel button icon
 			_devicePanel.setMaximizedState(_isWindowMaximized);
 		};
@@ -1028,13 +1019,13 @@ class Main extends Sprite
 		graphics.beginFill(_theme.APP_BG_COLOR, 0); // Alpha = 0 (Fully transparent)
 		graphics.drawRect(0, 0, stage.stageWidth, stage.stageHeight);
 		graphics.endFill();
-		
+
 		_debugField.y = stage.stageHeight - 40;
 		_pathField.y = stage.stageHeight - 20;
-		
+
 		var btnSize = 40; var btnPadding = 5;
 		var rightEdge = stage.stageWidth - btnPadding;
-		
+
 		_btnClose.x = rightEdge - btnSize;
 		_btnBack.x = _btnClose.x - btnSize - btnPadding;
 		_btnDelete.x = _btnBack.x - btnSize - btnPadding;
@@ -1042,32 +1033,36 @@ class Main extends Sprite
 		_btnNew.x = _btnView.x - btnSize - btnPadding;
 		_btnReset.x = _btnNew.x - btnSize - btnPadding;
 		_btnSettings.x = _btnReset.x - btnSize - btnPadding;
-		
+
 		if (_editorContext.currentEditor != null)
 		{
 			var margin = 12;
 			_editorContext.currentEditor.setSize(stage.stageWidth - margin*2, stage.stageHeight - margin*2);
 		}
-		
+
 		// v2.5: Resize DevicePanel if active
 		if (_devicePanel != null && _devicePanel.visible)
 		{
 			_devicePanel.setSize(stage.stageWidth, stage.stageHeight);
 		}
-		
+
 		// =========================================================================
 		// v3.8: SYNC MAXIMIZE STATE WITH WINDOW SIZE
 		// =========================================================================
 		// If window was resized externally (e.g., user dragged to screen edge),
 		// update maximize state to match
-		if (_isPanelMode && _devicePanel != null) {
+		if (_isPanelMode && _devicePanel != null)
+		{
 			var win = Lib.current.stage.window;
-			if (win != null) {
+			if (win != null)
+			{
 				var display = win.display;
-				if (display != null && display.currentMode != null) {
-					var isFullscreen = (win.width >= display.currentMode.width - 10 && 
-									   win.height >= display.currentMode.height - 10);
-					if (isFullscreen != _isWindowMaximized) {
+				if (display != null && display.currentMode != null)
+				{
+					var isFullscreen = (win.width >= display.currentMode.width - 10 &&
+					win.height >= display.currentMode.height - 10);
+					if (isFullscreen != _isWindowMaximized)
+					{
 						_isWindowMaximized = isFullscreen;
 						_devicePanel.setMaximizedState(_isWindowMaximized);
 					}
@@ -1254,21 +1249,21 @@ class Main extends Sprite
 		createEmptyProject();
 		log("System Reset.");
 	}
-	
+
 	/**
 	 * Handle PORT_REMOVED event: remove external wires connected to the deleted port.
 	 */
 	private function onPortRemoved(impulse:Impulse):Void
 	{
 		if (impulse == null || impulse.data == null) return;
-		
+
 		var asmId:String = impulse.data.assemblyId;
 		var portName:String = impulse.data.portName;
-		
+
 		// Get current stack
 		var stack = _editorContext.getStackEntries();
 		if (stack.length == 0) return;
-		
+
 		// Find the parent assembly (the one that contains asmId as an internal atom)
 		var parentAssembly:Assembly = null;
 		// Start from the bottom of the stack (root) upwards
@@ -1304,13 +1299,13 @@ class Main extends Sprite
 				break;
 			}
 		}
-		
+
 		if (parentAssembly == null)
 		{
 			// No parent found (maybe it's the root itself) — nothing to do
 			return;
 		}
-		
+
 		// Remove wires from parent blueprint that reference SELF.portName
 		var bp = parentAssembly.blueprint;
 		var toRemove:Array<core.data.Blueprint.ConnectionDef> = [];
@@ -1325,7 +1320,7 @@ class Main extends Sprite
 				toRemove.push(conn);
 			}
 		}
-		
+
 		if (toRemove.length > 0)
 		{
 			for (conn in toRemove)
@@ -1337,7 +1332,7 @@ class Main extends Sprite
 			trace('Removed ${toRemove.length} external wires connected to port "$portName" of assembly $asmId');
 		}
 	}
-	
+
 	/**
 	 * Hard reset - clears all state and managers.
 	 */
@@ -1467,7 +1462,7 @@ class Main extends Sprite
 		if (e.ctrlKey && e.keyCode == Keyboard.X) { if (_editorContext.currentEditor != null) _editorContext.currentEditor.cutSelection(); return; }
 		if (e.ctrlKey && e.keyCode == Keyboard.V) { if (_editorContext.currentEditor != null) _editorContext.currentEditor.pasteSelection(); return; }
 		if (e.ctrlKey && e.keyCode == Keyboard.A) { if (_editorContext.currentEditor != null) _editorContext.currentEditor.selectAll(); return; }
-		
+
 		// Reset Viewport
 		if (e.ctrlKey && e.keyCode == Keyboard.NUMBER_0)
 		{
@@ -1502,10 +1497,10 @@ class Main extends Sprite
 
 		var nodeCount = _editorContext.currentEditor.getSelectedNodeCount();
 		var wireIds = _editorContext.currentEditor.getSelectedWireIds();
-		
+
 		trace('DEBUG: nodeCount=$nodeCount, wireIds.length=${wireIds.length}');
 		trace('DEBUG: selectedNodeIds=${_editorContext.currentEditor.getSelectedNodeIds()}');
-	
+
 		if (nodeCount > 0)
 		{
 			_editorContext.currentEditor.deleteSelectedNodes();

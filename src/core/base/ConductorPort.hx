@@ -21,11 +21,11 @@ import core.types.ContactType.*;
  * ║  │                    CONDUCTOR PORT                                   │  ║
  * ║  │                                                                     │  ║
  * ║  │   EXTERNAL SIDE (Parent Schema)    │    INTERNAL SIDE (Inside)      │  ║
- * ║  │   ┌─────────────────────────┐      │    ┌────────────────────────┐ │  ║
- * ║  │   │ name: "PassThrough_in"  │      │    │ name: "incoming_1"     │ │  ║
- * ║  │   │ type: INPUT             │──────┼────│ type: INPUT            │ │  ║
- * ║  │   │ (visible to parent)     │      │    │ (visible on wall)      │ │  ║
- * ║  │   └─────────────────────────┘      │    └────────────────────────┘ │  ║
+ * ║  │   ┌─────────────────────────┐      │    ┌────────────────────────┐  │  ║
+ * ║  │   │ name: "PassThrough_in"  │      │    │ name: "incoming_1"     │  │  ║
+ * ║  │   │ type: INPUT             │──────┼────│ type: INPUT            │  │  ║
+ * ║  │   │ (visible to parent)     │      │    │ (visible on wall)      │  │  ║
+ * ║  │   └─────────────────────────┘      │    └────────────────────────┘  │  ║
  * ║  │                                                                     │  ║
  * ║  │   port.name = internalName (used for lookup in Assembly.ports map)  │  ║
  * ║  │                                                                     │  ║
@@ -33,13 +33,13 @@ import core.types.ContactType.*;
  * ║                                                                           ║
  * ║  Naming Convention:                                                       ║
  * ║  ─────────────────                                                        ║
- * ║  External: "{AtomDisplayName}_{ContactName}" or "{ContactName}_N"        ║
- * ║  Internal: "incoming_N" (INPUT) or "outgoing_N" (OUTPUT)                 ║
+ * ║  External: "{AtomDisplayName}_{ContactName}" or "{ContactName}_N"         ║
+ * ║  Internal: "incoming_N" (INPUT) or "outgoing_N" (OUTPUT)                  ║
  * ║                                                                           ║
  * ║  Example:                                                                 ║
  * ║  ─────────                                                                ║
- * ║  External name: "PassThrough_1_in"  (parent sees this on assembly node)  ║
- * ║  Internal name: "incoming_1"        (wall contact inside assembly)       ║
+ * ║  External name: "PassThrough_1_in"  (parent sees this on assembly node)   ║
+ * ║  Internal name: "incoming_1"        (wall contact inside assembly)        ║
  * ║                                                                           ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  * 

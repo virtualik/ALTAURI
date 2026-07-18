@@ -1,5 +1,4 @@
 package system.commands.editor;
-
 import system.commands.base.Command;
 import core.data.Blueprint;
 import core.base.Assembly;
@@ -11,8 +10,28 @@ import core.logic.Impulsys;
 import core.logic.EventType;
 
 /**
- * CONNECT COMMAND v1.0
+ * CONNECT COMMAND v1.1 (Live External Name Refresh)
  * Command to connect two contacts.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * v1.1 CHANGES (Live External Name Refresh)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ *  PROBLEM:
+ *  When the user connected an atom to an Assembly port that was created via
+ *  addPort() (e.g., "incoming_1"), the port's externalName stayed "incoming_1"
+ *  forever — even after exit. The user only saw meaningful names like
+ *  "Button_out" if they happened to exit and re-enter the assembly, and only
+ *  after Assembly.refreshExternalPortNames() was called in EditorContext.pop().
+ *
+ *  SOLUTION:
+ *  After creating a connection that involves a SELF endpoint, immediately call
+ *  _assembly.refreshExternalPortNames(). This updates the port's externalName
+ *  to "{atomDisplayName}_{contactName}" right away, so the parent schema
+ *  shows a meaningful label without waiting for exit.
+ *
+ *  refreshExternalPortNames() is idempotent — calling it on every ConnectCommand
+ *  is safe; ports whose name is already correct are skipped.
  *
  * Architecture:
  * ┌─────────────────────────────────────────────────────────────────────────┐
@@ -24,11 +43,13 @@ import core.logic.EventType;
  * │   │  - Check if connection already exists                           │   │
  * │   │  - Add ConnectionDef to blueprint.internalConnections           │   │
  * │   │  - Create physical link between contacts                        │   │
+ * │   │  - v1.1: If SELF involved, call refreshExternalPortNames()      │   │
  * │   │  - Emit REDRAW_WIRES event                                      │   │
  * │   │                                                                 │   │
  * │   │  undo():                                                        │   │
  * │   │  - Remove ConnectionDef from blueprint                          │   │
  * │   │  - Unlink physical connection                                   │   │
+ * │   │  - v1.1: If SELF was involved, call refreshExternalPortNames()  │   │
  * │   │  - Emit REDRAW_WIRES event                                      │   │
  * │   └─────────────────────────────────────────────────────────────────┘   │
  * │                                                                         │
@@ -85,10 +106,17 @@ class ConnectCommand extends Command {
 		if (!exists) {
 			_blueprint.internalConnections.push(_createdLink);
 			cOut.link(cIn);
-			
+
 			// === FIX: Синхронизация рантайма, если затронут порт сборки ===
 			if (_fromId == "SELF" || _toId == "SELF") {
 				_assembly.rebuildInternalConnections();
+
+				// === v1.1: Live external name refresh ===
+				// If this connection involves a SELF port, the port's externalName
+				// may now have a meaningful value based on the connected atom.
+				// Update it immediately so the parent schema shows a proper label
+				// (e.g., "Button_out" instead of "incoming_1").
+				_assembly.refreshExternalPortNames();
 			}
 		}
 		Impulsys.quickEmit(EventType.REDRAW_WIRES);
@@ -105,6 +133,13 @@ class ConnectCommand extends Command {
             } else {
                 trace('ConnectCommand Undo: Contacts missing, skipping unlink.');
             }
+
+			// === v1.1: After undo, the SELF port may no longer have a connected
+			// atom. refreshExternalPortNames() will leave its externalName
+			// untouched (the user may have set a custom name previously). ===
+			if (_fromId == "SELF" || _toId == "SELF") {
+				_assembly.refreshExternalPortNames();
+			}
             Impulsys.quickEmit(EventType.REDRAW_WIRES);
         }
     }
