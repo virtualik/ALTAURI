@@ -1,4 +1,5 @@
 package system.commands.editor;
+
 import system.commands.base.Command;
 import core.data.Blueprint;
 import core.base.Assembly;
@@ -103,24 +104,24 @@ class ConnectCommand extends Command {
             }
         }
 
-		if (!exists) {
-			_blueprint.internalConnections.push(_createdLink);
-			cOut.link(cIn);
+        if (!exists) {
+            _blueprint.internalConnections.push(_createdLink);
+            cOut.link(cIn);
+            
+            // === FIX: Синхронизация рантайма, если затронут порт сборки ===
+            if (_fromId == "SELF" || _toId == "SELF") {
+                _assembly.rebuildInternalConnections();
 
-			// === FIX: Синхронизация рантайма, если затронут порт сборки ===
-			if (_fromId == "SELF" || _toId == "SELF") {
-				_assembly.rebuildInternalConnections();
-
-				// === v1.1: Live external name refresh ===
-				// If this connection involves a SELF port, the port's externalName
-				// may now have a meaningful value based on the connected atom.
-				// Update it immediately so the parent schema shows a proper label
-				// (e.g., "Button_out" instead of "incoming_1").
-				_assembly.refreshExternalPortNames();
-			}
-		}
-		Impulsys.quickEmit(EventType.REDRAW_WIRES);
-		complete();
+                // === v1.1: Live external name refresh ===
+                // If this connection involves a SELF port, the port's externalName
+                // may now have a meaningful value based on the connected atom.
+                // Update it immediately so the parent schema shows a proper label
+                // (e.g., "Button_out" instead of "incoming_1").
+                _assembly.refreshExternalPortNames();
+            }
+        }
+        Impulsys.quickEmit(EventType.REDRAW_WIRES);
+        complete();
     }
 
     override public function undo():Void {
@@ -134,12 +135,12 @@ class ConnectCommand extends Command {
                 trace('ConnectCommand Undo: Contacts missing, skipping unlink.');
             }
 
-			// === v1.1: After undo, the SELF port may no longer have a connected
-			// atom. refreshExternalPortNames() will leave its externalName
-			// untouched (the user may have set a custom name previously). ===
-			if (_fromId == "SELF" || _toId == "SELF") {
-				_assembly.refreshExternalPortNames();
-			}
+            // === v1.1: After undo, the SELF port may no longer have a connected
+            // atom. refreshExternalPortNames() will leave its externalName
+            // untouched (the user may have set a custom name previously). ===
+            if (_fromId == "SELF" || _toId == "SELF") {
+                _assembly.refreshExternalPortNames();
+            }
             Impulsys.quickEmit(EventType.REDRAW_WIRES);
         }
     }

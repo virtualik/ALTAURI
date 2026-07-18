@@ -1,5 +1,10 @@
+//================================================================================
+// FILE: editor\NodeEditor.hx
+// Lines: 1241 | Chars: 40149
+//================================================================================
+
 // ============================================================================
-// FILE: editor/NodeEditor.hx (ИСПРАВЛЕННАЯ ВЕРСИЯ v4.5)
+// FILE: editor/NodeEditor.hx (ИСПРАВЛЕННАЯ ВЕРСИЯ v4.4)
 // ============================================================================
 package editor;
 
@@ -37,79 +42,39 @@ import ecs.ECS;
 using StringTools;
 
 /**
-* NODE EDITOR v4.6 (NodeView Reattach API)
+* NODE EDITOR v4.7 (Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
 * Visual schematic editing coordinator.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v4.7 CHANGES (isActive Flag — Broadcast Storm Prevention)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM:
+*  When entering a nested assembly (EditorContext.push), the previous
+*  NodeEditor stays alive behind a blocker. All 9 of its Impulsys
+*  subscriptions remain active. On nesting level N, every REDRAW_WIRES
+*  emit triggers N concurrent rebuildAll() calls — O(N) work per event,
+*  causing UI freezes during pan/zoom at deep nesting.
+*
+*  SOLUTION:
+*  Added `isActive:Bool = true` field. EditorContext.push() sets the
+*  parent editor's isActive = false. EditorContext.pop() sets it back
+*  to true and calls forceFullRedraw() to catch up on missed events.
+*
+*  The _onRedrawWires and _onAssemblyPortsChanged handlers now early-
+*  return when !isActive. Other handlers (ATOM_DELETED etc.) already
+*  filter by assemblyId, so they don't need the guard.
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v4.6 CHANGES (NodeView Reattach API)
 * ═══════════════════════════════════════════════════════════════════════════
 *
 *  ADDED: reattachNodeView(atomId, newAtom)
-*
-*  Called by EditorContext.updateInstancesOf() AFTER an Assembly has been
-*  disposed + recreated with the same runtimeId. The parent editor's NodeView
-*  for that atomId was still holding a reference to the disposed Assembly;
-*  this method forwards the call to NodeView.reattachToAtom() which swaps
-*  the reference, releases the old DeviceView, and acquires a fresh one.
-*
-*  Without this, the first createPorts() after a mode switch (Editor →
-*  Device → Editor) returned 0 ports because atom.getInputs() was null on
-*  the disposed Assembly — manifesting as "графика контактов и названия
-*  контактов пропадают".
+*  See method doc below.
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v4.5 CHANGES (Listener Leak Fix + Dispose Safety)
 * ═══════════════════════════════════════════════════════════════════════════
-*
-*  PROBLEM:
-*  Two of the eight Impulsys listeners registered in the constructor used
-*  inline anonymous functions:
-*
-*      Impulsys.subscribeToImpulse(EventType.REDRAW_WIRES,
-*          function(_) _wireRenderer.rebuildAll());
-*      Impulsys.subscribeToImpulse(EventType.ASSEMBLY_PORTS_CHANGED,
-*          function(_) { drawFrame(); _wireRenderer.rebuildAll(); });
-*
-*  In dispose(), the code attempted to unsubscribe by passing freshly
-*  allocated anonymous functions:
-*
-*      Impulsys.removeImpulse(EventType.REDRAW_WIRES,
-*          function(_) _wireRenderer.rebuildAll());           // ← new closure!
-*      Impulsys.removeImpulse(EventType.ASSEMBLY_PORTS_CHANGED,
-*          function(_) { drawFrame(); _wireRenderer.rebuildAll(); }); // ← new!
-*
-*  Impulsys.removeImpulse() uses Array.remove() which is REFERENCE equality.
-*  Two distinct anonymous functions are never equal, so the original
-*  subscriptions were never removed. They stayed in the bus for the entire
-*  lifetime of the application.
-*
-*  Every ASSEMBLY_PORTS_CHANGED emit (e.g., from Assembly.updateFromBlueprint,
-*  Assembly.addPort, Assembly.removePort, GroupAtomsCommand) therefore
-*  invoked the stale listener of every previously-closed editor. The listener
-*  called drawFrame() on a disposed editor, touching _frame.graphics,
-*  _edgePortsContainer, _assembly.getOrderedPorts(), etc. — which is unsafe
-*  after dispose and contributes to the post-exit crash.
-*
-*  SOLUTION:
-*  - All 8 listeners are now stored in named private fields (_onPortDragStart,
-*    _onNodeMoved, _onNodeDragFinished, _onForceUpdatePosition, _onRedrawWires,
-*    _onAssemblyPortsChanged, _onAtomDeleted, _onAtomRestored, _onNodeClicked).
-*  - Constructor assigns them once; both subscribeToImpulse() and
-*    removeImpulse() use the same field reference.
-*  - Fields are nulled after unsubscribe to release closures and prevent
-*    any accidental re-invocation.
-*  - drawFrame() now early-returns when isDisposed, so even a stray late
-*    event cannot trigger graphics work on a disposed editor.
-*  - The _onAssemblyPortsChanged / _onRedrawWires handlers themselves also
-*    early-return on isDisposed, defending against any future event that
-*    might arrive between dispose() and unsubscribe completion.
-*
-*  COMPANION FIX:
-*  This file is paired with EditorContext.hx v2.0, which replaces the partial
-*  updateFromBlueprint() call in updateInstancesOf() with a full dispose +
-*  AssemblyFactory.createAtom() reconstruction. Together, the two changes
-*  make the exit-from-assembly path produce exactly the same system state
-*  as the project-load path.
 *
 * v4.4 Changes:
 * - FIXED: forceFullRedraw() now also redraws edge ports and forces stage invalidate.
@@ -154,12 +119,6 @@ using StringTools;
 * │   │  EDGE PORTS (Assembly boundary):                                │   │
 * │   │  - _frame:Sprite                → Assembly frame border         │   │
 * │   │  - _edgePorts:Map<String,Sprite>→ Boundary port sprites         │   │
-* │   │                                                                 │   │
-* │   │  v4.5 LISTENER FIELDS (named for safe unsubscribe):             │   │
-* │   │  - _onPortDragStart, _onNodeMoved, _onNodeDragFinished,         │   │
-* │   │    _onForceUpdatePosition, _onRedrawWires,                      │   │
-* │   │    _onAssemblyPortsChanged, _onAtomDeleted,                     │   │
-* │   │    _onAtomRestored, _onNodeClicked                              │   │
 * │   │                                                                 │   │
 * │   │  PUBLIC API:                                                    │   │
 * │   │  - setSize(w, h)                                                │   │
@@ -261,6 +220,24 @@ class NodeEditor extends Sprite
         private var _onNodeClicked:Impulse -> Void;
 
         // =========================================================================
+        // v4.7: ACTIVE FLAG (Broadcast Storm Prevention)
+        // =========================================================================
+        /**
+        * When false, this editor ignores global broadcast impulses
+        * (REDRAW_WIRES, ASSEMBLY_PORTS_CHANGED) to avoid O(N) work on
+        * every event when N editors are stacked in a deep nesting.
+        *
+        * Set to false by EditorContext.push() when this editor becomes
+        * a background (covered by a child editor). Set back to true by
+        * EditorContext.pop() when this editor becomes the top again.
+        *
+        * ATOM_DELETED / ATOM_RESTORED / NODE_CLICKED / PORT_DRAG_START etc.
+        * are NOT gated by isActive because they already filter by assemblyId
+        * in their handlers. Only the no-payload broadcast events need this.
+        */
+        public var isActive:Bool = true;
+
+        // =========================================================================
         // CONSTRUCTOR
         // =========================================================================
         public function new(assembly:Assembly)
@@ -343,11 +320,11 @@ class NodeEditor extends Sprite
                 // very late event (scheduled before unsubscribe completes) cannot
                 // touch disposed graphics state.
                 _onRedrawWires = function(_) {
-                        if (isDisposed) return;
+                        if (isDisposed || !isActive) return;
                         if (_wireRenderer != null) _wireRenderer.rebuildAll();
                 };
                 _onAssemblyPortsChanged = function(_) {
-                        if (isDisposed) return;
+                        if (isDisposed || !isActive) return;
                         drawFrame();
                         if (_wireRenderer != null) _wireRenderer.rebuildAll();
                 };
@@ -383,7 +360,7 @@ class NodeEditor extends Sprite
                         _selection.setWires(ids);
                         _wireRenderer.rebuildAll();
                 });
-                // ===== v4.4: Двойная перерисовка для надёжности =====
+                // ===== v4.4: Двойная перерисовка для гарантии =====
                 _wireRenderer.rebuildAll();
                 updateVisibility();
                 // Дополнительный вызов через кадр для надёжности
@@ -408,21 +385,9 @@ class NodeEditor extends Sprite
                 stage.addEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
         }
 
-        // =========================================================================
-        // FRAME & EDGE PORTS
-        // =========================================================================
-        /**
-        * Draws the assembly frame and creates edge port sprites.
-        *
-        * v4.5: Early-returns if isDisposed. Even though dispose() now properly
-        * unsubscribes listeners, a deferred event (e.g., scheduled via
-        * haxe.Timer.delay before dispose ran) could still call this. The guard
-        * makes such late calls safe no-ops.
-        */
         private function drawFrame(e:Event = null):Void
         {
-                if (isDisposed) return; // v4.5 safety
-
+                if (isDisposed) return;
                 var w:Float = _forcedWidth > 0 ? _forcedWidth : (stage != null ? stage.stageWidth : 1024);
                 var h:Float = _forcedHeight > 0 ? _forcedHeight : (stage != null ? stage.stageHeight : 600);
 
@@ -1363,21 +1328,6 @@ class NodeEditor extends Sprite
         // =========================================================================
         // DISPOSE
         // =========================================================================
-        /**
-        * Dispose the editor and release all resources.
-        *
-        * v4.5 FIX: All 8 Impulsys listeners are now unsubscribed using the
-        * SAME named field references that were used in subscribeToImpulse().
-        * Previously, REDRAW_WIRES and ASSEMBLY_PORTS_CHANGED used freshly
-        * allocated anonymous functions in removeImpulse() — which never
-        * matched the original closures (Array.remove uses reference equality).
-        * The stale listeners remained in the bus indefinitely, firing on
-        * every event and touching disposed graphics state via drawFrame()
-        * and _wireRenderer.rebuildAll().
-        *
-        * After unsubscribe, fields are nulled to release the closures and
-        * prevent any accidental re-invocation.
-        */
         public function dispose():Void
         {
                 if (isDisposed) return;
@@ -1394,9 +1344,6 @@ class NodeEditor extends Sprite
                 }
 
                 // v4.5: Unsubscribe the EXACT same references we subscribed with.
-                // For the inline-redraw handlers (_onRedrawWires, _onAssemblyPortsChanged)
-                // this is critical — they were anonymous closures and could not be
-                // removed by re-declaring them with identical source text.
                 Impulsys.removeImpulse(EventType.PORT_DRAG_START, _onPortDragStart);
                 Impulsys.removeImpulse(EventType.EDITOR_NODE_MOVED, _onNodeMoved);
                 Impulsys.removeImpulse(EventType.NODE_DRAG_FINISHED, _onNodeDragFinished);
@@ -1407,8 +1354,7 @@ class NodeEditor extends Sprite
                 Impulsys.removeImpulse(EventType.ATOM_RESTORED, _onAtomRestored);
                 Impulsys.removeImpulse(EventType.NODE_CLICKED, _onNodeClicked);
 
-                // v4.5: Release closure references so the GC can collect them
-                // and so any stray late event finds null handlers.
+                // v4.5: Release closure references
                 _onPortDragStart = null;
                 _onNodeMoved = null;
                 _onNodeDragFinished = null;

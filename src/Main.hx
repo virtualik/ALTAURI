@@ -449,6 +449,7 @@ class Main extends Sprite
 	private function saveOnExit():Void
 	{
 		log("Auto-saving on exit...");
+		_editorContext.prepareCurrentAssemblyForSave();
 		saveCurrentContext();
 	}
 
@@ -476,12 +477,18 @@ class Main extends Sprite
 			{
 				if (name != null && name.length > 0)
 				{
+					// v2.2: Sync blueprint BEFORE save (renames, port names, template IDs)
+					_editorContext.prepareCurrentAssemblyForSave();
 					saveNewNamedAssembly(name);
 					closeCurrentEditor(true);
 				}
 			});
 		}
 		else {
+			// v2.2: Sync blueprint BEFORE save so disk matches memory.
+			// Without this, renamed atoms and semantic port names are lost
+			// on app restart.
+			_editorContext.prepareCurrentAssemblyForSave();
 			saveCurrentContext();
 			closeCurrentEditor(true);
 		}
@@ -587,6 +594,7 @@ class Main extends Sprite
 		bp.id = safeName;
 		bp.name = name;
 
+		_editorContext.prepareCurrentAssemblyForSave();
 		saveCurrentContext();
 	}
 
@@ -714,7 +722,10 @@ class Main extends Sprite
 
 		_windowSaveTimer = haxe.Timer.delay(() -> {
 			syncDevicePanelToCache();
+			
+			_editorContext.prepareCurrentAssemblyForSave();
 			saveCurrentContext();
+			
 			_windowSaveTimer = null;
 			log("Device state auto-saved.");
 		}, 300);
@@ -1193,6 +1204,7 @@ class Main extends Sprite
 	 */
 	private function onValueCommitted(impulse:Impulse):Void
 	{
+		_editorContext.prepareCurrentAssemblyForSave();
 		saveCurrentContext();
 		log("Data saved.");
 	}
@@ -1456,7 +1468,7 @@ class Main extends Sprite
 		// For simplicity, any TextField focus blocks single-key shortcuts.
 		if (isTextFieldFocused && !e.ctrlKey && !e.altKey) return;
 
-		if (e.keyCode == Keyboard.S && !e.ctrlKey) { saveCurrentContext(); return; }
+		if (e.keyCode == Keyboard.S && !e.ctrlKey) { _editorContext.prepareCurrentAssemblyForSave(); saveCurrentContext(); return; }
 
 		if (e.ctrlKey && e.keyCode == Keyboard.C) { if (_editorContext.currentEditor != null) _editorContext.currentEditor.copySelection(); return; }
 		if (e.ctrlKey && e.keyCode == Keyboard.X) { if (_editorContext.currentEditor != null) _editorContext.currentEditor.cutSelection(); return; }

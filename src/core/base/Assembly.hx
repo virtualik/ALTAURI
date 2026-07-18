@@ -1,3 +1,8 @@
+//================================================================================
+// FILE: core\base\Assembly.hx
+// Lines: 1893 | Chars: 63125
+//================================================================================
+
 package core.base;
 
 import core.data.Blueprint;
@@ -16,9 +21,10 @@ import core.logic.EventType;
 using StringTools;
 
 /**
-* ═══════════════════════════════════════════════════════════════════════════╗
-* ║                     ASSEMBLY v2.1                                         ║
-* ║  (Full Integrity + Template ID Serialization + Clean Gateway Topology)    ║
+* ════════════════════════════════════════════════════════════════════════════╗
+* ║                     ASSEMBLY v2.2                                         ║
+* ║  (Full Integrity + Template ID Serialization + Clean Gateway Topology     ║
+* ║   + Load-Symmetric Blueprint Sync + Atom Mapping Registration)            ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  Universal base class for ALL nodes in the system.                        ║
@@ -26,21 +32,21 @@ using StringTools;
 * ║  An Assembly is a composite Atom that can contain internal atoms          ║
 * ║  and expose them through gateway ports (inputs/outputs).                  ║
 * ║                                                                           ║
-* ═══════════════════════════════════════════════════════════════════════════╣
+* ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                        KEY RESPONSIBILITIES                               ║
-* ╠═══════════════════════════════════════════════════════════════════════════
+* ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  - Manages internal atom instances                                        ║
 * ║  - Routes signals between internal atoms and external ports               ║
 * ║  - Supports Logic Mode (digital, tick-delayed) and Analog Mode (immediate)║
 * ║  - Handles hot-start initialization without signal oscillation            ║
-*   - v1.1: Provides atom name uniqueness checking within scope              ║
+* ║ - v1.1: Provides atom name uniqueness checking within scope               ║
 * ║  - v1.2: FIXED signal flow through Assembly ports                         ║
 * ║  - v1.4: DIRECT link port.external → atom.input for INPUT ports           ║
 * ║  - v1.5: ADDED Ghost Connection Safety Net (defensive sanitization)       ║
 * ║  - v1.8: FIXED _restoreInternalPortLinks() contact name resolution        ║
 * ║  - v1.9: FIXED async NullRef crash in OUTPUT port callback                ║
-* ║  - v1.10: FIXED direct port-to-port connections (SELF→SELF)              ║
+* ║  - v1.10: FIXED direct port-to-port connections (SELF→SELF)               ║
 * ║           even when no internal atoms exist.                              ║
 * ║  - v1.11: FIXED external wires not removed when port is deleted.          ║
 * ║           Added PORT_REMOVED event notification.                          ║
@@ -52,77 +58,80 @@ using StringTools;
 * ║  - v2.1: ADDED refreshExternalPortNames() — updates port.externalName     ║
 * ║         based on currently connected internal atom. Prevents              ║
 * ║         "incoming_N" labels surviving after user connects atoms.          ║
+* ║  - v2.1: ADDED syncDisplayNamesToBlueprint() — persists user-renamed      ║
+* ║         atom displayNames into atomDef.values for restoreState().         ║
 * ║  - v2.1: FIXED addPort() — now accepts externalName parameter and         ║
 * ║         propagates it to PinDef + ConductorPort dual naming.              ║
+* ║  - v2.2: ADDED registerAtomMapping(templateId, runtimeId) — public API    ║
+* ║         for GroupAtomsCommand / CreateAtomCommand to register atoms       ║
+* ║         added at runtime. Without this, resolveContact cannot find        ║
+* ║         the atom by its template ID in blueprint.internalConnections.     ║
 * ║                                                                           ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                     VERSION HISTORY                                       ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
-* ║  v2.1 — Load-Symmetric Blueprint Sync                                     ║
-* ║  ─────────────────────────────────────────────────                         ║
+* ║  v2.2 — Atom Mapping Registration                                         ║
+* ║  ─────────────────────────────────────────────────                        ║
 * ║  PROBLEM:                                                                 ║
-* ║  After "enter assembly → add wires → exit", the reconstructed assembly     ║
-* ║  lost all wires because blueprint.internalConnections still held RUNTIME  ║
-* ║  IDs of the old internal atoms. _createInternalInstances() generates new  ║
-* ║  runtime IDs via UID.generate(), so the SAFETY NET in                    ║
-* ║  _createInternalConnections() removed every connection as a ghost.        ║
+* ║  GroupAtomsCommand and CreateAtomCommand add atoms to a live assembly     ║
+* ║  at runtime. They write the new atom's instanceId into bp.internalAtoms   ║
+* ║  and add the runtime instance to internalAtoms map. But they did NOT      ║
+* ║  register the template→runtime mapping in _idMap.                         ║
 * ║                                                                           ║
-* ║  SYMPTOM in trace log:                                                    ║
-* ║    WARN: Atom "id_9082dcea" not found in Assembly(id_9d0b2ea5)            ║
-* ║      Available keys: [id_f2064e1c, ...]  ← new runtime IDs               ║
-* ║    SAFETY NET: Removed ghost connection: id_9082dcea.device → ...         ║
-* ║                                                                           ║
-* ║  ROOT CAUSE:                                                              ║
-* ║  ConnectCommand stores runtime IDs in blueprint.internalConnections.      ║
-* ║  ProjectManager.saveAssemblyToLibrary() translates runtime → template     ║
-* ║  before writing to disk, so disk-saved blueprints are correct. But the    ║
-* ║  IN-MEMORY blueprint used by EditorContext.updateInstancesOf() still      ║
-* ║  contained runtime IDs. Reconstruction via AssemblyFactory.createAtom    ║
-* ║  therefore could not match the IDs.                                       ║
+* ║  This caused resolveContact() to fail when looking up the atom by its     ║
+* ║  template ID in blueprint.internalConnections — because _idMap didn't     ║
+* ║  have the entry.                                                          ║
 * ║                                                                           ║
 * ║  SOLUTION:                                                                ║
-* ║  Added syncConnectionsToTemplateIds(). Called in EditorContext.pop()      ║
-* ║  BEFORE registerBlueprint() + updateInstancesOf(). Translates every       ║
-* ║  connection's runtime ID to the corresponding template ID, mirroring     ║
-* ║  exactly what saveAssemblyToLibrary does on disk. After this, the         ║
-* ║  in-memory blueprint is in the same state as a freshly-loaded one, and    ║
-* ║  reconstruction via _createInternalInstances + _idMap works correctly.    ║
+* ║  Added public registerAtomMapping(templateId, runtimeId) method.          ║
+* ║  Commands that add atoms at runtime MUST call this after creating the     ║
+* ║  instance, so that resolveContact can find it.                            ║
 * ║                                                                           ║
-* ║  Also added refreshExternalPortNames() — scans blueprint connections      ║
-* ║  for SELF ports and updates port.externalName to match the connected      ║
-* ║  atom's displayName. This eliminates "incoming_N" labels that survived    ║
-* ║  from initial port creation when the user later connected atoms.          ║
+* ║  v2.1 — Load-Symmetric Blueprint Sync                                     ║
+* ║  ─────────────────────────────────────────────────                        ║
+* ║  PROBLEM:                                                                 ║
+* ║  After "enter assembly → add wires → exit", the reconstructed assembly    ║
+* ║  lost all wires because blueprint.internalConnections still held RUNTIME  ║
+* ║  IDs of the old internal atoms. _createInternalInstances() generates new  ║
+* ║  runtime IDs via UID.generate(), so the SAFETY NET in                     ║
+* ║  _createInternalConnections() removed every connection as a ghost.        ║
 * ║                                                                           ║
-* ║  v2.0 — Template ID Serialization & Clean Gateway Topology                ║
-* ║  ─────────────────────────────────────────────────                         ║
+* ║  SOLUTION:                                                                ║
+* ║  Added three sync methods that bring the in-memory blueprint into the     ║
+* ║  SAME state as a freshly-loaded-from-disk blueprint:                      ║
+* ║    - refreshExternalPortNames()     — update PinDef.externalName          ║
+* ║    - syncDisplayNamesToBlueprint()  — write displayName into values       ║
+* ║    - syncConnectionsToTemplateIds() — translate runtime→template IDs      ║
+* ║  Called in EditorContext.pop() + EditorContext.prepareCurrentAssemblyForSave()
+* ║  ─────────────────────────────────────────────────                        ║
 * ║  - getPersistentState() / restoreState() now use getTemplateId() for      ║
 * ║    JSON keys. This guarantees nested states survive app reloads, as       ║
 * ║    Runtime IDs change on every instantiation, but Template IDs are stable.║
 * ║  - _ensureInternalAtomConnectedToPort() no longer creates direct          ║
 * ║    port.external → atom.input links. This prevented "Delta Topology"      ║
-*     signal duplication (infinite loops) that caused app freezes.           ║
+* ║    signal duplication (infinite loops) that caused app freezes.           ║
 * ║    Gateway flow (external → internal → atom) is now strictly enforced.    ║
 * ║                                                                           ║
 * ║  v1.11 — Fix external wire cleanup on port deletion                       ║
-* ║  ─────────────────────────────────────────────────                         ║
-* ║  - removePort() now emits PORT_REMOVED event with assemblyId and portName
+* ║  ─────────────────────────────────────────────────                        ║
+* ║  - removePort() now emits PORT_REMOVED event with assemblyId and portName ║
 * ║  - Parent assembly (Main) listens to this event and removes wires         ║
 * ║    that reference SELF.portName from the parent blueprint.                ║
 * ║  - Prevents "ghost" wires that point to (0,0) after port deletion.        ║
-*                                                                            ║
-* ║  v1.10 — Fix direct port-to-port connections (SELF→SELF)                 ║
-* ║  ────────────────────────────────────────────────────                      ║
-* ║  - Changed constructor to call _createInternalConnections()              ║
-* ║    even when blueprint.internalAtoms is empty.                           ║
-* ║  - Added rebuildInternalConnections() method to refresh all              ║
-* ║    internal port links after blueprint changes.                          ║
-* ║  - rebuildInternalConnections() now removes old port-to-port links       ║
-* ║    using only public Contact API (hasLink / unlink) — no private access. ║
-* ║  - Call rebuildInternalConnections() in updateFromBlueprint(),           ║
-* ║    addPort(), removePort() to keep links in sync.                        ║
-* ║  - Now a simple SELF.incoming_1 → SELF.outgoing_1 wire works             ║
-* ║    immediately without needing an internal atom.                         ║
+* ║                                                                           ║
+* ║  v1.10 — Fix direct port-to-port connections (SELF→SELF)                  ║
+* ║  ────────────────────────────────────────────────────                     ║
+* ║  - Changed constructor to call _createInternalConnections()               ║
+* ║    even when blueprint.internalAtoms is empty.                            ║
+* ║  - Added rebuildInternalConnections() method to refresh all               ║
+* ║    internal port links after blueprint changes.                           ║
+* ║  - rebuildInternalConnections() now removes old port-to-port links        ║ 
+* ║    using only public Contact API (hasLink / unlink) — no private access.  ║ 
+* ║  - Call rebuildInternalConnections() in updateFromBlueprint(),            ║
+* ║    addPort(), removePort() to keep links in sync.                         ║
+* ║  - Now a simple SELF.incoming_1 → SELF.outgoing_1 wire works              ║
+* ║    immediately without needing an internal atom.                          ║
 * ║                                                                           ║
 * ║  v1.9 — Async NullReference Protection                                    ║
 * ║  ─────────────────────────────────────                                    ║
@@ -133,17 +142,17 @@ using StringTools;
 * ║  Prevents crash when port is disposed between callback scheduling         ║
 * ║  and execution (enter/exit editor race condition).                        ║
 * ║                                                                           ║
-* ║  v1.8 — Hot-Reload Port Link Restore Fix
+* ║  v1.8 — Hot-Reload Port Link Restore Fix                                  ║
 * ║  ─────────────────────────────────────────                                ║
-* ║  _restoreInternalPortLinks() now correctly resolves contact names
+* ║  _restoreInternalPortLinks() now correctly resolves contact names         ║
 * ║  from connection definitions instead of using port names:                 ║
-* ║
+* ║                                                                           ║
 * ║  ┌──────────────────────────────────────────────────────────────────┐     ║
-* ║  │  SELF.pin_X → atom.contact  = INPUT port                       │     ║
-*   │    port.internal → atom.getInput(contactName)                   │     ║
-* ║  │                                                                 │     ║
-* ║  │  atom.contact → SELF.pin_X  = OUTPUT port                      │     ║
-* ║  │    atom.getOutput(contactName) → port.internal                  │     ║
+* ║  │  SELF.pin_X → atom.contact  = INPUT port                         │     ║
+* ║  │    port.internal → atom.getInput(contactName)                    │     ║
+* ║  │                                                                  │     ║
+* ║  │  atom.contact → SELF.pin_X  = OUTPUT port                        │     ║
+* ║  │    atom.getOutput(contactName) → port.internal                   │     ║
 * ║  └──────────────────────────────────────────────────────────────────┘     ║
 * ║                                                                           ║
 * ║  v1.5 — Ghost Connection Safety Net                                       ║
@@ -151,37 +160,37 @@ using StringTools;
 * ║  _createInternalConnections() removes broken connections at load time:    ║
 * ║                                                                           ║
 * ║  ┌──────────────────────────────────────────────────────────────────┐     ║
-* ║  │  resolveContact() == null?                                      │
-* ║  │       │                                                         │     ║
-* ║  │       ▼                                                         │     ║
-* ║  │    trace(ERROR)                                                 │     ║
-* ║  │       │                                                         │     ║
-* ║  │       ▼                                                         │     ║
-*   │    _sanitizeConnection(conn)                                    │     ║
-* ║  │       ├── Remove conn from blueprint.internalConnections        │     ║
-*   │       └── Log cleanup action                                   │     ║
-* ║  │                                                                 │     ║
-* ║  │  Result: Next save persists CLEANED blueprint                   │     ║
+* ║  │  resolveContact() == null?                                       │     ║
+* ║  │       │                                                          │     ║
+* ║  │       ▼                                                          │     ║
+* ║  │    trace(ERROR)                                                  │     ║
+* ║  │       │                                                          │     ║
+* ║  │       ▼                                                          │     ║
+* ║  │    _sanitizeConnection(conn)                                     │     ║
+* ║  │       ├── Remove conn from blueprint.internalConnections         │     ║
+* ║  │       └── Log cleanup action                                     │     ║
+* ║  │                                                                  │     ║
+* ║  │  Result: Next save persists CLEANED blueprint                    │     ║
 * ║  └──────────────────────────────────────────────────────────────────┘     ║
 * ║                                                                           ║
 * ║  v1.4 — Direct Input Port Link                                            ║
 * ║  ─────────────────────────────────                                        ║
 * ║  For INPUT ports: Creates DIRECT link port.external → atom.input          ║
 * ║  (bypassing port.internal to avoid type issues and oscillation).          ║
-* ║  This exactly replicates direct wire Port In → Atom behavior.
+* ║  This exactly replicates direct wire Port In → Atom behavior              ║
 * ║                                                                           ║
-* ║  v1.2 — Signal Flow Through Ports
+* ║  v1.2 — Signal Flow Through Ports                                         ║
 * ║  ──────────────────────────────────                                       ║
 * ║  Added _ensureInternalAtomConnectedToPort() method that creates           ║
 * ║  explicit link between internal atom and port.internal for OUTPUT ports.  ║
 * ║                                                                           ║
-* ║  ┌──────────────────────────────────────────────────────────────────     ║
+* ║  ┌──────────────────────────────────────────────────────────────────┐     ║
 * ║  │  Button.out ──link──► port.internal ──subscribe──► callback      │     ║
-*   │                                     │                            │     ║
+* ║  │                                     │                            │     ║
 * ║  │                                     ▼                            │     ║
 * ║  │                               port.external ──link──► LED.in     │     ║
 * ║  └──────────────────────────────────────────────────────────────────┘     ║
-*                                                                            ║
+* ║                                                                           ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
 */
 class Assembly extends Atom
@@ -230,6 +239,52 @@ class Assembly extends Atom
                         if (rId == runtimeId) return templateId;
                 }
                 return runtimeId;
+        }
+
+        /**
+        * v2.2: Register a template→runtime mapping for an atom added at runtime.
+        *
+        * Commands like GroupAtomsCommand and CreateAtomCommand add atoms to a
+        * live assembly. They write the new atom's instanceId into
+        * bp.internalAtoms and add the runtime instance to internalAtoms map.
+        * But _idMap is normally only populated by _createInternalInstances()
+        * during Assembly construction — atoms added later are NOT in _idMap.
+        *
+        * This causes resolveContact() to fail when looking up the atom by its
+        * template ID in blueprint.internalConnections, because the fallback
+        * path (`if (internalAtoms.exists(point.atomId))`) only works when
+        * the bp stores the runtime ID directly (which it shouldn't — bp
+        * should always store template IDs, see Blueprint as SSOT principle).
+        *
+        * Commands that add atoms at runtime MUST call this method after
+        * creating the instance, so that:
+        *   1. resolveContact can find the atom by template ID
+        *   2. getTemplateId can reverse-lookup the runtime ID
+        *   3. saveAssemblyToLibrary can translate runtime→template on disk
+        *
+        * @param templateId The stable blueprint ID (e.g., "CustomAssembly_2741"
+        *                   or "Button" — same as atomDef.typeId)
+        * @param runtimeId  The live instance ID (UID.generate() result)
+        */
+        public function registerAtomMapping(templateId:String, runtimeId:String):Void
+        {
+                if (_idMap == null) _idMap = new Map();
+                if (templateId == null || runtimeId == null) return;
+                _idMap.set(templateId, runtimeId);
+        }
+
+        /**
+        * v2.2: Remove a template→runtime mapping (e.g., on undo of
+        * GroupAtomsCommand / CreateAtomCommand).
+        *
+        * Without this, the mapping would linger and point to a disposed
+        * atom, causing resolveContact to return a stale reference.
+        *
+        * @param templateId The stable blueprint ID to remove from _idMap
+        */
+        public function unregisterAtomMapping(templateId:String):Void
+        {
+                if (_idMap != null && templateId != null) _idMap.remove(templateId);
         }
 
         private function get_inputs():Map<String, Contact>
@@ -876,65 +931,51 @@ class Assembly extends Atom
          * Разрывает все существующие связи между внутренними атомами и портами.
          * Вызывается перед пересозданием связей в _restoreInternalPortLinks().
          */
-        private function _clearInternalPortLinks():Void
-        {
+        private function _clearInternalPortLinks():Void {
                 if (internalAtoms == null || ports == null) return;
 
-                for (port in ports)
-                {
+                for (port in ports) {
                         if (port == null || port.internal == null) continue;
                         var internalContact = port.internal;
 
-                        for (runtimeId in internalAtoms.keys())
-                        {
+                        for (runtimeId in internalAtoms.keys()) {
                                 var atom:Atom = cast internalAtoms.get(runtimeId);
                                 if (atom == null) continue;
 
-                                // Проверяем все контакты атома
-                                var allContacts = atom.getInputs().concat(atom.getOutputs());
-                                for (contact in allContacts)
-                                {
-                                        if (contact != null && !contact.isDisposed && contact.hasLink(internalContact))
-                                        {
-                                                trace('Удаляем связь: ${contact.name} <-> ${internalContact.name}');
-                                                contact.unlink(internalContact);
-                                        }
-                                }
-
+                                
+                        // Проверяем все контакты атома
+            var allContacts = atom.getInputs().concat(atom.getOutputs());
+            for (contact in allContacts) {
+                if (contact != null && !contact.isDisposed && contact.hasLink(internalContact)) {
+                    trace('Удаляем связь: ${contact.name} <-> ${internalContact.name}');
+                    contact.unlink(internalContact);
+                }
+            }
+                                
                                 // Проверяем все входы и выходы атома
                                 var inputs = atom.getInputs();
-                                if (inputs != null)
-                                {
-                                        for (contact in inputs)
-                                        {
-                                                if (contact != null && !contact.isDisposed)
-                                                {
+                                if (inputs != null) {
+                                        for (contact in inputs) {
+                                                if (contact != null && !contact.isDisposed) {
                                                         // Связь от порта к атому (port.internal -> contact)
-                                                        if (internalContact.hasLink(contact))
-                                                        {
+                                                        if (internalContact.hasLink(contact)) {
                                                                 internalContact.unlink(contact);
                                                         }
                                                         // Связь от атома к порту (contact -> port.internal)
-                                                        if (contact.hasLink(internalContact))
-                                                        {
+                                                        if (contact.hasLink(internalContact)) {
                                                                 contact.unlink(internalContact);
                                                         }
                                                 }
                                         }
                                 }
                                 var outputs = atom.getOutputs();
-                                if (outputs != null)
-                                {
-                                        for (contact in outputs)
-                                        {
-                                                if (contact != null && !contact.isDisposed)
-                                                {
-                                                        if (internalContact.hasLink(contact))
-                                                        {
+                                if (outputs != null) {
+                                        for (contact in outputs) {
+                                                if (contact != null && !contact.isDisposed) {
+                                                        if (internalContact.hasLink(contact)) {
                                                                 internalContact.unlink(contact);
                                                         }
-                                                        if (contact.hasLink(internalContact))
-                                                        {
+                                                        if (contact.hasLink(internalContact)) {
                                                                 contact.unlink(internalContact);
                                                         }
                                                 }
@@ -1039,12 +1080,12 @@ class Assembly extends Atom
 // ═══════════════════════════════════════════════════════════════════
 // FIX: Удаляем все старые связи между атомами и портами
 // ═══════════════════════════════════════════════════════════════════
-                _clearInternalPortLinks();
+    _clearInternalPortLinks();
 
-                // Теперь восстанавливаем связи заново
-                _restoreInternalPortLinks();
-                rebuildInternalConnections();
-                reconnectExternalLinks();
+    // Теперь восстанавливаем связи заново
+    _restoreInternalPortLinks();
+    rebuildInternalConnections();
+    reconnectExternalLinks();   
 
 // ═══════════════════════════════════════════════════════════════════
 // v1.8 FIX: Restore internal atom ↔ port links with correct names
@@ -1110,7 +1151,7 @@ class Assembly extends Atom
         }
 
         /**
-        * v2.3: Syncs runtime displayName changes back to the blueprint's internalAtoms.
+        * v2.1: Syncs runtime displayName changes back to the blueprint's internalAtoms.
         * Called before exit/reconstruction to preserve user-renamed atoms.
         * This ensures that when the assembly is reconstructed via AssemblyFactory,
         * the new instance will inherit the correct display names from saved state.
@@ -1156,20 +1197,11 @@ class Assembly extends Atom
         * as (template → newRuntime). _createInternalConnections() then tries to
         * resolve the OLD runtime IDs from the blueprint — which no longer exist
         * in internalAtoms — and the SAFETY NET removes every connection as a
-        * "ghost", producing the symptom:
-        *
-        *    WARN: Atom "id_9082dcea" not found in Assembly(id_9d0b2ea5)
-        *    SAFETY NET: Removed ghost connection: id_9082dcea.device → ...
+        * "ghost".
         *
         * This method brings the in-memory blueprint into the SAME state as a
         * freshly-loaded-from-disk blueprint, so that reconstruction works
         * identically to project load (Load-Symmetric Reconstruction principle).
-        *
-        * Algorithm:
-        *   For each connection in blueprint.internalConnections:
-        *     - If from.atomId != "SELF": translate runtime → template via _idMap
-        *     - If to.atomId   != "SELF": translate runtime → template via _idMap
-        *     - SELF and contactName are left untouched
         *
         * Idempotent: if the IDs are already template IDs (no match in _idMap
         * as a runtime ID), they are returned as-is by getTemplateId().
@@ -1233,16 +1265,6 @@ class Assembly extends Atom
         * Idempotent: if the computed name equals the current externalName,
         * nothing changes. If a port has no connection, its externalName is
         * left untouched (the user may have set a custom name).
-        *
-        * MUST be called in EditorContext.pop() BEFORE
-        * syncConnectionsToTemplateIds() + registerBlueprint(), because:
-        *   - It needs runtime IDs to resolve atoms (sync would strip them)
-        *   - It updates PinDef.externalName in the blueprint, which must
-        *     be persisted before reconstruction
-        *
-        * Also called from ConnectCommand after creating a SELF connection,
-        * so that the external name updates immediately without waiting for
-        * exit.
         */
         public function refreshExternalPortNames():Void
         {
@@ -1326,10 +1348,6 @@ class Assembly extends Atom
         *   5. Re-add the new external Contact to _inputs / _outputs
         *   6. Re-establish internal ↔ external links via _updatePortLinks()
         *   7. Re-establish atom ↔ port.internal links via _restoreInternalPortLinks()
-        *
-        * Physical links to the atom's contacts (port.internal ↔ atom.input/output)
-        * are stored in Contact.linkedTargets, which is nullified when the old
-        * port is disposed. Step 7 recreates them from blueprint.internalConnections.
         */
         private function _recreatePortWithNewExternalName(oldPort:ConductorPort, internalName:String, newExtName:String):Void
         {
@@ -1377,6 +1395,8 @@ class Assembly extends Atom
                 _restoreInternalPortLinks();
         }
 
+        
+
         /**
         * v1.8: Re-establish internal atom ↔ port.internal connections after hot-reload.
         *
@@ -1403,93 +1423,93 @@ class Assembly extends Atom
         * │  Action: atom.getOutput(contactName) → port.internal                │
         * └─────────────────────────────────────────────────────────────────────┘
         */
-        private function _restoreInternalPortLinks():Void
+private function _restoreInternalPortLinks():Void
+{
+    if (blueprint == null || blueprint.internalConnections == null) return;
+
+    for (conn in blueprint.internalConnections)
+    {
+        if (conn.from.atomId == "SELF")
         {
-                if (blueprint == null || blueprint.internalConnections == null) return;
+            // INPUT PORT: SELF.portName → atom.contactName
+            var portName = conn.from.contactName;
+            var atomId = conn.to.atomId;
+            var contactName = conn.to.contactName;
 
-                for (conn in blueprint.internalConnections)
+            var port = ports.get(portName);
+            if (port == null) continue;
+
+            // ═══════════════════════════════════════════════════════
+            // FIX: Ищем атом напрямую по Runtime ID в internalAtoms
+            // ═══════════════════════════════════════════════════════
+            var atom:Atom = null;
+            // Сначала пробуем найти по Runtime ID (если atomId уже Runtime)
+            if (internalAtoms.exists(atomId))
+            {
+                atom = cast internalAtoms.get(atomId);
+            }
+            else
+            {
+                // Иначе пробуем найти по Template ID через idMap
+                var runtimeId = _idMap.get(atomId);
+                if (runtimeId != null && internalAtoms.exists(runtimeId))
                 {
-                        if (conn.from.atomId == "SELF")
-                        {
-                                // INPUT PORT: SELF.portName → atom.contactName
-                                var portName = conn.from.contactName;
-                                var atomId = conn.to.atomId;
-                                var contactName = conn.to.contactName;
-
-                                var port = ports.get(portName);
-                                if (port == null) continue;
-
-                                // ═══════════════════════════════════════════════════════
-                                // FIX: Ищем атом напрямую по Runtime ID в internalAtoms
-                                // ═══════════════════════════════════════════════════════
-                                var atom:Atom = null;
-                                // Сначала пробуем найти по Runtime ID (если atomId уже Runtime)
-                                if (internalAtoms.exists(atomId))
-                                {
-                                        atom = cast internalAtoms.get(atomId);
-                                }
-                                else
-                                {
-                                        // Иначе пробуем найти по Template ID через idMap
-                                        var runtimeId = _idMap.get(atomId);
-                                        if (runtimeId != null && internalAtoms.exists(runtimeId))
-                                        {
-                                                atom = cast internalAtoms.get(runtimeId);
-                                        }
-                                }
-
-                                if (atom == null) continue;
-
-                                var atomInput = atom.getInput(contactName);
-                                if (atomInput != null)
-                                {
-                                        if (!port.internal.hasLink(atomInput))
-                                        {
-                                                port.internal.link(atomInput, true);
-                                        }
-                                }
-                        }
-
-                        if (conn.to.atomId == "SELF")
-                        {
-                                // OUTPUT PORT: atom.contactName → SELF.portName
-                                var portName = conn.to.contactName;
-                                var atomId = conn.from.atomId;
-                                var contactName = conn.from.contactName;
-
-                                var port = ports.get(portName);
-                                if (port == null) continue;
-
-                                // ═══════════════════════════════════════════════════════
-                                // FIX: Ищем атом напрямую по Runtime ID в internalAtoms
-                                // ═══════════════════════════════════════════════════════
-                                var atom:Atom = null;
-                                if (internalAtoms.exists(atomId))
-                                {
-                                        atom = cast internalAtoms.get(atomId);
-                                }
-                                else
-                                {
-                                        var runtimeId = _idMap.get(atomId);
-                                        if (runtimeId != null && internalAtoms.exists(runtimeId))
-                                        {
-                                                atom = cast internalAtoms.get(runtimeId);
-                                        }
-                                }
-
-                                if (atom == null) continue;
-
-                                var atomOutput = atom.getOutput(contactName);
-                                if (atomOutput != null)
-                                {
-                                        if (!atomOutput.hasLink(port.internal))
-                                        {
-                                                atomOutput.link(port.internal, true);
-                                        }
-                                }
-                        }
+                    atom = cast internalAtoms.get(runtimeId);
                 }
+            }
+
+            if (atom == null) continue;
+
+            var atomInput = atom.getInput(contactName);
+            if (atomInput != null)
+            {
+                if (!port.internal.hasLink(atomInput))
+                {
+                    port.internal.link(atomInput, true);
+                }
+            }
         }
+
+        if (conn.to.atomId == "SELF")
+        {
+            // OUTPUT PORT: atom.contactName → SELF.portName
+            var portName = conn.to.contactName;
+            var atomId = conn.from.atomId;
+            var contactName = conn.from.contactName;
+
+            var port = ports.get(portName);
+            if (port == null) continue;
+
+            // ═══════════════════════════════════════════════════════
+            // FIX: Ищем атом напрямую по Runtime ID в internalAtoms
+            // ═══════════════════════════════════════════════════════
+            var atom:Atom = null;
+            if (internalAtoms.exists(atomId))
+            {
+                atom = cast internalAtoms.get(atomId);
+            }
+            else
+            {
+                var runtimeId = _idMap.get(atomId);
+                if (runtimeId != null && internalAtoms.exists(runtimeId))
+                {
+                    atom = cast internalAtoms.get(runtimeId);
+                }
+            }
+
+            if (atom == null) continue;
+
+            var atomOutput = atom.getOutput(contactName);
+            if (atomOutput != null)
+            {
+                if (!atomOutput.hasLink(port.internal))
+                {
+                    atomOutput.link(port.internal, true);
+                }
+            }
+        }
+    }
+}
 
         /**
         * Resolve an internal atom by its template ID or runtime ID.

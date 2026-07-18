@@ -1,3 +1,8 @@
+//================================================================================
+// FILE: system\commands\editor\GroupAtomsCommand.hx
+// Lines: 854 | Chars: 35180
+//================================================================================
+
 package system.commands.editor;
 import system.commands.base.Command;
 import core.data.Blueprint;
@@ -17,13 +22,41 @@ import core.types.ContactType;
 import library.AtomRegistry;
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                      GROUP ATOMS COMMAND v3.5                             ║
+* ║                      GROUP ATOMS COMMAND v3.6                             ║
 * ║         (External Name Fix + Reentrancy-safe Topology Guard Integration   ║
-* ║          + DeviceView Lifecycle Cleanup)                                  ║
+* ║          + DeviceView Lifecycle Cleanup + Template ID as instanceId       ║
+* ║          + Global externalName Uniqueness Check)                          ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  Command to group selected atoms into a new Assembly.                     ║
 * ║  Supports full Undo/Redo with complete state restoration.                 ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     v3.6 CHANGES (Template ID + Global Uniqueness)        ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  PROBLEM A (wires lost after save/load):                                  ║
+* ║  Phase 5 wrote instanceId = newInstance.id (RUNTIME ID) into the new      ║
+* ║  AtomDef. After save + restart, the runtime ID no longer exists, and      ║
+* ║  resolveContact fails → SAFETY NET purges all wires as ghost.             ║
+* ║                                                                           ║
+* ║  SOLUTION A:                                                              ║
+* ║  Phase 5 now writes instanceId = newTypeId (Template ID). This matches    ║
+* ║  the on-disk format and the Load-Symmetric Reconstruction principle.      ║
+* ║  Also calls _assembly.registerAtomMapping(newTypeId, newInstance.id)      ║
+* ║  so resolveContact can find the new instance by its template ID.          ║
+* ║                                                                           ║
+* ║  PROBLEM B (wires jumping to wrong ports):                                ║
+* ║  The usedExternalNames Map only tracked collisions among newly created    ║
+* ║  pins for THIS grouping. It did NOT check existing ports in the parent    ║
+* ║  assembly. If the parent already had a port "SignalGenerator_out" and     ║
+* ║  we grouped another SignalGenerator, the new port got the same name.      ║
+* ║  Atom.getInput(name) returns the first match → wire jumps to wrong port.  ║
+* ║                                                                           ║
+* ║  SOLUTION B:                                                              ║
+* ║  Pre-populate usedExternalNames with existing port externalNames from     ║
+* ║  _assembly.ports before generating new names. The existing collision      ║
+* ║  counter logic then handles both cases uniformly.                         ║
 * ║                                                                           ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                     v3.5 CHANGES (DeviceView Lifecycle Cleanup)           ║
@@ -276,6 +309,29 @@ class GroupAtomsCommand extends Command
 // Track used external names to handle collisions
                 var usedExternalNames:Map<String, Int> = new Map();
 // ═══════════════════════════════════════════════════════════════════
+// v3.6 FIX: Pre-populate with existing port externalNames from parent
+// ═══════════════════════════════════════════════════════════════════
+// Without this, if the parent already has a port "SignalGenerator_out"
+// and we group another SignalGenerator, the new port would get the
+// same externalName. Atom.getInput(name) returns the first match →
+// wire jumps to the wrong port.
+//
+// Pre-populating ensures the existing collision counter logic in the
+// for loop below handles both newly-created pins (within this grouping)
+// and existing ports (already in _assembly.ports) uniformly.
+// ═══════════════════════════════════════════════════════════════════
+                if (_assembly.ports != null)
+                {
+                        for (existingPort in _assembly.ports)
+                        {
+                                if (existingPort != null && existingPort.externalName != null
+                                        && existingPort.externalName != "")
+                                {
+                                        usedExternalNames.set(existingPort.externalName, 1);
+                                }
+                        }
+                }
+// ═══════════════════════════════════════════════════════════════════
 // v3.3 FIX: SPATIAL SORTING
 // Sort connections by the Y-coordinate of the internal atom involved.
 // This ensures ports on the Assembly boundary appear in the same
@@ -456,8 +512,40 @@ class GroupAtomsCommand extends Command
                 }
                 var centerPos = calculateCenterPosition(atomsToMove);
                 _assembly.internalAtoms.set(newInstance.id, newInstance);
+
+// ═══════════════════════════════════════════════════════════════════
+// v3.6 FIX: Register template→runtime mapping for the new assembly.
+// ═══════════════════════════════════════════════════════════════════
+// Without this, resolveContact cannot find the new assembly by its
+// template ID in bp.internalConnections (because _idMap doesn't have
+// the entry — only _createInternalInstances populates _idMap, and that
+// runs only during Assembly construction, not when atoms are added
+// later via GroupAtomsCommand).
+//
+// This is critical for the Phase 6 wire reconnection below, which uses
+// newTypeId in the connection definitions.
+// ═══════════════════════════════════════════════════════════════════
+                _assembly.registerAtomMapping(newTypeId, newInstance.id);
+
+// ═══════════════════════════════════════════════════════════════════
+// v3.6 FIX: AtomDef.instanceId must be the TEMPLATE ID (newTypeId),
+// NOT the runtime ID (newInstance.id).
+// ═══════════════════════════════════════════════════════════════════
+// PROBLEM:
+// The old code wrote instanceId = newInstance.id (runtime). After save
+// + restart, the runtime ID no longer exists, and resolveContact fails
+// → SAFETY NET purges all wires as ghost.
+//
+// SOLUTION:
+// Use newTypeId (Template ID) as instanceId. This matches the on-disk
+// format and the Load-Symmetric Reconstruction principle: when the
+// project is loaded, _createInternalInstances generates a fresh runtime
+// ID via UID.generate(), records template→runtime in _idMap, and stores
+// the atom under the runtime ID. We just did the same thing manually
+// above (registerAtomMapping + internalAtoms.set).
+// ═══════════════════════════════════════════════════════════════════
                 var newAtomDef:AtomDef = {
-                        instanceId: newInstance.id,
+                        instanceId: newTypeId,
                         typeId: newTypeId,
                         x: centerPos.x,
                         y: centerPos.y
@@ -479,13 +567,33 @@ class GroupAtomsCommand extends Command
 // because parent sees Assembly as an atom with external port names
                         var externalPortName = resolveExternalPortName(newPins, pm.portName);
                         trace('  Reconnecting: internalName="${pm.portName}" → externalName="$externalPortName"');
+
+// ═══════════════════════════════════════════════════════════════════
+// v3.6 FIX: Use newTypeId (Template ID) in connection atomId fields,
+// not newInstance.id (Runtime ID).
+// ═══════════════════════════════════════════════════════════════════
+// Blueprint is the Single Source of Truth and must store stable
+// Template IDs. The physical link below uses resolveContact which
+// translates template→runtime via _idMap (we just registered the
+// mapping above).
+//
+// Also translate the originalConn side to Template ID for consistency
+// (the original atomIds there may be runtime IDs from ConnectCommand).
+// ═══════════════════════════════════════════════════════════════════
+                        var fromTemplateId = originalConn.from.atomId == "SELF"
+                                ? "SELF"
+                                : _assembly.getTemplateId(originalConn.from.atomId);
+                        var toTemplateId = originalConn.to.atomId == "SELF"
+                                ? "SELF"
+                                : _assembly.getTemplateId(originalConn.to.atomId);
+
                         if (pm.isInput)
                         {
 // Input port: connection comes FROM parent TO assembly
                                 newConn =
                                 {
-                                        from: originalConn.from,
-                                        to: {atomId: newInstance.id, contactName: externalPortName}  // ← externalName
+                                        from: { atomId: fromTemplateId, contactName: originalConn.from.contactName },
+                                        to: { atomId: newTypeId, contactName: externalPortName }  // ← Template ID + externalName
                                 };
                         }
                         else
@@ -493,15 +601,16 @@ class GroupAtomsCommand extends Command
 // Output port: connection goes FROM assembly TO parent
                                 newConn =
                                 {
-                                        from: {atomId: newInstance.id, contactName: externalPortName},  // ← externalName
-                                        to: originalConn.to
+                                        from: { atomId: newTypeId, contactName: externalPortName },  // ← Template ID + externalName
+                                        to: { atomId: toTemplateId, contactName: originalConn.to.contactName }
                                 };
                         }
                         _blueprint.internalConnections.push(newConn);
                         createdExternalConns.push(newConn);
 // Create physical link
 // resolveContact will call atom.getInput(externalName) which works
-// because Assembly._inputs contains contacts with name=externalName
+// because Assembly._inputs contains contacts with name=externalName.
+// resolveContact translates the template ID to runtime via _idMap.
                         var cOut = resolveContact(newConn.from.atomId, newConn.from.contactName, OUTPUT);
                         var cIn = resolveContact(newConn.to.atomId, newConn.to.contactName, INPUT);
                         if (cOut != null && cIn != null)
@@ -627,8 +736,17 @@ class GroupAtomsCommand extends Command
                         }
                         _assembly.internalAtoms.remove(createdId);
                 }
-                AtomRegistry.remove(_snapshot.getCreatedTypeId());
-                deleteAssemblyFile(_snapshot.getCreatedTypeId());
+
+// v3.6: Remove the template→runtime mapping we added in execute().
+// Without this, the mapping would linger and point to a disposed atom.
+                var createdTypeId = _snapshot.getCreatedTypeId();
+                if (createdTypeId != null)
+                {
+                        _assembly.unregisterAtomMapping(createdTypeId);
+                }
+
+                AtomRegistry.remove(createdTypeId);
+                deleteAssemblyFile(createdTypeId);
                 for (atomDef in _snapshot.getRemovedAtomDefs())
                 {
                         _blueprint.internalAtoms.push(

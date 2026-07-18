@@ -1,3 +1,8 @@
+//================================================================================
+// FILE: editor\NodeView.hx
+// Lines: 1571 | Chars: 51130
+//================================================================================
+
 package editor;
 import core.base.Contact;
 import openfl.display.Sprite;
@@ -120,7 +125,7 @@ class NodeView extends Sprite
         /**
         * The Atom this NodeView visually represents.
         *
-        * v3.6: Changed from (default, null) to (default, set) so that
+        * v3.6: Changed from (default, null) to (get, set) so that
         * EditorContext.updateInstancesOf() can reattach this NodeView to
         * a freshly reconstructed Assembly instance (same runtimeId, but a
         * new object after dispose + AssemblyFactory.createAtom).
@@ -1680,25 +1685,22 @@ private function isPortTarget(target:DisplayObject):Bool
                 alignInlineEditors();
         }
 
-        // =========================================================================
-        // DISPOSE
-        // =========================================================================
+// =========================================================================
+// DISPOSE
+// =========================================================================
         public function dispose():Void
         {
                 Impulsys.removeImpulse(EventType.ASSEMBLY_PORTS_CHANGED, onAssemblyPortsChanged);
                 Impulsys.removeImpulse(EventType.REDRAW_WIRES, onWiresRedrawn);
                 ECS.unregister(nodeId);
-                
                 removeEventListener(MouseEvent.DOUBLE_CLICK, onDoubleClick);
                 removeEventListener(MouseEvent.CLICK, onClick);
                 removeEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
                 removeEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
-                
                 if (_settingsButton != null)
                 {
                         _settingsButton.removeEventListener(MouseEvent.CLICK, onSettingsClick);
                 }
-                
                 // === v3.3: Clean up inline name editor ===
                 if (_nameInput != null)
                 {
@@ -1709,40 +1711,29 @@ private function isPortTarget(target:DisplayObject):Bool
                 }
                 _isEditingName = false;
                 _parentAssembly = null;
-                
                 for (name in _inlineEditors.keys())
                 {
                         var editor = _inlineEditors.get(name);
                         if (editor != null) editor.dispose();
                 }
                 _inlineEditors.clear();
-                
-                // === FIX: Properly deactivate DeviceView to unsubscribe from contacts ===
-                if (deviceView != null)
+                if (deviceView != null && deviceView.parent == _previewContainer)
                 {
-                        // 1. Deactivate to remove all contact subscriptions
-                        deviceView.deactivate();
-                        
-                        // 2. Remove from display list
-                        if (deviceView.parent == _previewContainer)
-                        {
-                                _previewContainer.removeChild(deviceView);
-                        }
-                        
-                        // 3. Clear registry container reference so it can be re-acquired later
-                        core.view.DeviceViewRegistry.getInstance().clearContainer(atom.id);
-                        
-                        deviceView = null;
+                        _previewContainer.removeChild(deviceView);
                 }
-                
                 inputPorts.clear();
                 outputPorts.clear();
-                
+                deviceView = null;
                 _atom = null;
                 assembly = null;
                 onOpenDeviceWindow = null;
                 onSelect = null;
-                
-                //trace('NodeView: Disposed');
+                _background = null;
+                _titleBar = null;
+                _titleLabel = null;
+                _previewContainer = null;
+                _selectionHighlight = null;
+                _settingsButton = null;
+                trace('NodeView: Disposed');
         }
 }
