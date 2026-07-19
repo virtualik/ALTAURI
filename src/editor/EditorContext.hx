@@ -1,11 +1,3 @@
-//================================================================================
-// FILE: editor\EditorContext.hx
-// Lines: 420 | Chars: 16054
-//================================================================================
-
-// ============================================================================
-// FILE: editor/EditorContext.hx (ИСПРАВЛЕННАЯ ВЕРСИЯ v1.4)
-// ============================================================================
 package editor;
 
 import openfl.display.Sprite;
@@ -22,8 +14,23 @@ import core.types.ContactType.*;
 import core.base.AssemblyFactory;
 
 /**
- * EDITOR CONTEXT v2.3 (Load-Symmetric Reconstruction + isActive + Reattach + Pre-Save Sync)
+ * EDITOR CONTEXT v2.4 (Global Name Uniqueness + Load-Symmetric Reconstruction + isActive + Reattach + Pre-Save Sync)
  * Manages the stack of open editors (NodeEditor instances) and their camera states.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * v2.4 CHANGES (Global Name Uniqueness)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ *  PROBLEM:
+ *  When pasting or adding atoms, the system only checked for name uniqueness
+ *  within the current assembly. This allowed duplicate displayNames across
+ *  different nesting levels, causing wire misrouting and UI confusion.
+ *
+ *  SOLUTION:
+ *  Added isNameTakenGlobally() and hasNameRecursive() to traverse the entire
+ *  assembly hierarchy (starting from the root) and verify name uniqueness.
+ *  This callback is passed down to NodeEditor, which forwards it to NodeView
+ *  and EditorActionHandler.
  *
  * ═══════════════════════════════════════════════════════════════════════════
  * v2.3 CHANGES (isActive Flag — Broadcast Storm Prevention)
@@ -181,6 +188,10 @@ import core.base.AssemblyFactory;
  * │   │  - clear()           → Reset entire stack                       │   │
  * │   │  - getStackEntries() → Return array of entries (for external)   │   │
  * │   │                                                                 │   │
+ * │   │  v2.4 Global Name Uniqueness:                                   │   │
+ * │   │  - isNameTakenGlobally(name, excludeId) → checks entire tree    │   │
+ * │   │  - Passed to NodeEditor constructor on push()                   │   │
+ * │   │                                                                 │   │
  * │   │  v2.3 Broadcast Storm Prevention:                               │   │
  * │   │  - push() sets parent editor's isActive = false                 │   │
  * │   │  - pop() sets it back to true + forceFullRedraw                 │   │
@@ -295,8 +306,8 @@ class EditorContext
         drawContainerFrame(container);
         _layer.addChild(container);
         
-        // Create editor
-        var editor = new NodeEditor(assembly);
+        // Create editor (v2.4: pass global name uniqueness checker)
+        var editor = new NodeEditor(assembly, isNameTakenGlobally);
         editor.setSize(container.width, container.height);
         container.addChild(editor);
         
@@ -449,341 +460,342 @@ class EditorContext
         currentEditor.refreshAssemblyViews();
     }
     
-        /**
-        * Update visual representation of assemblies with specified ID
-        * in all open editors.
-        *
-        * v2.0 FIX: After the child assembly's internal structure may have changed,
-        * we NO LONGER call asm.updateFromBlueprint(newBp). That partial mutation
-        * preserved stale internal atom instances together with their leaked
-        * DeviceView callback subscriptions, which crashed the app when signals
-        * later reached those atoms.
-        *
-        * Instead, we FULLY RECONSTRUCT the child assembly through the same path
-        * used at project load:
-        *   1. unlinkParentWiresTo(asm) — break parent-side Contact.linkedTargets
-        *      references to the soon-to-be-disposed port.external contacts
-        *   2. asm.dispose() — disposes internal atoms, their contacts, and
-        *      nullifies contact.callbackTargets (neutralizing any leaked
-        *      DeviceView subscriptions)
-        *   3. AssemblyFactory.createAtom(typeId, oldRuntimeId) — runs the
-        *      constructor path: _createInterface + _createInternalInstances +
-        *      _createInternalConnections + _initializeLogicState + _updatePortLinks
-        *   4. reconnectExternalLinksToAssembly(newAsm) — re-establish physical
-        *      Contact.link() between parent's wires and the new port.external
-        *   5. currentEditor.reattachNodeView(oldRuntimeId, newInstance) —
-        *      v2.2: swap the parent's NodeView atom reference to the new
-        *      instance, release old DeviceView, acquire fresh one
-        *
-        * The runtime ID is preserved (forcedId) so the parent blueprint's
-        * AtomDef.instanceId reference remains valid and no blueprint mutation
-        * is required.
-        */
-        private function updateInstancesOf(typeId:String):Void
-        {
-                var newBp = library.AtomRegistry.get(typeId);
-                if (newBp == null) return;
+    /**
+     * Update visual representation of assemblies with specified ID
+     * in all open editors.
+     *
+     * v2.0 FIX: After the child assembly's internal structure may have changed,
+     * we NO LONGER call asm.updateFromBlueprint(newBp). That partial mutation
+     * preserved stale internal atom instances together with their leaked
+     * DeviceView callback subscriptions, which crashed the app when signals
+     * later reached those atoms.
+     *
+     * Instead, we FULLY RECONSTRUCT the child assembly through the same path
+     * used at project load:
+     *   1. unlinkParentWiresTo(asm) — break parent-side Contact.linkedTargets
+     *      references to the soon-to-be-disposed port.external contacts
+     *   2. asm.dispose() — disposes internal atoms, their contacts, and
+     *      nullifies contact.callbackTargets (neutralizing any leaked
+     *      DeviceView subscriptions)
+     *   3. AssemblyFactory.createAtom(typeId, oldRuntimeId) — runs the
+     *      constructor path: _createInterface + _createInternalInstances +
+     *      _createInternalConnections + _initializeLogicState + _updatePortLinks
+     *   4. reconnectExternalLinksToAssembly(newAsm) — re-establish physical
+     *      Contact.link() between parent's wires and the new port.external
+     *   5. currentEditor.reattachNodeView(oldRuntimeId, newInstance) —
+     *      v2.2: swap the parent's NodeView atom reference to the new
+     *      instance, release old DeviceView, acquire fresh one
+     *
+     * The runtime ID is preserved (forcedId) so the parent blueprint's
+     * AtomDef.instanceId reference remains valid and no blueprint mutation
+     * is required.
+     */
+    private function updateInstancesOf(typeId:String):Void
+    {
+        var newBp = library.AtomRegistry.get(typeId);
+        if (newBp == null) return;
 
-                // Iterate through all atoms in CURRENT editor (the parent)
-                for (id in currentAssembly.internalAtoms.keys())
+        // Iterate through all atoms in CURRENT editor (the parent)
+        for (id in currentAssembly.internalAtoms.keys())
+        {
+            var atom = currentAssembly.internalAtoms.get(id);
+            if (Std.isOfType(atom, Assembly))
+            {
+                var asm = cast(atom, Assembly);
+                if (asm.blueprint.id == typeId)
                 {
-                        var atom = currentAssembly.internalAtoms.get(id);
-                        if (Std.isOfType(atom, Assembly))
-                        {
-                                var asm = cast(atom, Assembly);
-                                if (asm.blueprint.id == typeId)
-                                {
-                                        // ═══════════════════════════════════════════════════════════════════
-                                        // v2.0: FULL RECONSTRUCTION (load-symmetric)
-                                        // ═══════════════════════════════════════════════════════════════════
+                    // ═══════════════════════════════════════════════════════════════════
+                    // v2.0: FULL RECONSTRUCTION (load-symmetric)
+                    // ═══════════════════════════════════════════════════════════════════
 
-                                        var oldRuntimeId = asm.id;
+                    var oldRuntimeId = asm.id;
 
-                                        // 1. Unlink parent's external wires to old assembly's port.external.
-                                        //    This MUST happen BEFORE dispose() because Contact.dispose()
-                                        //    only removes THIS from contacts that THIS links to — it
-                                        //    cannot remove THIS from contacts that link TO this.
-                                        unlinkParentWiresTo(asm);
+                    // 1. Unlink parent's external wires to old assembly's port.external.
+                    //    This MUST happen BEFORE dispose() because Contact.dispose()
+                    //    only removes THIS from contacts that THIS links to — it
+                    //    cannot remove THIS from contacts that link TO this.
+                    unlinkParentWiresTo(asm);
 
-                                        // 2. Dispose old assembly completely.
-                                        //    This disposes internal atoms → their contacts →
-                                        //    contact.callbackTargets = null → leaked DeviceView
-                                        //    callbacks can no longer fire.
-                                        asm.dispose();
+                    // 2. Dispose old assembly completely.
+                    //    This disposes internal atoms → their contacts →
+                    //    contact.callbackTargets = null → leaked DeviceView
+                    //    callbacks can no longer fire.
+                    asm.dispose();
 
-                                        // 3. Recreate via Factory using the SAME runtime ID so the
-                                        //    parent's blueprint.internalAtoms references stay valid.
-                                        //    AssemblyFactory.createAtom() runs the full Assembly
-                                        //    constructor, which is identical to the project-load path.
-                                        var newInstance = AssemblyFactory.createAtom(typeId, oldRuntimeId);
-                                        if (newInstance == null)
-                                        {
-                                                trace('ERROR: EditorContext.updateInstancesOf: Failed to recreate assembly $typeId ($oldRuntimeId)');
-                                                continue;
-                                        }
+                    // 3. Recreate via Factory using the SAME runtime ID so the
+                    //    parent's blueprint.internalAtoms references stay valid.
+                    //    AssemblyFactory.createAtom() runs the full Assembly
+                    //    constructor, which is identical to the project-load path.
+                    var newInstance = AssemblyFactory.createAtom(typeId, oldRuntimeId);
+                    if (newInstance == null)
+                    {
+                        trace('ERROR: EditorContext.updateInstancesOf: Failed to recreate assembly $typeId ($oldRuntimeId)');
+                        continue;
+                    }
 
-                                        // 4. Replace in parent's internalAtoms map (key unchanged).
-                                        currentAssembly.internalAtoms.set(oldRuntimeId, newInstance);
+                    // 4. Replace in parent's internalAtoms map (key unchanged).
+                    currentAssembly.internalAtoms.set(oldRuntimeId, newInstance);
 
-                                        // 5. Reconnect parent's external wires to the new port.external
-                                        //    contacts of the freshly constructed assembly.
-                                        if (Std.isOfType(newInstance, Assembly))
-                                        {
-                                                reconnectExternalLinksToAssembly(cast(newInstance, Assembly));
-                                        }
+                    // 5. Reconnect parent's external wires to the new port.external
+                    //    contacts of the freshly constructed assembly.
+                    if (Std.isOfType(newInstance, Assembly))
+                    {
+                        reconnectExternalLinksToAssembly(cast(newInstance, Assembly));
+                    }
 
-                                        // ═══════════════════════════════════════════════════════════════════
-                                        // v2.2 FIX: Reattach the parent's NodeView to the new instance.
-                                        // ═══════════════════════════════════════════════════════════════════
-                                        // Without this, the NodeView in the parent editor keeps holding
-                                        // a reference to the OLD (disposed) Assembly. After dispose():
-                                        //   - internalAtoms = null
-                                        //   - ports = null
-                                        //   - _inputs / _outputs = null
-                                        //
-                                        // The first time createPorts() runs after a mode switch,
-                                        // atom.getInputs() returns null and no ports are created,
-                                        // manifesting as "графика контактов и названия контактов
-                                        // пропадают" after Editor → Device Panel → Editor.
-                                        //
-                                        // reattachNodeView swaps the atom reference, releases the
-                                        // old DeviceView, acquires a fresh one, and rebuilds layout.
-                                        // ═══════════════════════════════════════════════════════════════════
-                                        currentEditor.reattachNodeView(oldRuntimeId, newInstance);
-                                }
-                        }
+                    // ═══════════════════════════════════════════════════════════════════
+                    // v2.2 FIX: Reattach the parent's NodeView to the new instance.
+                    // ═══════════════════════════════════════════════════════════════════
+                    // Without this, the NodeView in the parent editor keeps holding
+                    // a reference to the OLD (disposed) Assembly. After dispose():
+                    //   - internalAtoms = null
+                    //   - ports = null
+                    //   - _inputs / _outputs = null
+                    //
+                    // The first time createPorts() runs after a mode switch,
+                    // atom.getInputs() returns null and no ports are created,
+                    // manifesting as "графика контактов и названия контактов
+                    // пропадают" after Editor → Device Panel → Editor.
+                    //
+                    // reattachNodeView swaps the atom reference, releases the
+                    // old DeviceView, acquires a fresh one, and rebuilds layout.
+                    // ═══════════════════════════════════════════════════════════════════
+                    currentEditor.reattachNodeView(oldRuntimeId, newInstance);
                 }
+            }
         }
+    }
 
-        /**
-        * v2.0: Unlink parent's external wires pointing TO a child assembly's
-        * port.external contacts.
-        *
-        * WHY THIS IS NEEDED:
-        * When the parent established a wire to the child assembly, it called
-        * `parentContact.link(childPort.external)`, which pushed
-        * `childPort.external` into `parentContact.linkedTargets`. The reverse
-        * direction (parentContact in childPort.external.linkedTargets) was NOT
-        * registered.
-        *
-        * When the child is later disposed, `Contact.dispose()` iterates the
-        * dying contact's OWN linkedTargets and unlinks itself from them. But
-        * it has no way to find contacts in the system that hold a reference
-        * TO it. So `parentContact.linkedTargets` would retain a stale entry
-        * pointing to a disposed Contact.
-        *
-        * Stale entries in linkedTargets are mostly tolerated (propagation
-        * checks `!target.isDisposed`), but they:
-        *   - grow `linkedTargets` arrays on every entry/exit cycle
-        *   - break code that iterates linkedTargets without re-checking
-        *     isDisposed (e.g., hasLinks(), getLinkCount())
-        *   - are a smell that something elsewhere may dereference them
-        *
-        * This method cleanly removes those references BEFORE disposal.
-        *
-        * Algorithm:
-        *   For each connection in the parent's blueprint that references the
-        *   target assembly, resolve the parent-side contact (the end that is
-        *   NOT on the assembly), then unlink any of the assembly's
-        *   port.external contacts that parentContact currently links to.
-        */
-        private function unlinkParentWiresTo(targetAsm:Assembly):Void
+    /**
+     * v2.0: Unlink parent's external wires pointing TO a child assembly's
+     * port.external contacts.
+     *
+     * WHY THIS IS NEEDED:
+     * When the parent established a wire to the child assembly, it called
+     * `parentContact.link(childPort.external)`, which pushed
+     * `childPort.external` into `parentContact.linkedTargets`. The reverse
+     * direction (parentContact in childPort.external.linkedTargets) was NOT
+     * registered.
+     *
+     * When the child is later disposed, `Contact.dispose()` iterates the
+     * dying contact's OWN linkedTargets and unlinks itself from them. But
+     * it has no way to find contacts in the system that hold a reference
+     * TO it. So `parentContact.linkedTargets` would retain a stale entry
+     * pointing to a disposed Contact.
+     *
+     * Stale entries in linkedTargets are mostly tolerated (propagation
+     * checks `!target.isDisposed`), but they:
+     *   - grow `linkedTargets` arrays on every entry/exit cycle
+     *   - break code that iterates linkedTargets without re-checking
+     *     isDisposed (e.g., hasLinks(), getLinkCount())
+     *   - are a smell that something elsewhere may dereference them
+     *
+     * This method cleanly removes those references BEFORE disposal.
+     *
+     * Algorithm:
+     *   For each connection in the parent's blueprint that references the
+     *   target assembly, resolve the parent-side contact (the end that is
+     *   NOT on the assembly), then unlink any of the assembly's
+     *   port.external contacts that parentContact currently links to.
+     */
+    private function unlinkParentWiresTo(targetAsm:Assembly):Void
+    {
+        var bp = currentAssembly.blueprint;
+        if (bp.internalConnections == null) return;
+
+        for (conn in bp.internalConnections)
         {
-                var bp = currentAssembly.blueprint;
-                if (bp.internalConnections == null) return;
+            var isTarget = false;
+            var parentSide:ConnectionPoint = null; // the end that is NOT the assembly
 
-                for (conn in bp.internalConnections)
+            // Check 'to' side: if 'to' references targetAsm, then 'from' is the parent side
+            if (conn.to.atomId != "SELF")
+            {
+                var realAtomId = currentAssembly.idMap.get(conn.to.atomId);
+                if (realAtomId == null) realAtomId = conn.to.atomId;
+
+                if (realAtomId == targetAsm.id || conn.to.atomId == targetAsm.id)
                 {
-                        var isTarget = false;
-                        var parentSide:ConnectionPoint = null; // the end that is NOT the assembly
-
-                        // Check 'to' side: if 'to' references targetAsm, then 'from' is the parent side
-                        if (conn.to.atomId != "SELF")
-                        {
-                                var realAtomId = currentAssembly.idMap.get(conn.to.atomId);
-                                if (realAtomId == null) realAtomId = conn.to.atomId;
-
-                                if (realAtomId == targetAsm.id || conn.to.atomId == targetAsm.id)
-                                {
-                                        isTarget = true;
-                                        parentSide = conn.from;
-                                }
-                        }
-
-                        // Check 'from' side (if not already matched)
-                        if (!isTarget && conn.from.atomId != "SELF")
-                        {
-                                var realAtomId = currentAssembly.idMap.get(conn.from.atomId);
-                                if (realAtomId == null) realAtomId = conn.from.atomId;
-
-                                if (realAtomId == targetAsm.id || conn.from.atomId == targetAsm.id)
-                                {
-                                        isTarget = true;
-                                        parentSide = conn.to;
-                                }
-                        }
-
-                        if (!isTarget || parentSide == null) continue;
-
-                        // Resolve the parent-side contact (could be SELF of parent, or another atom)
-                        var parentContact = resolveContactInParent(parentSide);
-                        if (parentContact == null) continue;
-
-                        // Unlink any of targetAsm's port.external contacts that parentContact
-                        // currently links to. We don't need to know which specific port this
-                        // connection referenced — hasLink() guards the unlink safely, and
-                        // the assembly is about to be disposed anyway.
-                        for (port in targetAsm.ports)
-                        {
-                                if (port == null || port.external == null || port.external.isDisposed) continue;
-                                if (parentContact.hasLink(port.external))
-                                {
-                                        parentContact.unlink(port.external);
-                                }
-                        }
+                    isTarget = true;
+                    parentSide = conn.from;
                 }
+            }
+
+            // Check 'from' side (if not already matched)
+            if (!isTarget && conn.from.atomId != "SELF")
+            {
+                var realAtomId = currentAssembly.idMap.get(conn.from.atomId);
+                if (realAtomId == null) realAtomId = conn.from.atomId;
+
+                if (realAtomId == targetAsm.id || conn.from.atomId == targetAsm.id)
+                {
+                    isTarget = true;
+                    parentSide = conn.to;
+                }
+            }
+
+            if (!isTarget || parentSide == null) continue;
+
+            // Resolve the parent-side contact (could be SELF of parent, or another atom)
+            var parentContact = resolveContactInParent(parentSide);
+            if (parentContact == null) continue;
+
+            // Unlink any of targetAsm's port.external contacts that parentContact
+            // currently links to. We don't need to know which specific port this
+            // connection referenced — hasLink() guards the unlink safely, and
+            // the assembly is about to be disposed anyway.
+            for (port in targetAsm.ports)
+            {
+                if (port == null || port.external == null || port.external.isDisposed) continue;
+                if (parentContact.hasLink(port.external))
+                {
+                    parentContact.unlink(port.external);
+                }
+            }
         }
+    }
 
-        /**
-        * v2.2: Synchronizes the current assembly's blueprint BEFORE saving to disk.
-        *
-        * MUST be called by Main.hx BEFORE saveCurrentContext() in onBackClicked().
-        *
-        * PROBLEM:
-        * Previously the sync methods (refreshExternalPortNames,
-        * syncDisplayNamesToBlueprint, syncConnectionsToTemplateIds) were called
-        * INSIDE pop(), which runs AFTER saveCurrentContext() in the typical
-        * onBackClicked flow:
-        *
-        *     saveCurrentContext();        ← writes OLD bp to disk
-        *     closeCurrentEditor(true);    ← pop() runs sync, but too late
-        *
-        * This caused user-renamed atom displayNames to be lost on disk after
-        * app restart (the in-memory bp was synced, but the disk copy was stale).
-        *
-        * SOLUTION:
-        * Main.hx now calls prepareCurrentAssemblyForSave() BEFORE saveCurrentContext():
-        *
-        *     _editorContext.prepareCurrentAssemblyForSave();   ← sync in-memory bp
-        *     saveCurrentContext();                              ← writes synced bp
-        *     closeCurrentEditor(true);                          ← pop() (sync calls
-        *                                                         in pop are now
-        *                                                         redundant but
-        *                                                         idempotent and safe)
-        *
-        * This method is also safe to call from any other code path that intends
-        * to persist the current assembly — e.g., an explicit "Save" menu action.
-        */
-        public function prepareCurrentAssemblyForSave():Void
+    /**
+     * v2.2: Synchronizes the current assembly's blueprint BEFORE saving to disk.
+     *
+     * MUST be called by Main.hx BEFORE saveCurrentContext() in onBackClicked().
+     *
+     * PROBLEM:
+     * Previously the sync methods (refreshExternalPortNames,
+     * syncDisplayNamesToBlueprint, syncConnectionsToTemplateIds) were called
+     * INSIDE pop(), which runs AFTER saveCurrentContext() in the typical
+     * onBackClicked flow:
+     *
+     *     saveCurrentContext();        ← writes OLD bp to disk
+     *     closeCurrentEditor(true);    ← pop() runs sync, but too late
+     *
+     * This caused user-renamed atom displayNames to be lost on disk after
+     * app restart (the in-memory bp was synced, but the disk copy was stale).
+     *
+     * SOLUTION:
+     * Main.hx now calls prepareCurrentAssemblyForSave() BEFORE saveCurrentContext():
+     *
+     *     _editorContext.prepareCurrentAssemblyForSave();   ← sync in-memory bp
+     *     saveCurrentContext();                              ← writes synced bp
+     *     closeCurrentEditor(true);                          ← pop() (sync calls
+     *                                                        in pop are now
+     *                                                        redundant but
+     *                                                        idempotent and safe)
+     *
+     * This method is also safe to call from any other code path that intends
+     * to persist the current assembly — e.g., an explicit "Save" menu action.
+     */
+    public function prepareCurrentAssemblyForSave():Void
+    {
+        if (currentAssembly == null) return;
+
+        // 1. Refresh external port names based on connected atoms
+        currentAssembly.refreshExternalPortNames();
+
+        // 2. Sync renamed atom displayNames into atomDef.values
+        currentAssembly.syncDisplayNamesToBlueprint();
+
+        // 3. Translate runtime IDs → template IDs in internalConnections
+        currentAssembly.syncConnectionsToTemplateIds();
+
+        // 4. Register the UPDATED blueprint in registry so that
+        //    ProjectManager.saveAssemblyToLibrary() sees the latest state
+        //    and so that AssemblyFactory.createAtom(typeId, ...) on any
+        //    future reconstruction uses the synced bp.
+        library.AtomRegistry.registerBlueprint(
+            currentAssembly.blueprint.id, currentAssembly.blueprint);
+    }
+
+    /**
+     * Reconnects wires from the parent assembly to the updated child assembly.
+     * 
+     * When a child assembly updates, its ports are recreated (new Contact instances).
+     * The parent's blueprint still has the correct ConnectionDef, but the physical 
+     * Contact.link() is broken. This method restores the physical links.
+     */
+    private function reconnectExternalLinksToAssembly(targetAsm:Assembly):Void
+    {
+        var bp = currentAssembly.blueprint;
+        if (bp.internalConnections == null) return;
+        
+        for (conn in bp.internalConnections)
         {
-                if (currentAssembly == null) return;
-
-                // 1. Refresh external port names based on connected atoms
-                currentAssembly.refreshExternalPortNames();
-
-                // 2. Sync renamed atom displayNames into atomDef.values
-                currentAssembly.syncDisplayNamesToBlueprint();
-
-                // 3. Translate runtime IDs → template IDs in internalConnections
-                currentAssembly.syncConnectionsToTemplateIds();
-
-                // 4. Register the UPDATED blueprint in registry so that
-                //    ProjectManager.saveAssemblyToLibrary() sees the latest state
-                //    and so that AssemblyFactory.createAtom(typeId, ...) on any
-                //    future reconstruction uses the synced bp.
-                library.AtomRegistry.registerBlueprint(
-                        currentAssembly.blueprint.id, currentAssembly.blueprint);
-        }
-
-        /**
-        * Reconnects wires from the parent assembly to the updated child assembly.
-        * 
-        * When a child assembly updates, its ports are recreated (new Contact instances).
-        * The parent's blueprint still has the correct ConnectionDef, but the physical 
-        * Contact.link() is broken. This method restores the physical links.
-        */
-        private function reconnectExternalLinksToAssembly(targetAsm:Assembly):Void
-        {
-                var bp = currentAssembly.blueprint;
-                if (bp.internalConnections == null) return;
+            // Check if this connection involves our updated assembly
+            var isTarget = false;
+            
+            // Check 'to' side
+            if (conn.to.atomId != "SELF")
+            {
+                var realAtomId = currentAssembly.idMap.get(conn.to.atomId);
+                if (realAtomId == null) realAtomId = conn.to.atomId; // fallback if already runtime ID
                 
-                for (conn in bp.internalConnections)
+                if (realAtomId == targetAsm.id || conn.to.atomId == targetAsm.id) 
                 {
-                        // Check if this connection involves our updated assembly
-                        var isTarget = false;
-                        
-                        // Check 'to' side
-                        if (conn.to.atomId != "SELF")
-                        {
-                                var realAtomId = currentAssembly.idMap.get(conn.to.atomId);
-                                if (realAtomId == null) realAtomId = conn.to.atomId; // fallback if already runtime ID
-                                
-                                if (realAtomId == targetAsm.id || conn.to.atomId == targetAsm.id) 
-                                {
-                                        isTarget = true;
-                                }
-                        }
-                        
-                        // Check 'from' side (for completeness)
-                        if (!isTarget && conn.from.atomId != "SELF")
-                        {
-                                var realAtomId = currentAssembly.idMap.get(conn.from.atomId);
-                                if (realAtomId == null) realAtomId = conn.from.atomId;
-                                
-                                if (realAtomId == targetAsm.id || conn.from.atomId == targetAsm.id)
-                                {
-                                        isTarget = true;
-                                }
-                        }
-                        
-                        if (isTarget)
-                        {
-                                // Re-establish the physical link
-                                var cOut = resolveContactInParent(conn.from);
-                                var cIn = resolveContactInParent(conn.to);
-                                
-                                if (cOut != null && cIn != null && !cOut.hasLink(cIn))
-                                {
-                                        cOut.link(cIn);
-                                }
-                        }
+                    isTarget = true;
                 }
+            }
+            
+            // Check 'from' side (for completeness)
+            if (!isTarget && conn.from.atomId != "SELF")
+            {
+                var realAtomId = currentAssembly.idMap.get(conn.from.atomId);
+                if (realAtomId == null) realAtomId = conn.from.atomId;
+                
+                if (realAtomId == targetAsm.id || conn.from.atomId == targetAsm.id)
+                {
+                    isTarget = true;
+                }
+            }
+            
+            if (isTarget)
+            {
+                // Re-establish the physical link
+                var cOut = resolveContactInParent(conn.from);
+                var cIn = resolveContactInParent(conn.to);
+                
+                if (cOut != null && cIn != null && !cOut.hasLink(cIn))
+                {
+                    cOut.link(cIn);
+                }
+            }
         }
+    }
 
-        /**
-        * Resolves a Contact in the context of the CURRENT (parent) assembly.
-        * 
-        * This brilliantly leverages the existing Atom.getInput/getOutput methods,
-        * which already know how to find Assembly ports by their externalName!
-        */
-        private function resolveContactInParent(point:core.data.Blueprint.ConnectionPoint):core.base.Contact
+    /**
+     * Resolves a Contact in the context of the CURRENT (parent) assembly.
+     * 
+     * This brilliantly leverages the existing Atom.getInput/getOutput methods,
+     * which already know how to find Assembly ports by their externalName!
+     */
+    private function resolveContactInParent(point:core.data.Blueprint.ConnectionPoint):core.base.Contact
+    {
+        if (point.atomId == "SELF")
         {
-                if (point.atomId == "SELF")
-                {
-                        var port = currentAssembly.ports.get(point.contactName);
-                        return port != null ? port.internal : null;
-                }
-                else
-                {
-                        // Resolve Template ID to Runtime ID
-                        var realAtomId = currentAssembly.idMap.get(point.atomId);
-                        if (realAtomId == null) realAtomId = point.atomId;
-                        
-                        var obj = currentAssembly.internalAtoms.get(realAtomId);
-                        if (obj == null) return null;
-                        
-                        var atom:core.base.Atom = cast obj;
-                        
-                        // getInput and getOutput search by Contact.name.
-                        // For Assemblies, external contacts are registered with externalName.
-                        // For simple atoms, contacts are registered with their standard name.
-                        // This perfectly matches the contactName stored in the parent's blueprint!
-                        var c = atom.getInput(point.contactName);
-                        if (c != null) return c;
-                        
-                        return atom.getOutput(point.contactName);
-                }
-        }    
+            var port = currentAssembly.ports.get(point.contactName);
+            return port != null ? port.internal : null;
+        }
+        else
+        {
+            // Resolve Template ID to Runtime ID
+            var realAtomId = currentAssembly.idMap.get(point.atomId);
+            if (realAtomId == null) realAtomId = point.atomId;
+            
+            var obj = currentAssembly.internalAtoms.get(realAtomId);
+            if (obj == null) return null;
+            
+            var atom:core.base.Atom = cast obj;
+            
+            // getInput and getOutput search by Contact.name.
+            // For Assemblies, external contacts are registered with externalName.
+            // For simple atoms, contacts are registered with their standard name.
+            // This perfectly matches the contactName stored in the parent's blueprint!
+            var c = atom.getInput(point.contactName);
+            if (c != null) return c;
+            
+            return atom.getOutput(point.contactName);
+        }
+    }    
+    
     /**
      * Reset entire stack (on project reload) and clear camera states.
      */
@@ -817,6 +829,27 @@ class EditorContext
         return _stack.copy();
     }
     
+    /**
+    * v2.5: Delegates to NamingService instead of walking the tree.
+    *
+    * The previous tree-walk approach had two issues:
+    *  (a) It only saw atoms in the currently-loaded editor stack — atoms
+    *      in not-yet-loaded or already-closed contexts were invisible.
+    *  (b) It was duplicating state already maintained by NamingService,
+    *      causing potential desync.
+    *
+    * NamingService is the single source of truth: every atom's displayName
+    * is registered on creation and unregistered on dispose, so its map is
+    * always in sync with the live atom set.
+    *
+    * The signature (name, ?excludeId) → Bool is preserved for backwards
+    * compatibility with all callers that pass this method as a callback
+    * to NodeEditor / NodeView / GroupAtomsCommand.
+    */
+    public function isNameTakenGlobally(name:String, ?excludeId:String):Bool {
+        return core.logic.NamingService.isInstanceNameTaken(name, excludeId);
+    }
+
     // =========================================================================
     // VISUAL
     // =========================================================================

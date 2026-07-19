@@ -4,7 +4,7 @@ import core.base.Assembly;
 import core.logic.EventType;
 import core.logic.Impulse;
 import core.logic.Impulsys;
-import core.types.ContactType; // <--- ДОБАВЛЕНО: Исправляет ошибку "Type not found : ContactType"
+import core.types.ContactType;
 import library.AtomRegistry;
 import system.commands.base.MacroCommand;
 import system.commands.editor.AddPortCommand;
@@ -17,7 +17,7 @@ import ui.ContextMenu;
 import ui.SettingsPanel;
 
 /**
-* CONTEXT MENU MANAGER v1.2 (Topology Guard Integration)
+* CONTEXT MENU MANAGER v1.3 (Global Name Uniqueness + Topology Guard Integration)
 * Responsible for creating and handling editor context menus.
 * Listens to impulses from NodeEditor and manages the menu UI.
 *
@@ -44,6 +44,10 @@ import ui.SettingsPanel;
 * │   │  - REMOVE_PORT          → RemovePortCommand                     │   │
 * │   └─────────────────────────────────────────────────────────────────┘   │
 * │                                                                         │
+* │   v1.3 Changes:                                                         │
+* │   - ADDED: _isNameTakenGlobally callback to ensure newly grouped        │
+* │     assemblies receive globally unique names (e.g., "CustomAssembly_1").│
+* │                                                                         │
 * │   v1.2 Changes:                                                         │
 * │   - FIXED: groupSelectedToAssembly() now uses UndoManager.executeAndStore() │
 * │     instead of direct cmd.execute(). This ensures Topology Guard is     │
@@ -69,6 +73,9 @@ class ContextMenuManager
 	
 	// Flag to protect against repeated dispose
 	private var _isDisposed:Bool = false;
+	
+	// v1.3: Global name uniqueness checker for grouping operations
+	private var _isNameTakenGlobally:(String, ?String) -> Bool;
 
 	public function new(settingsPanel:SettingsPanel)
 	{
@@ -86,11 +93,17 @@ class ContextMenuManager
 
 	/**
 	* Update context when switching editor/assembly.
+	* 
+	* @param editor Current NodeEditor instance
+	* @param assembly Current Assembly instance
+	* @param isNameTakenGlobally Callback to check name uniqueness globally (v1.3)
 	*/
-	public function setContext(editor:NodeEditor, assembly:Assembly):Void
+
+	public function setContext(editor:NodeEditor, assembly:Assembly, ?isNameTakenGlobally:(String, ?String) -> Bool):Void
 	{
 		_editor = editor;
 		_assembly = assembly;
+		_isNameTakenGlobally = isNameTakenGlobally;
 	}
 
 	/**
@@ -131,6 +144,7 @@ class ContextMenuManager
 		_assembly = null;
 		_settingsPanel = null;
 		_contextTargetId = null;
+		_isNameTakenGlobally = null;
 	}
 
 	// ========================================================================
@@ -353,6 +367,9 @@ class ContextMenuManager
 	/**
 	* Group selected atoms into a new Assembly.
 	*
+	* v1.3 FIX: Passes _isNameTakenGlobally to GroupAtomsCommand to ensure
+	* the newly created assembly receives a globally unique display name.
+	*
 	* v1.2 FIX: Now uses UndoManager.executeAndStore() instead of direct cmd.execute().
 	* This ensures Topology Guard is activated via lockTopology(), preventing
 	* race conditions with audio drivers during grouping operations.
@@ -362,7 +379,7 @@ class ContextMenuManager
 		var selectedIds = _editor.getSelectedNodeIds();
 		if (selectedIds.length < 1) return;
 		
-		var cmd = new GroupAtomsCommand(_assembly.blueprint, _assembly, selectedIds);
+		var cmd = new GroupAtomsCommand(_assembly.blueprint, _assembly, selectedIds, _isNameTakenGlobally);
 		
 		// v1.2 FIX: Use UndoManager to activate Topology Guard
 		UndoManager.getInstance().executeAndStore(cmd);

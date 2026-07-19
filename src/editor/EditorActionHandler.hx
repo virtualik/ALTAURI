@@ -24,7 +24,7 @@ import utils.UID;
 import library.AtomRegistry;
 
 /**
- * EDITOR ACTION HANDLER v1.0
+ * EDITOR ACTION HANDLER v1.1 (Global Name Uniqueness + Paste Suffix Logic)
  * Handles logic for modifying the schematic via Undo/Redo commands.
  * Extracted from NodeEditor for better separation of concerns.
  *
@@ -48,16 +48,16 @@ import library.AtomRegistry;
  * │   │  - removePort(name)        → RemovePortCommand                  │   │
  * │   │                                                                 │   │
  * │   │  Clipboard Operations:                                          │   │
- * │   │  - copySelection(ids)      → Store atoms + connections          │   │
+ * │   │  - copySelection(ids)      → Store atoms + connections + names  │   │
  * │   │  - cutSelection(ids)       → copy + delete                      │   │
  * │   │  - pasteSelection(offset)  → CreateAtom + Connect commands      │   │
  * │   └─────────────────────────────────────────────────────────────────┘   │
  * │                                                                         │
  * │   Usage:                                                                │
  * │   ───────                                                               │
- * │   var handler = new EditorActionHandler(assembly, blueprint);          │
- * │   handler.createAtom("Button", 100, 200);                              │
- * │   handler.connect("id_abc", "out", "id_def", "in");                    │
+ * │   var handler = new EditorActionHandler(assembly, blueprint, checker);  │
+ * │   handler.createAtom("Button", 100, 200);                               │
+ * │   handler.connect("id_abc", "out", "id_def", "in");                     │
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
@@ -69,6 +69,8 @@ class EditorActionHandler
     private var _assembly:Assembly;
     private var _blueprint:Blueprint;
     
+    // v1.1: Callback for checking global name uniqueness
+    private var _isNameTakenGlobally:(String, ?String) -> Bool;
     // =========================================================================
     // CLIPBOARD
     // =========================================================================
@@ -80,10 +82,14 @@ class EditorActionHandler
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
-    public function new(assembly:Assembly, blueprint:Blueprint)
+    // v1.1: Added isNameTakenGlobally parameter
+	
+
+	public function new(assembly:Assembly, blueprint:Blueprint, ?isNameTakenGlobally:(String, ?String) -> Bool)
     {
         _assembly = assembly;
         _blueprint = blueprint;
+        _isNameTakenGlobally = isNameTakenGlobally;
     }
     
     // =========================================================================
@@ -97,7 +103,18 @@ class EditorActionHandler
         var bp = AtomRegistry.get(typeId);
         if (bp == null) return;
         
-        var cmd = new CreateAtomCommand(_blueprint, _assembly, typeId, null, x, y);
+        // v1.1: Pass global name checker, no desired name, isPaste = false
+        var cmd = new CreateAtomCommand(
+            _blueprint, 
+            _assembly, 
+            typeId, 
+            null, 
+            x, 
+            y, 
+            _isNameTakenGlobally, 
+            null, 
+            false
+        );
         UndoManager.getInstance().executeAndStore(cmd);
     }
     
@@ -186,6 +203,7 @@ class EditorActionHandler
     // =========================================================================
     /**
      * Copy selected atoms and their internal connections to clipboard.
+     * v1.1: Now also captures the displayName of each atom.
      */
     public function copySelection(selectedIds:Array<String>):Void
     {
@@ -200,11 +218,21 @@ class EditorActionHandler
             var def = findAtomDef(id);
             if (def != null)
             {
+                // v1.1: Try to get the actual atom instance to read its displayName
+                var atomInst:Atom = _assembly.internalAtoms.get(id);
+                if (atomInst == null)
+                {
+                    var runtimeId = _assembly.idMap.get(id);
+                    if (runtimeId != null) atomInst = _assembly.internalAtoms.get(runtimeId);
+                }
+                var dName = (atomInst != null) ? atomInst.displayName : null;
+
                 atomsData.push({
                     id: id,
                     typeId: def.typeId,
                     x: def.x,
-                    y: def.y
+                    y: def.y,
+                    displayName: dName // v1.1: Store original display name
                 });
             }
         }
@@ -262,13 +290,17 @@ class EditorActionHandler
             var newId = UID.generate();
             idMap.set(data.id, newId);
             
+            // v1.1: Pass global name checker, desired name from clipboard, and isPaste = true
             var cmd = new CreateAtomCommand(
                 _blueprint,
                 _assembly,
                 data.typeId,
                 newId,
                 data.x + offset,
-                data.y + offset
+                data.y + offset,
+                _isNameTakenGlobally,
+                data.displayName,
+                true // isPaste = true forces suffix increment
             );
             macrocom.addCommand(cmd);
         }
@@ -362,9 +394,11 @@ class EditorActionHandler
     }
 }
 
+// v1.1: Added optional displayName to preserve original name during copy/paste
 typedef ClipboardAtomData = {
     var id:String;
     var typeId:String;
     var x:Float;
     var y:Float;
+    @:optional var displayName:String;
 }

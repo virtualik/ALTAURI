@@ -1,11 +1,3 @@
-//================================================================================
-// FILE: editor\NodeEditor.hx
-// Lines: 1241 | Chars: 40149
-//================================================================================
-
-// ============================================================================
-// FILE: editor/NodeEditor.hx (ИСПРАВЛЕННАЯ ВЕРСИЯ v4.4)
-// ============================================================================
 package editor;
 
 import openfl.display.Sprite;
@@ -42,8 +34,16 @@ import ecs.ECS;
 using StringTools;
 
 /**
-* NODE EDITOR v4.7 (Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
+* NODE EDITOR v4.8 (Global Name Uniqueness + Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
 * Visual schematic editing coordinator.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v4.8 CHANGES (Global Name Uniqueness)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  ADDED: Accepts `isNameTakenGlobally` callback from EditorContext.
+*  Passes it down to EditorActionHandler (for CreateAtomCommand) and 
+*  to each NodeView (for inline name editing validation).
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v4.7 CHANGES (isActive Flag — Broadcast Storm Prevention)
@@ -145,6 +145,7 @@ class NodeEditor extends Sprite
         private var _assembly:Assembly;
         private var _blueprint:core.data.Blueprint;
         private var _theme:EditorTheme;
+		private var _isNameTakenGlobally:(String, ?String) -> Bool; // v4.8: Global name uniqueness checker
 
         // =========================================================================
         // MANAGERS
@@ -240,12 +241,14 @@ class NodeEditor extends Sprite
         // =========================================================================
         // CONSTRUCTOR
         // =========================================================================
-        public function new(assembly:Assembly)
+		
+        public function new(assembly:Assembly, ?isNameTakenGlobally:(String, ?String) -> Bool) // v4.8: Added callback
         {
                 super();
                 this._assembly = assembly;
                 this._blueprint = assembly.blueprint;
                 _theme = EditorTheme.getInstance();
+                _isNameTakenGlobally = isNameTakenGlobally; // v4.8: Store callback
 
                 // Selection Manager
                 _selection = new SelectionManager();
@@ -274,7 +277,7 @@ class NodeEditor extends Sprite
 
                 // Managers
                 _viewport = new ViewportManager(_canvas);
-                _actions = new EditorActionHandler(_assembly, _blueprint);
+                _actions = new EditorActionHandler(_assembly, _blueprint, _isNameTakenGlobally); // v4.8: Pass callback
                 _wireRenderer = new WireRenderer();
                 _wireRenderer.configure(
                         _blueprint, _assembly, _canvas,
@@ -500,6 +503,9 @@ class NodeEditor extends Sprite
 
                 // === v3.3: Pass parent Assembly for name uniqueness check ===
                 view.setParentAssembly(_assembly);
+                
+                // === v4.8: Pass global name uniqueness checker ===
+                view.isNameTakenGlobally = _isNameTakenGlobally;
 
                 _canvas.addChild(view);
                 _nodes.set(id, view);

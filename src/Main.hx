@@ -11,6 +11,7 @@ import openfl.Lib;
 import openfl.events.Event;
 import openfl.system.System;
 import core.base.Assembly;
+import core.base.AssemblyFactory;
 import core.base.Atom;
 import core.data.Blueprint;
 import core.logic.Impulsys;
@@ -287,11 +288,18 @@ class Main extends Sprite
 	private function loadProject():Void
 	{
 		var data = _projectManager.loadSelfrun();
+
 		var rootAssembly:Assembly = null;
+
+// v1.0: Reset NamingService before loading any atoms — ensures stale
+// entries from a previous session are gone.
+		core.logic.NamingService.clearInstanceNames();
 
 		if (data != null && data.blueprint != null)
 		{
 			rootAssembly = new Assembly("main_asm", data.blueprint);
+			// _createInternalInstances() inside the Assembly constructor will now
+			// register every loaded atom's displayName in NamingService automatically.
 
 			//trace('=== DEBUG: Checking isLogic flags ===');
 			checkIsLogicRecursive(rootAssembly, 0);
@@ -582,7 +590,22 @@ class Main extends Sprite
 
 	/**
 	 * Save new named assembly.
-	 * Updates blueprint ID and name, then saves.
+	 * v2.0: Updates blueprint ID and name, then saves.
+	 *
+	 * v2.1 CHANGES (NamingService integration):
+	 * ────────────────────────────
+	 *  - blueprint.name is now resolved through NamingService to guarantee
+	 *    global uniqueness against ALL other registered blueprints (native
+	 *    atoms + every saved custom assembly).
+	 *  - If user enters a name that's already taken, NamingService silently
+	 *    appends "_N" (e.g., "MyFilter_1"). Per user policy (c):
+	 *    user can rename later via inline editor.
+	 *  - blueprint.id is derived from the FINAL resolved name (spaces→"_"),
+	 *    so it's also guaranteed unique.
+	 *  - If the resulting bp.id already exists in AtomRegistry, we warn
+	 *    but DO NOT overwrite — instead we re-suffix until both id and
+	 *    name are free. This prevents data loss when a user types a name
+	 *    that coincidentally matches an existing blueprint file.
 	 */
 	private function saveNewNamedAssembly(name:String):Void
 	{
@@ -590,11 +613,27 @@ class Main extends Sprite
 
 		if (safeName.length == 0) { log("Error: Invalid assembly name."); return; }
 
-		var bp = _editorContext.currentAssembly.blueprint;
-		bp.id = safeName;
-		bp.name = name;
+		// v2.1: Resolve a globally-unique blueprint name.
+		// NamingService checks AtomRegistry for duplicates against
+		// every existing blueprint.name (native + custom).
+		var uniqueName = core.logic.NamingService.resolveUniqueBlueprintName(name);
+		if (uniqueName != name)
+		{
+			log('Name "$name" already taken — saved as "$uniqueName"');
+		}
+		var uniqueSafeId = StringTools.replace(uniqueName, " ", "_");
 
-		_editorContext.prepareCurrentAssemblyForSave();
+		var bp = _editorContext.currentAssembly.blueprint;
+		bp.id = uniqueSafeId;
+		bp.name = uniqueName;
+
+		// Register in AtomRegistry if not already there.
+		// (For a freshly-created unsaved assembly, it isn't registered yet.)
+		if (!library.AtomRegistry.exists(bp.id))
+		{
+			library.AtomRegistry.registerBlueprint(bp.id, bp);
+		}
+
 		saveCurrentContext();
 	}
 
@@ -722,10 +761,10 @@ class Main extends Sprite
 
 		_windowSaveTimer = haxe.Timer.delay(() -> {
 			syncDevicePanelToCache();
-			
+
 			_editorContext.prepareCurrentAssemblyForSave();
 			saveCurrentContext();
-			
+
 			_windowSaveTimer = null;
 			log("Device state auto-saved.");
 		}, 300);
@@ -1095,8 +1134,11 @@ class Main extends Sprite
 	}
 
 	/**
-	 * Update navigation UI (name field, path field).
-	 */
+	* Update navigation UI (name field, path field).
+	*
+	* v3.8 FIX: Passes the global name uniqueness checker to ContextMenuManager
+	* so it can be forwarded to GroupAtomsCommand during atom grouping.
+	*/
 	private function updateNavigationUI():Void
 	{
 		if (_editorContext.currentAssembly != null)
@@ -1107,7 +1149,12 @@ class Main extends Sprite
 
 		if (_contextManager != null)
 		{
-			_contextManager.setContext(_editorContext.currentEditor, _editorContext.currentAssembly);
+			// Pass the global uniqueness checker down the chain
+			_contextManager.setContext(
+				_editorContext.currentEditor,
+				_editorContext.currentAssembly,
+				_editorContext.isNameTakenGlobally
+			);
 		}
 	}
 
@@ -1181,19 +1228,26 @@ class Main extends Sprite
 	}
 
 	/**
-	 * Request new assembly context handler.
-	 * Creates and opens new empty assembly.
-	 */
+	* Request new assembly context handler.
+	* Creates and opens new empty assembly.
+	*
+	* v3.8 FIX: Ensures the new assembly gets a globally unique display name
+	* to prevent naming collisions with existing assemblies in the project hierarchy.
+	*/
 	private function onRequestNewContext(impulse:Impulse):Void
 	{
 		var bp:Blueprint = impulse.data.blueprint;
 		var id:String = impulse.data.id;
 
+		// v3.8 FIX: Resolve globally-unique blueprint.name via NamingService.
+		// NamingService delegates to AtomRegistry for blueprint-name uniqueness,
+		// so "New Assembly" becomes "New Assembly_1", "New Assembly_2", etc.
+		// when several empty assemblies are created in a row.
+		bp.name = core.logic.NamingService.resolveUniqueBlueprintName(bp.name);
+
 		var newAsm = new Assembly(id, bp);
 		_editorContext.push(newAsm);
-
-		log("Created New Assembly Context");
-
+		log("Created New Assembly Context: " + bp.name);
 		updateNavigationUI();
 		updateButtonStates();
 	}

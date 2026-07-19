@@ -17,9 +17,15 @@ import core.base.AssemblyFactory;
 import library.AtomRegistry;
 
 /**
- * DELETE ATOM COMMAND v1.0
+ * DELETE ATOM COMMAND v1.1
  * Deletes an atom and its connections from the assembly.
  * Supports Undo/Redo with full snapshot restoration.
+ *
+ * v1.1 CHANGES (NamingService integration):
+ *  - Saves displayName in snapshot before dispose
+ *  - On undo(): restores the saved displayName (or resolves a unique
+ *    variant if the original slot has since been taken)
+ *  - Registers the restored name in NamingService
  *
  * Architecture:
  * ┌─────────────────────────────────────────────────────────────────────────┐
@@ -28,35 +34,24 @@ import library.AtomRegistry;
  * │   ┌─────────────────────────────────────────────────────────────────┐   │
  * │   │  execute():                                                     │   │
  * │   │  1. saveSnapshot() — capture atom definition and connections    │   │
- * │   │  2. Remove connections from blueprint                           │   │
- * │   │  3. Unlink physical connections between contacts                │   │
- * │   │  4. Remove atom definition from blueprint                       │   │
- * │   │  5. Dispose atom instance                                       │   │
- * │   │  6. Remove instance from assembly                               │   │
- * │   │  7. Emit ATOM_DELETED event                                     │   │
+ * │   │  2. Capture displayName BEFORE dispose (v1.1)                   │   │
+ * │   │  3. Remove connections from blueprint                           │   │
+ * │   │  4. Unlink physical connections between contacts                │   │
+ * │   │  5. Remove atom definition from blueprint                       │   │
+ * │   │  6. Dispose atom instance (also releases name slot)             │   │
+ * │   │  7. Remove instance from assembly                               │   │
+ * │   │  8. Emit ATOM_DELETED event                                     │   │
  * │   │                                                                 │   │
  * │   │  undo():                                                        │   │
  * │   │  1. Restore atom definition to blueprint                        │   │
  * │   │  2. Recreate atom instance via AssemblyFactory                  │   │
- * │   │  3. Add instance to assembly                                    │   │
- * │   │  4. Restore connections to blueprint                            │   │
- * │   │  5. Emit ATOM_RESTORED event                                    │   │
- * │   │  6. Delayed: restorePhysicalConnections()                       │   │
+ * │   │  3. Restore saved displayName (or unique variant) (v1.1)        │   │
+ * │   │  4. Register name in NamingService (v1.1)                       │   │
+ * │   │  5. Add instance to assembly                                    │   │
+ * │   │  6. Restore connections to blueprint                            │   │
+ * │   │  7. Emit ATOM_RESTORED event                                    │   │
+ * │   │  8. Delayed: restorePhysicalConnections()                       │   │
  * │   └─────────────────────────────────────────────────────────────────┘   │
- * │                                                                         │
- * │   Snapshot Data:                                                        │
- * │   ────────────────                                                      │
- * │   - _atomDef: AtomDef (position, type, values)                          │
- * │   - _atomType: String (blueprint type ID)                               │
- * │   - _connections: Array<ConnectionDef> (all connected wires)            │
- * │   - _posX, _posY: Float (atom position)                                 │
- * │                                                                         │
- * │   ID Resolution:                                                        │
- * │   ──────────────                                                        │
- * │   - Runtime ID → Template ID via assembly.getTemplateId()               │
- * │   - Template ID → Runtime ID via assembly.idMap                         │
- * │   - Both IDs checked when matching connections                          │
- * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
 class DeleteAtomCommand extends Command {
@@ -68,6 +63,11 @@ class DeleteAtomCommand extends Command {
     private var _connections:Array<ConnectionDef>;
     private var _posX:Float;
     private var _posY:Float;
+    // v1.1: Saved displayName so undo() can restore it EXACTLY (including
+    // any custom name the user chose). Without this, undo() would create
+    // a fresh atom with displayName = type, breaking global uniqueness
+    // and losing user intent.
+    private var _savedDisplayName:String = null;
 
     public function new(blueprint:Blueprint, assembly:Assembly, atomId:String) {
         super();
@@ -76,46 +76,54 @@ class DeleteAtomCommand extends Command {
         _atomId = atomId;
     }
 
-	override private function executeInternal():Void {
-		saveSnapshot();
-		
-		var involvesSelf = false;
-		
-		// Remove connections
-		if (_connections != null) {
-			for (conn in _connections) {
-				if (conn.from.atomId == "SELF" || conn.to.atomId == "SELF") {
-					involvesSelf = true;
-				}
-				_blueprint.internalConnections.remove(conn);
-				var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
-				var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
-				if (cOut != null && cIn != null) cOut.unlink(cIn);
-			}
-		}
-		
-		// Remove atom definition
-		if (_atomDef != null) {
-			_blueprint.internalAtoms.remove(_atomDef);
-		}
-		
-		// Remove atom instance
-		var atomInstance = _assembly.internalAtoms.get(_atomId);
-		if (atomInstance != null) {
-			if (Std.isOfType(atomInstance, IDisposable)) {
-				try { cast(atomInstance, IDisposable).dispose(); } catch (e:Dynamic) { trace('Error disposing: $e'); }
-			}
-			_assembly.internalAtoms.remove(_atomId);
-		}
-		
-		// === FIX: Синхронизация рантайма, если удаляемый атом был связан с портами сборки ===
-		if (involvesSelf) {
-			_assembly.rebuildInternalConnections();
-		}
-		
-		Impulsys.quickEmit(EventType.ATOM_DELETED, {assemblyId: _assembly.id, id: _atomId});
-		complete();
-	}
+        override private function executeInternal():Void {
+                saveSnapshot();
+                
+                var involvesSelf = false;
+                
+                // Remove connections
+                if (_connections != null) {
+                        for (conn in _connections) {
+                                if (conn.from.atomId == "SELF" || conn.to.atomId == "SELF") {
+                                        involvesSelf = true;
+                                }
+                                _blueprint.internalConnections.remove(conn);
+                                var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
+                                var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
+                                if (cOut != null && cIn != null) cOut.unlink(cIn);
+                        }
+                }
+                
+                // Remove atom definition
+                if (_atomDef != null) {
+                        _blueprint.internalAtoms.remove(_atomDef);
+                }
+                
+                // Remove atom instance
+                // v1.1: Capture displayName BEFORE dispose — dispose() releases the
+                // name slot in NamingService, but we need it for undo().
+                var atomInstance = _assembly.internalAtoms.get(_atomId);
+                if (atomInstance != null) {
+                        var atom:Atom = cast atomInstance;
+                        if (atom != null && atom.displayName != null) {
+                                _savedDisplayName = atom.displayName;
+                        }
+                        // dispose() will also call NamingService.unregisterInstanceName()
+                        // via Atom.dispose() — that's the canonical place to release the slot.
+                        if (Std.isOfType(atomInstance, IDisposable)) {
+                                try { cast(atomInstance, IDisposable).dispose(); } catch (e:Dynamic) { trace('Error disposing: $e'); }
+                        }
+                        _assembly.internalAtoms.remove(_atomId);
+                }
+                
+                // === FIX: Синхронизация рантайма, если удаляемый атом был связан с портами сборки ===
+                if (involvesSelf) {
+                        _assembly.rebuildInternalConnections();
+                }
+                
+                Impulsys.quickEmit(EventType.ATOM_DELETED, {assemblyId: _assembly.id, id: _atomId});
+                complete();
+        }
 
     override public function undo():Void {
         // Restore atom definition
@@ -136,6 +144,32 @@ class DeleteAtomCommand extends Command {
         var atom = AssemblyFactory.createAtom(_atomType, _atomId);
         if (atom == null) { trace('DeleteAtomCommand.undo: Failed to create $_atomType'); return; }
         _assembly.internalAtoms.set(_atomId, atom);
+
+        // ═══════════════════════════════════════════════════════════════════
+        // v1.1: Restore saved displayName (or resolve a unique variant if the
+        // original slot has since been taken by another atom).
+        // ═══════════════════════════════════════════════════════════════════
+        // The atom we just created has displayName = type (default). We need
+        // to restore _savedDisplayName, BUT during the time the atom was
+        // disposed, another atom may have taken the same name. So we ask
+        // NamingService to resolve a unique variant — which is the saved name
+        // itself if still free, or "SavedName_N" if not.
+        // ═══════════════════════════════════════════════════════════════════
+        var finalName:String;
+        if (_savedDisplayName != null) {
+                finalName = core.logic.NamingService.resolveUniqueInstanceName(
+                                                        _savedDisplayName, _atomId);
+        } else {
+                // No saved name — generate a fresh one via factory
+                finalName = AssemblyFactory.generateUniqueDisplayName(
+                        _atomType,
+                        core.logic.NamingService.isInstanceNameTaken,
+                        null,
+                        false
+                );
+        }
+        atom.displayName = finalName;
+        core.logic.NamingService.registerInstanceName(finalName, _atomId);
 
         // Restore connections to blueprint
         if (_connections != null) {

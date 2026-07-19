@@ -10,7 +10,7 @@ import core.logic.EventType;
 /**
  * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                CREATE NEW ASSEMBLY COMMAND v2.0                           ║
- * ║                (Semantic Initial Ports: incoming/outgoing)                 ║
+ * ║                (Semantic Initial Ports: incoming/outgoing)                ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Creates a blank assembly context with semantic initial ports.            ║
@@ -22,48 +22,62 @@ import core.logic.EventType;
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  New Assembly (empty):                                              │  ║
  * ║  │                                                                     │  ║
- * ║  │  External view:   [incoming_1] ─── Assembly ─── [outgoing_1]       │  ║
+ * ║  │  External view:   [incoming_1] ─── Assembly ─── [outgoing_1]        │  ║
  * ║  │                                                                     │  ║
- * ║  │  Internal view:   ┌── incoming_1 (INPUT)                           │  ║
+ * ║  │  Internal view:   ┌── incoming_1 (INPUT)                            │  ║
  * ║  │                   │                                                 │  ║
- * ║  │                   └── outgoing_1 (OUTPUT) ──┘                      │  ║
+ * ║  │                   └── outgoing_1 (OUTPUT) ──┘                       │  ║
  * ║  │                                                                     │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
-class CreateNewAssemblyCommand extends Command {
-    public function new() {
-        super();
-    }
+class CreateNewAssemblyCommand extends Command
+{
+	public function new()
+	{
+		super();
+	}
 
-    override private function executeInternal():Void {
-        var id = "asm_" + Std.random(100000);
-        
-        // v2.0: Semantic initial ports
-        // External name = Internal name for new assemblies (user can rename later)
-        var pins:Array<core.data.Blueprint.PinDef> = [
-            {
-                name: "incoming_1",           // Internal name (wall)
-                type: INPUT,
-                externalName: "incoming_1"    // External name (parent view)
-            },
-            {
-                name: "outgoing_1",           // Internal name (wall)
-                type: OUTPUT,
-                externalName: "outgoing_1"    // External name (parent view)
-            }
-        ];
-        
-        var bp = new Blueprint(id, "New Assembly", pins);
-        
-        Impulsys.quickEmit(EventType.REQUEST_NEW_ASSEMBLY_CONTEXT, { blueprint: bp, id: id });
-        complete();
-    }
+	override private function executeInternal():Void
+	{
+		var id = "asm_" + Std.random(100000);
 
-    override public function undo():Void {
-        Impulsys.quickEmit(EventType.REQUEST_CLOSE_CURRENT_CONTEXT, {});
-    }
+		// v2.0: Semantic initial ports
+		// External name = Internal name for new assemblies (user can rename later)
+		var pins:Array<core.data.Blueprint.PinDef> = [
+		{
+			name: "incoming_1",           // Internal name (wall)
+			type: INPUT,
+			externalName: "incoming_1"    // External name (parent view)
+		},
+		{
+			name: "outgoing_1",           // Internal name (wall)
+			type: OUTPUT,
+			externalName: "outgoing_1"    // External name (parent view)
+		}
+		];
 
-    override public function getDescription():String return 'Create New Assembly';
+		// ═══════════════════════════════════════════════════════════════════
+		// v2.1: Resolve globally-unique blueprint name.
+		// ═══════════════════════════════════════════════════════════════════
+		// If user creates several "New Assembly" contexts in a row, each one
+		// would otherwise share the same blueprint.name "New Assembly",
+		// making them indistinguishable in AtomRegistry and in the saved
+		// file. NamingService resolves this to "New Assembly",
+		// "New Assembly_1", "New Assembly_2", etc.
+		// ═══════════════════════════════════════════════════════════════════
+		var bpName = core.logic.NamingService.resolveUniqueBlueprintName("New Assembly");
+		var bp = new Blueprint(id, bpName, pins);
+
+		Impulsys.quickEmit(EventType.REQUEST_NEW_ASSEMBLY_CONTEXT, { blueprint: bp, id: id });
+		complete();
+	}
+
+	override public function undo():Void
+	{
+		Impulsys.quickEmit(EventType.REQUEST_CLOSE_CURRENT_CONTEXT, {});
+	}
+
+	override public function getDescription():String return 'Create New Assembly';
 }

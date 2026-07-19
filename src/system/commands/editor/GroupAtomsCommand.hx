@@ -1,9 +1,5 @@
-//================================================================================
-// FILE: system\commands\editor\GroupAtomsCommand.hx
-// Lines: 854 | Chars: 35180
-//================================================================================
-
 package system.commands.editor;
+
 import system.commands.base.Command;
 import core.data.Blueprint;
 import core.data.Blueprint.AtomDef;
@@ -20,16 +16,30 @@ import core.logic.Impulse;
 import core.logic.EventType;
 import core.types.ContactType;
 import library.AtomRegistry;
+
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                      GROUP ATOMS COMMAND v3.6                             ║
+* ║                      GROUP ATOMS COMMAND v3.7                             ║
 * ║         (External Name Fix + Reentrancy-safe Topology Guard Integration   ║
 * ║          + DeviceView Lifecycle Cleanup + Template ID as instanceId       ║
-* ║          + Global externalName Uniqueness Check)                          ║
+* ║          + Global externalName Uniqueness Check + Unique Assembly Name)   ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  Command to group selected atoms into a new Assembly.                     ║
 * ║  Supports full Undo/Redo with complete state restoration.                 ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     v3.7 CHANGES (Unique Assembly Name)                   ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  PROBLEM:                                                                 ║
+* ║  Newly grouped assemblies were always named "Custom Assembly", leading    ║
+* ║  to duplicate displayNames across the project hierarchy.                  ║
+* ║                                                                           ║
+* ║  SOLUTION:                                                                ║
+* ║  The command now accepts _isNameTakenGlobally callback and uses           ║
+* ║  AssemblyFactory.generateUniqueDisplayName() to assign a globally unique  ║
+* ║  name to the new assembly (e.g., "CustomAssembly", "CustomAssembly_1").   ║
 * ║                                                                           ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                     v3.6 CHANGES (Template ID + Global Uniqueness)        ║
@@ -186,846 +196,1004 @@ class GroupAtomsCommand extends Command
 // ========================================================================
 // CONSTANTS
 // ========================================================================
-        private static inline var MAX_NESTING_DEPTH:Int = 10;
+	private static inline var MAX_NESTING_DEPTH:Int = 10;
+
 // ========================================================================
 // DEPENDENCIES
 // ========================================================================
-        private var _blueprint:Blueprint;
-        private var _assembly:Assembly;
-        private var _selectedNodeIds:Array<String>;
+	private var _blueprint:Blueprint;
+	private var _assembly:Assembly;
+	private var _selectedNodeIds:Array<String>;
+
+	private var _isNameTakenGlobally:(String, ?String) -> Bool; // v3.7: Global name uniqueness checker
+
 // ========================================================================
 // SNAPSHOT FOR UNDO
 // ========================================================================
-        private var _snapshot:GroupAtomsSnapshot;
-        private var _isExecuted:Bool = false;
-        private var _isUndone:Bool = false;
+	private var _snapshot:GroupAtomsSnapshot;
+	private var _isExecuted:Bool = false;
+	private var _isUndone:Bool = false;
+
 // ========================================================================
 // CONSTRUCTOR
 // ========================================================================
-        public function new(blueprint:Blueprint, assembly:Assembly, selectedIds:Array<String>)
-        {
-                super();
-                _blueprint = blueprint;
-                _assembly = assembly;
-                _selectedNodeIds = selectedIds != null ? selectedIds.copy() : [];
-                _snapshot = new GroupAtomsSnapshot();
-        }
+	public function new(blueprint:Blueprint, assembly:Assembly, selectedIds:Array<String>, ?isNameTakenGlobally:(String, ?String) -> Bool)
+	{
+		super();
+		_blueprint = blueprint;
+		_assembly = assembly;
+		_selectedNodeIds = selectedIds != null ? selectedIds.copy() : [];
+		_snapshot = new GroupAtomsSnapshot();
+		_isNameTakenGlobally = isNameTakenGlobally;
+	}
+
 // ========================================================================
 // EXECUTE
 // ========================================================================
-        override private function executeInternal():Void
-        {
-                if (_selectedNodeIds == null || _selectedNodeIds.length == 0)
-                {
-                        trace('GroupAtomsCommand: Nothing to group');
-                        complete();
-                        return;
-                }
-                if (!validateNoCircularReference())
-                {
-                        trace('GroupAtomsCommand: Aborted - circular reference detected');
-                        complete();
-                        return;
-                }
-                if (_isUndone)
-                {
-                        redoInternal();
-                }
-                else
-                {
-                        executeGrouping();
-                }
-                complete();
-        }
-        /**
-        * Main grouping logic with semantic port naming and spatial sorting.
-        */
-        private function executeGrouping():Void
-        {
-                trace('GroupAtomsCommand v3.4: Grouping ${_selectedNodeIds.length} atoms...');
+	override private function executeInternal():Void
+	{
+		if (_selectedNodeIds == null || _selectedNodeIds.length == 0)
+		{
+			trace('GroupAtomsCommand: Nothing to group');
+			complete();
+			return;
+		}
+		if (!validateNoCircularReference())
+		{
+			trace('GroupAtomsCommand: Aborted - circular reference detected');
+			complete();
+			return;
+		}
+		if (_isUndone)
+		{
+			redoInternal();
+		}
+		else
+		{
+			executeGrouping();
+		}
+		complete();
+	}
+
+	/**
+	* Main grouping logic with semantic port naming and spatial sorting.
+	*/
+	private function executeGrouping():Void
+	{
+		trace('GroupAtomsCommand v3.7: Grouping ${_selectedNodeIds.length} atoms...');
+
 // =====================================================================
 // PHASE 0: ID RESOLUTION (Runtime → Template)
 // =====================================================================
-                var selectedTemplateIds:Array<String> = [];
-                for (runtimeId in _selectedNodeIds)
-                {
-                        var templateId = _assembly.getTemplateId(runtimeId);
-                        if (selectedTemplateIds.indexOf(templateId) == -1)
-                        {
-                                selectedTemplateIds.push(templateId);
-                        }
-                }
+		var selectedTemplateIds:Array<String> = [];
+		for (runtimeId in _selectedNodeIds)
+		{
+			var templateId = _assembly.getTemplateId(runtimeId);
+			if (selectedTemplateIds.indexOf(templateId) == -1)
+			{
+				selectedTemplateIds.push(templateId);
+			}
+		}
+
 // =====================================================================
 // PHASE 1: ANALYZE CONNECTIONS
 // =====================================================================
-                var internalConns:Array<ConnectionDef> = [];
-                var externalConns:Array<ConnectionDef> = [];
-                var externalConnMeta:Array<{conn:ConnectionDef, isFromSelected:Bool}> = [];
-                for (conn in _blueprint.internalConnections)
-                {
-                        var fromTemplateId = conn.from.atomId == "SELF" ? "SELF" : _assembly.getTemplateId(conn.from.atomId);
-                        var toTemplateId = conn.to.atomId == "SELF" ? "SELF" : _assembly.getTemplateId(conn.to.atomId);
-                        var fromSelected = selectedTemplateIds.indexOf(fromTemplateId) != -1;
-                        var toSelected = selectedTemplateIds.indexOf(toTemplateId) != -1;
-                        if (fromSelected && toSelected)
-                        {
-                                internalConns.push(conn);
-                        }
-                        else if (fromSelected || toSelected)
-                        {
-                                externalConns.push(conn);
-                                externalConnMeta.push({conn: conn, isFromSelected: fromSelected});
-                        }
-                }
-                var atomsToMove:Array<AtomDef> = [];
-                for (atomDef in _blueprint.internalAtoms)
-                {
-                        if (selectedTemplateIds.indexOf(atomDef.instanceId) != -1)
-                        {
-                                atomsToMove.push(atomDef);
-                        }
-                }
-                if (atomsToMove.length == 0)
-                {
-                        trace('ERROR: GroupAtomsCommand: No atoms to move!');
-                        return;
-                }
-// =====================================================================
-// PHASE 2: CAPTURE SNAPSHOT - BEFORE STATE
-// =====================================================================
-                _snapshot.setSelectedNodeIds(_selectedNodeIds);
-                for (atomDef in atomsToMove) _snapshot.addRemovedAtom(atomDef);
-                for (conn in internalConns) _snapshot.addRemovedInternalConnection(conn);
-                for (conn in externalConns) _snapshot.addRemovedExternalConnection(conn);
+		var internalConns:Array<ConnectionDef> = [];
+		var externalConns:Array<ConnectionDef> = [];
+		var externalConnMeta:Array<{conn:ConnectionDef, isFromSelected:Bool}> = [];
+
+		for (conn in _blueprint.internalConnections)
+		{
+			var fromTemplateId = conn.from.atomId == "SELF" ? "SELF" : _assembly.getTemplateId(conn.from.atomId);
+			var toTemplateId = conn.to.atomId == "SELF" ? "SELF" : _assembly.getTemplateId(conn.to.atomId);
+			var fromSelected = selectedTemplateIds.indexOf(fromTemplateId) != -1;
+			var toSelected = selectedTemplateIds.indexOf(toTemplateId) != -1;
+
+			if (fromSelected && toSelected)
+			{
+				internalConns.push(conn);
+			}
+			else if (fromSelected || toSelected)
+			{
+				externalConns.push(conn);
+				externalConnMeta.push({conn: conn, isFromSelected: fromSelected});
+			}
+		}
+
+		var atomsToMove:Array<AtomDef> = [];
+		for (atomDef in _blueprint.internalAtoms)
+		{
+			if (selectedTemplateIds.indexOf(atomDef.instanceId) != -1)
+			{
+				atomsToMove.push(atomDef);
+			}
+		}
+
+		if (atomsToMove.length == 0)
+		{
+			trace('ERROR: GroupAtomsCommand: No atoms to move!');
+			return;
+		}
+
 // =====================================================================
 // PHASE 3: CREATE NEW ASSEMBLY BLUEPRINT (SEMANTIC NAMING)
 // =====================================================================
-                var newTypeId = "CustomAssembly_" + generateShortId();
-                var newPins:Array<core.data.Blueprint.PinDef> = [];
-                var newInternalAtoms:Array<AtomDef> = [];
-                var newInternalConnections:Array<ConnectionDef> = [];
-                var incomingCount = 0;
-                var outgoingCount = 0;
+		var newTypeId = "CustomAssembly_" + generateShortId();
+		var newPins:Array<core.data.Blueprint.PinDef> = [];
+		var newInternalAtoms:Array<AtomDef> = [];
+		var newInternalConnections:Array<ConnectionDef> = [];
+		var incomingCount = 0;
+		var outgoingCount = 0;
+
 // Track used external names to handle collisions
-                var usedExternalNames:Map<String, Int> = new Map();
-// ═══════════════════════════════════════════════════════════════════
+		var usedExternalNames:Map<String, Int> = new Map();
+
 // v3.6 FIX: Pre-populate with existing port externalNames from parent
+		if (_assembly.ports != null)
+		{
+			for (existingPort in _assembly.ports)
+			{
+				if (existingPort != null && existingPort.externalName != null && existingPort.externalName != "")
+				{
+					usedExternalNames.set(existingPort.externalName, 1);
+				}
+			}
+		}
+
+// v3.3 FIX: Spatial sorting
+		externalConnMeta.sort(sortByAtomPosition);
+
+		for (meta in externalConnMeta)
+		{
+			var conn = meta.conn;
+			var isFromSelected = meta.isFromSelected;
+
+			var portType:ContactType;
+			var externalName:String;
+			var internalName:String;
+			var atomDisplayName:String;
+			var contactName:String;
+
+			if (isFromSelected)
+			{
+				portType = OUTPUT;
+				atomDisplayName = getAtomDisplayName(conn.from.atomId);
+				contactName = conn.from.contactName;
+				externalName = atomDisplayName + "_" + contactName;
+
+				if (usedExternalNames.exists(externalName))
+				{
+					var count = usedExternalNames.get(externalName);
+					usedExternalNames.set(externalName, count + 1);
+					externalName = externalName + "_" + (count + 1);
+				}
+				else
+				{
+					usedExternalNames.set(externalName, 1);
+				}
+				outgoingCount++;
+				internalName = "outgoing_" + outgoingCount;
+			}
+			else
+			{
+				portType = INPUT;
+				atomDisplayName = getAtomDisplayName(conn.to.atomId);
+				contactName = conn.to.contactName;
+				externalName = atomDisplayName + "_" + contactName;
+
+				if (usedExternalNames.exists(externalName))
+				{
+					var count = usedExternalNames.get(externalName);
+					usedExternalNames.set(externalName, count + 1);
+					externalName = externalName + "_" + (count + 1);
+				}
+				else
+				{
+					usedExternalNames.set(externalName, 1);
+				}
+				incomingCount++;
+				internalName = "incoming_" + incomingCount;
+			}
+
+			_snapshot.addPortMapping(conn, internalName, portType == INPUT);
+
+			newPins.push(
+			{
+				name: internalName,
+				type: portType,
+				externalName: externalName
+			});
+
+			if (isFromSelected)
+			{
+				newInternalConnections.push(
+				{
+					from: {atomId: conn.from.atomId, contactName: conn.from.contactName},
+					to: {atomId: "SELF", contactName: internalName}
+				});
+			}
+			else
+			{
+				newInternalConnections.push(
+				{
+					from: {atomId: "SELF", contactName: internalName},
+					to: {atomId: conn.to.atomId, contactName: conn.to.contactName}
+				});
+			}
+		}
+
 // ═══════════════════════════════════════════════════════════════════
-// Without this, if the parent already has a port "SignalGenerator_out"
-// and we group another SignalGenerator, the new port would get the
-// same externalName. Atom.getInput(name) returns the first match →
-// wire jumps to the wrong port.
+// v3.8 FIX: Copy `values` field too — it contains the saved
+// displayName + isLogic state of the original atom.
+// ═══════════════════════════════════════════════════════════════════
+// Without this, the new Assembly's _createInternalInstances() would
+// create atoms with default displayName = type (e.g., "PassThrough"),
+// losing any user-customized name like "Pass" or "Pass_1".
 //
-// Pre-populating ensures the existing collision counter logic in the
-// for loop below handles both newly-created pins (within this grouping)
-// and existing ports (already in _assembly.ports) uniformly.
+// We also re-fetch the live atom's persistent state to capture the
+// most current values (in case displayName was changed in this session
+// and not yet serialized to atomDef.values).
 // ═══════════════════════════════════════════════════════════════════
-                if (_assembly.ports != null)
-                {
-                        for (existingPort in _assembly.ports)
-                        {
-                                if (existingPort != null && existingPort.externalName != null
-                                        && existingPort.externalName != "")
-                                {
-                                        usedExternalNames.set(existingPort.externalName, 1);
-                                }
-                        }
-                }
+		for (atomDef in atomsToMove)
+		{
+			// Resolve live atom instance to capture current state
+			var liveAtom:Atom = null;
+			var liveAtomId:String = atomDef.instanceId;
+			// Try direct (runtime ID)
+			liveAtom = _assembly.internalAtoms.get(liveAtomId);
+			// Try via idMap (template ID)
+			if (liveAtom == null)
+			{
+				var rtId = _assembly.idMap.get(atomDef.instanceId);
+				if (rtId != null) liveAtom = _assembly.internalAtoms.get(rtId);
+			}
+
+			// Get persistent state — prefer live atom's state (most current),
+			// fall back to atomDef.values (from blueprint on disk)
+			var values:Dynamic = null;
+			if (liveAtom != null)
+			{
+				values = liveAtom.getPersistentState();
+			}
+			if (values == null) values = atomDef.values;
+
+			newInternalAtoms.push(
+			{
+				instanceId: atomDef.instanceId,
+				typeId: atomDef.typeId,
+				x: atomDef.x,
+				y: atomDef.y,
+				values: values
+			});
+		}
+
+		for (conn in internalConns)
+		{
+			newInternalConnections.push(
+			{
+				from: {atomId: conn.from.atomId, contactName: conn.from.contactName},
+				to: {atomId: conn.to.atomId, contactName: conn.to.contactName}
+			});
+		}
+
 // ═══════════════════════════════════════════════════════════════════
-// v3.3 FIX: SPATIAL SORTING
-// Sort connections by the Y-coordinate of the internal atom involved.
-// This ensures ports on the Assembly boundary appear in the same
-// vertical order as the atoms on the schematic.
+// v3.5: Resolve globally-unique blueprint.name via NamingService.
 // ═══════════════════════════════════════════════════════════════════
-                externalConnMeta.sort(sortByAtomPosition);
-                for (meta in externalConnMeta)
-                {
-                        var conn = meta.conn;
-                        var isFromSelected = meta.isFromSelected;
-// ================================================================
-// v3.0: SEMANTIC PORT NAMING
-// ================================================================
-                        var portType:ContactType;
-                        var externalName:String;
-                        var internalName:String;
-                        var atomDisplayName:String;
-                        var contactName:String;
-                        if (isFromSelected)
-                        {
-// ── OUTPUT PORT: data LEAVES assembly ──
-                                portType = OUTPUT;
-                                atomDisplayName = getAtomDisplayName(conn.from.atomId);
-                                contactName = conn.from.contactName;
-                                externalName = atomDisplayName + "_" + contactName;
-                                if (usedExternalNames.exists(externalName))
-                                {
-                                        var count = usedExternalNames.get(externalName);
-                                        usedExternalNames.set(externalName, count + 1);
-                                        externalName = externalName + "_" + (count + 1);
-                                }
-                                else
-                                {
-                                        usedExternalNames.set(externalName, 1);
-                                }
-                                outgoingCount++;
-                                internalName = "outgoing_" + outgoingCount;
-                        }
-                        else
-                        {
-// ── INPUT PORT: data ENTERS assembly ──
-                                portType = INPUT;
-                                atomDisplayName = getAtomDisplayName(conn.to.atomId);
-                                contactName = conn.to.contactName;
-                                externalName = atomDisplayName + "_" + contactName;
-                                if (usedExternalNames.exists(externalName))
-                                {
-                                        var count = usedExternalNames.get(externalName);
-                                        usedExternalNames.set(externalName, count + 1);
-                                        externalName = externalName + "_" + (count + 1);
-                                }
-                                else
-                                {
-                                        usedExternalNames.set(externalName, 1);
-                                }
-                                incomingCount++;
-                                internalName = "incoming_" + incomingCount;
-                        }
-                        trace('  Port: external="$externalName", internal="$internalName" (${portType})');
-// Track port mapping for undo
-                        _snapshot.addPortMapping(conn, internalName, portType == INPUT);
-// Add pin to blueprint
-// IMPORTANT: PinDef.name = internalName (used as key in Assembly.ports map)
-// PinDef.externalName = externalName (visible on parent schema)
-                        newPins.push(
-                        {
-                                name: internalName,
-                                type: portType,
-                                externalName: externalName
-                        });
-// Create internal connection to SELF port
-// IMPORTANT: Inside assembly, we use internalName for SELF connections
-                        if (isFromSelected)
-                        {
-                                newInternalConnections.push(
-                                {
-                                        from: {atomId: conn.from.atomId, contactName: conn.from.contactName},
-                                        to: {atomId: "SELF", contactName: internalName}  // ← internalName
-                                });
-                        }
-                        else
-                        {
-                                newInternalConnections.push(
-                                {
-                                        from: {atomId: "SELF", contactName: internalName},  // ← internalName
-                                        to: {atomId: conn.to.atomId, contactName: conn.to.contactName}
-                                });
-                        }
-                }
-// Copy internal atoms
-                for (atomDef in atomsToMove)
-                {
-                        newInternalAtoms.push(
-                        {
-                                instanceId: atomDef.instanceId,
-                                typeId: atomDef.typeId,
-                                x: atomDef.x,
-                                y: atomDef.y
-                        });
-                }
-// Copy internal connections
-                for (conn in internalConns)
-                {
-                        newInternalConnections.push(
-                        {
-                                from: {atomId: conn.from.atomId, contactName: conn.from.contactName},
-                                to: {atomId: conn.to.atomId, contactName: conn.to.contactName}
-                        });
-                }
-                var newBp = new Blueprint(newTypeId, "Custom Assembly", newPins, null, newInternalAtoms, newInternalConnections);
-                newBp.isNative = false;
+// Each grouped operation creates a new blueprint in AtomRegistry.
+// Without this, multiple groupings would all be named "Custom Assembly",
+// making them indistinguishable on save/load.
+// NamingService returns "Custom Assembly", "Custom Assembly_1", etc.
+// ═══════════════════════════════════════════════════════════════════
+		var bpName = core.logic.NamingService.resolveUniqueBlueprintName("Custom Assembly");
+		var newBp = new Blueprint(newTypeId, bpName, newPins, null, newInternalAtoms, newInternalConnections);
+		newBp.isNative = false;
+
 // =====================================================================
 // PHASE 4: MODIFY PARENT BLUEPRINT
 // =====================================================================
-                var allConnsToRemove = internalConns.concat(externalConns);
-                for (conn in allConnsToRemove)
-                {
-                        var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
-                        var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
-                        if (cOut != null && cIn != null) cOut.unlink(cIn);
-                }
-                var atomDefsToRemove:Array<AtomDef> = [];
-                for (atomDef in _blueprint.internalAtoms)
-                {
-                        if (selectedTemplateIds.indexOf(atomDef.instanceId) != -1)
-                                atomDefsToRemove.push(atomDef);
-                }
-                for (atomDef in atomDefsToRemove) _blueprint.internalAtoms.remove(atomDef);
-                for (conn in allConnsToRemove) _blueprint.internalConnections.remove(conn);
+		var allConnsToRemove = internalConns.concat(externalConns);
+		for (conn in allConnsToRemove)
+		{
+			var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
+			var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
+			if (cOut != null && cIn != null) cOut.unlink(cIn);
+		}
+
+		var atomDefsToRemove:Array<AtomDef> = [];
+		for (atomDef in _blueprint.internalAtoms)
+		{
+			if (selectedTemplateIds.indexOf(atomDef.instanceId) != -1)
+				atomDefsToRemove.push(atomDef);
+		}
+		for (atomDef in atomDefsToRemove) _blueprint.internalAtoms.remove(atomDef);
+		for (conn in allConnsToRemove) _blueprint.internalConnections.remove(conn);
 
 // ═══════════════════════════════════════════════════════════════════
-// v3.5 FIX: Dispose DeviceViews for atoms being absorbed into the new
-// assembly, BEFORE removing them from the parent's internalAtoms map.
-//
-// PROBLEM:
-// The old code simply did _assembly.internalAtoms.remove(nodeId), which
-// orphaned the atom instance. Its DeviceView, however, remained alive in
-// DeviceViewRegistry._widgets[atom.id] and continued to be displayed in
-// the DevicePanel (if active). The widget kept its Contact subscriptions
-// pointing at the soon-to-be-disposed atom's contacts — leading to
-// use-after-free when signals reached those contacts.
-//
-// This was especially visible when GroupAtomsCommand was triggered FROM
-// the Device Panel: the widgets visually "disappeared" from the panel
-// (because the panel iterates _assembly.internalAtoms to render cards),
-// but they were still in the registry and still subscribed.
-//
-// SOLUTION:
-// For each atom being moved into the new assembly:
-//   1. Look up its DeviceView in DeviceViewRegistry
-//   2. Call DeviceViewRegistry.remove(atom.id, true) — this calls
-//      DeviceView.dispose() which:
-//        - calls deactivate() → unsubscribeFromContacts()
-//        - nullifies atom reference
-//        - removes from any parent display list
-//   3. Then remove the atom from _assembly.internalAtoms
-//
-// The new assembly will get fresh DeviceViews via NodeView.acquireWidget()
-// when its NodeView is created — this is the load-symmetric path.
+// v3.8 FIX: Properly dispose atoms before removing from internalAtoms.
 // ═══════════════════════════════════════════════════════════════════
-                for (nodeId in _selectedNodeIds)
-                {
-                        // Dispose widget before removing the atom, so Contact
-                        // subscriptions are cleanly released.
-                        core.view.DeviceViewRegistry.getInstance().remove(nodeId, true);
-                        _assembly.internalAtoms.remove(nodeId);
-                }
+// Previously this only removed the map entry without calling dispose(),
+// which caused two issues:
+//   (a) The atom's displayName stayed registered in NamingService, so
+//       when the new sub-assembly's _createInternalInstances() tried
+//       to register the same name (e.g., "Pass"), NamingService
+//       appended "_1" → blueprint said "Pass" but runtime said "Pass_1".
+//   (b) Native drivers (audio, COM port) were never released — they
+//       kept running in the background.
+//
+// Now we call dispose() FIRST (which releases the name slot via
+// Atom.dispose() → NamingService.unregisterInstanceName), THEN remove
+// from the map.
+// ═══════════════════════════════════════════════════════════════════
+		for (nodeId in _selectedNodeIds)
+		{
+			core.view.DeviceViewRegistry.getInstance().remove(nodeId, true);
+
+			// Dispose atom properly — releases displayName from NamingService
+			var atomToDispose = _assembly.internalAtoms.get(nodeId);
+			if (atomToDispose != null)
+			{
+				if (Std.isOfType(atomToDispose, IDisposable))
+				{
+					try { cast(atomToDispose, IDisposable).dispose(); }
+					catch (e:Dynamic) { trace('GroupAtoms: Error disposing atom $nodeId: $e'); }
+				}
+			}
+			_assembly.internalAtoms.remove(nodeId);
+		}
+
 // =====================================================================
 // PHASE 5: CREATE NEW ASSEMBLY INSTANCE
 // =====================================================================
-                AtomRegistry.registerBlueprint(newTypeId, newBp);
-                saveNewAssembly(newBp);
-                var newInstance = AssemblyFactory.createAtom(newTypeId);
-                if (newInstance == null)
-                {
-                        trace('ERROR: GroupAtomsCommand failed to create assembly instance');
-                        return;
-                }
-                var centerPos = calculateCenterPosition(atomsToMove);
-                _assembly.internalAtoms.set(newInstance.id, newInstance);
+		AtomRegistry.registerBlueprint(newTypeId, newBp);
+		saveNewAssembly(newBp);
+
+		var newInstance = AssemblyFactory.createAtom(newTypeId);
+		if (newInstance == null)
+		{
+			trace('ERROR: GroupAtomsCommand failed to create assembly instance');
+			return;
+		}
+
+		var centerPos = calculateCenterPosition(atomsToMove);
 
 // ═══════════════════════════════════════════════════════════════════
-// v3.6 FIX: Register template→runtime mapping for the new assembly.
-// ═══════════════════════════════════════════════════════════════════
-// Without this, resolveContact cannot find the new assembly by its
-// template ID in bp.internalConnections (because _idMap doesn't have
-// the entry — only _createInternalInstances populates _idMap, and that
-// runs only during Assembly construction, not when atoms are added
-// later via GroupAtomsCommand).
+// v3.7: Assign a globally-unique displayName to the new assembly
+// instance, using the same bpName that was resolved for the blueprint
+// (line 453). This ensures the instance label and the blueprint name
+// stay in sync — the user sees one name on the canvas AND in the
+// library entry.
 //
-// This is critical for the Phase 6 wire reconnection below, which uses
-// newTypeId in the connection definitions.
+// We use the 4-arg generateUniqueDisplayName signature:
+//   - typeId            = newTypeId (for fallback lookup)
+//   - isNameTaken       = _isNameTakenGlobally (passed via constructor)
+//   - desiredBaseName   = bpName (the unique blueprint name resolved above)
+//   - isPaste           = false (this is a create, not a paste)
+//
+// After resolution we MUST register the name in NamingService so future
+// atoms (in this or any other assembly) cannot collide with it.
 // ═══════════════════════════════════════════════════════════════════
-                _assembly.registerAtomMapping(newTypeId, newInstance.id);
+		var finalInstanceName:String = AssemblyFactory.generateUniqueDisplayName(
+										   newTypeId,
+										   _isNameTakenGlobally,
+										   bpName,
+										   false
+									   );
+		newInstance.displayName = finalInstanceName;
+		core.logic.NamingService.registerInstanceName(finalInstanceName, newInstance.id);
 
-// ═══════════════════════════════════════════════════════════════════
-// v3.6 FIX: AtomDef.instanceId must be the TEMPLATE ID (newTypeId),
-// NOT the runtime ID (newInstance.id).
-// ═══════════════════════════════════════════════════════════════════
-// PROBLEM:
-// The old code wrote instanceId = newInstance.id (runtime). After save
-// + restart, the runtime ID no longer exists, and resolveContact fails
-// → SAFETY NET purges all wires as ghost.
-//
-// SOLUTION:
-// Use newTypeId (Template ID) as instanceId. This matches the on-disk
-// format and the Load-Symmetric Reconstruction principle: when the
-// project is loaded, _createInternalInstances generates a fresh runtime
-// ID via UID.generate(), records template→runtime in _idMap, and stores
-// the atom under the runtime ID. We just did the same thing manually
-// above (registerAtomMapping + internalAtoms.set).
-// ═══════════════════════════════════════════════════════════════════
-                var newAtomDef:AtomDef = {
-                        instanceId: newTypeId,
-                        typeId: newTypeId,
-                        x: centerPos.x,
-                        y: centerPos.y
-                };
-                _blueprint.internalAtoms.push(newAtomDef);
+		_assembly.internalAtoms.set(newInstance.id, newInstance);
+		var newAtomDef:AtomDef = {
+			instanceId: newInstance.id,
+			typeId: newTypeId,
+			x: centerPos.x,
+			y: centerPos.y
+		};
+		_blueprint.internalAtoms.push(newAtomDef);
+
 // =====================================================================
 // PHASE 6: RECONNECT EXTERNAL CONNECTIONS (FIXED v3.4)
 // =====================================================================
-                var createdExternalConns:Array<ConnectionDef> = [];
-                for (pm in _snapshot.getPortMappings())
-                {
-                        var originalConn = pm.originalConnection;
-                        var newConn:ConnectionDef;
+		var createdExternalConns:Array<ConnectionDef> = [];
+		for (pm in _snapshot.getPortMappings())
+		{
+			var originalConn = pm.originalConnection;
+			var newConn:ConnectionDef;
+
 // ═══════════════════════════════════════════════════════════════════
 // v3.4 FIX: Use externalName for connections in PARENT blueprint
 // ═══════════════════════════════════════════════════════════════════
 // pm.portName is internalName (e.g., "incoming_1")
 // We need externalName (e.g., "PassThrough_1_in") for parent blueprint
 // because parent sees Assembly as an atom with external port names
-                        var externalPortName = resolveExternalPortName(newPins, pm.portName);
-                        trace('  Reconnecting: internalName="${pm.portName}" → externalName="$externalPortName"');
+			var externalPortName = resolveExternalPortName(newPins, pm.portName);
+			trace('  Reconnecting: internalName="${pm.portName}" → externalName="$externalPortName"');
 
 // ═══════════════════════════════════════════════════════════════════
-// v3.6 FIX: Use newTypeId (Template ID) in connection atomId fields,
-// not newInstance.id (Runtime ID).
 // ═══════════════════════════════════════════════════════════════════
-// Blueprint is the Single Source of Truth and must store stable
-// Template IDs. The physical link below uses resolveContact which
-// translates template→runtime via _idMap (we just registered the
-// mapping above).
+// v3.9 FIX: Use newInstance.id (Runtime ID) in connection atomId fields.
+// ═══════════════════════════════════════════════════════════════════
+// PREVIOUS BUG (v3.6 "FIX"): stored newTypeId (Template ID) in
+// connection atomId fields. The reasoning was that "blueprint is the
+// Single Source of Truth and must store stable Template IDs". But:
 //
-// Also translate the originalConn side to Template ID for consistency
-// (the original atomIds there may be runtime IDs from ConnectCommand).
+//   - _assembly.internalAtoms is keyed by RUNTIME ID (newInstance.id)
+//   - _assembly._idMap is populated by Assembly._createInternalInstances
+//     during LOAD, NOT during GroupAtomsCommand's runtime creation
+//   - resolveContact(newTypeId, ...) therefore returns null:
+//       1. _assembly.idMap.get(newTypeId) → null  (not registered)
+//       2. _assembly.internalAtoms.exists(newTypeId) → false  (key is runtime ID)
+//       3. returns null
+//   - Result: cIn = null → cOut.link(cIn) is skipped → no physical
+//     wire is created → wires disappear from the canvas.
+//
+// THE CORRECT APPROACH:
+//   - Use Runtime ID (newInstance.id) for connection atomId fields —
+//     this is what ConnectCommand, DeleteAtomCommand.undo() and all
+//     other live-session commands do.
+//   - At save time, EditorContext.prepareCurrentAssemblyForSave()
+//     calls syncConnectionsToTemplateIds(), which translates
+//     runtime IDs → template IDs via Assembly.getTemplateId().
+//   - On load, _createInternalInstances populates _idMap, and
+//     resolveContact translates template → runtime transparently.
+//
+// So: Runtime IDs in-memory, Template IDs on disk. This is symmetric
+// with the load path and matches every other editor command.
 // ═══════════════════════════════════════════════════════════════════
-                        var fromTemplateId = originalConn.from.atomId == "SELF"
-                                ? "SELF"
-                                : _assembly.getTemplateId(originalConn.from.atomId);
-                        var toTemplateId = originalConn.to.atomId == "SELF"
-                                ? "SELF"
-                                : _assembly.getTemplateId(originalConn.to.atomId);
 
-                        if (pm.isInput)
-                        {
+			// Resolve the OTHER side of the connection (the side that
+			// is NOT the newly created assembly). originalConn may
+			// contain either template IDs (loaded from disk) or
+			// runtime IDs (freshly created via ConnectCommand).
+			// We normalize to runtime ID for consistency.
+			var fromRuntimeId:String = originalConn.from.atomId == "SELF"
+									   ? "SELF"
+									   : resolveRuntimeId(originalConn.from.atomId);
+			var toRuntimeId:String = originalConn.to.atomId == "SELF"
+									 ? "SELF"
+									 : resolveRuntimeId(originalConn.to.atomId);
+
+			if (pm.isInput)
+			{
 // Input port: connection comes FROM parent TO assembly
-                                newConn =
-                                {
-                                        from: { atomId: fromTemplateId, contactName: originalConn.from.contactName },
-                                        to: { atomId: newTypeId, contactName: externalPortName }  // ← Template ID + externalName
-                                };
-                        }
-                        else
-                        {
+				newConn =
+				{
+					from: { atomId: fromRuntimeId, contactName: originalConn.from.contactName },
+					to:   { atomId: newInstance.id, contactName: externalPortName }
+				};
+			}
+			else
+			{
 // Output port: connection goes FROM assembly TO parent
-                                newConn =
-                                {
-                                        from: { atomId: newTypeId, contactName: externalPortName },  // ← Template ID + externalName
-                                        to: { atomId: toTemplateId, contactName: originalConn.to.contactName }
-                                };
-                        }
-                        _blueprint.internalConnections.push(newConn);
-                        createdExternalConns.push(newConn);
+				newConn =
+				{
+					from: { atomId: newInstance.id, contactName: externalPortName },
+					to:   { atomId: toRuntimeId, contactName: originalConn.to.contactName }
+				};
+			}
+			_blueprint.internalConnections.push(newConn);
+			createdExternalConns.push(newConn);
+
 // Create physical link
 // resolveContact will call atom.getInput(externalName) which works
 // because Assembly._inputs contains contacts with name=externalName.
-// resolveContact translates the template ID to runtime via _idMap.
-                        var cOut = resolveContact(newConn.from.atomId, newConn.from.contactName, OUTPUT);
-                        var cIn = resolveContact(newConn.to.atomId, newConn.to.contactName, INPUT);
-                        if (cOut != null && cIn != null)
-                        {
-                                cOut.link(cIn);
-                                trace('  ✓ Linked: ${cOut.name} → ${cIn.name}');
-                        }
-                        else
-                        {
-                                trace('  ✗ FAILED to link: cOut=${cOut != null}, cIn=${cIn != null}');
-                        }
-                }
+			var cOut = resolveContact(newConn.from.atomId, newConn.from.contactName, OUTPUT);
+			var cIn = resolveContact(newConn.to.atomId, newConn.to.contactName, INPUT);
+			if (cOut != null && cIn != null)
+			{
+				cOut.link(cIn);
+				trace('  ✓ Linked: ${cOut.name} → ${cIn.name}');
+			}
+			else
+			{
+				trace('  ✗ FAILED to link: cOut=${cOut != null}, cIn=${cIn != null}');
+			}
+		}
+
 // === FIX: Синхронизируем родительскую сборку после добавления связей с SELF новой сборки ===
-                _assembly.rebuildInternalConnections();
+		_assembly.rebuildInternalConnections();
+
 // Notify parent assembly that its ports have changed
-                Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });
+		Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });
+
 // =====================================================================
 // PHASE 7: CAPTURE SNAPSHOT - AFTER STATE
 // =====================================================================
-                _snapshot.setCreatedData(newTypeId, newInstance.id, newAtomDef, createdExternalConns);
+		_snapshot.setCreatedData(newTypeId, newInstance.id, newAtomDef, createdExternalConns);
+
 // =====================================================================
 // PHASE 8: EMIT EVENTS
 // =====================================================================
-                for (nodeId in _selectedNodeIds)
-                {
-                        Impulsys.quickEmit(EventType.ATOM_DELETED, {assemblyId: _assembly.id, id: nodeId});
-                }
-                Impulsys.quickEmit(EventType.ATOM_RESTORED, {
-                        assemblyId: _assembly.id,
-                        id: newInstance.id,
-                        x: centerPos.x,
-                        y: centerPos.y,
-                        atom: newInstance
-                });
-                haxe.Timer.delay(function()
-                {
-                        Impulsys.quickEmit(EventType.REDRAW_WIRES);
-                }, 50);
-                _isExecuted = true;
-                trace('GroupAtomsCommand v3.4: Created $newTypeId with ${newPins.length} semantic ports (Spatially Sorted)');
-        }
+		for (nodeId in _selectedNodeIds)
+		{
+			Impulsys.quickEmit(EventType.ATOM_DELETED, {assemblyId: _assembly.id, id: nodeId});
+		}
+		Impulsys.quickEmit(EventType.ATOM_RESTORED, {
+			assemblyId: _assembly.id,
+			id: newInstance.id,
+			x: centerPos.x,
+			y: centerPos.y,
+			atom: newInstance
+		});
+		haxe.Timer.delay(function()
+		{
+			Impulsys.quickEmit(EventType.REDRAW_WIRES);
+		}, 50);
+
+		_isExecuted = true;
+		trace('GroupAtomsCommand v3.7: Created $newTypeId with ${newPins.length} semantic ports (Spatially Sorted)');
+	}
+
 // ========================================================================
 // HELPER: Resolve External Port Name (FIXED v3.4)
 // ========================================================================
-        /**
-        * Get externalName from PinDef by internalName.
-        *
-        * v3.4 FIX: Replaced Reflect.hasField() with direct field access.
-        * Reflect.hasField() does NOT work reliably for Haxe typedef structures.
-        *
-        * @param pins Array of PinDef from new assembly blueprint
-        * @param internalName The internal name (e.g., "incoming_1")
-        * @return The external name (e.g., "PassThrough_1_in") or fallback to internalName
-        */
-        private function resolveExternalPortName(pins:Array<core.data.Blueprint.PinDef>, internalName:String):String
-        {
-                for (pin in pins)
-                {
-                        if (pin.name == internalName)
-                        {
+	/**
+	* Get externalName from PinDef by internalName.
+	*
+	* v3.4 FIX: Replaced Reflect.hasField() with direct field access.
+	* Reflect.hasField() does NOT work reliably for Haxe typedef structures.
+	*
+	* @param pins Array of PinDef from new assembly blueprint
+	* @param internalName The internal name (e.g., "incoming_1")
+	* @return The external name (e.g., "PassThrough_1_in") or fallback to internalName
+	*/
+	private function resolveExternalPortName(pins:Array<core.data.Blueprint.PinDef>, internalName:String):String
+	{
+		for (pin in pins)
+		{
+			if (pin.name == internalName)
+			{
 // v3.4 FIX: Direct field access instead of Reflect.hasField()
 // PinDef.externalName is @:optional, so it may be null
-                                if (pin.externalName != null && pin.externalName != "")
-                                {
-                                        return pin.externalName;
-                                }
+				if (pin.externalName != null && pin.externalName != "")
+				{
+					return pin.externalName;
+				}
 // Fallback: if externalName not set, use internalName
-                                return pin.name;
-                        }
-                }
+				return pin.name;
+			}
+		}
 // Ultimate fallback: return internalName
-                return internalName;
-        }
+		return internalName;
+	}
+
 // ========================================================================
 // HELPER: Get atom display name
+// v3.8 FIX: AtomId resolution was broken — internalAtoms is keyed by
+// RUNTIME ID, but blueprint stores TEMPLATE IDs. The previous code
+// tried .get(atomId) first (which always failed for loaded atoms),
+// then .get(idMap.get(atomId)) which sometimes worked, but on failure
+// returned atomId instead of falling back to atom.type — and even
+// when it worked, it returned atom.type instead of atom.displayName
+// for atoms whose displayName had been customized by the user.
+//
+// New algorithm:
+//   1. atomId might be either Template ID (from loaded blueprint) OR
+//      Runtime ID (from freshly created atom via ConnectCommand).
+//   2. Try direct lookup first (covers runtime ID case).
+//   3. If that fails, try via idMap (covers template ID case).
+//   4. Prefer atom.displayName over atom.type.
+//   5. Replace spaces with underscores so "My Button" → "My_Button"
+//      to keep external port names valid identifiers.
+//   6. Final fallback: typeId-derived name, NOT raw atomId.
 // ========================================================================
-        private function getAtomDisplayName(atomId:String):String
-        {
-                var atom = _assembly.internalAtoms.get(atomId);
-                if (atom == null)
-                {
-                        var runtimeId = _assembly.idMap.get(atomId);
-                        if (runtimeId != null) atom = _assembly.internalAtoms.get(runtimeId);
-                }
-                if (atom == null) atom = _assembly.internalAtoms.get(atomId);
-                if (atom != null)
-                {
-                        var name = atom.displayName;
-                        if (name == null || name == "" || name == atom.type) name = atom.type;
-                        return StringTools.replace(name, " ", "_");
-                }
-                return atomId;
-        }
+	private function getAtomDisplayName(atomId:String):String
+	{
+		// Step 1-3: Resolve atomId → Atom instance
+		var atom:Atom = null;
+
+		// Try direct lookup (atomId is Runtime ID — fresh session creation)
+		if (atomId != null && atomId != "SELF")
+		{
+			atom = _assembly.internalAtoms.get(atomId);
+		}
+
+		// Try via idMap (atomId is Template ID — loaded from blueprint)
+		if (atom == null && atomId != null && atomId != "SELF")
+		{
+			var runtimeId = _assembly.idMap.get(atomId);
+			if (runtimeId != null)
+			{
+				atom = _assembly.internalAtoms.get(runtimeId);
+			}
+		}
+
+		// Step 4-5: Extract display name
+		if (atom != null)
+		{
+			var name:String = atom.displayName;
+			if (name == null || name == "" || name == atom.type)
+			{
+				// displayName not customized — fall back to type
+				name = atom.type;
+			}
+			// Replace spaces with underscores so external port names
+			// are valid identifiers (e.g., "Signal Generator" → "Signal_Generator")
+			return StringTools.replace(name, " ", "_");
+		}
+
+		// Step 6: Final fallback — return a sane default, NOT raw atomId
+		// (atomId looks like "id_65803c53" which makes a terrible port name)
+		trace('GroupAtomsCommand.getAtomDisplayName: Could not resolve atom "$atomId" — using fallback');
+		return "Atom";
+	}
+
 // ========================================================================
 // UNDO
 // ========================================================================
-        override public function undo():Void
-        {
-                var error = _snapshot.validate();
-                if (error != null)
-                {
-                        trace('ERROR: GroupAtomsCommand undo failed: $error');
-                        return;
-                }
-                trace('GroupAtomsCommand: Undoing grouping...');
-                for (conn in _snapshot.getCreatedConnections())
-                {
-                        var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
-                        var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
-                        if (cOut != null && cIn != null) cOut.unlink(cIn);
-                        _blueprint.internalConnections.remove(conn);
-                }
-                var createdAtomDef = _snapshot.getCreatedAtomDef();
-                if (createdAtomDef != null) _blueprint.internalAtoms.remove(createdAtomDef);
-                var createdId = _snapshot.getCreatedInstanceId();
-                var createdInst = _assembly.internalAtoms.get(createdId);
-                if (createdInst != null)
-                {
-                        if (Std.isOfType(createdInst, IDisposable))
-                        {
-                                try { cast(createdInst, IDisposable).dispose(); }
-                                catch (e:Dynamic) {}
-                        }
-                        _assembly.internalAtoms.remove(createdId);
-                }
+	override public function undo():Void
+	{
+		var error = _snapshot.validate();
+		if (error != null)
+		{
+			trace('ERROR: GroupAtomsCommand undo failed: $error');
+			return;
+		}
+		trace('GroupAtomsCommand: Undoing grouping...');
+
+		for (conn in _snapshot.getCreatedConnections())
+		{
+			var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
+			var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
+			if (cOut != null && cIn != null) cOut.unlink(cIn);
+			_blueprint.internalConnections.remove(conn);
+		}
+
+		var createdAtomDef = _snapshot.getCreatedAtomDef();
+		if (createdAtomDef != null) _blueprint.internalAtoms.remove(createdAtomDef);
+
+		var createdId = _snapshot.getCreatedInstanceId();
+		var createdInst = _assembly.internalAtoms.get(createdId);
+		if (createdInst != null)
+		{
+			if (Std.isOfType(createdInst, IDisposable))
+			{
+				try { cast(createdInst, IDisposable).dispose(); }
+				catch (e:Dynamic) {}
+			}
+			_assembly.internalAtoms.remove(createdId);
+		}
 
 // v3.6: Remove the template→runtime mapping we added in execute().
 // Without this, the mapping would linger and point to a disposed atom.
-                var createdTypeId = _snapshot.getCreatedTypeId();
-                if (createdTypeId != null)
-                {
-                        _assembly.unregisterAtomMapping(createdTypeId);
-                }
+		var createdTypeId = _snapshot.getCreatedTypeId();
+		if (createdTypeId != null)
+		{
+			_assembly.unregisterAtomMapping(createdTypeId);
+		}
 
-                AtomRegistry.remove(createdTypeId);
-                deleteAssemblyFile(createdTypeId);
-                for (atomDef in _snapshot.getRemovedAtomDefs())
-                {
-                        _blueprint.internalAtoms.push(
-                        {
-                                instanceId: atomDef.instanceId,
-                                typeId: atomDef.typeId,
-                                x: atomDef.x,
-                                y: atomDef.y
-                        });
-                }
-                for (conn in _snapshot.getRemovedInternalConnections()) _blueprint.internalConnections.push(conn);
-                for (conn in _snapshot.getRemovedExternalConnections()) _blueprint.internalConnections.push(conn);
-                for (atomDef in _snapshot.getRemovedAtomDefs())
-                {
-                        var atom = AssemblyFactory.createAtom(atomDef.typeId, atomDef.instanceId);
-                        if (atom != null) _assembly.internalAtoms.set(atomDef.instanceId, atom);
-                }
-                haxe.Timer.delay(restorePhysicalConnections, 15);
-                Impulsys.quickEmit(EventType.ATOM_DELETED, {assemblyId: _assembly.id, id: createdId});
-                for (atomDef in _snapshot.getRemovedAtomDefs())
-                {
-                        var atom = _assembly.internalAtoms.get(atomDef.instanceId);
-                        Impulsys.quickEmit(EventType.ATOM_RESTORED,
-                        {
-                                assemblyId: _assembly.id,
-                                id: atomDef.instanceId,
-                                x: atomDef.x,
-                                y: atomDef.y,
-                                atom: atom
-                        });
-                }
-                Impulsys.quickEmit(EventType.REDRAW_WIRES);
-                _isUndone = true;
-        }
-        private function restorePhysicalConnections():Void
-        {
-                for (conn in _snapshot.getRemovedInternalConnections())
-                {
-                        var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
-                        var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
-                        if (cOut != null && cIn != null) cOut.link(cIn);
-                }
-                for (conn in _snapshot.getRemovedExternalConnections())
-                {
-                        var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
-                        var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
-                        if (cOut != null && cIn != null) cOut.link(cIn);
-                }
-                Impulsys.quickEmit(EventType.REDRAW_WIRES);
-        }
+		AtomRegistry.remove(createdTypeId);
+		deleteAssemblyFile(createdTypeId);
+
+		for (atomDef in _snapshot.getRemovedAtomDefs())
+		{
+			_blueprint.internalAtoms.push(
+			{
+				instanceId: atomDef.instanceId,
+				typeId: atomDef.typeId,
+				x: atomDef.x,
+				y: atomDef.y
+			});
+		}
+
+		for (conn in _snapshot.getRemovedInternalConnections()) _blueprint.internalConnections.push(conn);
+		for (conn in _snapshot.getRemovedExternalConnections()) _blueprint.internalConnections.push(conn);
+
+		for (atomDef in _snapshot.getRemovedAtomDefs())
+		{
+			var atom = AssemblyFactory.createAtom(atomDef.typeId, atomDef.instanceId);
+			if (atom != null) _assembly.internalAtoms.set(atomDef.instanceId, atom);
+		}
+
+		haxe.Timer.delay(restorePhysicalConnections, 15);
+
+		Impulsys.quickEmit(EventType.ATOM_DELETED, {assemblyId: _assembly.id, id: createdId});
+		for (atomDef in _snapshot.getRemovedAtomDefs())
+		{
+			var atom = _assembly.internalAtoms.get(atomDef.instanceId);
+			Impulsys.quickEmit(EventType.ATOM_RESTORED,
+			{
+				assemblyId: _assembly.id,
+				id: atomDef.instanceId,
+				x: atomDef.x,
+				y: atomDef.y,
+				atom: atom
+			});
+		}
+		Impulsys.quickEmit(EventType.REDRAW_WIRES);
+		_isUndone = true;
+	}
+
+	private function restorePhysicalConnections():Void
+	{
+		for (conn in _snapshot.getRemovedInternalConnections())
+		{
+			var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
+			var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
+			if (cOut != null && cIn != null) cOut.link(cIn);
+		}
+		for (conn in _snapshot.getRemovedExternalConnections())
+		{
+			var cOut = resolveContact(conn.from.atomId, conn.from.contactName, OUTPUT);
+			var cIn = resolveContact(conn.to.atomId, conn.to.contactName, INPUT);
+			if (cOut != null && cIn != null) cOut.link(cIn);
+		}
+		Impulsys.quickEmit(EventType.REDRAW_WIRES);
+	}
+
 // ========================================================================
 // REDO
 // ========================================================================
-        private function redoInternal():Void
-        {
-                _snapshot.dispose();
-                _snapshot = new GroupAtomsSnapshot();
-                _isUndone = false;
-                executeGrouping();
-        }
+	private function redoInternal():Void
+	{
+		_snapshot.dispose();
+		_snapshot = new GroupAtomsSnapshot();
+		_isUndone = false;
+		executeGrouping();
+	}
+
 // ========================================================================
 // HELPERS
 // ========================================================================
-        /**
-        * Resolve a contact by atom ID and contact name.
-        *
-        * IMPORTANT: For Assembly atoms, contactName should be EXTERNAL name
-        * because Assembly.getInput() searches by Contact.name which = externalName.
-        */
-        private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact
-        {
-                if (atomId == "SELF")
-                {
+	/**
+	* Resolve a contact by atom ID and contact name.
+	*
+	* IMPORTANT: For Assembly atoms, contactName should be EXTERNAL name
+	* because Assembly.getInput() searches by Contact.name which = externalName.
+	*/
+	private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact
+	{
+		if (atomId == "SELF")
+		{
 // SELF: use internalName to find port in Assembly.ports map
-                        var port:ConductorPort = _assembly.ports.get(contactName);
-                        if (port == null) return null;
-                        return port.internal;
-                }
-                else
-                {
-                        var realAtomId = _assembly.idMap.get(atomId);
-                        if (realAtomId == null)
-                        {
-                                if (_assembly.internalAtoms.exists(atomId)) realAtomId = atomId;
-                                else return null;
-                        }
-                        var obj = _assembly.internalAtoms.get(realAtomId);
-                        if (obj == null) return null;
-                        var atom:Atom = cast obj;
+			var port:ConductorPort = _assembly.ports.get(contactName);
+			if (port == null) return null;
+			return port.internal;
+		}
+		else
+		{
+			var realAtomId = _assembly.idMap.get(atomId);
+			if (realAtomId == null)
+			{
+				if (_assembly.internalAtoms.exists(atomId)) realAtomId = atomId;
+				else return null;
+			}
+			var obj = _assembly.internalAtoms.get(realAtomId);
+			if (obj == null) return null;
+			var atom:Atom = cast obj;
 // For Assembly atoms, contactName should be externalName
 // because atom.getInput() searches by Contact.name = externalName
-                        return (type == INPUT) ? atom.getInput(contactName) : atom.getOutput(contactName);
-                }
-        }
-        private function calculateCenterPosition(atoms:Array<AtomDef>): {x:Float, y:Float}
-        {
-                if (atoms == null || atoms.length == 0) return {x: 300, y: 300};
-                var sumX = 0.0, sumY = 0.0, count = 0;
-                for (atom in atoms)
-                {
-                        sumX += (atom.x != null ? atom.x : 0);
-                        sumY += (atom.y != null ? atom.y : 0);
-                        count++;
-                }
-                return count > 0 ? {x: sumX / count, y: sumY / count} : {x: 300, y: 300};
-        }
-        private function validateNoCircularReference():Bool
-        {
-                var currentBpId = _blueprint.id;
-                for (nodeId in _selectedNodeIds)
-                {
-                        var atomInst = _assembly.internalAtoms.get(nodeId);
-                        if (atomInst != null && Std.isOfType(atomInst, Assembly))
-                        {
-                                var asm = cast(atomInst, Assembly);
-                                if (asm.blueprint != null && asm.blueprint.id == currentBpId) return false;
-                                if (hasCircularReference(asm, currentBpId, 0)) return false;
-                        }
-                }
-                return true;
-        }
-        private function hasCircularReference(assembly:Assembly, targetId:String, depth:Int):Bool
-        {
-                if (depth > MAX_NESTING_DEPTH) return false;
-                if (assembly.blueprint != null && assembly.blueprint.id == targetId) return true;
-                if (assembly.internalAtoms != null)
-                {
-                        for (id in assembly.internalAtoms.keys())
-                        {
-                                var atom = assembly.internalAtoms.get(id);
-                                if (Std.isOfType(atom, Assembly) && hasCircularReference(cast(atom, Assembly), targetId, depth + 1))
-                                        return true;
-                        }
-                }
-                return false;
-        }
+			return (type == INPUT) ? atom.getInput(contactName) : atom.getOutput(contactName);
+		}
+	}
+
+	/**
+	* v3.9: Resolve any atomId (template or runtime) to runtime ID.
+	*
+	* Tries:
+	*   1. idMap.get(atomId) → returns runtime ID if atomId is template ID
+	*   2. internalAtoms.exists(atomId) → returns atomId as-is if it's already runtime ID
+	*   3. Returns null if neither works
+	*
+	* Used in Phase 6 to normalize the OTHER side of an external connection
+	* (the side that is NOT the newly created assembly). The original atomId
+	* there may have been a template ID (from loaded blueprint) or a runtime
+	* ID (from ConnectCommand created during this session).
+	*
+	* @param atomId Template ID or Runtime ID
+	* @return Runtime ID, or null if unresolvable
+	*/
+	private function resolveRuntimeId(atomId:String):String
+	{
+		if (atomId == null) return null;
+
+		// Try template → runtime mapping (populated by _createInternalInstances)
+		var runtimeId = _assembly.idMap.get(atomId);
+		if (runtimeId != null) return runtimeId;
+
+		// Already a runtime ID?
+		if (_assembly.internalAtoms.exists(atomId)) return atomId;
+
+		trace('GroupAtomsCommand.resolveRuntimeId: Could not resolve "$atomId"');
+		return null;
+	}
+
+	private function calculateCenterPosition(atoms:Array<AtomDef>): {x:Float, y:Float}
+	{
+		if (atoms == null || atoms.length == 0) return {x: 300, y: 300};
+		var sumX = 0.0, sumY = 0.0, count = 0;
+		for (atom in atoms)
+		{
+			sumX += (atom.x != null ? atom.x : 0);
+			sumY += (atom.y != null ? atom.y : 0);
+			count++;
+		}
+		return count > 0 ? {x: sumX / count, y: sumY / count} : {x: 300, y: 300};
+	}
+
+	private function validateNoCircularReference():Bool
+	{
+		var currentBpId = _blueprint.id;
+		for (nodeId in _selectedNodeIds)
+		{
+			var atomInst = _assembly.internalAtoms.get(nodeId);
+			if (atomInst != null && Std.isOfType(atomInst, Assembly))
+			{
+				var asm = cast(atomInst, Assembly);
+				if (asm.blueprint != null && asm.blueprint.id == currentBpId) return false;
+				if (hasCircularReference(asm, currentBpId, 0)) return false;
+			}
+		}
+		return true;
+	}
+
+	private function hasCircularReference(assembly:Assembly, targetId:String, depth:Int):Bool
+	{
+		if (depth > MAX_NESTING_DEPTH) return false;
+		if (assembly.blueprint != null && assembly.blueprint.id == targetId) return true;
+		if (assembly.internalAtoms != null)
+		{
+			for (id in assembly.internalAtoms.keys())
+			{
+				var atom = assembly.internalAtoms.get(id);
+				if (Std.isOfType(atom, Assembly) && hasCircularReference(cast(atom, Assembly), targetId, depth + 1))
+					return true;
+			}
+		}
+		return false;
+	}
+
 // ════════════════════════════════════════════════════════════════════════
 // v3.3: SPATIAL SORTING LOGIC
 // ════════════════════════════════════════════════════════════════════════
-        /**
-        * Sort connections by the vertical position (Y) of the internal atom involved.
-        * This ensures that ports on the Assembly boundary appear in the same order
-        * as the atoms are visually arranged on the schematic (top-to-bottom).
-        *
-        * Fallback to X coordinate, then contact name.
-        */
-        private function sortByAtomPosition(
-                a: {conn:ConnectionDef, isFromSelected:Bool},
-                b: {conn:ConnectionDef, isFromSelected:Bool}
-        ):Int
-        {
+	/**
+	* Sort connections by the vertical position (Y) of the internal atom involved.
+	* This ensures that ports on the Assembly boundary appear in the same order
+	* as the atoms are visually arranged on the schematic (top-to-bottom).
+	*
+	* Fallback to X coordinate, then contact name.
+	*/
+	private function sortByAtomPosition(
+		a: {conn:ConnectionDef, isFromSelected:Bool},
+		b: {conn:ConnectionDef, isFromSelected:Bool}
+	):Int
+	{
 // Identify the internal atom ID for each connection
-                var idA = a.isFromSelected ? a.conn.from.atomId : a.conn.to.atomId;
-                var idB = b.isFromSelected ? b.conn.from.atomId : b.conn.to.atomId;
-                var yA = getAtomY(idA);
-                var yB = getAtomY(idB);
+		var idA = a.isFromSelected ? a.conn.from.atomId : a.conn.to.atomId;
+		var idB = b.isFromSelected ? b.conn.from.atomId : b.conn.to.atomId;
+		var yA = getAtomY(idA);
+		var yB = getAtomY(idB);
+
 // Primary sort: Y coordinate (Top -> Bottom)
-                if (yA != yB) return yA < yB ? -1 : 1;
+		if (yA != yB) return yA < yB ? -1 : 1;
+
 // Secondary sort: X coordinate (Left -> Right)
-                var xA = getAtomX(idA);
-                var xB = getAtomX(idB);
-                if (xA != xB) return xA < xB ? -1 : 1;
+		var xA = getAtomX(idA);
+		var xB = getAtomX(idB);
+		if (xA != xB) return xA < xB ? -1 : 1;
+
 // Tertiary sort: Contact name (for deterministic order if atoms overlap perfectly)
-                var nameA = a.isFromSelected ? a.conn.from.contactName : a.conn.to.contactName;
-                var nameB = b.isFromSelected ? b.conn.from.contactName : b.conn.to.contactName;
-                return Reflect.compare(nameA, nameB);
-        }
-        /**
-        * Get Y coordinate of an atom by its ID (Template or Runtime).
-        */
-        private function getAtomY(atomId:String):Float
-        {
+		var nameA = a.isFromSelected ? a.conn.from.contactName : a.conn.to.contactName;
+		var nameB = b.isFromSelected ? b.conn.from.contactName : b.conn.to.contactName;
+		return Reflect.compare(nameA, nameB);
+	}
+
+	/**
+	* Get Y coordinate of an atom by its ID (Template or Runtime).
+	*/
+	private function getAtomY(atomId:String):Float
+	{
 // 1. Try direct match in blueprint (Template ID)
-                for (def in _blueprint.internalAtoms)
-                {
-                        if (def.instanceId == atomId) return def.y != null ? def.y : 0;
-                }
+		for (def in _blueprint.internalAtoms)
+		{
+			if (def.instanceId == atomId) return def.y != null ? def.y : 0;
+		}
 // 2. Try resolving Runtime ID -> Template ID
-                var templateId = _assembly.getTemplateId(atomId);
-                if (templateId != atomId)
-                {
-                        for (def in _blueprint.internalAtoms)
-                        {
-                                if (def.instanceId == templateId) return def.y != null ? def.y : 0;
-                        }
-                }
-                return 0; // Fallback
-        }
-        /**
-        * Get X coordinate of an atom by its ID (Template or Runtime).
-        */
-        private function getAtomX(atomId:String):Float
-        {
+		var templateId = _assembly.getTemplateId(atomId);
+		if (templateId != atomId)
+		{
+			for (def in _blueprint.internalAtoms)
+			{
+				if (def.instanceId == templateId) return def.y != null ? def.y : 0;
+			}
+		}
+		return 0; // Fallback
+	}
+
+	/**
+	* Get X coordinate of an atom by its ID (Template or Runtime).
+	*/
+	private function getAtomX(atomId:String):Float
+	{
 // 1. Try direct match in blueprint (Template ID)
-                for (def in _blueprint.internalAtoms)
-                {
-                        if (def.instanceId == atomId) return def.x != null ? def.x : 0;
-                }
+		for (def in _blueprint.internalAtoms)
+		{
+			if (def.instanceId == atomId) return def.x != null ? def.x : 0;
+		}
 // 2. Try resolving Runtime ID -> Template ID
-                var templateId = _assembly.getTemplateId(atomId);
-                if (templateId != atomId)
-                {
-                        for (def in _blueprint.internalAtoms)
-                        {
-                                if (def.instanceId == templateId) return def.x != null ? def.x : 0;
-                        }
-                }
-                return 0; // Fallback
-        }
-        private function generateShortId():String
-        {
-                var chars = "0123456789abcdef";
-                var str = "";
-                for (i in 0...4) str += chars.charAt(Std.random(chars.length));
-                return str;
-        }
-        private function saveNewAssembly(bp:Blueprint):Void
-        {
-                #if sys
-                var atomsData:Array<Dynamic> = [];
-                for (atomDef in bp.internalAtoms)
-                        atomsData.push({instanceId: atomDef.instanceId, typeId: atomDef.typeId, x: atomDef.x, y: atomDef.y});
-                var connsData:Array<Dynamic> = [];
-                for (conn in bp.internalConnections)
-                        connsData.push({
-                        from: {atomId: conn.from.atomId, contactName: conn.from.contactName},
-                        to: {atomId: conn.to.atomId, contactName: conn.to.contactName}
-                });
-                var pinsData:Array<Dynamic> = [];
-                for (pin in bp.pins)
-                {
-                        var pinData:Dynamic =
-                        {
-                                name: pin.name,
-                                type: Std.string(pin.type),
-                                dataType: pin.dataType,
-                                defaultValue: pin.defaultValue
-                        };
-                        if (pin.externalName != null)
-                        {
-                                pinData.externalName = pin.externalName;
-                        }
-                        pinsData.push(pinData);
-                }
-                var data:Dynamic = {
-                        version: "1.2",
-                        blueprint: {
-                                id: bp.id, name: bp.name, category: bp.category,
-                                pins: pinsData, internalAtoms: atomsData, internalConnections: connsData
-                        }
-                };
-                var libPath = (library.AtomRegistry.customLibraryPath != null && library.AtomRegistry.customLibraryPath.length > 0)
-                                          ? library.AtomRegistry.customLibraryPath : "library";
-                if (!sys.FileSystem.exists(libPath))
-                        try { sys.FileSystem.createDirectory(libPath); }
-                        catch (e:Dynamic) {}
-                var path = libPath + "/" + bp.id + ".atom";
-                try {
-                        sys.io.File.saveContent(path, haxe.Json.stringify(data, null, "  "));
-                }
-                catch (e:Dynamic)
-                {
-                        trace('ERROR: Failed to save assembly: $e');
-                }
-                #end
-        }
-        private function deleteAssemblyFile(typeId:String):Void
-        {
-                #if sys
-                var libPath = (library.AtomRegistry.customLibraryPath != null && library.AtomRegistry.customLibraryPath.length > 0)
-                ? library.AtomRegistry.customLibraryPath : "library";
-                var path = libPath + "/" + typeId + ".atom";
-                if (sys.FileSystem.exists(path))
-                        try { sys.FileSystem.deleteFile(path); }
-                        catch (e:Dynamic) {}
-                #end
-        }
-        override public function getDescription():String
-        {
-                return 'Group ${_selectedNodeIds != null ? _selectedNodeIds.length : 0} Atoms';
-        }
+		var templateId = _assembly.getTemplateId(atomId);
+		if (templateId != atomId)
+		{
+			for (def in _blueprint.internalAtoms)
+			{
+				if (def.instanceId == templateId) return def.x != null ? def.x : 0;
+			}
+		}
+		return 0; // Fallback
+	}
+
+	private function generateShortId():String
+	{
+		var chars = "0123456789abcdef";
+		var str = "";
+		for (i in 0...4) str += chars.charAt(Std.random(chars.length));
+		return str;
+	}
+
+	private function saveNewAssembly(bp:Blueprint):Void
+	{
+		#if sys
+		var atomsData:Array<Dynamic> = [];
+		for (atomDef in bp.internalAtoms)
+			atomsData.push({instanceId: atomDef.instanceId, typeId: atomDef.typeId, x: atomDef.x, y: atomDef.y});
+		var connsData:Array<Dynamic> = [];
+		for (conn in bp.internalConnections)
+			connsData.push({
+			from: {atomId: conn.from.atomId, contactName: conn.from.contactName},
+			to: {atomId: conn.to.atomId, contactName: conn.to.contactName}
+		});
+		var pinsData:Array<Dynamic> = [];
+		for (pin in bp.pins)
+		{
+			var pinData:Dynamic =
+			{
+				name: pin.name,
+				type: Std.string(pin.type),
+				dataType: pin.dataType,
+				defaultValue: pin.defaultValue
+			};
+			if (pin.externalName != null)
+			{
+				pinData.externalName = pin.externalName;
+			}
+			pinsData.push(pinData);
+		}
+		var data:Dynamic = {
+			version: "1.2",
+			blueprint: {
+				id: bp.id, name: bp.name, category: bp.category,
+				pins: pinsData, internalAtoms: atomsData, internalConnections: connsData
+			}
+		};
+		var libPath = (library.AtomRegistry.customLibraryPath != null && library.AtomRegistry.customLibraryPath.length > 0)
+					  ? library.AtomRegistry.customLibraryPath : "library";
+		if (!sys.FileSystem.exists(libPath))
+			try { sys.FileSystem.createDirectory(libPath); }
+			catch (e:Dynamic) {}
+		var path = libPath + "/" + bp.id + ".atom";
+		try {
+			sys.io.File.saveContent(path, haxe.Json.stringify(data, null, "  "));
+		}
+		catch (e:Dynamic)
+		{
+			trace('ERROR: Failed to save assembly: $e');
+		}
+		#end
+	}
+
+	private function deleteAssemblyFile(typeId:String):Void
+	{
+		#if sys
+		var libPath = (library.AtomRegistry.customLibraryPath != null && library.AtomRegistry.customLibraryPath.length > 0)
+		? library.AtomRegistry.customLibraryPath : "library";
+		var path = libPath + "/" + typeId + ".atom";
+		if (sys.FileSystem.exists(path))
+			try { sys.FileSystem.deleteFile(path); }
+			catch (e:Dynamic) {}
+		#end
+	}
+
+	override public function getDescription():String
+	{
+		return 'Group ${_selectedNodeIds != null ? _selectedNodeIds.length : 0} Atoms';
+	}
 }
