@@ -334,8 +334,9 @@ class WireRenderer {
      *
      * v1.4: Also removes "ghost" wires where one or both endpoints are missing.
      */
-    public function rebuildAll():Void {
-        if (_isDisposed) return;
+	public function rebuildAll():Void {
+		if (_isDisposed) return;
+		trace('🎨 WireRenderer.rebuildAll: blueprint has ${_blueprint.internalConnections != null ? _blueprint.internalConnections.length : 0} connections');
 
         var activeWireIds = new Map<String, Bool>();
         var ghostWireIds:Array<String> = [];
@@ -732,23 +733,22 @@ class WireRenderer {
             var runtimeId = _assembly.idMap.get(point.atomId);
             if (runtimeId == null) runtimeId = point.atomId;
 
-            var view = _getNodeView(runtimeId);
-            if (view == null) return null;
-
-            var portPos = view.getPortPosition(point.contactName);
-            // v1.5: NodeView.getPortPosition() now returns null when the port
-            // sprite is not on the stage. Propagate the null so rebuildAll()
-            // skips this wire until the next render cycle.
-            if (portPos == null) return null;
-
-            // === v1.3 FIX: Convert global to canvas local coordinates ===
-            // getPortPosition returns global (stage) coordinates
-            // _container.graphics needs local coordinates relative to _canvas
+			var view = _getNodeView(runtimeId);
+			if (view == null) {
+				trace('⚠️ getWirePoint: No NodeView for runtimeId="$runtimeId" (atomId="${point.atomId}")');
+				return null;
+			}
+			var portPos = view.getPortPosition(point.contactName);
+			if (portPos == null) {
+				trace('⚠️ getWirePoint: No port position for contactName="${point.contactName}" on view "$runtimeId"');
+				return null;
+			}
             var pt = _canvas.globalToLocal(new Point(portPos.x, portPos.y));
-            return { x: pt.x, y: pt.y };
-        }
+			return { x: pt.x, y: pt.y };
+			//return { x: portPos.x, y: portPos.y };
+		}
     }
-
+	
     /**
      * Check if a connection point is an input port.
      */

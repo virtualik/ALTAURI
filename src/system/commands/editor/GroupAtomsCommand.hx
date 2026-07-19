@@ -325,20 +325,41 @@ class GroupAtomsCommand extends Command
 		var incomingCount = 0;
 		var outgoingCount = 0;
 
-// Track used external names to handle collisions
+// ═══════════════════════════════════════════════════════════════════
+// v3.12 FIX: REMOVED pre-populate with parent's port externalNames.
+// ═══════════════════════════════════════════════════════════════════
+// PREVIOUS BUG (v3.6 "FIX"):
+//   Pre-populated usedExternalNames with externalNames from
+//   _assembly.ports (parent assembly's ports). The reasoning was
+//   "avoid collisions with parent's existing ports".
+//
+//   But this is WRONG for two reasons:
+//
+//   (a) PARENT'S PORTS ARE BEING ABSORBED.
+//       When we group selected atoms, the external connections that
+//       went through parent's ports (e.g., parent.incoming_1 → atom.in)
+//       become INTERNAL to the new sub-assembly. The parent's ports
+//       that pointed at selected atoms will be REPLACED by new ports
+//       pointing at the new sub-assembly. So we shouldn't worry about
+//       "colliding" with parent's ports — they're not staying.
+//
+//   (b) PARENT'S PORT externalName MIRRORS ATOM NAMES.
+//       Parent's port externalName is typically "AtomName_ContactName"
+//       (e.g., "Pass_in"). When we create a NEW port for the same atom
+//       Pass in the new sub-assembly, we naturally want the SAME name
+//       "Pass_in". Pre-populate makes this look like a "collision" and
+//       appends "_2" → "Pass_in_2". This breaks parent.bp.internalConnections
+//       which references the OLD name "Pass_in".
+//
+//   WITHOUT pre-populate:
+//   - The collision-counter in the loop below still handles TRUE
+//     collisions (e.g., two atoms both named "Pass" both with contact
+//     "in" → second becomes "Pass_in_2"). This is the only case that
+//     actually needs collision handling.
+//   - Parent's port names are irrelevant because they'll be replaced.
+// ═══════════════════════════════════════════════════════════════════
 		var usedExternalNames:Map<String, Int> = new Map();
-
-// v3.6 FIX: Pre-populate with existing port externalNames from parent
-		if (_assembly.ports != null)
-		{
-			for (existingPort in _assembly.ports)
-			{
-				if (existingPort != null && existingPort.externalName != null && existingPort.externalName != "")
-				{
-					usedExternalNames.set(existingPort.externalName, 1);
-				}
-			}
-		}
+		// Intentionally NOT pre-populated — see comment above.
 
 // v3.3 FIX: Spatial sorting
 		externalConnMeta.sort(sortByAtomPosition);
@@ -557,21 +578,13 @@ class GroupAtomsCommand extends Command
 		var centerPos = calculateCenterPosition(atomsToMove);
 
 // ═══════════════════════════════════════════════════════════════════
-// v3.7: Assign a globally-unique displayName to the new assembly
-// instance, using the same bpName that was resolved for the blueprint
-// (line 453). This ensures the instance label and the blueprint name
-// stay in sync — the user sees one name on the canvas AND in the
-// library entry.
-//
-// We use the 4-arg generateUniqueDisplayName signature:
-//   - typeId            = newTypeId (for fallback lookup)
-//   - isNameTaken       = _isNameTakenGlobally (passed via constructor)
-//   - desiredBaseName   = bpName (the unique blueprint name resolved above)
-//   - isPaste           = false (this is a create, not a paste)
-//
-// After resolution we MUST register the name in NamingService so future
-// atoms (in this or any other assembly) cannot collide with it.
+// v3.10 FIX: Register mapping AND use Template ID in Blueprint!
 // ═══════════════════════════════════════════════════════════════════
+// Blueprint is Single Source of Truth (BP-SSOT). It MUST store stable
+// Template IDs, NOT Runtime IDs. Runtime IDs are only for in-memory
+// resolution via _idMap.
+		_assembly.registerAtomMapping(newTypeId, newInstance.id);
+
 		var finalInstanceName:String = AssemblyFactory.generateUniqueDisplayName(
 										   newTypeId,
 										   _isNameTakenGlobally,
@@ -582,8 +595,15 @@ class GroupAtomsCommand extends Command
 		core.logic.NamingService.registerInstanceName(finalInstanceName, newInstance.id);
 
 		_assembly.internalAtoms.set(newInstance.id, newInstance);
+
+// ⚠️ CRITICAL FIX: instanceId MUST be newTypeId (Template ID),
+// NOT newInstance.id (Runtime ID).
+// If we save Runtime ID to blueprint, it breaks load-symmetric
+// reconstruction because _createInternalInstances will generate a
+// NEW runtime ID and map (Runtime ID -> New Runtime ID), corrupting
+// the _idMap and causing resolveContact to fail.
 		var newAtomDef:AtomDef = {
-			instanceId: newInstance.id,
+			instanceId: newTypeId, // <--- ИСПРАВЛЕНО: было newInstance.id
 			typeId: newTypeId,
 			x: centerPos.x,
 			y: centerPos.y
@@ -652,13 +672,55 @@ class GroupAtomsCommand extends Command
 									 ? "SELF"
 									 : resolveRuntimeId(originalConn.to.atomId);
 
+// ═══════════════════════════════════════════════════════════════════
+// v3.11 FIX: Use newTypeId (Template ID) for atomId in connections.
+// ═══════════════════════════════════════════════════════════════════
+// PREVIOUS STATE (v3.9): used newInstance.id (Runtime ID) here, while
+// Phase 5 (newAtomDef) used newTypeId (Template ID). This inconsistency
+// between internalAtoms and internalConnections in the SAME blueprint
+// caused trouble:
+//   - prepareCurrentAssemblyForSave() syncs currentAssembly (= subAsm),
+//     NOT the parent. So parent.bp.internalConnections stayed in
+//     Runtime ID form forever.
+//   - On reconstruction, reconnectExternalLinksToAssembly() looked up
+//     idMap.get(runtimeId) which returns null (idMap is template→runtime,
+//     not runtime→template), then fell back to runtimeId, then looked
+//     up internalAtoms.get(runtimeId) — which worked ONLY because we
+//     passed forcedId=oldRuntimeId to AssemblyFactory.createAtom.
+//
+// THE CORRECT APPROACH (consistent with Phase 5):
+//   - Store Template ID (newTypeId) in connection atomId fields.
+//   - _assembly._idMap already has newTypeId → newInstance.id mapping
+//     (registered on line 565 via _assembly.registerAtomMapping).
+//   - resolveContact() and resolveContactInParent() both do:
+//       var realAtomId = idMap.get(templateId);  // → newInstance.id
+//       var obj = internalAtoms.get(realAtomId);  // → newInstance
+//   - This works for BOTH fresh-from-GroupAtomsCommand AND
+//     after-reconstruction (because _idMap persists, and
+//     forcedId=oldRuntimeId keeps newInstance.id stable).
+//
+// So: Template IDs everywhere in the blueprint. Runtime IDs only
+// in _idMap and internalAtoms map keys. This is the BP-SSOT principle.
+// ═══════════════════════════════════════════════════════════════════
+
+			// Normalize the OTHER side of the connection to Template ID.
+			// originalConn may contain either template IDs (from loaded
+			// blueprint) or runtime IDs (from ConnectCommand created
+			// during this session). We normalize to template for consistency.
+			var fromTemplateId:String = originalConn.from.atomId == "SELF"
+										? "SELF"
+										: _assembly.getTemplateId(originalConn.from.atomId);
+			var toTemplateId:String = originalConn.to.atomId == "SELF"
+									  ? "SELF"
+									  : _assembly.getTemplateId(originalConn.to.atomId);
+
 			if (pm.isInput)
 			{
 // Input port: connection comes FROM parent TO assembly
 				newConn =
 				{
-					from: { atomId: fromRuntimeId, contactName: originalConn.from.contactName },
-					to:   { atomId: newInstance.id, contactName: externalPortName }
+					from: { atomId: fromTemplateId, contactName: originalConn.from.contactName },
+					to:   { atomId: newTypeId, contactName: externalPortName }
 				};
 			}
 			else
@@ -666,16 +728,16 @@ class GroupAtomsCommand extends Command
 // Output port: connection goes FROM assembly TO parent
 				newConn =
 				{
-					from: { atomId: newInstance.id, contactName: externalPortName },
-					to:   { atomId: toRuntimeId, contactName: originalConn.to.contactName }
+					from: { atomId: newTypeId, contactName: externalPortName },
+					to:   { atomId: toTemplateId, contactName: originalConn.to.contactName }
 				};
 			}
 			_blueprint.internalConnections.push(newConn);
 			createdExternalConns.push(newConn);
 
-// Create physical link
-// resolveContact will call atom.getInput(externalName) which works
-// because Assembly._inputs contains contacts with name=externalName.
+			// Create physical link
+			// resolveContact will call atom.getInput(externalName) which works
+			// because Assembly._inputs contains contacts with name=externalName.
 			var cOut = resolveContact(newConn.from.atomId, newConn.from.contactName, OUTPUT);
 			var cIn = resolveContact(newConn.to.atomId, newConn.to.contactName, INPUT);
 			if (cOut != null && cIn != null)
@@ -685,7 +747,9 @@ class GroupAtomsCommand extends Command
 			}
 			else
 			{
-				trace('  ✗ FAILED to link: cOut=${cOut != null}, cIn=${cIn != null}');
+				trace('  ✗ FAILED to link: cOut=${cOut != null ? cOut.name : "null"}, cIn=${cIn != null ? cIn.name : "null"}');
+				trace('  DEBUG: newConn.to.atomId=${newConn.to.atomId}, contactName=${newConn.to.contactName}');
+				trace('  DEBUG: newInstance.inputs=${[for (c in newInstance.getInputs()) c.name]}');
 			}
 		}
 

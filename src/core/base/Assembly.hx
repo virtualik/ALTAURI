@@ -1289,20 +1289,52 @@ class Assembly extends Atom
 
 		// Apply updates
 		// ═══════════════════════════════════════════════════════════════════
-		// FIX: Track used external names to prevent collisions
+		// v2.7 FIX: Track used external names to prevent collisions
 		// ═══════════════════════════════════════════════════════════════════
-		var usedExternalNames:Map<String, Int> = new Map();
+		// v2.7 CRITICAL FIX: Don't pre-populate usedExternalNames with
+		// THIS assembly's OWN port externalNames!
+		//
+		// PREVIOUS BUG:
+		//   - Pre-populate usedExternalNames with all current externalNames
+		//   - For each port, compute baseExtName = atomName_contactName
+		//   - If baseExtName is in usedExternalNames → append _N
+		//
+		//   Problem: when this method runs the SECOND time (e.g., during
+		//   pop() → refreshExternalPortNames()), the port's externalName
+		//   is ALREADY "Pass_in_2" (from the first refresh). When we
+		//   re-compute baseExtName = "Pass_in_2" (because contactName on
+		//   the child atom's port is "in_2" — actually let me re-check,
+		//   this is contactName from the INNER atom's contact, e.g. "in")
+		//   ... wait, the contactName here is the INNER atom's contact
+		//   name (e.g., "in", "out"), NOT the port's externalName.
+		//
+		//   So baseExtName = "Pass_in" (from displayName="Pass",
+		//   contactName="in"). If the port's current externalName is
+		//   "Pass_in" (matching), the OLD code would still find it in
+		//   usedExternalNames (from pre-populate) and append _2 →
+		//   "Pass_in_2". On next refresh: "Pass_in_2_2". Etc.
+		//
+		//   This snowballs _N suffixes on every refresh.
+		//
+		// NEW ALGORITHM:
+		//   1. Do NOT pre-populate usedExternalNames
+		//   2. For each port (in deterministic order):
+		//      a. Compute baseExtName
+		//      b. If baseExtName is already used by ANOTHER port that
+		//         we've already assigned in THIS pass → append _N
+		//      c. Otherwise use baseExtName as-is
+		//   3. This way, ports keep their stable names across refreshes
+		//      (because we don't conflict with our own previous values)
+		// ═══════════════════════════════════════════════════════════════════
 
-		// Pre-populate with existing port externalNames
-		for (p in ports)
-		{
-			if (p != null && p.externalName != null && p.externalName != "")
-			{
-				usedExternalNames.set(p.externalName, 1);
-			}
-		}
+		var usedExternalNames:Map<String, Bool> = new Map();
 
-		for (portName in portInfos.keys())
+		// Process ports in deterministic order (sorted by portName)
+		// to ensure consistent naming across refreshes
+		var sortedPortNames = [for (p in portInfos.keys()) p];
+		sortedPortNames.sort(function(a, b) return a < b ? -1 : (a > b ? 1 : 0));
+
+		for (portName in sortedPortNames)
 		{
 			var info = portInfos.get(portName);
 			var port = ports.get(portName);
@@ -1312,16 +1344,17 @@ class Assembly extends Atom
 			var newExtName = baseExtName;
 
 			// Ensure uniqueness by appending _N if collision exists
+			// (collision = another port in THIS pass already took this name)
 			if (usedExternalNames.exists(newExtName))
 			{
-				var count = usedExternalNames.get(newExtName);
-				usedExternalNames.set(newExtName, count + 1);
-				newExtName = baseExtName + "_" + (count + 1);
+				var counter = 1;
+				while (usedExternalNames.exists(baseExtName + "_" + counter))
+				{
+					counter++;
+				}
+				newExtName = baseExtName + "_" + counter;
 			}
-			else
-			{
-				usedExternalNames.set(newExtName, 1);
-			}
+			usedExternalNames.set(newExtName, true);
 
 			if (port.externalName == newExtName) continue;
 
