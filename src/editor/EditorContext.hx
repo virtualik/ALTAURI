@@ -1,6 +1,5 @@
 package editor;
 
-
 import openfl.display.Sprite;
 import openfl.events.Event;
 import core.base.Assembly;
@@ -15,218 +14,230 @@ import core.types.ContactType.*;
 import core.base.AssemblyFactory;
 
 /**
- * EDITOR CONTEXT v2.4 (Global Name Uniqueness + Load-Symmetric Reconstruction + isActive + Reattach + Pre-Save Sync)
- * Manages the stack of open editors (NodeEditor instances) and their camera states.
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * v2.4 CHANGES (Global Name Uniqueness)
- * ═══════════════════════════════════════════════════════════════════════════
- *
- *  PROBLEM:
- *  When pasting or adding atoms, the system only checked for name uniqueness
- *  within the current assembly. This allowed duplicate displayNames across
- *  different nesting levels, causing wire misrouting and UI confusion.
- *
- *  SOLUTION:
- *  Added isNameTakenGlobally() and hasNameRecursive() to traverse the entire
- *  assembly hierarchy (starting from the root) and verify name uniqueness.
- *  This callback is passed down to NodeEditor, which forwards it to NodeView
- *  and EditorActionHandler.
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * v2.3 CHANGES (isActive Flag — Broadcast Storm Prevention)
- * ═══════════════════════════════════════════════════════════════════════════
- *
- *  PROBLEM:
- *  When push()-ing into a nested assembly, the previous NodeEditor stayed
- *  alive behind a blocker. All 9 of its Impulsys subscriptions remained
- *  active. On nesting level N, every REDRAW_WIRES emit triggered N
- *  concurrent rebuildAll() calls — O(N) work per event, causing UI
- *  freezes during pan/zoom at deep nesting.
- *
- *  SOLUTION:
- *  push() now sets top.editor.isActive = false on the parent.
- *  pop() sets prev.editor.isActive = true and calls forceFullRedraw()
- *  (already did the redraw — now also reactivates impulse handling).
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * v2.2 CHANGES (NodeView Reattach + Pre-Save Sync)
- * ═══════════════════════════════════════════════════════════════════════════
- *
- *  PROBLEM A (displayNames lost on disk after restart):
- *  The sync methods (refreshExternalPortNames, syncDisplayNamesToBlueprint,
- *  syncConnectionsToTemplateIds) were called INSIDE pop(), but Main's
- *  onBackClicked flow was:
- *
- *      saveCurrentContext();        ← writes OLD bp to disk
- *      closeCurrentEditor(true);    ← pop() runs sync, but too late
- *
- *  Result: in-memory bp was synced, but disk copy was stale. Renamed atoms
- *  reverted to default names after app restart.
- *
- *  SOLUTION A:
- *  Added prepareCurrentAssemblyForSave() — public method that Main.hx calls
- *  BEFORE saveCurrentContext(). Sync methods run BEFORE the bp is serialized
- *  to disk, so disk and memory stay consistent.
- *
- *  PROBLEM B (ports + labels vanish after Editor ↔ Device Panel switch):
- *  updateInstancesOf() disposes the old Assembly and creates a new one with
- *  the SAME runtimeId. But the parent's NodeView kept holding a reference to
- *  the OLD (disposed) Assembly. After Assembly.dispose():
- *    - internalAtoms = null
- *    - ports = null
- *    - _inputs / _outputs = null
- *
- *  The first time createPorts() ran after a mode switch (Editor → Device →
- *  Editor forces updateLayout → createPorts), atom.getInputs() returned
- *  null and no ports were created. Symptom: "графика контактов и названия
- *  контактов пропадают".
- *
- *  SOLUTION B:
- *  After replacing the atom in currentAssembly.internalAtoms, call:
- *
- *      currentEditor.reattachNodeView(oldRuntimeId, newInstance)
- *
- *  This swaps the NodeView's atom reference, releases the old DeviceView
- *  (with its Contact subscriptions on the disposed atom), acquires a fresh
- *  DeviceView for the new atom, and rebuilds layout + ports + inline editors.
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * v2.1 CHANGES (Load-Symmetric Blueprint Sync in pop())
- * ═══════════════════════════════════════════════════════════════════════════
- *
- *  PROBLEM:
- *  After "enter assembly → add wires → rename atoms → exit", the reconstructed
- *  assembly lost all wires AND the user's renamed atoms appeared disconnected.
- *  Trace logs showed:
- *
- *    WARN: Atom "id_9082dcea" not found in Assembly(id_9d0b2ea5)
- *    SAFETY NET: Removed ghost connection: id_9082dcea.device → ...
- *
- *  ROOT CAUSE:
- *  ConnectCommand stores RUNTIME IDs in blueprint.internalConnections.
- *  ProjectManager.saveAssemblyToLibrary() translates runtime → template
- *  when writing to disk, so disk-saved blueprints are correct. But the
- *  in-memory blueprint used by updateInstancesOf() still contained runtime
- *  IDs. When AssemblyFactory.createAtom ran the constructor,
- *  _createInternalInstances generated NEW runtime IDs (via UID.generate),
- *  so the OLD runtime IDs in the blueprint matched nothing — and the
- *  SAFETY NET in _createInternalConnections purged every connection as
- *  a ghost. Atom displayNames were restored correctly, but the atoms
- *  appeared "unsaved" because they were orphaned (no wires).
- *
- *  SOLUTION:
- *  Before reconstruction, call three sync methods in order:
- *    1. asm.refreshExternalPortNames()     — update PinDef.externalName
- *                                           based on connected atoms
- *    2. asm.syncDisplayNamesToBlueprint()  — write displayName into
- *                                           atomDef.values for restoreState
- *    3. asm.syncConnectionsToTemplateIds() — translate runtime IDs in
- *                                           internalConnections to template IDs
- *  Then registerBlueprint() + updateInstancesOf() run against a blueprint
- *  that is structurally identical to a freshly-loaded-from-disk one.
- *  Reconstruction is now fully load-symmetric.
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * v2.0 CHANGES (Load-Symmetric Assembly Reconstruction)
- * ═══════════════════════════════════════════════════════════════════════════
- *
- *  PROBLEM:
- *  After "enter assembly → exit assembly", feeding signals into the assembly's
- *  external contacts crashed the application. Re-loading the project from disk
- *  healed the system, which proved that the construction path was correct and
- *  the exit path was not.
- *
- *  ROOT CAUSE:
- *  pop(updateInstances=true) called asm.updateFromBlueprint(newBp), which only
- *  mutated ports on the existing Assembly instance while preserving its internal
- *  atom instances. Those internal atoms still had live DeviceView callbacks
- *  subscribed to their contacts (because NodeView.dispose() never disposes
- *  DeviceViews). After exit, when a signal reached an internal atom, those
- *  orphaned callbacks fired against torn-down display objects → crash.
- *
- *  SOLUTION:
- *  Replace the partial updateFromBlueprint() call in updateInstancesOf() with a
- *  FULL reconstruction that mirrors exactly what project load does:
- *
- *    1. Remember the assembly's runtime ID
- *    2. Unlink parent-side wires pointing at the assembly's port.external
- *       (Contact.dispose() only removes THIS from targets that THIS links to;
- *        it cannot remove THIS from contacts that link TO this — see unlinkParentWiresTo)
- *    3. Dispose the old assembly completely
- *       → disposes internal atoms → disposes their contacts → nullifies
- *         callbackTargets → leaked DeviceView callbacks can no longer fire
- *    4. Recreate the assembly via AssemblyFactory.createAtom(typeId, oldRuntimeId)
- *       → constructor path: _createInterface + _createInternalInstances +
- *         _createInternalConnections + _initializeLogicState + _updatePortLinks +
- *         _processPendingSignals
- *       → identical to what happens during project load
- *    5. Reconnect parent's external wires to the new port.external contacts
- *
- *  This makes the system state after exit identical to the state after load:
- *  fresh atom instances, fresh contacts with empty callbackTargets, fresh
- *  ConductorPort instances, state restored from saved blueprint values.
- *
- *  v1.4 Changes:
- *  - FIXED: push() now calls editor.forceFullRedraw() twice (immediately and after 100ms)
- *    to ensure all NodeViews are created and wires are drawn.
- *  - FIXED: pop() now calls prev.editor.forceFullRedraw() with double delay.
- *
- *  v1.3 Changes:
- *  - FIXED: push() now calls editor.forceFullRedraw() after a short delay
- *    to ensure all NodeViews are created and wires are drawn.
- *  - FIXED: pop() now calls prev.editor.forceFullRedraw() to restore parent view.
- *
- * Architecture:
- * ┌─────────────────────────────────────────────────────────────────────────┐
- * │   EditorContext                                                         │
- * │                                                                         │
- * │   ┌─────────────────────────────────────────────────────────────────┐   │
- * │   │  Stack Management:                                              │   │
- * │   │  - _stack:Array<EditorEntry>                                    │   │
- * │   │  - push(assembly)    → Open new assembly (drill down)           │   │
- * │   │  - pop()             → Close current assembly (go back)         │   │
- * │   │  - clear()           → Reset entire stack                       │   │
- * │   │  - getStackEntries() → Return array of entries (for external)   │   │
- * │   │                                                                 │   │
- * │   │  v2.4 Global Name Uniqueness:                                   │   │
- * │   │  - isNameTakenGlobally(name, excludeId) → checks entire tree    │   │
- * │   │  - Passed to NodeEditor constructor on push()                   │   │
- * │   │                                                                 │   │
- * │   │  v2.3 Broadcast Storm Prevention:                               │   │
- * │   │  - push() sets parent editor's isActive = false                 │   │
- * │   │  - pop() sets it back to true + forceFullRedraw                 │   │
- * │   │                                                                 │   │
- * │   │  Camera State Management:                                       │   │
- * │   │  - _cameraStates:Map<String, {x, y, zoom}>                      │   │
- * │   │    Stores viewport state for each assembly by blueprint.id.     │   │
- * │   │  - On push: store parent state, then restore or auto-center.    │   │
- * │   │  - On pop: store current state, restore parent state.           │   │
- * │   │                                                                 │   │
- * │   │  v2.0 Assembly Reconstruction (on pop with updateInstances):    │   │
- * │   │  - updateInstancesOf(typeId)                                    │   │
- * │   │    → unlinkParentWiresTo(asm)                                   │   │
- * │   │    → asm.dispose()                                              │   │
- * │   │    → AssemblyFactory.createAtom(typeId, oldRuntimeId)           │   │
- * │   │    → reconnectExternalLinksToAssembly(newAsm)                   │   │
- * │   │    → currentEditor.reattachNodeView(oldRuntimeId, newInstance)  │   │
- * │   │                                                                 │   │
- * │   │  v2.2 Pre-Save Sync (called by Main BEFORE saveCurrentContext): │   │
- * │   │  - prepareCurrentAssemblyForSave()                              │   │
- * │   │    → refreshExternalPortNames()                                 │   │
- * │   │    → syncDisplayNamesToBlueprint()                              │   │
- * │   │    → syncConnectionsToTemplateIds()                             │   │
- * │   │    → registerBlueprint()                                        │   │
- * │   │                                                                 │   │
- * │   │  Visual State:                                                  │   │
- * │   │  - currentAssembly   → Currently edited assembly                │   │
- * │   │  - currentEditor     → Active NodeEditor instance               │   │
- * │   │  - blocker:Sprite    → Semi-transparent overlay (blocks input)  │   │
- * │   │                                                                 │   │
- * │   └─────────────────────────────────────────────────────────────────┘   │
- * │                                                                         │
- * └─────────────────────────────────────────────────────────────────────────┘
- */
+* EDITOR CONTEXT v2.5 (Global Name Uniqueness via NamingService + Load-Symmetric Reconstruction + isActive + Reattach + Pre-Save Sync)
+* Manages the stack of open editors (NodeEditor instances) and their camera states.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.5 CHANGES (NamingService Delegation)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM:
+*  Previous tree-walk approach (hasNameRecursive) only saw atoms in the 
+*  currently-loaded editor stack and duplicated state already maintained 
+*  by NamingService, causing potential desync.
+*
+*  SOLUTION:
+*  isNameTakenGlobally() now directly delegates to NamingService.isInstanceNameTaken().
+*  NamingService is the single source of truth for global name uniqueness.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.4 CHANGES (Global Name Uniqueness Integration)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM:
+*  When pasting or adding atoms, the system only checked for name uniqueness
+*  within the current assembly. This allowed duplicate displayNames across
+*  different nesting levels, causing wire misrouting and UI confusion.
+*
+*  SOLUTION:
+*  Added isNameTakenGlobally() callback passed down to NodeEditor, which 
+*  forwards it to NodeView and EditorActionHandler.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.3 CHANGES (isActive Flag — Broadcast Storm Prevention)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM:
+*  When push()-ing into a nested assembly, the previous NodeEditor stayed
+*  alive behind a blocker. All 9 of its Impulsys subscriptions remained
+*  active. On nesting level N, every REDRAW_WIRES emit triggered N
+*  concurrent rebuildAll() calls — O(N) work per event, causing UI
+*  freezes during pan/zoom at deep nesting.
+*
+*  SOLUTION:
+*  push() now sets top.editor.isActive = false on the parent.
+*  pop() sets prev.editor.isActive = true and calls forceFullRedraw()
+*  (already did the redraw — now also reactivates impulse handling).
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.2 CHANGES (NodeView Reattach + Pre-Save Sync)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM A (displayNames lost on disk after restart):
+*  The sync methods (refreshExternalPortNames, syncDisplayNamesToBlueprint,
+*  syncConnectionsToTemplateIds) were called INSIDE pop(), but Main's
+*  onBackClicked flow was:
+*
+*      saveCurrentContext();        ← writes OLD bp to disk
+*      closeCurrentEditor(true);    ← pop() runs sync, but too late
+*
+*  Result: in-memory bp was synced, but disk copy was stale. Renamed atoms
+*  reverted to default names after app restart.
+*
+*  SOLUTION A:
+*  Added prepareCurrentAssemblyForSave() — public method that Main.hx calls
+*  BEFORE saveCurrentContext(). Sync methods run BEFORE the bp is serialized
+*  to disk, so disk and memory stay consistent.
+*
+*  PROBLEM B (ports + labels vanish after Editor ↔ Device Panel switch):
+*  updateInstancesOf() disposes the old Assembly and creates a new one with
+*  the SAME runtimeId. But the parent's NodeView kept holding a reference to
+*  the OLD (disposed) Assembly. After Assembly.dispose():
+*    - internalAtoms = null
+*    - ports = null
+*    - _inputs / _outputs = null
+*
+*  The first time createPorts() ran after a mode switch (Editor → Device →
+*  Editor forces updateLayout → createPorts), atom.getInputs() returned
+*  null and no ports were created. Symptom: "графика контактов и названия
+*  контактов пропадают".
+*
+*  SOLUTION B:
+*  After replacing the atom in currentAssembly.internalAtoms, call:
+*
+*      currentEditor.reattachNodeView(oldRuntimeId, newInstance)
+*
+*  This swaps the NodeView's atom reference, releases the old DeviceView
+*  (with its Contact subscriptions on the disposed atom), acquires a fresh
+*  DeviceView for the new atom, and rebuilds layout + ports + inline editors.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.1 CHANGES (Load-Symmetric Blueprint Sync in pop())
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM:
+*  After "enter assembly → add wires → rename atoms → exit", the reconstructed
+*  assembly lost all wires AND the user's renamed atoms appeared disconnected.
+*  Trace logs showed:
+*
+*    WARN: Atom "id_9082dcea" not found in Assembly(id_9d0b2ea5)
+*    SAFETY NET: Removed ghost connection: id_9082dcea.device → ...
+*
+*  ROOT CAUSE:
+*  ConnectCommand stores RUNTIME IDs in blueprint.internalConnections.
+*  ProjectManager.saveAssemblyToLibrary() translates runtime → template
+*  when writing to disk, so disk-saved blueprints are correct. But the
+*  in-memory blueprint used by updateInstancesOf() still contained runtime
+*  IDs. When AssemblyFactory.createAtom ran the constructor,
+*  _createInternalInstances generated NEW runtime IDs (via UID.generate),
+*  so the OLD runtime IDs in the blueprint matched nothing — and the
+*  SAFETY NET in _createInternalConnections purged every connection as
+*  a ghost. Atom displayNames were restored correctly, but the atoms
+*  appeared "unsaved" because they were orphaned (no wires).
+*
+*  SOLUTION:
+*  Before reconstruction, call three sync methods in order:
+*    1. asm.refreshExternalPortNames()     — update PinDef.externalName
+*                                           based on connected atoms
+*    2. asm.syncDisplayNamesToBlueprint()  — write displayName into
+*                                           atomDef.values for restoreState
+*    3. asm.syncConnectionsToTemplateIds() — translate runtime IDs in
+*                                           internalConnections to template IDs
+*  Then registerBlueprint() + updateInstancesOf() run against a blueprint
+*  that is structurally identical to a freshly-loaded-from-disk one.
+*  Reconstruction is now fully load-symmetric.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.0 CHANGES (Load-Symmetric Assembly Reconstruction)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM:
+*  After "enter assembly → exit assembly", feeding signals into the assembly's
+*  external contacts crashed the application. Re-loading the project from disk
+*  healed the system, which proved that the construction path was correct and
+*  the exit path was not.
+*
+*  ROOT CAUSE:
+*  pop(updateInstances=true) called asm.updateFromBlueprint(newBp), which only
+*  mutated ports on the existing Assembly instance while preserving its internal
+*  atom instances. Those internal atoms still had live DeviceView callbacks
+*  subscribed to their contacts (because NodeView.dispose() never disposes
+*  DeviceViews). After exit, when a signal reached an internal atom, those
+*  orphaned callbacks fired against torn-down display objects → crash.
+*
+*  SOLUTION:
+*  Replace the partial updateFromBlueprint() call in updateInstancesOf() with a
+*  FULL reconstruction that mirrors exactly what project load does:
+*
+*    1. Remember the assembly's runtime ID
+*    2. Unlink parent-side wires pointing at the assembly's port.external
+*       (Contact.dispose() only removes THIS from targets that THIS links to;
+*        it cannot remove THIS from contacts that link TO this — see unlinkParentWiresTo)
+*    3. Dispose the old assembly completely
+*       → disposes internal atoms → disposes their contacts → nullifies
+*         callbackTargets → leaked DeviceView callbacks can no longer fire
+*    4. Recreate the assembly via AssemblyFactory.createAtom(typeId, oldRuntimeId)
+*       → constructor path: _createInterface + _createInternalInstances +
+*         _createInternalConnections + _initializeLogicState + _updatePortLinks +
+*         _processPendingSignals
+*       → identical to what happens during project load
+*    5. Reconnect parent's external wires to the new port.external contacts
+*
+*  This makes the system state after exit identical to the state after load:
+*  fresh atom instances, fresh contacts with empty callbackTargets, fresh
+*  ConductorPort instances, state restored from saved blueprint values.
+*
+*  v1.4 Changes:
+*  - FIXED: push() now calls editor.forceFullRedraw() twice (immediately and after 100ms)
+*    to ensure all NodeViews are created and wires are drawn.
+*  - FIXED: pop() now calls prev.editor.forceFullRedraw() with double delay.
+*
+*  v1.3 Changes:
+*  - FIXED: push() now calls editor.forceFullRedraw() after a short delay
+*    to ensure all NodeViews are created and wires are drawn.
+*  - FIXED: pop() now calls prev.editor.forceFullRedraw() to restore parent view.
+*
+* Architecture:
+* ┌─────────────────────────────────────────────────────────────────────────┐
+* │   EditorContext                                                         │
+* │                                                                         │
+* │   ┌─────────────────────────────────────────────────────────────────┐   │
+* │   │  Stack Management:                                              │   │
+* │   │  - _stack:Array<EditorEntry>                                    │   │
+* │   │  - push(assembly)    → Open new assembly (drill down)           │   │
+* │   │  - pop()             → Close current assembly (go back)         │   │
+* │   │  - clear()           → Reset entire stack                       │   │
+* │   │  - getStackEntries() → Return array of entries (for external)   │   │
+* │   │                                                                 │   │
+* │   │  v2.5 Global Name Uniqueness:                                   │   │
+* │   │  - isNameTakenGlobally(name, excludeId) → delegates to          │   │
+* │   │    NamingService.isInstanceNameTaken()                          │   │
+* │   │  - Passed to NodeEditor constructor on push()                   │   │
+* │   │                                                                 │   │
+* │   │  v2.3 Broadcast Storm Prevention:                               │   │
+* │   │  - push() sets parent editor's isActive = false                 │   │
+* │   │  - pop() sets it back to true + forceFullRedraw                 │   │
+* │   │                                                                 │   │
+* │   │  Camera State Management:                                       │   │
+* │   │  - _cameraStates:Map<String, {x, y, zoom}>                      │   │
+* │   │    Stores viewport state for each assembly by blueprint.id.     │   │
+* │   │  - On push: store parent state, then restore or auto-center.    │   │
+* │   │  - On pop: store current state, restore parent state.           │   │
+* │   │                                                                 │   │
+* │   │  v2.0 Assembly Reconstruction (on pop with updateInstances):    │   │
+* │   │  - updateInstancesOf(typeId)                                    │   │
+* │   │    → unlinkParentWiresTo(asm)                                   │   │
+* │   │    → asm.dispose()                                              │   │
+* │   │    → AssemblyFactory.createAtom(typeId, oldRuntimeId)           │   │
+* │   │    → reconnectExternalLinksToAssembly(newAsm)                   │   │
+* │   │    → currentEditor.reattachNodeView(oldRuntimeId, newInstance)  │   │
+* │   │                                                                 │   │
+* │   │  v2.2 Pre-Save Sync (called by Main BEFORE saveCurrentContext): │   │
+* │   │  - prepareCurrentAssemblyForSave()                              │   │
+* │   │    → refreshExternalPortNames()                                 │   │
+* │   │    → syncDisplayNamesToBlueprint()                              │   │
+* │   │    → syncConnectionsToTemplateIds()                             │   │
+* │   │    → registerBlueprint()                                        │   │
+* │   │                                                                 │   │
+* │   │  Visual State:                                                  │   │
+* │   │  - currentAssembly   → Currently edited assembly                │   │
+* │   │  - currentEditor     → Active NodeEditor instance               │   │
+* │   │  - blocker:Sprite    → Semi-transparent overlay (blocks input)  │   │
+* │   │                                                                 │   │
+* │   └─────────────────────────────────────────────────────────────────┘   │
+* │                                                                         │
+* └─────────────────────────────────────────────────────────────────────────┘
+*/
 class EditorContext
 {
 	// =========================================================================
@@ -307,7 +318,7 @@ class EditorContext
 		drawContainerFrame(container);
 		_layer.addChild(container);
 
-		// Create editor (v2.4: pass global name uniqueness checker)
+		// Create editor (v2.5: pass global name uniqueness checker)
 		var editor = new NodeEditor(assembly, isNameTakenGlobally);
 		editor.setSize(container.width, container.height);
 		container.addChild(editor);
@@ -575,11 +586,9 @@ class EditorContext
 				}
 			}
 		}
-		if (foundCount == 0)
-		{
+	    if (foundCount == 0) {
 			trace('⚠️ updateInstancesOf: No assemblies of type "$typeId" found in parent!');
 		}
-
 	}
 
 	/**
@@ -744,33 +753,32 @@ class EditorContext
 		{
 			// Check if this connection involves our updated assembly
 			var isTarget = false;
-
+			
 			// Check 'to' side
 			if (conn.to.atomId != "SELF")
 			{
 				var realAtomId = currentAssembly.idMap.get(conn.to.atomId);
 				if (realAtomId == null) realAtomId = conn.to.atomId; // fallback if already runtime ID
-
-				if (realAtomId == targetAsm.id || conn.to.atomId == targetAsm.id)
+				
+				if (realAtomId == targetAsm.id || conn.to.atomId == targetAsm.id) 
 				{
 					isTarget = true;
 				}
 			}
-
+			
 			// Check 'from' side (for completeness)
 			if (!isTarget && conn.from.atomId != "SELF")
 			{
 				var realAtomId = currentAssembly.idMap.get(conn.from.atomId);
 				if (realAtomId == null) realAtomId = conn.from.atomId;
-
+				
 				if (realAtomId == targetAsm.id || conn.from.atomId == targetAsm.id)
 				{
 					isTarget = true;
 				}
 			}
-
-			if (isTarget)
-			{
+			
+			if (isTarget) {
 				reconnectedCount++;
 
 				// ═══════════════════════════════════════════════════════════════════
@@ -837,13 +845,10 @@ class EditorContext
 
 				trace('🔗 reconnect: ${conn.from.atomId}.${conn.from.contactName} → ${conn.to.atomId}.${conn.to.contactName}');
 				trace('   cOut=${cOut != null ? cOut.name : "null"}, cIn=${cIn != null ? cIn.name : "null"}');
-				if (cOut != null && cIn != null && !cOut.hasLink(cIn))
-				{
+				if (cOut != null && cIn != null && !cOut.hasLink(cIn)) {
 					cOut.link(cIn);
 					trace('   ✓ Linked!');
-				}
-				else if (cOut == null || cIn == null)
-				{
+				} else if (cOut == null || cIn == null) {
 					trace('   ✗ FAILED to link!');
 				}
 			}
