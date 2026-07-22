@@ -24,8 +24,9 @@ abstract EventType(String) from String to String {
     public static var VALUE_COMMITTED(default, never) = new EventType("VALUE_COMMITTED");
     public static var DEVICE_WINDOW_CHANGED(default, never) = new EventType("DEVICE_WINDOW_CHANGED");
     public static var OSCILLOSCOPE_SHAPE_CHANGED(default, never) = new EventType("OSCILLOSCOPE_SHAPE_CHANGED");
-    public static var OSCILLOSCOPE_FRAME_READY:String = "oscilloscopeFrameReady";
-    
+	public static var OSCILLOSCOPE_FRAME_READY(default, never) = new EventType("OSCILLOSCOPE_FRAME_READY");
+    public static var FFT_SPECTRUM_READY(default, never) = new EventType("FFT_SPECTRUM_READY");
+	
     // === v1.3: Port removal notification ===
     public static var PORT_REMOVED(default, never) = new EventType("PORT_REMOVED");
     
@@ -51,7 +52,8 @@ abstract EventType(String) from String to String {
 
     // === CONTEXT MENU ===
     public static var CONTEXT_MENU_ACTION(default, never) = new EventType("CONTEXT_MENU_ACTION");
-    
-    // === FFT  === 
-    public static var FFT_SPECTRUM_READY(default, never) = new EventType("FFT_SPECTRUM_READY");
+    // === CONTEXT MENU v2.0 ===
+	public static var MENU_ENTRY_ACTIVATED(default, never) = new EventType("MENU_ENTRY_ACTIVATED");
+	public static var MENU_CLOSED(default, never) = new EventType("MENU_CLOSED");
+
 }

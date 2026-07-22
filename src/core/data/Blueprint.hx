@@ -145,6 +145,10 @@ class Blueprint
 
 	/** If true, the atom requires active driver updates (registered in DriverManager). */
 	public var isActive:Bool = false;
+	
+    /** Icon identifier for menu display (e.g., "signal_generator", "button").
+     *  Maps to assets/icons/atoms/{iconId}.png. Null = use default icon. */
+    public var iconId:String = null;
 
 	/** External interface (input/output ports). */
 	public var pins(default, null):Array<PinDef>;
