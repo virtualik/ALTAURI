@@ -908,18 +908,19 @@ var ApplicationMain = function() { };
 $hxClasses["ApplicationMain"] = ApplicationMain;
 ApplicationMain.__name__ = "ApplicationMain";
 ApplicationMain.main = function() {
-	lime_system_System.__registerEntryPoint("MyApplication",ApplicationMain.create);
+	lime_system_System.__registerEntryPoint("ALTAURI",ApplicationMain.create);
 };
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
-	app.meta.h["build"] = "147";
+	ManifestResources.init(config);
+	app.meta.h["build"] = "155";
 	app.meta.h["company"] = "ViRTUALiK";
-	app.meta.h["file"] = "MyApplication";
+	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
 	app.meta.h["packageName"] = "com.virtualik.altauri";
 	app.meta.h["version"] = "1.0.0";
-	var attributes = { allowHighDPI : false, alwaysOnTop : false, borderless : true, element : null, frameRate : 60, height : 800, hidden : false, maximized : false, minimized : false, parameters : { }, resizable : true, title : "ALTAURI", width : 1280, x : null, y : null};
-	attributes.context = { antialiasing : 0, background : 16711935, colorDepth : 32, depth : true, hardware : true, stencil : true, type : null, vsync : true};
+	var attributes = { allowHighDPI : false, alwaysOnTop : false, borderless : false, element : null, frameRate : 60, height : 0, hidden : false, maximized : false, minimized : false, parameters : { }, resizable : true, title : "ALTAURI", width : 0, x : null, y : null};
+	attributes.context = { antialiasing : 0, background : 16777215, colorDepth : 32, depth : true, hardware : true, stencil : true, type : null, vsync : true};
 	if(app.__window == null) {
 		if(config != null) {
 			var _g = 0;
@@ -948,6 +949,20 @@ ApplicationMain.create = function(config) {
 		ApplicationMain.start(stage);
 	};
 	preloader.onComplete.add(tmp);
+	var _g = 0;
+	var _g1 = ManifestResources.preloadLibraries;
+	while(_g < _g1.length) {
+		var library = _g1[_g];
+		++_g;
+		app.__preloader.addLibrary(library);
+	}
+	var _g = 0;
+	var _g1 = ManifestResources.preloadLibraryNames;
+	while(_g < _g1.length) {
+		var name = _g1[_g];
+		++_g;
+		app.__preloader.addLibraryName(name);
+	}
 	app.__preloader.load();
 	var result = app.exec();
 };
@@ -2600,7 +2615,7 @@ openfl_display_DisplayObject.prototype = $extend(openfl_events_EventDispatcher.p
 			this.__scrollRect = null;
 		}
 		this.__setTransformDirty();
-		if(openfl_display_DisplayObject.__supportDOM) {
+		if(openfl_display_DisplayObject.__supportDOM || this.get_cacheAsBitmap()) {
 			if(!this.__renderDirty) {
 				this.__renderDirty = true;
 				this.__setParentRenderDirty();
@@ -3452,7 +3467,20 @@ openfl_display_Sprite.prototype = $extend(openfl_display_DisplayObjectContainer.
 	,__class__: openfl_display_Sprite
 	,__properties__: $extend(openfl_display_DisplayObjectContainer.prototype.__properties__,{get_graphics:"get_graphics",set_buttonMode:"set_buttonMode",get_buttonMode:"get_buttonMode"})
 });
-var MainHTML5 = function() {
+var Main = function() {
+	this._isDisposed = false;
+	this._windowSaveTimer = null;
+	this._cachedWindowY = 100;
+	this._cachedWindowX = 100;
+	this._cachedWindowHeight = 320;
+	this._cachedWindowWidth = 420;
+	this._cachedDeviceWindowState = null;
+	this._savedWindowHeight = 600;
+	this._savedWindowWidth = 800;
+	this._savedWindowY = 100;
+	this._savedWindowX = 100;
+	this._isWindowMaximized = false;
+	this._isPanelMode = false;
 	this._lastTime = 0;
 	openfl_display_Sprite.call(this);
 	this._theme = editor_EditorTheme.getInstance();
@@ -3466,65 +3494,355 @@ var MainHTML5 = function() {
 			return false;
 		};
 	}
-	this.initSystems();
+	this._projectManager = system_managers_ProjectManager.getInstance();
+	this._projectManager.init();
+	library_AtomRegistry.initialize();
+	ecs_ECS.init();
 	this.setupLayers();
+	this.setupDebugLog();
+	this.initTransparency();
 	if(this.stage != null) {
 		this.init();
 	} else {
 		this.addEventListener("addedToStage",$bind(this,this.init));
 	}
 };
-$hxClasses["MainHTML5"] = MainHTML5;
-MainHTML5.__name__ = "MainHTML5";
-MainHTML5.__super__ = openfl_display_Sprite;
-MainHTML5.prototype = $extend(openfl_display_Sprite.prototype,{
+$hxClasses["Main"] = Main;
+Main.__name__ = "Main";
+Main.__super__ = openfl_display_Sprite;
+Main.prototype = $extend(openfl_display_Sprite.prototype,{
 	init: function(e) {
+		var _gthis = this;
+		this.log("System initialized");
 		this.removeEventListener("addedToStage",$bind(this,this.init));
+		openfl_Lib.get_current().stage.window.set_visible(true);
 		this.stage.set_color(this._theme.APP_BG_BLACK);
-		this.stage.set_quality(1);
+		this.stage.set_quality(2);
 		this._editorContext = new editor_EditorContext(this._editorLayer);
-		this._settingsPanel = new ui_SettingsPanel();
-		this._settingsPanel.set_visible(false);
-		this._uiLayer.addChild(this._settingsPanel);
-		this._contextManager = new editor_ContextMenuManager(this._settingsPanel);
-		this._uiLayer.addChild(this._contextManager.getView());
-		this.addEventListener("enterFrame",$bind(this,this.onMainLoop));
-		this.stage.addEventListener("resize",$bind(this,this.onResize));
-		this.addEventListener("enterFrame",$bind(this,this.onMainLoop));
-		this.stage.addEventListener("resize",$bind(this,this.onResize));
-		this.createDemoProject();
-		this._contextManager.setContext(this._editorContext.currentEditor,this._editorContext.currentAssembly);
-		haxe_Log.trace("MainHTML5: Showcase initialized",{ fileName : "src/MainHTML5.hx", lineNumber : 152, className : "MainHTML5", methodName : "init"});
-	}
-	,initSystems: function() {
-		library_AtomRegistry.initialize();
-		ecs_ECS.init();
 		system_managers_DriverManager.getInstance();
-		system_managers_UndoManager.getInstance();
 		core_logic_TickGenerator.getInstance();
 		core_logic_TickGenerator.getInstance().set_targetHz(60);
+		this.addEventListener("enterFrame",$bind(this,this.onMainLoop));
+		this.buildUI();
+		this.stage.addEventListener("resize",$bind(this,this.onResize));
+		openfl_Lib.get_current().stage.addEventListener("exiting",function(e) {
+			e.preventDefault();
+			_gthis._popup.showConfirm("Exit","Save before closing?",function(confirmed) {
+				if(confirmed) {
+					_gthis.saveOnExit();
+				}
+				openfl_system_System.exit(0);
+			});
+		});
+		this.createDemoProject();
 		core_logic_TickGenerator.getInstance().maxStepsPerFrame = 100;
-		haxe_Log.trace("MainHTML5: Systems initialized",{ fileName : "src/MainHTML5.hx", lineNumber : 175, className : "MainHTML5", methodName : "initSystems"});
 	}
-	,setupLayers: function() {
-		this._editorLayer = new openfl_display_Sprite();
-		this.addChild(this._editorLayer);
-		this._uiLayer = new openfl_display_Sprite();
-		this.addChild(this._uiLayer);
+	,initTransparency: function() {
+		this._windowController = new ui_WindowController();
 	}
 	,createDemoProject: function() {
 		var demoBlueprint = new core_data_Blueprint("demo","Demo Showcase",[{ name : "IN", type : core_types_ContactType.INPUT},{ name : "OUT", type : core_types_ContactType.OUTPUT}]);
 		var rootAssembly = new core_base_Assembly("main_asm",demoBlueprint);
 		this._editorContext.push(rootAssembly,true);
 		var editor = this._editorContext.currentEditor;
-		editor.createAtom("Button",200,200);
-		editor.createAtom("LED",400,200);
-		editor.createAtom("Toggle",200,350);
-		editor.createAtom("Relay",400,350);
-		editor.createAtom("LED",600,350);
-		editor.createAtom("SignalGenerator",200,500);
-		editor.createAtom("Oscilloscope",500,500);
-		haxe_Log.trace("MainHTML5: Demo project created with 7 atoms",{ fileName : "src/MainHTML5.hx", lineNumber : 222, className : "MainHTML5", methodName : "createDemoProject"});
+		var sigGenId = utils_UID.generate();
+		var oscId = utils_UID.generate();
+		var buttonId = utils_UID.generate();
+		var ledId = utils_UID.generate();
+		var toggleId = utils_UID.generate();
+		var relayId = utils_UID.generate();
+		var led2Id = utils_UID.generate();
+		editor.createAtomWithId("SignalGenerator",sigGenId,200,200);
+		editor.createAtomWithId("Oscilloscope",oscId,500,200);
+		editor.createAtomWithId("Button",buttonId,200,400);
+		editor.createAtomWithId("LED",ledId,450,400);
+		editor.createAtomWithId("Toggle",toggleId,200,550);
+		editor.createAtomWithId("Relay",relayId,400,550);
+		editor.createAtomWithId("LED",led2Id,600,550);
+		editor.connectAtoms(sigGenId,"out",oscId,"in");
+		editor.connectAtoms(buttonId,"out",ledId,"in");
+		editor.connectAtoms(toggleId,"out",relayId,"control");
+		editor.connectAtoms(relayId,"out",led2Id,"in");
+		haxe_Log.trace("MainHTML5: Demo project created with 7 atoms and 4 connections",{ fileName : "src/Main.hx", lineNumber : 335, className : "Main", methodName : "createDemoProject"});
+		haxe_Timer.delay(function() {
+			if(editor != null && !editor.isDisposed) {
+				editor.forceFullRedraw();
+			}
+		},100);
+		this.updateNavigationUI();
+		this.updateButtonStates();
+	}
+	,loadProject: function() {
+		var _gthis = this;
+		var data = this._projectManager.loadSelfrun();
+		var rootAssembly = null;
+		core_logic_NamingService.clearInstanceNames();
+		if(data != null && data.blueprint != null) {
+			rootAssembly = new core_base_Assembly("main_asm",data.blueprint);
+			this.checkIsLogicRecursive(rootAssembly,0);
+			this._cachedDeviceWindowState = [];
+			if(data.devices != null) {
+				var _g = 0;
+				var _g1 = data.devices;
+				while(_g < _g1.length) {
+					var d = _g1[_g];
+					++_g;
+					var w = d.width != null ? d.width : 100.0;
+					var h = d.height != null ? d.height : 80.0;
+					this._cachedDeviceWindowState.push({ path : d.path, x : d.x, y : d.y, width : w, height : h});
+				}
+			}
+			this._cachedWindowWidth = data.windowWidth;
+			this._cachedWindowHeight = data.windowHeight;
+			this._cachedWindowX = data.windowX;
+			this._cachedWindowY = data.windowY;
+			this._editorContext.push(rootAssembly,true);
+			this._editorContext.currentEditor.setViewState(data.view);
+			if(this._editorContext.currentEditor != null) {
+				haxe_Timer.delay(function() {
+					if(_gthis._editorContext.currentEditor != null) {
+						_gthis._editorContext.currentEditor.forceFullRedraw();
+					}
+				},100);
+			}
+			if(data.isOpen) {
+				this._isPanelMode = false;
+				this.onToggleView();
+			}
+			this.log("Project loaded (v2.9).");
+		} else {
+			this.createEmptyProject();
+		}
+		this.updateNavigationUI();
+		this.updateButtonStates();
+	}
+	,checkIsLogicRecursive: function(asm,depth) {
+		if(asm == null || asm.internalAtoms == null || depth > 10) {
+			return;
+		}
+		var indent = StringTools.lpad("","  ",depth);
+		var h = asm.internalAtoms.h;
+		var id_h = h;
+		var id_keys = Object.keys(h);
+		var id_length = id_keys.length;
+		var id_current = 0;
+		while(id_current < id_length) {
+			var id = id_keys[id_current++];
+			var atom = asm.internalAtoms.h[id];
+			if(atom != null) {
+				var logicStatus = atom.isLogic ? "DIGITAL" : "ANALOG";
+				if(((atom) instanceof core_base_Assembly)) {
+					this.checkIsLogicRecursive(js_Boot.__cast(atom , core_base_Assembly),depth + 1);
+				}
+			}
+		}
+	}
+	,createEmptyProject: function() {
+		this.log("Creating new project...");
+		var emptyBlueprint = new core_data_Blueprint("selfrun","Selfrun",[{ name : "IN", type : core_types_ContactType.INPUT},{ name : "OUT", type : core_types_ContactType.OUTPUT}]);
+		var rootAssembly = new core_base_Assembly("main_asm",emptyBlueprint);
+		this._editorContext.push(rootAssembly,true);
+	}
+	,saveCurrentContext: function() {
+		var isRoot = this._editorContext.getStackLength() == 1;
+		if(isRoot) {
+			this.log("Saving Root...");
+			if(this._isPanelMode) {
+				this.syncDevicePanelToCache();
+			}
+			var viewState = this._editorContext.currentEditor.getViewState();
+			var devicesData = this._cachedDeviceWindowState != null ? this._cachedDeviceWindowState : [];
+			var isWindowOpen = this._isPanelMode;
+			this._projectManager.saveSelfrun(this._editorContext.currentAssembly,viewState,devicesData,isWindowOpen,this._cachedWindowWidth,this._cachedWindowHeight,this._cachedWindowX,this._cachedWindowY);
+		} else {
+			this.log("Saving Assembly to Library...");
+			this._projectManager.saveAssemblyToLibrary(this._editorContext.currentAssembly);
+		}
+	}
+	,saveOnExit: function() {
+		this.log("Auto-saving on exit...");
+		this._editorContext.prepareCurrentAssemblyForSave();
+		this.saveCurrentContext();
+	}
+	,onBackClicked: function() {
+		var _gthis = this;
+		if(this._editorContext.getStackLength() <= 1) {
+			this.log("Cannot close root assembly.");
+			return;
+		}
+		var isUnsaved = !this.isAssemblyFileExists(this._editorContext.currentAssembly.blueprint.id);
+		if(isUnsaved) {
+			this._popup.show("Save New Assembly",this._editorContext.currentAssembly.blueprint.name,function(name) {
+				if(name != null && name.length > 0) {
+					_gthis._editorContext.prepareCurrentAssemblyForSave();
+					_gthis.saveNewNamedAssembly(name);
+					_gthis.closeCurrentEditor(true);
+				}
+			});
+		} else {
+			this._editorContext.prepareCurrentAssemblyForSave();
+			this.saveCurrentContext();
+			this.closeCurrentEditor(true);
+		}
+	}
+	,closeCurrentEditor: function(updateInstances) {
+		this._editorContext.pop(updateInstances);
+		this.updateNavigationUI();
+		this.updateButtonStates();
+		this.log("Returned to: " + this._editorContext.currentAssembly.blueprint.name);
+	}
+	,onDeleteCurrentAssembly: function() {
+		var _gthis = this;
+		if(this._editorContext.getStackLength() <= 1) {
+			this.log("Cannot delete root assembly.");
+			return;
+		}
+		var bp = this._editorContext.currentAssembly.blueprint;
+		var isSaved = this.isAssemblyFileExists(bp.id);
+		var title = "Confirm Erase";
+		var message = isSaved ? "Assembly '" + bp.name + "' will be erased from Library. Continue?" : "Assembly '" + bp.name + "' is not saved and will be discarded. Continue?";
+		this._popup.showConfirm(title,message,function(confirmed) {
+			if(confirmed) {
+				_gthis.deleteCurrentAssemblyConfirmed(isSaved);
+			}
+		});
+	}
+	,deleteCurrentAssemblyConfirmed: function(isSaved) {
+		var bp = this._editorContext.currentAssembly.blueprint;
+		var deletedId = bp.id;
+		library_AtomRegistry.remove(deletedId);
+		if(isSaved) {
+			this._projectManager.deleteAssemblyFile(deletedId);
+		}
+		this.closeCurrentEditor(false);
+		this.cleanRegistryDanglingReferences(deletedId);
+	}
+	,cleanRegistryDanglingReferences: function(deletedId) {
+		var currentAsm = this._editorContext.currentAssembly;
+		var idsToRemove = [];
+		var h = currentAsm.internalAtoms.h;
+		var id_h = h;
+		var id_keys = Object.keys(h);
+		var id_length = id_keys.length;
+		var id_current = 0;
+		while(id_current < id_length) {
+			var id = id_keys[id_current++];
+			var atom = currentAsm.internalAtoms.h[id];
+			if(((atom) instanceof core_base_Assembly)) {
+				if((js_Boot.__cast(atom , core_base_Assembly)).blueprint.id == deletedId) {
+					idsToRemove.push(id);
+				}
+			}
+		}
+		if(idsToRemove.length > 0) {
+			var macrocom = new system_commands_base_MacroCommand();
+			var _g = 0;
+			while(_g < idsToRemove.length) {
+				var id = idsToRemove[_g];
+				++_g;
+				macrocom.addCommand(new system_commands_editor_DeleteAtomCommand(currentAsm.blueprint,currentAsm,id));
+			}
+			macrocom.execute();
+			this._editorContext.currentEditor.refreshAssemblyViews();
+		}
+	}
+	,saveNewNamedAssembly: function(name) {
+		var safeName = StringTools.replace(name," ","_");
+		if(safeName.length == 0) {
+			this.log("Error: Invalid assembly name.");
+			return;
+		}
+		var uniqueName = core_logic_NamingService.resolveUniqueBlueprintName(name);
+		if(uniqueName != name) {
+			this.log("Name \"" + name + "\" already taken — saved as \"" + uniqueName + "\"");
+		}
+		var uniqueSafeId = StringTools.replace(uniqueName," ","_");
+		var bp = this._editorContext.currentAssembly.blueprint;
+		bp.id = uniqueSafeId;
+		bp.name = uniqueName;
+		if(!library_AtomRegistry.exists(bp.id)) {
+			library_AtomRegistry.registerBlueprint(bp.id,bp);
+		}
+		this.saveCurrentContext();
+	}
+	,syncDevicePanelToCache: function() {
+		if(this._devicePanel == null) {
+			return;
+		}
+		var cards = this._devicePanel.getDeviceCards();
+		if(cards.length == 0 && (this._cachedDeviceWindowState == null || this._cachedDeviceWindowState.length == 0)) {
+			return;
+		}
+		var newData = [];
+		var _g = 0;
+		while(_g < cards.length) {
+			var card = cards[_g];
+			++_g;
+			var path = this.findDevicePath(this._editorContext.currentAssembly,card.atom);
+			if(path != null && path.length > 0) {
+				newData.push({ path : path, x : card.get_x(), y : card.get_y(), width : card.cardWidth, height : card.cardHeight});
+			}
+		}
+		this._cachedDeviceWindowState = newData;
+	}
+	,restoreDevicePanelFromCache: function() {
+		if(this._cachedDeviceWindowState == null) {
+			return;
+		}
+		this._devicePanel.clearDevices();
+		var _g = 0;
+		var _g1 = this._cachedDeviceWindowState;
+		while(_g < _g1.length) {
+			var data = _g1[_g];
+			++_g;
+			var atom = this.resolveDevicePath(this._editorContext.currentAssembly,data.path);
+			if(atom != null) {
+				this._devicePanel.addDevice(atom,data.x,data.y);
+			}
+		}
+	}
+	,onToggleView: function() {
+		this._isPanelMode = !this._isPanelMode;
+		if(this._isPanelMode) {
+			this.log("Mode: Device Panel");
+			this._editorLayer.set_visible(false);
+			this._uiLayer.set_visible(false);
+			this._devicePanel.set_visible(true);
+			this._devicePanel.setSize(this.stage.stageWidth,this.stage.stageHeight);
+			this._devicePanel.setContext(this._editorContext.currentAssembly);
+			this.restoreDevicePanelFromCache();
+			if(this._deviceWindow != null && this._deviceWindow.get_isOpen()) {
+				this._deviceWindow.close();
+			}
+		} else {
+			this.log("Mode: Node Editor");
+			this.syncDevicePanelToCache();
+			if(this._devicePanel != null) {
+				this._devicePanel.set_visible(false);
+			}
+			this._editorLayer.set_visible(true);
+			this._uiLayer.set_visible(true);
+			if(this._devicePanel != null) {
+				this._devicePanel.clearDevices();
+			}
+			if(this._editorContext.currentEditor != null) {
+				this._editorContext.currentEditor.restoreAllWidgets();
+				this._editorContext.currentEditor.forceFullRedraw();
+			}
+		}
+	}
+	,onDeviceWindowChanged: function(impulse) {
+		var _gthis = this;
+		if(this._windowSaveTimer != null) {
+			this._windowSaveTimer.stop();
+		}
+		this._windowSaveTimer = haxe_Timer.delay(function() {
+			_gthis.syncDevicePanelToCache();
+			_gthis._editorContext.prepareCurrentAssemblyForSave();
+			_gthis.saveCurrentContext();
+			_gthis._windowSaveTimer = null;
+			_gthis.log("Device state auto-saved.");
+		},300);
 	}
 	,onMainLoop: function(e) {
 		var now = openfl_Lib.getTimer();
@@ -3532,23 +3850,712 @@ MainHTML5.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._lastTime = now;
 		core_logic_TickGenerator.getInstance().update(dt);
 	}
+	,setupDebugLog: function() {
+		this._debugField = new openfl_text_TextField();
+		this._debugField.set_width(600);
+		this._debugField.set_height(30);
+		this._debugField.set_x(10);
+		this._debugField.set_y((this.stage != null ? this.stage.stageHeight : 600) - 40);
+		this._debugField.set_background(true);
+		this._debugField.set_backgroundColor(this._theme.DEBUG_BG_COLOR);
+		this._debugField.set_textColor(this._theme.DEBUG_TEXT_COLOR);
+		this._debugField.set_selectable(false);
+		var fmt = new openfl_text_TextFormat("_sans",12);
+		this._debugField.set_defaultTextFormat(fmt);
+		this.addChild(this._debugField);
+	}
+	,log: function(msg) {
+		var _gthis = this;
+		if(this._hideTimer != null) {
+			this._hideTimer.stop();
+		}
+		if(this._debugField != null) {
+			this._debugField.set_text(msg);
+			this._debugField.set_alpha(1.0);
+			this._debugField.set_visible(true);
+		}
+		this._hideTimer = haxe_Timer.delay(function() {
+			_gthis.fadeOutLog();
+		},5000);
+	}
+	,fadeOutLog: function() {
+		if(this._debugField != null) {
+			this._debugField.set_visible(false);
+		}
+	}
+	,setupLayers: function() {
+		this._editorLayer = new openfl_display_Sprite();
+		this.addChild(this._editorLayer);
+		this._uiLayer = new openfl_display_Sprite();
+		this.addChild(this._uiLayer);
+		this._settingsLayer = new openfl_display_Sprite();
+		this.addChild(this._settingsLayer);
+	}
+	,buildUI: function() {
+		var _gthis = this;
+		var btnSize = 40;
+		var btnPadding = 5;
+		var startX = this.stage.stageWidth - btnPadding;
+		var startY = btnPadding;
+		this._popup = new ui_TextInputPopup();
+		this.addChild(this._popup);
+		this._btnClose = new ui_ButtonComponent("X",$bind(this,this.onCloseClicked));
+		this._btnClose.set_x(startX - btnSize);
+		this._btnClose.set_y(startY);
+		this._uiLayer.addChild(this._btnClose);
+		this._btnBack = new ui_ButtonComponent("<",$bind(this,this.onBackClicked));
+		this._btnBack.set_x(this._btnClose.get_x() - btnSize - btnPadding);
+		this._btnBack.set_y(startY);
+		this._uiLayer.addChild(this._btnBack);
+		this._btnDelete = new ui_ButtonComponent("E",$bind(this,this.onDeleteCurrentAssembly));
+		this._btnDelete.set_x(this._btnBack.get_x() - btnSize - btnPadding);
+		this._btnDelete.set_y(startY);
+		this._uiLayer.addChild(this._btnDelete);
+		this._btnView = new ui_ButtonComponent("V",$bind(this,this.onToggleView));
+		this._btnView.set_x(this._btnDelete.get_x() - btnSize - btnPadding);
+		this._btnView.set_y(startY);
+		this._uiLayer.addChild(this._btnView);
+		this._btnNew = new ui_ButtonComponent("N",$bind(this,this.onNewAssembly));
+		this._btnNew.set_x(this._btnView.get_x() - btnSize - btnPadding);
+		this._btnNew.set_y(startY);
+		this._uiLayer.addChild(this._btnNew);
+		this._btnReset = new ui_ButtonComponent("R",$bind(this,this.onResetClick));
+		this._btnReset.set_x(this._btnNew.get_x() - btnSize - btnPadding);
+		this._btnReset.set_y(startY);
+		this._uiLayer.addChild(this._btnReset);
+		this._btnSettings = new ui_ButtonComponent("?",$bind(this,this.onSettingsClick));
+		this._btnSettings.set_x(this._btnReset.get_x() - btnSize - btnPadding);
+		this._btnSettings.set_y(startY);
+		this._uiLayer.addChild(this._btnSettings);
+		this._nameField = new openfl_text_TextField();
+		this._nameField.set_defaultTextFormat(new openfl_text_TextFormat("_sans",24,this._theme.TITLE_TEXT_COLOR,true));
+		this._nameField.set_text("Selfrun");
+		this._nameField.set_autoSize(1);
+		this._nameField.set_selectable(false);
+		this._nameField.mouseEnabled = false;
+		this._nameField.set_x(20);
+		this._nameField.set_y(5);
+		this._uiLayer.addChild(this._nameField);
+		this._pathField = new openfl_text_TextField();
+		this._pathField.set_width(400);
+		this._pathField.set_height(20);
+		this._pathField.set_x(10);
+		this._pathField.set_y(this.stage.stageHeight - 20);
+		this._pathField.set_selectable(false);
+		this._pathField.mouseEnabled = false;
+		var pathFmt = new openfl_text_TextFormat("_sans",16,this._theme.PATH_TEXT_COLOR);
+		this._pathField.set_defaultTextFormat(pathFmt);
+		this._uiLayer.addChild(this._pathField);
+		this._propertiesWindow = new ui_PropertiesWindow();
+		this._propertiesWindow.set_visible(false);
+		this._uiLayer.addChild(this._propertiesWindow);
+		this._settingsPanel = new ui_SettingsPanel();
+		this._settingsPanel.set_visible(false);
+		this._settingsPanel.onSettingsChanged = $bind(this,this.onSettingsChanged);
+		this._settingsLayer.addChild(this._settingsPanel);
+		this._contextManager = new editor_ContextMenuManager(this._settingsPanel);
+		this._uiLayer.addChild(this._contextManager.getView());
+		this.stage.addEventListener("keyDown",$bind(this,this.onKeyDown));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.ATOM_PROPERTIES_REQUEST,$bind(this,this.onPropertiesRequest));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.OPEN_ASSEMBLY_REQUEST,$bind(this,this.onOpenAssemblyRequest));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.REQUEST_NEW_ASSEMBLY_CONTEXT,$bind(this,this.onRequestNewContext));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.VALUE_COMMITTED,$bind(this,this.onValueCommitted));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.DEVICE_WINDOW_CHANGED,$bind(this,this.onDeviceWindowChanged));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.PORT_REMOVED,$bind(this,this.onPortRemoved));
+		this._devicePanel = new ui_DevicePanel();
+		this._devicePanel.set_visible(false);
+		this.addChild(this._devicePanel);
+		this._devicePanel.onShowEditor = function() {
+			if(_gthis._isPanelMode) {
+				_gthis.onToggleView();
+			}
+		};
+		this._devicePanel.onGetAssemblyList = $bind(this,this.getAllDevicesRecursive);
+		var _dragWindowStartX = 0;
+		var _dragWindowStartY = 0;
+		this._devicePanel.onWindowDragStart = function() {
+			var win = openfl_Lib.get_current().stage.window;
+			if(win != null) {
+				_dragWindowStartX = win.__x;
+				_dragWindowStartY = win.__y;
+			}
+		};
+		this._devicePanel.onWindowDrag = function(dx,dy) {
+			var win = openfl_Lib.get_current().stage.window;
+			if(win != null) {
+				win.set_x(_dragWindowStartX + (dx | 0));
+				win.set_y(_dragWindowStartY + (dy | 0));
+			}
+		};
+		this._devicePanel.onCloseApp = function() {
+			_gthis.onCloseClicked();
+		};
+		this._devicePanel.onWindowDrag = function(dx,dy) {
+			var win = openfl_Lib.get_current().stage.window;
+			if(win != null) {
+				win.set_x(win.__x + dx | 0);
+				win.set_y(win.__y + dy | 0);
+			}
+		};
+		this._devicePanel.onCloseApp = function() {
+			_gthis.onCloseClicked();
+		};
+		this._devicePanel.onToggleMaximize = function() {
+			var win = openfl_Lib.get_current().stage.window;
+			if(win == null) {
+				return;
+			}
+			if(_gthis._isWindowMaximized) {
+				win.resize(_gthis._savedWindowWidth | 0,_gthis._savedWindowHeight | 0);
+				win.move(_gthis._savedWindowX | 0,_gthis._savedWindowY | 0);
+				_gthis._isWindowMaximized = false;
+				_gthis.log("Window restored to " + (_gthis._savedWindowWidth | 0) + "x" + (_gthis._savedWindowHeight | 0));
+			} else {
+				_gthis._savedWindowX = win.__x;
+				_gthis._savedWindowY = win.__y;
+				_gthis._savedWindowWidth = win.__width;
+				_gthis._savedWindowHeight = win.__height;
+				var display = win.get_display();
+				if(display != null && display.currentMode != null) {
+					win.resize(display.currentMode.width,display.currentMode.height);
+					win.move(0,0);
+					_gthis._isWindowMaximized = true;
+					_gthis.log("Window maximized to " + display.currentMode.width + "x" + display.currentMode.height);
+				} else {
+					win.resize(_gthis.stage.stageWidth | 0,_gthis.stage.stageHeight | 0);
+					win.move(0,0);
+					_gthis._isWindowMaximized = true;
+					_gthis.log("Window maximized to stage size: " + (_gthis.stage.stageWidth | 0) + "x" + (_gthis.stage.stageHeight | 0));
+				}
+			}
+			_gthis._devicePanel.setMaximizedState(_gthis._isWindowMaximized);
+		};
+	}
+	,onSettingsChanged: function() {
+		if(this._editorContext.currentEditor != null) {
+			this._editorContext.currentEditor.setUseEcsRender(this._settingsPanel.get_useEcsRender());
+			this._editorContext.currentEditor.setWireType(this._settingsPanel.get_wireType());
+			this._editorContext.currentEditor.setAllowAssembly(this._settingsPanel.get_allowAssembly());
+		}
+		this.updateButtonStates();
+		this.updateSettingsStats();
+	}
 	,onResize: function(e) {
+		this.get_graphics().clear();
+		this.get_graphics().beginFill(this._theme.APP_BG_COLOR,0);
+		this.get_graphics().drawRect(0,0,this.stage.stageWidth,this.stage.stageHeight);
+		this.get_graphics().endFill();
+		this._debugField.set_y(this.stage.stageHeight - 40);
+		this._pathField.set_y(this.stage.stageHeight - 20);
+		var btnSize = 40;
+		var btnPadding = 5;
+		var rightEdge = this.stage.stageWidth - btnPadding;
+		this._btnClose.set_x(rightEdge - btnSize);
+		this._btnBack.set_x(this._btnClose.get_x() - btnSize - btnPadding);
+		this._btnDelete.set_x(this._btnBack.get_x() - btnSize - btnPadding);
+		this._btnView.set_x(this._btnDelete.get_x() - btnSize - btnPadding);
+		this._btnNew.set_x(this._btnView.get_x() - btnSize - btnPadding);
+		this._btnReset.set_x(this._btnNew.get_x() - btnSize - btnPadding);
+		this._btnSettings.set_x(this._btnReset.get_x() - btnSize - btnPadding);
 		if(this._editorContext.currentEditor != null) {
 			var margin = 12;
 			this._editorContext.currentEditor.setSize(this.stage.stageWidth - margin * 2,this.stage.stageHeight - margin * 2);
 		}
+		if(this._devicePanel != null && this._devicePanel.get_visible()) {
+			this._devicePanel.setSize(this.stage.stageWidth,this.stage.stageHeight);
+		}
+		if(this._isPanelMode && this._devicePanel != null) {
+			var win = openfl_Lib.get_current().stage.window;
+			if(win != null) {
+				var display = win.get_display();
+				if(display != null && display.currentMode != null) {
+					var isFullscreen = win.__width >= display.currentMode.width - 10 && win.__height >= display.currentMode.height - 10;
+					if(isFullscreen != this._isWindowMaximized) {
+						this._isWindowMaximized = isFullscreen;
+						this._devicePanel.setMaximizedState(this._isWindowMaximized);
+					}
+				}
+			}
+		}
 	}
-	,__class__: MainHTML5
+	,updateButtonStates: function() {
+		var isRoot = this._editorContext.getStackLength() <= 1;
+		this._btnBack.set_visible(!isRoot);
+		this._btnDelete.set_visible(!isRoot);
+		this._btnNew.set_visible(this._settingsPanel.get_allowAssembly());
+	}
+	,updateNavigationUI: function() {
+		if(this._editorContext.currentAssembly != null) {
+			this._nameField.set_text(this._editorContext.currentAssembly.blueprint.name);
+			this._pathField.set_text("Depth: " + this._editorContext.getStackLength());
+		}
+		if(this._contextManager != null) {
+			this._contextManager.setContext(this._editorContext.currentEditor,this._editorContext.currentAssembly,($_=this._editorContext,$bind($_,$_.isNameTakenGlobally)));
+		}
+	}
+	,onOpenAssemblyRequest: function(impulse) {
+		if(!this._settingsPanel.get_allowAssembly()) {
+			this.log("Assembly editing disabled");
+			return;
+		}
+		if(impulse == null || impulse.data == null) {
+			return;
+		}
+		var id = impulse.data.atomId;
+		var obj = this._editorContext.currentAssembly.internalAtoms.h[id];
+		if(obj == null) {
+			var runtimeId = this._editorContext.currentAssembly.get_idMap().h[id];
+			if(runtimeId != null) {
+				obj = this._editorContext.currentAssembly.internalAtoms.h[runtimeId];
+			}
+		}
+		if(obj == null) {
+			return;
+		}
+		if(!((obj) instanceof core_base_Assembly)) {
+			return;
+		}
+		var targetAsm = js_Boot.__cast(obj , core_base_Assembly);
+		if(targetAsm.blueprint.isNative) {
+			this.log("Cannot edit native atom: " + targetAsm.blueprint.name);
+			return;
+		}
+		this._editorContext.currentEditor.deselectAll();
+		this._propertiesWindow.close();
+		this._editorContext.push(targetAsm);
+		this.log("Opened: " + targetAsm.blueprint.name);
+		this.updateNavigationUI();
+		this.updateButtonStates();
+	}
+	,onRequestNewContext: function(impulse) {
+		var bp = impulse.data.blueprint;
+		var id = impulse.data.id;
+		bp.name = core_logic_NamingService.resolveUniqueBlueprintName(bp.name);
+		var newAsm = new core_base_Assembly(id,bp);
+		this._editorContext.push(newAsm);
+		this.log("Created New Assembly Context: " + bp.name);
+		this.updateNavigationUI();
+		this.updateButtonStates();
+	}
+	,onValueCommitted: function(impulse) {
+		this._editorContext.prepareCurrentAssemblyForSave();
+		this.saveCurrentContext();
+		this.log("Data saved.");
+	}
+	,onPropertiesRequest: function(impulse) {
+		if(impulse == null || impulse.data == null) {
+			return;
+		}
+		var target = impulse.data.atom;
+		var view = impulse.data.view;
+		var posX = view.x + 100;
+		var posY = view.y;
+		if(posX > this.stage.stageWidth - 320) {
+			posX = this.stage.stageWidth - 320;
+		}
+		if(posY > this.stage.stageHeight - 200) {
+			posY = this.stage.stageHeight - 200;
+		}
+		this._propertiesWindow.show(target,posX,posY);
+	}
+	,mapIsEmpty: function(map) {
+		return !map.keys().hasNext();
+	}
+	,mapCount: function(map) {
+		var count = 0;
+		var k = map.keys();
+		while(k.hasNext()) {
+			var k1 = k.next();
+			++count;
+		}
+		return count;
+	}
+	,onNewAssembly: function() {
+		if(!this._settingsPanel.get_allowAssembly()) {
+			this.log("Assembly disabled");
+			return;
+		}
+		var cmd = new system_commands_editor_CreateNewAssemblyCommand();
+		system_managers_UndoManager.getInstance().executeAndStore(cmd);
+	}
+	,onResetClick: function() {
+		this.hardReset();
+		this.createEmptyProject();
+		this.log("System Reset.");
+	}
+	,onPortRemoved: function(impulse) {
+		if(impulse == null || impulse.data == null) {
+			return;
+		}
+		var asmId = impulse.data.assemblyId;
+		var portName = impulse.data.portName;
+		var stack = this._editorContext.getStackEntries();
+		if(stack.length == 0) {
+			return;
+		}
+		var parentAssembly = null;
+		var _g = 0;
+		var _g1 = stack.length;
+		while(_g < _g1) {
+			var i = _g++;
+			var entry = stack[i];
+			var contains = false;
+			var h = entry.assembly.internalAtoms.h;
+			var runtimeId_h = h;
+			var runtimeId_keys = Object.keys(h);
+			var runtimeId_length = runtimeId_keys.length;
+			var runtimeId_current = 0;
+			while(runtimeId_current < runtimeId_length) {
+				var runtimeId = runtimeId_keys[runtimeId_current++];
+				var atom = entry.assembly.internalAtoms.h[runtimeId];
+				if(atom != null && atom.id == asmId) {
+					contains = true;
+					break;
+				}
+			}
+			if(!contains) {
+				var h1 = entry.assembly.get_idMap().h;
+				var templateId_h = h1;
+				var templateId_keys = Object.keys(h1);
+				var templateId_length = templateId_keys.length;
+				var templateId_current = 0;
+				while(templateId_current < templateId_length) {
+					var templateId = templateId_keys[templateId_current++];
+					if(templateId == asmId) {
+						contains = true;
+						break;
+					}
+				}
+			}
+			if(contains) {
+				parentAssembly = entry.assembly;
+				break;
+			}
+		}
+		if(parentAssembly == null) {
+			return;
+		}
+		var bp = parentAssembly.blueprint;
+		var toRemove = [];
+		var _g = 0;
+		var _g1 = bp.internalConnections;
+		while(_g < _g1.length) {
+			var conn = _g1[_g];
+			++_g;
+			if(conn.from.atomId == "SELF" && conn.from.contactName == portName) {
+				toRemove.push(conn);
+			} else if(conn.to.atomId == "SELF" && conn.to.contactName == portName) {
+				toRemove.push(conn);
+			}
+		}
+		if(toRemove.length > 0) {
+			var _g = 0;
+			while(_g < toRemove.length) {
+				var conn = toRemove[_g];
+				++_g;
+				HxOverrides.remove(bp.internalConnections,conn);
+			}
+			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
+			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1465, className : "Main", methodName : "onPortRemoved"});
+		}
+	}
+	,hardReset: function() {
+		var _gthis = this;
+		this.log("SYSTEM: Hard Reset...");
+		this._editorContext.clear();
+		if(this._deviceWindow != null) {
+			this._deviceWindow.close();
+			this._deviceWindow = null;
+		}
+		if(this._devicePanel != null) {
+			this._devicePanel.dispose();
+			this.removeChild(this._devicePanel);
+			this._devicePanel = null;
+		}
+		this._devicePanel = new ui_DevicePanel();
+		this._devicePanel.set_visible(false);
+		this._devicePanel.onShowEditor = function() {
+			if(_gthis._isPanelMode) {
+				_gthis.onToggleView();
+			}
+		};
+		this._devicePanel.onGetAssemblyList = $bind(this,this.getAllDevicesRecursive);
+		this.addChild(this._devicePanel);
+		this._isPanelMode = false;
+		this._editorLayer.set_visible(true);
+		this._uiLayer.set_visible(true);
+		this._cachedDeviceWindowState = null;
+		this._cachedWindowWidth = 420;
+		this._cachedWindowHeight = 320;
+		this._cachedWindowX = 100;
+		this._cachedWindowY = 100;
+		if(this._contextManager != null) {
+			this._contextManager.dispose();
+			this._uiLayer.removeChild(this._contextManager.getView());
+		}
+		core_logic_Impulsys.clear();
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.ATOM_PROPERTIES_REQUEST,$bind(this,this.onPropertiesRequest));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.OPEN_ASSEMBLY_REQUEST,$bind(this,this.onOpenAssemblyRequest));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.REQUEST_NEW_ASSEMBLY_CONTEXT,$bind(this,this.onRequestNewContext));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.VALUE_COMMITTED,$bind(this,this.onValueCommitted));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.DEVICE_WINDOW_CHANGED,$bind(this,this.onDeviceWindowChanged));
+		this._contextManager = new editor_ContextMenuManager(this._settingsPanel);
+		this._uiLayer.addChild(this._contextManager.getView());
+		system_managers_DriverManager.getInstance().dispose();
+		core_logic_TickGenerator.getInstance().clear();
+		system_managers_UndoManager.getInstance().clear();
+		ecs_ECS.reset();
+	}
+	,onMainWindowClose: function() {
+		this.saveOnExit();
+		openfl_system_System.exit(0);
+	}
+	,onCloseClicked: function() {
+		this.saveOnExit();
+		openfl_system_System.exit(0);
+	}
+	,onKeyDown: function(e) {
+		if(this._popup.get_visible()) {
+			return;
+		}
+		var focusObj = openfl_Lib.get_current().stage.get_focus();
+		var isTextFieldFocused = ((focusObj) instanceof openfl_text_TextField);
+		if(isTextFieldFocused && !e.ctrlKey && !e.altKey) {
+			return;
+		}
+		if(e.keyCode == 83 && !e.ctrlKey) {
+			this._editorContext.prepareCurrentAssemblyForSave();
+			this.saveCurrentContext();
+			return;
+		}
+		if(e.ctrlKey && e.keyCode == 67) {
+			if(this._editorContext.currentEditor != null) {
+				this._editorContext.currentEditor.copySelection();
+			}
+			return;
+		}
+		if(e.ctrlKey && e.keyCode == 88) {
+			if(this._editorContext.currentEditor != null) {
+				this._editorContext.currentEditor.cutSelection();
+			}
+			return;
+		}
+		if(e.ctrlKey && e.keyCode == 86) {
+			if(this._editorContext.currentEditor != null) {
+				this._editorContext.currentEditor.pasteSelection();
+			}
+			return;
+		}
+		if(e.ctrlKey && e.keyCode == 65) {
+			if(this._editorContext.currentEditor != null) {
+				this._editorContext.currentEditor.selectAll();
+			}
+			return;
+		}
+		if(e.ctrlKey && e.keyCode == 48) {
+			if(this._editorContext.currentEditor != null) {
+				this._editorContext.currentEditor.centerOnContent();
+			}
+			return;
+		}
+		if(e.keyCode == 27) {
+			if(this._settingsPanel.get_visible()) {
+				this._settingsPanel.set_visible(false);
+				return;
+			}
+			if(this._editorContext.getStackLength() > 1) {
+				this.onBackClicked();
+			}
+			return;
+		}
+		if(e.ctrlKey && e.keyCode == 90) {
+			system_managers_UndoManager.getInstance().undo();
+			return;
+		}
+		if(e.ctrlKey && e.keyCode == 89) {
+			system_managers_UndoManager.getInstance().redo();
+			return;
+		}
+		if(e.keyCode == 82) {
+			this.onResetClick();
+			return;
+		}
+		if(e.keyCode == 68 || e.keyCode == 46) {
+			this.deleteSelectedOnCanvas();
+			return;
+		}
+		if(e.keyCode == 69) {
+			if(this._editorContext.getStackLength() > 1) {
+				this.onDeleteCurrentAssembly();
+			} else {
+				this.log("Cannot erase root assembly.");
+			}
+			return;
+		}
+		if(e.keyCode == 8) {
+			if(this._editorContext.getStackLength() > 1) {
+				this.onBackClicked();
+			}
+			return;
+		}
+	}
+	,deleteSelectedOnCanvas: function() {
+		if(this._editorContext.currentEditor == null) {
+			return;
+		}
+		var nodeCount = this._editorContext.currentEditor.getSelectedNodeCount();
+		var wireIds = this._editorContext.currentEditor.getSelectedWireIds();
+		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1634, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1635, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		if(nodeCount > 0) {
+			this._editorContext.currentEditor.deleteSelectedNodes();
+			this.updateSettingsStats();
+		} else if(wireIds.length > 0) {
+			var cmd = new system_commands_editor_DeleteWiresCommand(this._editorContext.currentAssembly.blueprint,this._editorContext.currentAssembly,wireIds);
+			system_managers_UndoManager.getInstance().executeAndStore(cmd);
+		}
+	}
+	,updateSettingsStats: function() {
+		if(this._settingsPanel != null && this._editorContext.currentEditor != null) {
+			this._settingsPanel.updateStats(this._editorContext.currentEditor.getNodeCount(),this._editorContext.currentEditor.getWireCount(),this._settingsPanel.get_useEcsRender(),this._settingsPanel.get_wireType(),this._settingsPanel.get_allowAssembly());
+		}
+	}
+	,onSettingsClick: function() {
+		if(this._settingsPanel.get_visible()) {
+			this._settingsPanel.set_visible(false);
+		} else {
+			this._settingsPanel.show(this.stage.stageWidth,this.stage.stageHeight);
+			this.updateSettingsStats();
+		}
+	}
+	,restoreEditorWindow: function() {
+		var mainWin = openfl_Lib.get_current().stage.window;
+		if(mainWin != null) {
+			mainWin.set_visible(true);
+		}
+	}
+	,isAssemblyFileExists: function(id) {
+		return true;
+	}
+	,getAllDevicesRecursive: function() {
+		var result = [];
+		if(this._editorContext.currentAssembly != null) {
+			this.collectDevicesRecursive(this._editorContext.currentAssembly,result);
+		}
+		return result;
+	}
+	,collectDevicesRecursive: function(asm,result) {
+		if(asm == null || asm.internalAtoms == null) {
+			return;
+		}
+		var h = asm.internalAtoms.h;
+		var id_h = h;
+		var id_keys = Object.keys(h);
+		var id_length = id_keys.length;
+		var id_current = 0;
+		while(id_current < id_length) {
+			var id = id_keys[id_current++];
+			var obj = asm.internalAtoms.h[id];
+			if(((obj) instanceof core_base_Atom)) {
+				var atom = js_Boot.__cast(obj , core_base_Atom);
+				result.push({ id : id, name : atom.name, atom : atom});
+				if(((obj) instanceof core_base_Assembly)) {
+					this.collectDevicesRecursive(js_Boot.__cast(obj , core_base_Assembly),result);
+				}
+			}
+		}
+	}
+	,extractDeviceWindowData: function() {
+		if(this._devicePanel != null && this._devicePanel.get_visible()) {
+			return this._cachedDeviceWindowState;
+		}
+		if(this._cachedDeviceWindowState != null) {
+			return this._cachedDeviceWindowState;
+		} else {
+			return [];
+		}
+	}
+	,findDevicePath: function(container,target) {
+		if(container == null || target == null) {
+			return null;
+		}
+		var h = container.internalAtoms.h;
+		var runtimeId_h = h;
+		var runtimeId_keys = Object.keys(h);
+		var runtimeId_length = runtimeId_keys.length;
+		var runtimeId_current = 0;
+		while(runtimeId_current < runtimeId_length) {
+			var runtimeId = runtimeId_keys[runtimeId_current++];
+			var atom = container.internalAtoms.h[runtimeId];
+			if(atom == target) {
+				var templateId = container.getTemplateId(runtimeId);
+				return [templateId];
+			}
+			if(((atom) instanceof core_base_Assembly)) {
+				var subPath = this.findDevicePath(js_Boot.__cast(atom , core_base_Assembly),target);
+				if(subPath != null) {
+					var templateId1 = container.getTemplateId(runtimeId);
+					subPath.splice(0,0,templateId1);
+					return subPath;
+				}
+			}
+		}
+		return null;
+	}
+	,resolveDevicePath: function(root,path) {
+		var current = root;
+		var _g = 0;
+		var _g1 = path.length;
+		while(_g < _g1) {
+			var i = _g++;
+			var templateId = path[i];
+			var runtimeId = null;
+			if(current.get_idMap() != null) {
+				var h = current.get_idMap().h;
+				var _g_h = h;
+				var _g_keys = Object.keys(h);
+				var _g_length = _g_keys.length;
+				var _g_current = 0;
+				while(_g_current < _g_length) {
+					var key = _g_keys[_g_current++];
+					var _g_key = key;
+					var _g_value = _g_h[key];
+					var tid = _g_key;
+					var rid = _g_value;
+					if(tid == templateId) {
+						runtimeId = rid;
+						break;
+					}
+				}
+			}
+			if(runtimeId == null && Object.prototype.hasOwnProperty.call(current.internalAtoms.h,templateId)) {
+				runtimeId = templateId;
+			}
+			if(runtimeId == null) {
+				return null;
+			}
+			var next = current.internalAtoms.h[runtimeId];
+			if(i == path.length - 1) {
+				return next;
+			} else if(((next) instanceof core_base_Assembly)) {
+				current = js_Boot.__cast(next , core_base_Assembly);
+			} else {
+				return null;
+			}
+		}
+		return null;
+	}
+	,__class__: Main
 });
 var DocumentClass = function(current) {
 	current.addChild(this);
-	MainHTML5.call(this);
+	Main.call(this);
 	this.dispatchEvent(new openfl_events_Event("addedToStage",false,false));
 };
 $hxClasses["DocumentClass"] = DocumentClass;
 DocumentClass.__name__ = "DocumentClass";
-DocumentClass.__super__ = MainHTML5;
-DocumentClass.prototype = $extend(MainHTML5.prototype,{
+DocumentClass.__super__ = Main;
+DocumentClass.prototype = $extend(Main.prototype,{
 	__class__: DocumentClass
 });
 var EReg = function(r,opt) {
@@ -3722,6 +4729,34 @@ Lambda.count = function(it,pred) {
 		}
 	}
 	return n;
+};
+var ManifestResources = function() { };
+$hxClasses["ManifestResources"] = ManifestResources;
+ManifestResources.__name__ = "ManifestResources";
+ManifestResources.init = function(config) {
+	ManifestResources.preloadLibraries = [];
+	ManifestResources.preloadLibraryNames = [];
+	ManifestResources.rootPath = null;
+	if(config != null && Object.prototype.hasOwnProperty.call(config,"rootPath")) {
+		ManifestResources.rootPath = Reflect.field(config,"rootPath");
+		if(!StringTools.endsWith(ManifestResources.rootPath,"/")) {
+			ManifestResources.rootPath += "/";
+		}
+	}
+	if(ManifestResources.rootPath == null) {
+		ManifestResources.rootPath = "./";
+	}
+	var bundle;
+	var data = "{\"name\":null,\"assets\":\"aoy4:pathy25:assets%2Ffixed_classes.hxy4:sizei103582y4:typey4:TEXTy2:idR1y7:preloadtgoR0y19:assets%2Fopenfl.svgR2i62864R3R4R5R7R6tgh\",\"rootPath\":null,\"version\":2,\"libraryArgs\":[],\"libraryType\":null}";
+	var manifest = lime_utils_AssetManifest.parse(data,ManifestResources.rootPath);
+	var library = lime_utils_AssetLibrary.fromManifest(manifest);
+	lime_utils_Assets.registerLibrary("default",library);
+	library = lime_utils_Assets.getLibrary("default");
+	if(library != null) {
+		ManifestResources.preloadLibraries.push(library);
+	} else {
+		ManifestResources.preloadLibraryNames.push("default");
+	}
 };
 Math.__name__ = "Math";
 var Reflect = function() { };
@@ -3960,6 +4995,16 @@ StringTools.rtrim = function(s) {
 };
 StringTools.trim = function(s) {
 	return StringTools.ltrim(StringTools.rtrim(s));
+};
+StringTools.lpad = function(s,c,l) {
+	if(c.length <= 0) {
+		return s;
+	}
+	var buf_b = "";
+	l -= s.length;
+	while(buf_b.length < l) buf_b += c == null ? "null" : "" + c;
+	buf_b += s == null ? "null" : "" + s;
+	return buf_b;
 };
 StringTools.replace = function(s,sub,by) {
 	return s.split(sub).join(by);
@@ -4407,7 +5452,7 @@ core_base_Atom.prototype = {
 		}
 		if(Object.prototype.hasOwnProperty.call(state,"displayName")) {
 			this._displayName = state.displayName;
-			haxe_Log.trace("Atom " + this.get_id() + ": Restored displayName = \"" + this._displayName + "\"",{ fileName : "src/core/base/Atom.hx", lineNumber : 289, className : "core.base.Atom", methodName : "restoreState"});
+			haxe_Log.trace("Atom " + this.get_id() + ": Restored displayName = \"" + this._displayName + "\"",{ fileName : "src/core/base/Atom.hx", lineNumber : 294, className : "core.base.Atom", methodName : "restoreState"});
 		}
 	}
 	,getInputs: function() {
@@ -4474,6 +5519,9 @@ core_base_Atom.prototype = {
 	}
 	,dispose: function() {
 		this._isDisposed = true;
+		if(this._displayName != null) {
+			core_logic_NamingService.unregisterInstanceName(this._displayName);
+		}
 		if(this._isActive) {
 			system_managers_DriverManager.getInstance().unregister(this.get_id());
 		}
@@ -4549,7 +5597,7 @@ var core_base_Assembly = function(id,blueprint) {
 		} catch( _g ) {
 			haxe_NativeStackTrace.lastError = _g;
 			var e = haxe_Exception.caught(_g).unwrap();
-			haxe_Log.trace("ERROR during Assembly(" + id + ") internal instances creation: " + Std.string(e),{ fileName : "src/core/base/Assembly.hx", lineNumber : 362, className : "core.base.Assembly", methodName : "new"});
+			haxe_Log.trace("ERROR during Assembly(" + id + ") internal instances creation: " + Std.string(e),{ fileName : "src/core/base/Assembly.hx", lineNumber : 459, className : "core.base.Assembly", methodName : "new"});
 		}
 	}
 	if(hasInternalConns) {
@@ -4558,7 +5606,7 @@ var core_base_Assembly = function(id,blueprint) {
 		} catch( _g ) {
 			haxe_NativeStackTrace.lastError = _g;
 			var e = haxe_Exception.caught(_g).unwrap();
-			haxe_Log.trace("ERROR during Assembly(" + id + ") internal connections creation: " + Std.string(e),{ fileName : "src/core/base/Assembly.hx", lineNumber : 375, className : "core.base.Assembly", methodName : "new"});
+			haxe_Log.trace("ERROR during Assembly(" + id + ") internal connections creation: " + Std.string(e),{ fileName : "src/core/base/Assembly.hx", lineNumber : 472, className : "core.base.Assembly", methodName : "new"});
 		}
 	}
 	this._initializeLogicState();
@@ -4596,6 +5644,23 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		}
 		return runtimeId;
 	}
+	,registerAtomMapping: function(templateId,runtimeId) {
+		if(this._idMap == null) {
+			this._idMap = new haxe_ds_StringMap();
+		}
+		if(templateId == null || runtimeId == null) {
+			return;
+		}
+		this._idMap.h[templateId] = runtimeId;
+	}
+	,unregisterAtomMapping: function(templateId) {
+		if(this._idMap != null && templateId != null) {
+			var _this = this._idMap;
+			if(Object.prototype.hasOwnProperty.call(_this.h,templateId)) {
+				delete(_this.h[templateId]);
+			}
+		}
+	}
 	,get_inputs: function() {
 		var map = new haxe_ds_StringMap();
 		var h = this.ports.h;
@@ -4606,7 +5671,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		while(p_current < p_length) {
 			var p = p_h[p_keys[p_current++]];
 			if(p != null && p.type != null && p.type == core_types_ContactType.INPUT) {
-				map.h[p.name] = p.external;
+				map.h[p.externalName] = p.external;
 			}
 		}
 		return map;
@@ -4621,7 +5686,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		while(p_current < p_length) {
 			var p = p_h[p_keys[p_current++]];
 			if(p != null && p.type != null && p.type == core_types_ContactType.OUTPUT) {
-				map.h[p.name] = p.external;
+				map.h[p.externalName] = p.external;
 			}
 		}
 		return map;
@@ -4639,7 +5704,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		}
 		this._isInQuarantine = true;
 		this._quarantineReason = reason;
-		haxe_Log.trace("🚨 ASSEMBLY QUARANTINE: " + this.get_id() + " - " + reason,{ fileName : "src/core/base/Assembly.hx", lineNumber : 255, className : "core.base.Assembly", methodName : "quarantine"});
+		haxe_Log.trace(" ASSEMBLY QUARANTINE: " + this.get_id() + " - " + reason,{ fileName : "src/core/base/Assembly.hx", lineNumber : 352, className : "core.base.Assembly", methodName : "quarantine"});
 		var h = this.ports.h;
 		var name_h = h;
 		var name_keys = Object.keys(h);
@@ -4926,9 +5991,9 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 					}
 				}
 			}
-			haxe_Log.trace("Assembly(" + _gthis.get_id() + "): Final sync wave complete.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 726, className : "core.base.Assembly", methodName : "_processPendingSignals"});
+			haxe_Log.trace("Assembly(" + _gthis.get_id() + "): Final sync wave complete.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 823, className : "core.base.Assembly", methodName : "_processPendingSignals"});
 		});
-		haxe_Log.trace("Assembly(" + this.get_id() + "): Hot Start complete. Signals propagated, atoms unfrozen.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 729, className : "core.base.Assembly", methodName : "_processPendingSignals"});
+		haxe_Log.trace("Assembly(" + this.get_id() + "): Hot Start complete. Signals propagated, atoms unfrozen.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 826, className : "core.base.Assembly", methodName : "_processPendingSignals"});
 	}
 	,_updatePortLinks: function() {
 		var _gthis = this;
@@ -4992,6 +6057,77 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 				port[0].external.link(port[0].internal);
 			} else {
 				port[0].internal.link(port[0].external);
+			}
+		}
+	}
+	,_clearInternalPortLinks: function() {
+		if(this.internalAtoms == null || this.ports == null) {
+			return;
+		}
+		var h = this.ports.h;
+		var port_h = h;
+		var port_keys = Object.keys(h);
+		var port_length = port_keys.length;
+		var port_current = 0;
+		while(port_current < port_length) {
+			var port = port_h[port_keys[port_current++]];
+			if(port == null || port.internal == null) {
+				continue;
+			}
+			var internalContact = port.internal;
+			var h = this.internalAtoms.h;
+			var runtimeId_h = h;
+			var runtimeId_keys = Object.keys(h);
+			var runtimeId_length = runtimeId_keys.length;
+			var runtimeId_current = 0;
+			while(runtimeId_current < runtimeId_length) {
+				var runtimeId = runtimeId_keys[runtimeId_current++];
+				var atom = this.internalAtoms.h[runtimeId];
+				if(atom == null) {
+					continue;
+				}
+				var allContacts = atom.getInputs().concat(atom.getOutputs());
+				var _g = 0;
+				while(_g < allContacts.length) {
+					var contact = allContacts[_g];
+					++_g;
+					if(contact != null && !contact.isDisposed && contact.hasLink(internalContact)) {
+						haxe_Log.trace("Удаляем связь: " + contact.name + " <-> " + internalContact.name,{ fileName : "src/core/base/Assembly.hx", lineNumber : 949, className : "core.base.Assembly", methodName : "_clearInternalPortLinks"});
+						contact.unlink(internalContact);
+					}
+				}
+				var inputs = atom.getInputs();
+				if(inputs != null) {
+					var _g1 = 0;
+					while(_g1 < inputs.length) {
+						var contact1 = inputs[_g1];
+						++_g1;
+						if(contact1 != null && !contact1.isDisposed) {
+							if(internalContact.hasLink(contact1)) {
+								internalContact.unlink(contact1);
+							}
+							if(contact1.hasLink(internalContact)) {
+								contact1.unlink(internalContact);
+							}
+						}
+					}
+				}
+				var outputs = atom.getOutputs();
+				if(outputs != null) {
+					var _g2 = 0;
+					while(_g2 < outputs.length) {
+						var contact2 = outputs[_g2];
+						++_g2;
+						if(contact2 != null && !contact2.isDisposed) {
+							if(internalContact.hasLink(contact2)) {
+								internalContact.unlink(contact2);
+							}
+							if(contact2.hasLink(internalContact)) {
+								contact2.unlink(internalContact);
+							}
+						}
+					}
+				}
 			}
 		}
 	}
@@ -5063,7 +6199,12 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 				}
 				var max = pin.type == core_types_ContactType.INPUT ? 20 : 20;
 				if(currentCount < max) {
-					var newPort = new core_base_ConductorPort(pin.name,pin.type,pin.defaultValue);
+					var extName = pin.name;
+					var extDyn = Reflect.field(pin,"externalName");
+					if(extDyn != null && Std.string(extDyn) != "") {
+						extName = Std.string(extDyn);
+					}
+					var newPort = new core_base_ConductorPort(extName,pin.type,pin.name,pin.defaultValue);
 					this.ports.h[pin.name] = newPort;
 					if(pin.type == core_types_ContactType.INPUT) {
 						this._inputs.push(newPort.external);
@@ -5078,9 +6219,215 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		}
 		this.blueprint = newBp;
 		this._updatePortLinks();
+		this._clearInternalPortLinks();
 		this._restoreInternalPortLinks();
 		this.rebuildInternalConnections();
+		this.reconnectExternalLinks();
+		this._restoreInternalPortLinks();
+		this.rebuildInternalConnections();
+		this.reconnectExternalLinks();
 		core_logic_Impulsys.quickEmit(core_logic_EventType.ASSEMBLY_PORTS_CHANGED,{ assemblyId : this.get_id()});
+	}
+	,reconnectExternalLinks: function() {
+		var stack = core_logic_Impulsys.quickEmit;
+		if(this.blueprint == null || this.blueprint.internalConnections == null) {
+			return;
+		}
+		var _g = 0;
+		var _g1 = this.blueprint.internalConnections;
+		while(_g < _g1.length) {
+			var conn = _g1[_g];
+			++_g;
+			if(conn.from.atomId == "SELF" || conn.to.atomId == "SELF") {
+				var fromContact = this.resolveContact(conn.from);
+				var toContact = this.resolveContact(conn.to);
+				if(fromContact != null && toContact != null) {
+					if(!fromContact.hasLink(toContact)) {
+						fromContact.link(toContact,true);
+					}
+				}
+			}
+		}
+	}
+	,syncDisplayNamesToBlueprint: function() {
+		if(this.internalAtoms == null || this.blueprint.internalAtoms == null) {
+			return;
+		}
+		var h = this.internalAtoms.h;
+		var runtimeId_h = h;
+		var runtimeId_keys = Object.keys(h);
+		var runtimeId_length = runtimeId_keys.length;
+		var runtimeId_current = 0;
+		while(runtimeId_current < runtimeId_length) {
+			var runtimeId = runtimeId_keys[runtimeId_current++];
+			var atom = this.internalAtoms.h[runtimeId];
+			if(atom == null) {
+				continue;
+			}
+			var templateId = this.getTemplateId(runtimeId);
+			var _g = 0;
+			var _g1 = this.blueprint.internalAtoms;
+			while(_g < _g1.length) {
+				var atomDef = _g1[_g];
+				++_g;
+				if(atomDef.instanceId == templateId) {
+					if(atom.get_displayName() != null && atom.get_displayName() != atom.type) {
+						if(atomDef.values == null) {
+							atomDef.values = { };
+						}
+						atomDef.values.displayName = atom.get_displayName();
+					}
+					break;
+				}
+			}
+		}
+	}
+	,syncConnectionsToTemplateIds: function() {
+		if(this.blueprint == null || this.blueprint.internalConnections == null) {
+			return;
+		}
+		var runtimeToTemplate_h = Object.create(null);
+		if(this._idMap != null) {
+			var h = this._idMap.h;
+			var templateId_h = h;
+			var templateId_keys = Object.keys(h);
+			var templateId_length = templateId_keys.length;
+			var templateId_current = 0;
+			while(templateId_current < templateId_length) {
+				var templateId = templateId_keys[templateId_current++];
+				var runtimeId = this._idMap.h[templateId];
+				if(runtimeId != null) {
+					runtimeToTemplate_h[runtimeId] = templateId;
+				}
+			}
+		}
+		var _g = 0;
+		var _g1 = this.blueprint.internalConnections;
+		while(_g < _g1.length) {
+			var conn = _g1[_g];
+			++_g;
+			if(conn.from.atomId != "SELF" && Object.prototype.hasOwnProperty.call(runtimeToTemplate_h,conn.from.atomId)) {
+				conn.from.atomId = runtimeToTemplate_h[conn.from.atomId];
+			}
+			if(conn.to.atomId != "SELF" && Object.prototype.hasOwnProperty.call(runtimeToTemplate_h,conn.to.atomId)) {
+				conn.to.atomId = runtimeToTemplate_h[conn.to.atomId];
+			}
+		}
+	}
+	,refreshExternalPortNames: function() {
+		if(this.blueprint == null || this.blueprint.internalConnections == null) {
+			return;
+		}
+		if(this.internalAtoms == null || this.ports == null) {
+			return;
+		}
+		var portInfos_h = Object.create(null);
+		var _g = 0;
+		var _g1 = this.blueprint.internalConnections;
+		while(_g < _g1.length) {
+			var conn = _g1[_g];
+			++_g;
+			if(conn.from.atomId == "SELF") {
+				var portName = conn.from.contactName;
+				var atom = this._resolveInternalAtom(conn.to.atomId);
+				if(atom != null) {
+					var displayName = atom.get_displayName() != null && atom.get_displayName() != "" ? atom.get_displayName() : atom.type;
+					portInfos_h[portName] = { atomName : displayName, contactName : conn.to.contactName};
+				}
+			} else if(conn.to.atomId == "SELF") {
+				var portName1 = conn.to.contactName;
+				var atom1 = this._resolveInternalAtom(conn.from.atomId);
+				if(atom1 != null) {
+					var displayName1 = atom1.get_displayName() != null && atom1.get_displayName() != "" ? atom1.get_displayName() : atom1.type;
+					portInfos_h[portName1] = { atomName : displayName1, contactName : conn.from.contactName};
+				}
+			}
+		}
+		var usedExternalNames_h = Object.create(null);
+		var _g = [];
+		var h = portInfos_h;
+		var p_h = h;
+		var p_keys = Object.keys(h);
+		var p_length = p_keys.length;
+		var p_current = 0;
+		while(p_current < p_length) {
+			var p = p_keys[p_current++];
+			_g.push(p);
+		}
+		var sortedPortNames = _g;
+		sortedPortNames.sort(function(a,b) {
+			if(a < b) {
+				return -1;
+			} else if(a > b) {
+				return 1;
+			} else {
+				return 0;
+			}
+		});
+		var _g = 0;
+		while(_g < sortedPortNames.length) {
+			var portName = sortedPortNames[_g];
+			++_g;
+			var info = portInfos_h[portName];
+			var port = this.ports.h[portName];
+			if(port == null) {
+				continue;
+			}
+			var baseExtName = StringTools.replace(info.atomName," ","_") + "_" + info.contactName;
+			var newExtName = baseExtName;
+			if(Object.prototype.hasOwnProperty.call(usedExternalNames_h,newExtName)) {
+				var counter = 1;
+				while(Object.prototype.hasOwnProperty.call(usedExternalNames_h,baseExtName + "_" + counter)) ++counter;
+				newExtName = baseExtName + "_" + counter;
+			}
+			usedExternalNames_h[newExtName] = true;
+			if(port.externalName == newExtName) {
+				continue;
+			}
+			if(this.blueprint.pins != null) {
+				var _g1 = 0;
+				var _g2 = this.blueprint.pins;
+				while(_g1 < _g2.length) {
+					var pin = _g2[_g1];
+					++_g1;
+					if(pin.name == portName) {
+						pin.externalName = newExtName;
+						break;
+					}
+				}
+			}
+			this._recreatePortWithNewExternalName(port,portName,newExtName);
+		}
+	}
+	,_recreatePortWithNewExternalName: function(oldPort,internalName,newExtName) {
+		if(oldPort == null) {
+			return;
+		}
+		var portType = oldPort.type;
+		var defaultValue = oldPort.defaultValue;
+		if(portType == core_types_ContactType.INPUT) {
+			if(this._inputs != null) {
+				HxOverrides.remove(this._inputs,oldPort.external);
+			}
+			if(this._inputCache != null && this._inputCache.length > this._inputs.length) {
+				this._inputCache.pop();
+			}
+		} else if(this._outputs != null) {
+			HxOverrides.remove(this._outputs,oldPort.external);
+		}
+		oldPort.dispose();
+		var newPort = new core_base_ConductorPort(newExtName,portType,internalName,defaultValue);
+		this.ports.h[internalName] = newPort;
+		if(portType == core_types_ContactType.INPUT) {
+			this._inputs.push(newPort.external);
+			newPort.external.owner = this;
+			while(this._inputCache.length < this._inputs.length) this._inputCache.push(null);
+		} else {
+			this._outputs.push(newPort.external);
+			newPort.external.owner = this;
+		}
+		this._updatePortLinks();
+		this._restoreInternalPortLinks();
 	}
 	,_restoreInternalPortLinks: function() {
 		if(this.blueprint == null || this.blueprint.internalConnections == null) {
@@ -5099,7 +6446,15 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 				if(port == null) {
 					continue;
 				}
-				var atom = this._resolveInternalAtom(atomId);
+				var atom = null;
+				if(Object.prototype.hasOwnProperty.call(this.internalAtoms.h,atomId)) {
+					atom = this.internalAtoms.h[atomId];
+				} else {
+					var runtimeId = this._idMap.h[atomId];
+					if(runtimeId != null && Object.prototype.hasOwnProperty.call(this.internalAtoms.h,runtimeId)) {
+						atom = this.internalAtoms.h[runtimeId];
+					}
+				}
 				if(atom == null) {
 					continue;
 				}
@@ -5118,7 +6473,15 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 				if(port1 == null) {
 					continue;
 				}
-				var atom1 = this._resolveInternalAtom(atomId1);
+				var atom1 = null;
+				if(Object.prototype.hasOwnProperty.call(this.internalAtoms.h,atomId1)) {
+					atom1 = this.internalAtoms.h[atomId1];
+				} else {
+					var runtimeId1 = this._idMap.h[atomId1];
+					if(runtimeId1 != null && Object.prototype.hasOwnProperty.call(this.internalAtoms.h,runtimeId1)) {
+						atom1 = this.internalAtoms.h[runtimeId1];
+					}
+				}
 				if(atom1 == null) {
 					continue;
 				}
@@ -5159,11 +6522,9 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 			}
 			var portType = pinDef.type;
 			var externalName = pinDef.name;
-			if(Object.prototype.hasOwnProperty.call(pinDef,"externalName")) {
-				var extName = Reflect.field(pinDef,"externalName");
-				if(extName != null && extName != "") {
-					externalName = extName;
-				}
+			var extDyn = Reflect.field(pinDef,"externalName");
+			if(extDyn != null && Std.string(extDyn) != "") {
+				externalName = Std.string(extDyn);
 			}
 			var port = new core_base_ConductorPort(externalName,portType,pinDef.name,pinDef.defaultValue);
 			this.ports.h[pinDef.name] = port;
@@ -5180,7 +6541,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 			var atomDef = _g1[_g];
 			++_g;
 			if(atomDef.typeId == this.blueprint.id) {
-				haxe_Log.trace("WARN: Skipped recursive instantiation of " + atomDef.typeId + " inside itself.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1089, className : "core.base.Assembly", methodName : "_createInternalInstances"});
+				haxe_Log.trace("WARN: Skipped recursive instantiation of " + atomDef.typeId + " inside itself.",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1629, className : "core.base.Assembly", methodName : "_createInternalInstances"});
 				continue;
 			}
 			var newInstanceID = utils_UID.generate();
@@ -5192,6 +6553,13 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 				if(atomDef.values != null) {
 					instance.restoreState(atomDef.values);
 				}
+				var desiredName = instance.get_displayName() != null ? instance.get_displayName() : instance.type;
+				var finalName = core_logic_NamingService.resolveUniqueInstanceName(desiredName,newInstanceID);
+				if(finalName != desiredName) {
+					haxe_Log.trace("NamingService: Resolved conflict \"" + desiredName + "\" → \"" + finalName + "\" for atom " + newInstanceID,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1671, className : "core.base.Assembly", methodName : "_createInternalInstances"});
+				}
+				instance.set_displayName(finalName);
+				core_logic_NamingService.registerInstanceName(finalName,newInstanceID);
 				var bpDef = library_AtomRegistry.get(atomDef.typeId);
 				if(bpDef != null && bpDef.isActive && !bpDef.isNative) {
 					system_managers_DriverManager.getInstance().register(instance);
@@ -5212,36 +6580,30 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 			var fromContact = this.resolveContact(conn.from);
 			var toContact = this.resolveContact(conn.to);
 			if(fromContact == null) {
-				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): fromContact NULL for " + conn.from.atomId + "." + conn.from.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1147, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): fromContact NULL for " + conn.from.atomId + "." + conn.from.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1714, className : "core.base.Assembly", methodName : "_createInternalConnections"});
 				connectionsToRemove.push(conn);
 				continue;
 			}
 			if(toContact == null) {
-				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): toContact NULL for " + conn.to.atomId + "." + conn.to.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1153, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): toContact NULL for " + conn.to.atomId + "." + conn.to.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1720, className : "core.base.Assembly", methodName : "_createInternalConnections"});
 				connectionsToRemove.push(conn);
 				continue;
 			}
 			if(fromContact.type == null) {
-				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): fromContact.type is NULL for " + conn.from.atomId + "." + conn.from.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1159, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact ID: " + fromContact.id,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1160, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact name: " + fromContact.name,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1161, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact owner: " + (fromContact.owner != null ? fromContact.owner.get_id() : "null"),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1162, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): fromContact.type is NULL for " + conn.from.atomId + "." + conn.from.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1726, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact ID: " + fromContact.id,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1727, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact name: " + fromContact.name,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1728, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact owner: " + (fromContact.owner != null ? fromContact.owner.get_id() : "null"),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1729, className : "core.base.Assembly", methodName : "_createInternalConnections"});
 				connectionsToRemove.push(conn);
 				continue;
 			}
 			if(toContact.type == null) {
-				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): toContact.type is NULL for " + conn.to.atomId + "." + conn.to.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1168, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact ID: " + toContact.id,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1169, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact name: " + toContact.name,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1170, className : "core.base.Assembly", methodName : "_createInternalConnections"});
-				haxe_Log.trace("  Contact owner: " + (toContact.owner != null ? toContact.owner.get_id() : "null"),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1171, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("ERROR: Assembly(" + this.get_id() + "): toContact.type is NULL for " + conn.to.atomId + "." + conn.to.contactName,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1735, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact ID: " + toContact.id,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1736, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact name: " + toContact.name,{ fileName : "src/core/base/Assembly.hx", lineNumber : 1737, className : "core.base.Assembly", methodName : "_createInternalConnections"});
+				haxe_Log.trace("  Contact owner: " + (toContact.owner != null ? toContact.owner.get_id() : "null"),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1738, className : "core.base.Assembly", methodName : "_createInternalConnections"});
 				connectionsToRemove.push(conn);
 				continue;
-			}
-			if(conn.from.atomId == "SELF") {
-				this._ensureInternalAtomConnectedToPort(conn.from.contactName,core_types_ContactType.OUTPUT);
-			}
-			if(conn.to.atomId == "SELF") {
-				this._ensureInternalAtomConnectedToPort(conn.to.contactName,core_types_ContactType.INPUT);
 			}
 			fromContact.link(toContact,true);
 		}
@@ -5258,55 +6620,26 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		}
 		var removed = HxOverrides.remove(this.blueprint.internalConnections,conn);
 		if(removed) {
-			haxe_Log.trace("  🔧 SAFETY NET: Removed ghost connection: " + ("" + conn.from.atomId + "." + conn.from.contactName + " → ") + ("" + conn.to.atomId + "." + conn.to.contactName),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1224, className : "core.base.Assembly", methodName : "_sanitizeConnection"});
+			haxe_Log.trace("  🔧 SAFETY NET: Removed ghost connection: " + ("" + conn.from.atomId + "." + conn.from.contactName + " → ") + ("" + conn.to.atomId + "." + conn.to.contactName),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1781, className : "core.base.Assembly", methodName : "_sanitizeConnection"});
 		}
 	}
 	,_ensureInternalAtomConnectedToPort: function(portName,portType) {
-		if(this.internalAtoms == null) {
-			return;
-		}
-		var port = this.ports.h[portName];
-		if(port == null) {
-			return;
-		}
-		var h = this.internalAtoms.h;
-		var id_h = h;
-		var id_keys = Object.keys(h);
-		var id_length = id_keys.length;
-		var id_current = 0;
-		while(id_current < id_length) {
-			var id = id_keys[id_current++];
-			var atom = this.internalAtoms.h[id];
-			if(atom == null) {
-				continue;
-			}
-			if(portType == core_types_ContactType.OUTPUT) {
-				var atomOutput = atom.getOutput(portName);
-				if(atomOutput != null) {
-					if(!atomOutput.hasLink(port.internal)) {
-						atomOutput.link(port.internal,true);
-					}
-					break;
-				}
-			} else {
-				break;
-			}
-		}
+		return;
 	}
 	,resolveContact: function(point) {
 		if(point == null) {
-			haxe_Log.trace("ERROR: resolveContact received null point",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1300, className : "core.base.Assembly", methodName : "resolveContact"});
+			haxe_Log.trace("ERROR: resolveContact received null point",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1871, className : "core.base.Assembly", methodName : "resolveContact"});
 			return null;
 		}
 		if(point.atomId == "SELF") {
 			var port = this.ports.h[point.contactName];
 			if(port == null) {
-				haxe_Log.trace("WARN: Port \"" + point.contactName + "\" not found in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1309, className : "core.base.Assembly", methodName : "resolveContact"});
+				haxe_Log.trace("WARN: Port \"" + point.contactName + "\" not found in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1880, className : "core.base.Assembly", methodName : "resolveContact"});
 				return null;
 			}
 			var contact = port.internal;
 			if(contact == null) {
-				haxe_Log.trace("ERROR: Port \"" + point.contactName + "\" internal contact is null!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1317, className : "core.base.Assembly", methodName : "resolveContact"});
+				haxe_Log.trace("ERROR: Port \"" + point.contactName + "\" internal contact is null!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1888, className : "core.base.Assembly", methodName : "resolveContact"});
 				return null;
 			}
 			return contact;
@@ -5316,7 +6649,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 				if(Object.prototype.hasOwnProperty.call(this.internalAtoms.h,point.atomId)) {
 					realAtomId = point.atomId;
 				} else {
-					haxe_Log.trace("WARN: Atom \"" + point.atomId + "\" not found in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1333, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("WARN: Atom \"" + point.atomId + "\" not found in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1904, className : "core.base.Assembly", methodName : "resolveContact"});
 					var _g = [];
 					var h = this.internalAtoms.h;
 					var k_h = h;
@@ -5327,21 +6660,47 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 						var k = k_keys[k_current++];
 						_g.push(k);
 					}
-					haxe_Log.trace("  Available keys: " + Std.string(_g),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1334, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("  Available keys: " + Std.string(_g),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1905, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 			}
 			var obj = this.internalAtoms.h[realAtomId];
 			if(obj == null) {
-				haxe_Log.trace("WARN: Instance \"" + realAtomId + "\" is null in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1342, className : "core.base.Assembly", methodName : "resolveContact"});
+				haxe_Log.trace("WARN: Instance \"" + realAtomId + "\" is null in Assembly(" + this.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1913, className : "core.base.Assembly", methodName : "resolveContact"});
 				return null;
 			}
 			var atom = obj;
 			if(((atom) instanceof core_base_Assembly)) {
 				var asm = js_Boot.__cast(atom , core_base_Assembly);
-				var port = asm.ports.h[point.contactName];
+				var port = null;
+				var h = asm.ports.h;
+				var p_h = h;
+				var p_keys = Object.keys(h);
+				var p_length = p_keys.length;
+				var p_current = 0;
+				while(p_current < p_length) {
+					var p = p_h[p_keys[p_current++]];
+					if(p != null && p.externalName == point.contactName) {
+						port = p;
+						break;
+					}
+				}
 				if(port == null) {
-					haxe_Log.trace("ERROR: Port \"" + point.contactName + "\" NOT FOUND on Assembly " + atom.name + "(" + realAtomId + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1353, className : "core.base.Assembly", methodName : "resolveContact"});
+					port = asm.ports.h[point.contactName];
+				}
+				if(port == null) {
+					haxe_Log.trace("ERROR: Port \"" + point.contactName + "\" NOT FOUND on Assembly " + atom.name + "(" + realAtomId + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1947, className : "core.base.Assembly", methodName : "resolveContact"});
+					var _g = [];
+					var h = asm.ports.h;
+					var k_h = h;
+					var k_keys = Object.keys(h);
+					var k_length = k_keys.length;
+					var k_current = 0;
+					while(k_current < k_length) {
+						var k = k_keys[k_current++];
+						_g.push(asm.ports.h[k].externalName);
+					}
+					haxe_Log.trace("  Available external ports: " + Std.string(_g),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1948, className : "core.base.Assembly", methodName : "resolveContact"});
 					var _g = [];
 					var h = asm.ports.h;
 					var k_h = h;
@@ -5352,18 +6711,18 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 						var k = k_keys[k_current++];
 						_g.push(k);
 					}
-					haxe_Log.trace("  Available ports: " + Std.string(_g),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1354, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("  Available internal ports: " + Std.string(_g),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1949, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 				var contact = port.external;
 				if(contact == null) {
-					haxe_Log.trace("ERROR: External contact from port \"" + point.contactName + "\" is null!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1362, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("ERROR: External contact from port \"" + point.contactName + "\" is null!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1957, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 				if(contact.type == null) {
-					haxe_Log.trace("ERROR: Contact \"" + point.contactName + "\" has NULL type!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1367, className : "core.base.Assembly", methodName : "resolveContact"});
-					haxe_Log.trace("  Port type: " + Std.string(port.type),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1368, className : "core.base.Assembly", methodName : "resolveContact"});
-					haxe_Log.trace("  Atom: " + atom.name + " (" + atom.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1369, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("ERROR: Contact \"" + point.contactName + "\" has NULL type!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1962, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("  Port type: " + Std.string(port.type),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1963, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("  Atom: " + atom.name + " (" + atom.get_id() + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1964, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 				return contact;
@@ -5373,11 +6732,11 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 					c = atom.getOutput(point.contactName);
 				}
 				if(c == null) {
-					haxe_Log.trace("WARN: Contact \"" + point.contactName + "\" not found on atom " + atom.name + "(" + realAtomId + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1381, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("WARN: Contact \"" + point.contactName + "\" not found on atom " + atom.name + "(" + realAtomId + ")",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1976, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 				if(c.type == null) {
-					haxe_Log.trace("ERROR: Contact \"" + point.contactName + "\" on " + atom.name + " has null.type!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1386, className : "core.base.Assembly", methodName : "resolveContact"});
+					haxe_Log.trace("ERROR: Contact \"" + point.contactName + "\" on " + atom.name + " has null.type!",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1981, className : "core.base.Assembly", methodName : "resolveContact"});
 					return null;
 				}
 				return c;
@@ -5406,7 +6765,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		}
 		return result;
 	}
-	,addPort: function(name,type,defaultValue) {
+	,addPort: function(name,type,defaultValue,externalName) {
 		var currentCount = 0;
 		var h = this.ports.h;
 		var p_h = h;
@@ -5421,18 +6780,19 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 		}
 		var max = type == core_types_ContactType.INPUT ? 20 : 20;
 		if(currentCount >= max) {
-			haxe_Log.trace("ERROR: Max ports limit reached for type " + Std.string(type),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1425, className : "core.base.Assembly", methodName : "addPort"});
+			haxe_Log.trace("ERROR: Max ports limit reached for type " + Std.string(type),{ fileName : "src/core/base/Assembly.hx", lineNumber : 2049, className : "core.base.Assembly", methodName : "addPort"});
 			return null;
 		}
 		if(Object.prototype.hasOwnProperty.call(this.ports.h,name)) {
-			haxe_Log.trace("ERROR: Port name \"" + name + "\" already exists",{ fileName : "src/core/base/Assembly.hx", lineNumber : 1430, className : "core.base.Assembly", methodName : "addPort"});
+			haxe_Log.trace("ERROR: Port name \"" + name + "\" already exists",{ fileName : "src/core/base/Assembly.hx", lineNumber : 2054, className : "core.base.Assembly", methodName : "addPort"});
 			return null;
 		}
-		var pinDef = { name : name, type : type, defaultValue : defaultValue};
+		var extName = externalName != null && externalName != "" ? externalName : name;
+		var pinDef = { name : name, type : type, defaultValue : defaultValue, externalName : extName};
 		if(this.blueprint.pins != null) {
 			this.blueprint.pins.push(pinDef);
 		}
-		var port = new core_base_ConductorPort(name,type,defaultValue);
+		var port = new core_base_ConductorPort(extName,type,name,defaultValue);
 		this.ports.h[name] = port;
 		if(type == core_types_ContactType.INPUT) {
 			this._inputs.push(port.external);
@@ -5555,8 +6915,13 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 			break;
 		}
 		var baseState = core_base_Atom.prototype.getPersistentState.call(this);
-		if(hasStates || baseState != null && baseState.isLogic == true) {
-			return { isLogic : baseState != null && baseState.isLogic, internalStates : hasStates ? states : null};
+		var hasDisplayName = baseState != null && baseState.displayName != null;
+		if(hasStates || baseState != null && baseState.isLogic == true || hasDisplayName) {
+			var result = { isLogic : baseState != null && baseState.isLogic, internalStates : hasStates ? states : null};
+			if(hasDisplayName) {
+				result.displayName = baseState.displayName;
+			}
+			return result;
 		}
 		return null;
 	}
@@ -5621,7 +6986,7 @@ core_base_Assembly.prototype = $extend(core_base_Atom.prototype,{
 					} catch( _g1 ) {
 						haxe_NativeStackTrace.lastError = _g1;
 						var e = haxe_Exception.caught(_g1).unwrap();
-						haxe_Log.trace("Error: " + Std.string(e),{ fileName : "src/core/base/Assembly.hx", lineNumber : 1692, className : "core.base.Assembly", methodName : "dispose"});
+						haxe_Log.trace("Error: " + Std.string(e),{ fileName : "src/core/base/Assembly.hx", lineNumber : 2334, className : "core.base.Assembly", methodName : "dispose"});
 					}
 				}
 			}
@@ -5662,7 +7027,7 @@ core_base_AssemblyFactory.createAtom = function(typeId,forcedId,initialState) {
 	var bp = library_AtomRegistry.get(typeId);
 	var id = forcedId != null ? forcedId : utils_UID.generate();
 	if(bp == null) {
-		haxe_Log.trace("ERROR: Blueprint not found: " + typeId,{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 97, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		haxe_Log.trace("ERROR: Blueprint not found: " + typeId,{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 86, className : "core.base.AssemblyFactory", methodName : "createAtom"});
 		return null;
 	}
 	var normalizedTypeId = typeId;
@@ -5739,6 +7104,9 @@ core_base_AssemblyFactory.createAtom = function(typeId,forcedId,initialState) {
 			break;
 		case "SYSTEMVUMETERATOM":
 			break;
+		case "TEXTAREA":
+			normalizedTypeId = "TextArea";
+			break;
 		case "TEXTINPUT":
 			normalizedTypeId = "TextInput";
 			break;
@@ -5776,22 +7144,25 @@ core_base_AssemblyFactory.createAtom = function(typeId,forcedId,initialState) {
 		atom = new library_electro_LedAtom(id);
 		break;
 	case "MiniAudioAtom":
-		haxe_Log.trace("⚠️ MiniAudioAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 202, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		haxe_Log.trace("⚠️ MiniAudioAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 201, className : "core.base.AssemblyFactory", methodName : "createAtom"});
 		break;
 	case "NETRadioPlayerAtom":
-		haxe_Log.trace("⚠️ NETRadioPlayerAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 222, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		haxe_Log.trace("⚠️ NETRadioPlayerAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 229, className : "core.base.AssemblyFactory", methodName : "createAtom"});
 		break;
 	case "Oscilloscope":
 		atom = new library_electro_OscilloscopeAtom(id);
 		break;
 	case "PassThroughAtom":
-		atom = new library_logic_PassThroughAtom(id);
+		atom = new library_electro_PassThroughAtom(id);
 		break;
 	case "Relay":
 		atom = new library_electro_RelayAtom(id);
 		break;
 	case "SignalGenerator":
 		atom = new library_drivers_SignalGenerator(id);
+		break;
+	case "TextArea":
+		atom = new library_electro_TextAreaAtom(id);
 		break;
 	case "TextInput":
 		atom = new library_electro_TextInputAtom(id);
@@ -5800,8 +7171,10 @@ core_base_AssemblyFactory.createAtom = function(typeId,forcedId,initialState) {
 		atom = new library_electro_ToggleAtom(id);
 		break;
 	case "URLAudioStreamPlayerAtom":
-		haxe_Log.trace("⚠️ URLAudioStreamPlayerAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 232, className : "core.base.AssemblyFactory", methodName : "createAtom"});
-		haxe_Log.trace("⚠️ SystemVUMeterAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 242, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		haxe_Log.trace("⚠️ URLAudioStreamPlayerAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 239, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		haxe_Log.trace("⚠️ SystemVUMeterAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 249, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		break;
+	case "WEBSocketAtom":
 		break;
 	default:
 		atom = new core_base_Assembly(id,bp);
@@ -5811,32 +7184,62 @@ core_base_AssemblyFactory.createAtom = function(typeId,forcedId,initialState) {
 	}
 	return atom;
 };
-core_base_AssemblyFactory.generateUniqueDisplayName = function(typeId,assembly) {
-	if(typeId == null) {
-		return "Unknown";
+core_base_AssemblyFactory.generateUniqueDisplayName = function(typeId,isNameTaken,desiredBaseName,isPaste) {
+	if(isPaste == null) {
+		isPaste = false;
 	}
-	if(assembly == null) {
-		return typeId;
+	if(isNameTaken == null) {
+		isNameTaken = function(s,ex) {
+			return false;
+		};
 	}
-	var bp = library_AtomRegistry.get(typeId);
-	var baseName = bp != null && bp.name != null && bp.name.length > 0 ? bp.name : typeId;
-	if(!assembly.hasAtomWithName(baseName)) {
-		return baseName;
+	var baseName;
+	if(desiredBaseName != null && desiredBaseName.length > 0) {
+		baseName = desiredBaseName;
+	} else if(typeId != null) {
+		var bp = library_AtomRegistry.get(typeId);
+		baseName = bp != null && bp.name != null && bp.name.length > 0 ? bp.name : typeId;
+	} else {
+		baseName = "Atom";
 	}
-	var counter = 1;
-	var candidate = baseName + "_" + counter;
-	while(assembly.hasAtomWithName(candidate)) {
-		++counter;
-		candidate = baseName + "_" + counter;
+	var parsed = core_base_AssemblyFactory.parseName(baseName);
+	var coreBase = parsed.base;
+	var parsedNum = parsed.number;
+	var candidate;
+	if(isPaste) {
+		var startNum = parsedNum != null ? parsedNum + 1 : 1;
+		candidate = coreBase + "_" + startNum;
+		while(isNameTaken(candidate)) {
+			++startNum;
+			candidate = coreBase + "_" + startNum;
+		}
+		return candidate;
+	} else {
+		if(parsedNum == null && !isNameTaken(baseName)) {
+			return baseName;
+		}
+		var startNum = parsedNum != null ? parsedNum + 1 : 1;
+		candidate = coreBase + "_" + startNum;
+		while(isNameTaken(candidate)) {
+			++startNum;
+			candidate = coreBase + "_" + startNum;
+		}
+		return candidate;
 	}
-	return candidate;
+};
+core_base_AssemblyFactory.parseName = function(name) {
+	var regex = new EReg("(.*)_(\\d+)$","");
+	if(regex.match(name)) {
+		return { base : regex.matched(1), number : Std.parseInt(regex.matched(2))};
+	}
+	return { base : name, number : null};
 };
 core_base_AssemblyFactory.createAssembly = function(typeId) {
 	var atom = core_base_AssemblyFactory.createAtom(typeId);
 	if(((atom) instanceof core_base_Assembly)) {
 		return atom;
 	} else {
-		haxe_Log.trace("WARN: " + typeId + " is a native Atom, not an Assembly.",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 351, className : "core.base.AssemblyFactory", methodName : "createAssembly"});
+		haxe_Log.trace("WARN: " + typeId + " is a native Atom, not an Assembly.",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 440, className : "core.base.AssemblyFactory", methodName : "createAssembly"});
 		return null;
 	}
 };
@@ -5944,10 +7347,20 @@ core_base_Contact.prototype = {
 		}
 	}
 	,propagateCurrentValue: function() {
+		var _gthis = this;
 		if(this._value == null || this.isDisposed) {
 			return;
 		}
 		if(!this.canPropagate()) {
+			return;
+		}
+		var tg = core_logic_TickGenerator.getInstance();
+		if(tg.isTopologyLocked()) {
+			tg.deferTopologyTask(function() {
+				if(!_gthis.isDisposed) {
+					_gthis._propagate();
+				}
+			});
 			return;
 		}
 		if(this.owner != null) {
@@ -5977,6 +7390,7 @@ core_base_Contact.prototype = {
 		}
 	}
 	,_receiveValue: function(newValue) {
+		var _gthis = this;
 		if(this.isDisposed) {
 			return;
 		}
@@ -5987,9 +7401,18 @@ core_base_Contact.prototype = {
 			return;
 		}
 		this._value = newValue;
+		var tg = core_logic_TickGenerator.getInstance();
+		if(tg.isTopologyLocked()) {
+			tg.deferTopologyTask(function() {
+				if(!_gthis.isDisposed) {
+					_gthis._propagate();
+				}
+			});
+			return;
+		}
 		if(!this._isScheduled) {
 			this._isScheduled = true;
-			core_logic_TickGenerator.getInstance().schedule($bind(this,this._propagate),core_types_Priority.NORMAL);
+			tg.schedule($bind(this,this._propagate),core_types_Priority.NORMAL);
 		}
 	}
 	,canPropagate: function() {
@@ -6031,6 +7454,7 @@ core_base_Contact.prototype = {
 		}
 	}
 	,set_value: function(newValue) {
+		var _gthis = this;
 		if(this.isDisposed) {
 			return newValue;
 		}
@@ -6055,9 +7479,18 @@ core_base_Contact.prototype = {
 		core_base_Contact._propagationDepth++;
 		try {
 			this._value = newValue;
+			var tg = core_logic_TickGenerator.getInstance();
+			if(tg.isTopologyLocked()) {
+				tg.deferTopologyTask(function() {
+					if(!_gthis.isDisposed) {
+						_gthis._propagate();
+					}
+				});
+				return newValue;
+			}
 			if(!this._isScheduled) {
 				this._isScheduled = true;
-				core_logic_TickGenerator.getInstance().schedule($bind(this,this._propagate),core_types_Priority.NORMAL);
+				tg.schedule($bind(this,this._propagate),core_types_Priority.NORMAL);
 			}
 		} catch( _g ) {
 			haxe_NativeStackTrace.lastError = _g;
@@ -6372,6 +7805,124 @@ core_logic_LockFreeQueue.prototype = {
 	}
 	,__class__: core_logic_LockFreeQueue
 };
+var core_logic_NamingService = function() { };
+$hxClasses["core.logic.NamingService"] = core_logic_NamingService;
+core_logic_NamingService.__name__ = "core.logic.NamingService";
+core_logic_NamingService.isInstanceNameTaken = function(name,excludeInstanceId) {
+	if(name == null || name.length == 0) {
+		return true;
+	}
+	var existingId = core_logic_NamingService._instanceNames.h[name];
+	if(existingId == null) {
+		return false;
+	}
+	if(excludeInstanceId != null && existingId == excludeInstanceId) {
+		return false;
+	}
+	return true;
+};
+core_logic_NamingService.registerInstanceName = function(name,instanceId) {
+	if(name == null || name.length == 0) {
+		return false;
+	}
+	if(instanceId == null || instanceId.length == 0) {
+		return false;
+	}
+	if(core_logic_NamingService.isInstanceNameTaken(name,instanceId)) {
+		return false;
+	}
+	core_logic_NamingService._instanceNames.h[name] = instanceId;
+	return true;
+};
+core_logic_NamingService.unregisterInstanceName = function(name) {
+	if(name == null) {
+		return;
+	}
+	var _this = core_logic_NamingService._instanceNames;
+	if(Object.prototype.hasOwnProperty.call(_this.h,name)) {
+		delete(_this.h[name]);
+	}
+};
+core_logic_NamingService.renameInstance = function(oldName,newName,instanceId) {
+	if(newName == null || newName.length == 0) {
+		return false;
+	}
+	if(core_logic_NamingService.isInstanceNameTaken(newName,instanceId)) {
+		return false;
+	}
+	if(oldName != null) {
+		var _this = core_logic_NamingService._instanceNames;
+		if(Object.prototype.hasOwnProperty.call(_this.h,oldName)) {
+			delete(_this.h[oldName]);
+		}
+	}
+	core_logic_NamingService._instanceNames.h[newName] = instanceId;
+	return true;
+};
+core_logic_NamingService.resolveUniqueInstanceName = function(candidate,excludeInstanceId) {
+	if(candidate == null || candidate.length == 0) {
+		candidate = "Atom";
+	}
+	if(!core_logic_NamingService.isInstanceNameTaken(candidate,excludeInstanceId)) {
+		return candidate;
+	}
+	var counter = 1;
+	var c = candidate + "_" + counter;
+	while(core_logic_NamingService.isInstanceNameTaken(c,excludeInstanceId)) {
+		++counter;
+		c = candidate + "_" + counter;
+	}
+	return c;
+};
+core_logic_NamingService.clearInstanceNames = function() {
+	core_logic_NamingService._instanceNames = new haxe_ds_StringMap();
+};
+core_logic_NamingService.dumpInstanceNames = function() {
+	haxe_Log.trace("═══ NamingService: " + Lambda.count(core_logic_NamingService._instanceNames) + " registered instance names ═══",{ fileName : "src/core/logic/NamingService.hx", lineNumber : 254, className : "core.logic.NamingService", methodName : "dumpInstanceNames"});
+	var h = core_logic_NamingService._instanceNames.h;
+	var name_h = h;
+	var name_keys = Object.keys(h);
+	var name_length = name_keys.length;
+	var name_current = 0;
+	while(name_current < name_length) {
+		var name = name_keys[name_current++];
+		haxe_Log.trace("  \"" + name + "\" → " + core_logic_NamingService._instanceNames.h[name],{ fileName : "src/core/logic/NamingService.hx", lineNumber : 257, className : "core.logic.NamingService", methodName : "dumpInstanceNames"});
+	}
+};
+core_logic_NamingService.isBlueprintNameTaken = function(name,excludeBpId) {
+	if(name == null || name.length == 0) {
+		return true;
+	}
+	var _g = 0;
+	var _g1 = library_AtomRegistry.getAllIds();
+	while(_g < _g1.length) {
+		var id = _g1[_g];
+		++_g;
+		if(excludeBpId != null && id == excludeBpId) {
+			continue;
+		}
+		var bp = library_AtomRegistry.get(id);
+		if(bp != null && bp.name == name) {
+			return true;
+		}
+	}
+	return false;
+};
+core_logic_NamingService.resolveUniqueBlueprintName = function(candidate,excludeBpId) {
+	if(candidate == null || candidate.length == 0) {
+		candidate = "Assembly";
+	}
+	if(!core_logic_NamingService.isBlueprintNameTaken(candidate,excludeBpId)) {
+		return candidate;
+	}
+	var counter = 1;
+	var c = candidate + "_" + counter;
+	while(core_logic_NamingService.isBlueprintNameTaken(c,excludeBpId)) {
+		++counter;
+		c = candidate + "_" + counter;
+	}
+	return c;
+};
 var core_logic_TickGenerator = function() {
 	this._tickListeners = [];
 	this._maxIterationsPerTick = 5000;
@@ -6379,6 +7930,7 @@ var core_logic_TickGenerator = function() {
 	this._blockedUntilNextFrame = false;
 	this._suspended = false;
 	this._isProcessing = false;
+	this._topologyLockDepth = 0;
 	this._isPaused = false;
 	this._accumulator = 0.0;
 	this.frameStartTime = 0.0;
@@ -6395,6 +7947,7 @@ var core_logic_TickGenerator = function() {
 	this._queuesRead.set(core_types_Priority.NORMAL,[]);
 	this._queuesRead.set(core_types_Priority.BACKGROUND,[]);
 	this._pendingQueue = new core_logic_LockFreeQueue(4096);
+	this._deferredTopologyTasks = [];
 };
 $hxClasses["core.logic.TickGenerator"] = core_logic_TickGenerator;
 core_logic_TickGenerator.__name__ = "core.logic.TickGenerator";
@@ -6418,6 +7971,46 @@ core_logic_TickGenerator.prototype = {
 		this.targetHz = Math.max(1,value) | 0;
 		this.fixedDeltaTime = 1.0 / this.targetHz;
 		return this.targetHz;
+	}
+	,lockTopology: function() {
+		this._topologyLockDepth++;
+		if(this._topologyLockDepth == 1) {
+			this._deferredTopologyTasks.length = 0;
+		}
+	}
+	,unlockTopology: function() {
+		if(this._topologyLockDepth <= 0) {
+			return;
+		}
+		this._topologyLockDepth--;
+		if(this._topologyLockDepth == 0) {
+			var tasksToFlush = this._deferredTopologyTasks.slice();
+			this._deferredTopologyTasks.length = 0;
+			var _g = 0;
+			while(_g < tasksToFlush.length) {
+				var task = tasksToFlush[_g];
+				++_g;
+				try {
+					task();
+				} catch( _g1 ) {
+					haxe_NativeStackTrace.lastError = _g1;
+				}
+			}
+			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
+			if(!this._isProcessing && this.hasPendingTasks()) {
+				this.process();
+			}
+		}
+	}
+	,isTopologyLocked: function() {
+		return this._topologyLockDepth > 0;
+	}
+	,deferTopologyTask: function(task) {
+		if(this._topologyLockDepth > 0) {
+			this._deferredTopologyTasks.push(task);
+		} else {
+			task();
+		}
 	}
 	,update: function(realDt) {
 		if(this._isPaused) {
@@ -6487,7 +8080,7 @@ core_logic_TickGenerator.prototype = {
 	,scheduleNextTick: function(task) {
 		if(task != null) {
 			if(!this._pendingQueue.push(task)) {
-				haxe_Log.trace("TickGenerator: pending queue overflow! Task dropped.",{ fileName : "src/core/logic/TickGenerator.hx", lineNumber : 262, className : "core.logic.TickGenerator", methodName : "scheduleNextTick"});
+				haxe_Log.trace("TickGenerator: pending queue overflow! Task dropped.",{ fileName : "src/core/logic/TickGenerator.hx", lineNumber : 379, className : "core.logic.TickGenerator", methodName : "scheduleNextTick"});
 			}
 		}
 	}
@@ -6542,7 +8135,7 @@ core_logic_TickGenerator.prototype = {
 		}
 	}
 	,process: function() {
-		if(this._suspended || this._blockedUntilNextFrame) {
+		if(this._suspended || this._blockedUntilNextFrame || this._topologyLockDepth > 0) {
 			return;
 		}
 		if(this._isProcessing) {
@@ -6591,7 +8184,7 @@ core_logic_TickGenerator.prototype = {
 							} catch( _g3 ) {
 								haxe_NativeStackTrace.lastError = _g3;
 								var e = haxe_Exception.caught(_g3).unwrap();
-								haxe_Log.trace("TickGenerator: Error in task: " + Std.string(e),{ fileName : "src/core/logic/TickGenerator.hx", lineNumber : 362, className : "core.logic.TickGenerator", methodName : "process"});
+								haxe_Log.trace("TickGenerator: Error in task: " + Std.string(e),{ fileName : "src/core/logic/TickGenerator.hx", lineNumber : 479, className : "core.logic.TickGenerator", methodName : "process"});
 							}
 						}
 					}
@@ -6625,6 +8218,8 @@ core_logic_TickGenerator.prototype = {
 		this._isProcessing = false;
 		this._suspended = false;
 		this._blockedUntilNextFrame = false;
+		this._topologyLockDepth = 0;
+		this._deferredTopologyTasks.length = 0;
 	}
 	,pause: function() {
 		this._isPaused = true;
@@ -7264,6 +8859,8 @@ core_view_DeviceWidgetFactory.createForAssembly = function(asm) {
 		return new core_view_SignalGeneratorWidget(asm);
 	case "switch":case "toggle":
 		return new core_view_ToggleWidget(asm,core_view_DeviceWidgetFactory.getContactName(bp,"out"));
+	case "textarea":
+		return new core_view_TextAreaWidget(asm);
 	case "textinput":
 		return new core_view_TextInputWidget(asm);
 	default:
@@ -7276,8 +8873,12 @@ core_view_DeviceWidgetFactory.createByAtomType = function(atom) {
 	}
 	var type = atom.type.toLowerCase();
 	switch(type) {
+	case "fft spectrum":case "fftatom":
+		return new core_view_FFTWidget(atom);
 	case "led":case "led indicator":
 		return new core_view_LEDWidget(atom,"in");
+	case "oscilloscope":
+		return new core_view_OscilloscopeWidget(atom,"in");
 	case "button":case "push button":
 		return new core_view_ButtonWidget(atom,"out");
 	case "relay":
@@ -7286,6 +8887,8 @@ core_view_DeviceWidgetFactory.createByAtomType = function(atom) {
 		return new core_view_SignalGeneratorWidget(atom);
 	case "switch":case "toggle":
 		return new core_view_ToggleWidget(atom,"out");
+	case "textarea":
+		return new core_view_TextAreaWidget(atom);
 	case "textinput":
 		return new core_view_TextInputWidget(atom);
 	default:
@@ -7344,8 +8947,8 @@ core_view_DeviceWidgetFactory.isSupported = function(atomType) {
 	}
 };
 var core_view_FFTWidget = function(atom) {
-	this._peakFallSpeed = 0.03;
-	this._smoothingFactor = 0.9;
+	this._peakFallSpeed = 0.01;
+	this._smoothingFactor = 0.0;
 	this._isRendering = false;
 	this._hasNewFrame = false;
 	this._colorRed = 13378082;
@@ -7513,6 +9116,14 @@ core_view_FFTWidget.prototype = $extend(core_view_DeviceView.prototype,{
 			if(normalized > 1) {
 				normalized = 1;
 			}
+			var tiltMultiplier = Math.pow(freqStart / 1000.0,0.5);
+			if(tiltMultiplier < 0.5) {
+				tiltMultiplier = 0.5;
+			}
+			if(tiltMultiplier > 1.5) {
+				tiltMultiplier = 1.5;
+			}
+			normalized *= tiltMultiplier;
 			if(normalized > 1.0) {
 				normalized = 1.0;
 			}
@@ -8346,12 +9957,17 @@ core_view_PanelWidget.prototype = $extend(core_view_DeviceView.prototype,{
 		this._titleLabel.mouseEnabled = false;
 		var fmt = new openfl_text_TextFormat("_sans",12,16777215,true);
 		this._titleLabel.set_defaultTextFormat(fmt);
-		this._titleLabel.set_text(this.assembly != null && this.assembly.blueprint != null ? this.assembly.blueprint.name : "Panel");
+		this._titleLabel.set_text(this.assembly != null && this.assembly.blueprint != null ? this.assembly.get_displayName() : "Panel");
 		this._header.addChild(this._titleLabel);
 		this._content = new openfl_display_Sprite();
 		this._content.set_y(this.headerHeight + 5);
 		this.addChild(this._content);
 		this.createPorts();
+		haxe_Log.trace("PanelWidget: assembly=" + Std.string(this.assembly != null) + ", blueprint=" + Std.string(this.assembly != null ? this.assembly.blueprint : null),{ fileName : "src/core/view/PanelWidget.hx", lineNumber : 115, className : "core.view.PanelWidget", methodName : "buildUI"});
+		if(this.assembly != null && this.assembly.blueprint != null) {
+			haxe_Log.trace("PanelWidget: blueprint.name=\"" + this.assembly.blueprint.name + "\"",{ fileName : "src/core/view/PanelWidget.hx", lineNumber : 118, className : "core.view.PanelWidget", methodName : "buildUI"});
+		}
+		this._titleLabel.set_text(this.assembly != null && this.assembly.blueprint != null ? this.assembly.blueprint.name : "Panel");
 	}
 	,createPorts: function() {
 		if(this.assembly == null || this.assembly.blueprint == null) {
@@ -9047,6 +10663,611 @@ core_view_SliderControl.prototype = $extend(openfl_display_Sprite.prototype,{
 	}
 	,__class__: core_view_SliderControl
 	,__properties__: $extend(openfl_display_Sprite.prototype.__properties__,{set_value:"set_value"})
+});
+var core_view_TextAreaWidget = function(atom) {
+	this.widgetHeight = 190;
+	this.widgetWidth = 350;
+	this._vScroll = true;
+	this._hScroll = false;
+	this._autoScroll = true;
+	this._wordWrap = true;
+	this._editable = true;
+	this._numLines = 8;
+	this._maxChars = 40;
+	this._hThumbHover = false;
+	this._vThumbHover = false;
+	this._dragStartScrollH = 0;
+	this._dragStartScrollV = 0;
+	this._dragStartX = 0;
+	this._dragStartY = 0;
+	this._isDraggingH = false;
+	this._isDraggingV = false;
+	this._suppressUpdate = false;
+	this._lastText = "";
+	this._isEditing = false;
+	core_view_DeviceView.call(this,atom);
+	if(((atom) instanceof library_electro_TextAreaAtom)) {
+		this._textAreaAtom = js_Boot.__cast(atom , library_electro_TextAreaAtom);
+	}
+	this.syncConfigFromAtom();
+	this.recalcSize();
+	this.buildUI();
+	this.syncFromAtom();
+};
+$hxClasses["core.view.TextAreaWidget"] = core_view_TextAreaWidget;
+core_view_TextAreaWidget.__name__ = "core.view.TextAreaWidget";
+core_view_TextAreaWidget.__super__ = core_view_DeviceView;
+core_view_TextAreaWidget.prototype = $extend(core_view_DeviceView.prototype,{
+	getWidgetSize: function() {
+		return { width : this.widgetWidth, height : this.widgetHeight};
+	}
+	,onActivate: function() {
+		this.syncConfigFromAtom();
+		this.recalcSize();
+		this.rebuildUI();
+		this.syncFromAtom();
+	}
+	,syncConfigFromAtom: function() {
+		if(this._textAreaAtom != null) {
+			this._maxChars = this._textAreaAtom.getMaxChars();
+			this._numLines = this._textAreaAtom.getNumLines();
+			this._editable = this._textAreaAtom.isEditable();
+			this._wordWrap = this._textAreaAtom.isWordWrap();
+			this._autoScroll = this._textAreaAtom.isAutoScroll();
+			this._hScroll = this._textAreaAtom.isHScroll();
+			this._vScroll = this._textAreaAtom.isVScroll();
+		} else {
+			this._maxChars = this.readIntInput("maxChars",40);
+			this._numLines = this.readIntInput("numLines",8);
+			this._editable = this.readBoolInput("editable",true);
+			this._wordWrap = this.readBoolInput("wordWrap",true);
+			this._autoScroll = this.readBoolInput("autoScroll",true);
+			this._hScroll = this.readBoolInput("hScroll",false);
+			this._vScroll = this.readBoolInput("vScroll",true);
+		}
+	}
+	,readIntInput: function(name,def) {
+		if(this.atom == null) {
+			return def;
+		}
+		var c = this.atom.getInput(name);
+		if(c != null && c.get_value() != null) {
+			var v = c.get_value() | 0;
+			return v;
+		}
+		return def;
+	}
+	,readBoolInput: function(name,def) {
+		if(this.atom == null) {
+			return def;
+		}
+		var c = this.atom.getInput(name);
+		if(c != null && c.get_value() != null) {
+			return c.get_value() == true;
+		}
+		return def;
+	}
+	,recalcSize: function() {
+		var scrollW = this._vScroll ? 14.0 : 0;
+		var scrollH = this._hScroll ? 14.0 : 0;
+		this.widgetWidth = this._maxChars * 8.0 + 16. + scrollW + 4;
+		this.widgetHeight = this._numLines * 18.0 + 16. + scrollH + 18.0 + 4;
+		if(this.widgetWidth < 100) {
+			this.widgetWidth = 100;
+		}
+		if(this.widgetWidth > 800) {
+			this.widgetWidth = 800;
+		}
+		if(this.widgetHeight < 60) {
+			this.widgetHeight = 60;
+		}
+		if(this.widgetHeight > 600) {
+			this.widgetHeight = 600;
+		}
+	}
+	,buildUI: function() {
+		this._bg = new openfl_display_Sprite();
+		this.addChild(this._bg);
+		this.drawBackground();
+		this._headerLabel = new openfl_text_TextField();
+		this._headerLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",9,6710920));
+		this._headerLabel.set_text("TEXT AREA");
+		this._headerLabel.set_width(this.widgetWidth);
+		this._headerLabel.set_height(14);
+		this._headerLabel.set_x(8.0);
+		this._headerLabel.set_y(2);
+		this._headerLabel.set_selectable(false);
+		this._headerLabel.mouseEnabled = false;
+		this.addChild(this._headerLabel);
+		this._textField = new openfl_text_TextField();
+		this._textField.set_x(8.0);
+		this._textField.set_y(16);
+		this._textField.set_width(this.widgetWidth - 16. - (this._vScroll ? 14.0 : 0) - 4);
+		this._textField.set_height(this.widgetHeight - 16 - 16. - 18.0 - (this._hScroll ? 14.0 : 0));
+		this._textField.set_multiline(true);
+		this._textField.set_wordWrap(this._wordWrap);
+		this._textField.set_selectable(true);
+		this._textField.mouseEnabled = true;
+		this._textField.set_border(true);
+		this._textField.set_borderColor(3355477);
+		this._textField.set_background(true);
+		this._textField.set_backgroundColor(855320);
+		this._textField.set_textColor(65416);
+		var fmt = new openfl_text_TextFormat("_typewriter",12,65416);
+		this._textField.set_defaultTextFormat(fmt);
+		this.applyEditableState();
+		this._textField.addEventListener("change",$bind(this,this.onTextChange));
+		this._textField.addEventListener("focusIn",$bind(this,this.onFocusIn));
+		this._textField.addEventListener("focusOut",$bind(this,this.onFocusOut));
+		this._textField.addEventListener("keyDown",$bind(this,this.onKeyDown));
+		this._textField.addEventListener("scroll",$bind(this,this.onScroll));
+		this.addChild(this._textField);
+		this.buildScrollbars();
+		this._statusBar = new openfl_text_TextField();
+		this._statusBar.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",9,5592439));
+		this._statusBar.set_text("Lines: 1 | Ln 1, Col 1");
+		this._statusBar.set_width(this.widgetWidth - 16.);
+		this._statusBar.set_height(18.0);
+		this._statusBar.set_x(8.0);
+		this._statusBar.set_y(this.widgetHeight - 18.0 - 2);
+		this._statusBar.set_selectable(false);
+		this._statusBar.mouseEnabled = false;
+		this.addChild(this._statusBar);
+	}
+	,buildScrollbars: function() {
+		if(this._vScroll) {
+			this._vScrollBar = new openfl_display_Sprite();
+			this._vScrollBar.set_x(this.widgetWidth - 14.0 - 2);
+			this._vScrollBar.set_y(16);
+			this._vScrollTrack = new openfl_display_Sprite();
+			this._vScrollTrack.get_graphics().beginFill(2763322);
+			this._vScrollTrack.get_graphics().drawRect(0,0,12.,this._textField.get_height());
+			this._vScrollTrack.get_graphics().endFill();
+			this._vScrollTrack.get_graphics().lineStyle(1,3355477);
+			this._vScrollTrack.get_graphics().drawRect(0,0,12.,this._textField.get_height());
+			this._vScrollBar.addChild(this._vScrollTrack);
+			this._vScrollThumb = new openfl_display_Sprite();
+			this._vScrollThumb.get_graphics().beginFill(4868714);
+			this._vScrollThumb.get_graphics().drawRoundRect(1,0,10.,40,3,3);
+			this._vScrollThumb.get_graphics().endFill();
+			this._vScrollThumb.set_buttonMode(true);
+			this._vScrollThumb.addEventListener("mouseDown",$bind(this,this.onVThumbMouseDown));
+			this._vScrollThumb.addEventListener("mouseOver",$bind(this,this.onVThumbOver));
+			this._vScrollThumb.addEventListener("mouseOut",$bind(this,this.onVThumbOut));
+			this._vScrollBar.addChild(this._vScrollThumb);
+			this._vScrollTrack.set_buttonMode(true);
+			this._vScrollTrack.addEventListener("mouseDown",$bind(this,this.onVTrackClick));
+			this.addChild(this._vScrollBar);
+		}
+		if(this._hScroll) {
+			this._hScrollBar = new openfl_display_Sprite();
+			this._hScrollBar.set_x(8.0);
+			this._hScrollBar.set_y(this.widgetHeight - 18.0 - 14.0 - 2);
+			this._hScrollTrack = new openfl_display_Sprite();
+			this._hScrollTrack.get_graphics().beginFill(2763322);
+			this._hScrollTrack.get_graphics().drawRect(0,0,this._textField.get_width(),12.);
+			this._hScrollTrack.get_graphics().endFill();
+			this._hScrollTrack.get_graphics().lineStyle(1,3355477);
+			this._hScrollTrack.get_graphics().drawRect(0,0,this._textField.get_width(),12.);
+			this._hScrollBar.addChild(this._hScrollTrack);
+			this._hScrollThumb = new openfl_display_Sprite();
+			this._hScrollThumb.get_graphics().beginFill(4868714);
+			this._hScrollThumb.get_graphics().drawRoundRect(0,1,60,10.,3,3);
+			this._hScrollThumb.get_graphics().endFill();
+			this._hScrollThumb.set_buttonMode(true);
+			this._hScrollThumb.addEventListener("mouseDown",$bind(this,this.onHThumbMouseDown));
+			this._hScrollThumb.addEventListener("mouseOver",$bind(this,this.onHThumbOver));
+			this._hScrollThumb.addEventListener("mouseOut",$bind(this,this.onHThumbOut));
+			this._hScrollBar.addChild(this._hScrollThumb);
+			this._hScrollTrack.set_buttonMode(true);
+			this._hScrollTrack.addEventListener("mouseDown",$bind(this,this.onHTrackClick));
+			this.addChild(this._hScrollBar);
+		}
+	}
+	,rebuildUI: function() {
+		while(this.get_numChildren() > 0) this.removeChildAt(0);
+		if(this._textField != null) {
+			this._textField.removeEventListener("change",$bind(this,this.onTextChange));
+			this._textField.removeEventListener("focusIn",$bind(this,this.onFocusIn));
+			this._textField.removeEventListener("focusOut",$bind(this,this.onFocusOut));
+			this._textField.removeEventListener("keyDown",$bind(this,this.onKeyDown));
+			this._textField.removeEventListener("scroll",$bind(this,this.onScroll));
+		}
+		if(this._vScrollThumb != null) {
+			this._vScrollThumb.removeEventListener("mouseDown",$bind(this,this.onVThumbMouseDown));
+			this._vScrollThumb.removeEventListener("mouseOver",$bind(this,this.onVThumbOver));
+			this._vScrollThumb.removeEventListener("mouseOut",$bind(this,this.onVThumbOut));
+		}
+		if(this._hScrollThumb != null) {
+			this._hScrollThumb.removeEventListener("mouseDown",$bind(this,this.onHThumbMouseDown));
+			this._hScrollThumb.removeEventListener("mouseOver",$bind(this,this.onHThumbOver));
+			this._hScrollThumb.removeEventListener("mouseOut",$bind(this,this.onHThumbOut));
+		}
+		this.buildUI();
+	}
+	,drawBackground: function() {
+		this._bg.get_graphics().clear();
+		this._bg.get_graphics().beginFill(1710628,0.95);
+		var tmp = this._editable ? 43775 : 4473941;
+		this._bg.get_graphics().lineStyle(1,tmp);
+		this._bg.get_graphics().drawRoundRect(0,0,this.widgetWidth,this.widgetHeight,6,6);
+		this._bg.get_graphics().endFill();
+	}
+	,applyEditableState: function() {
+		if(this._textField == null) {
+			return;
+		}
+		if(this._editable) {
+			this._textField.set_type(1);
+			this._textField.set_textColor(65416);
+			this._textField.set_borderColor(3355477);
+			this._textField.set_backgroundColor(855320);
+		} else {
+			this._textField.set_type(0);
+			this._textField.set_textColor(6719590);
+			this._textField.set_borderColor(2763322);
+			this._textField.set_backgroundColor(1118488);
+		}
+	}
+	,updateScrollbarThumbs: function() {
+		if(this._textField == null) {
+			return;
+		}
+		if(this._vScroll && this._vScrollThumb != null && this._vScrollTrack != null) {
+			var maxScroll = this._textField.get_maxScrollV();
+			var currentScroll = this._textField.get_scrollV();
+			var trackHeight = this._textField.get_height();
+			if(maxScroll > 1) {
+				var visibleLines = this._textField.get_bottomScrollV() - this._textField.get_scrollV() + 1;
+				var totalLines = this._textField.get_numLines();
+				var thumbHeight = Math.max(20,visibleLines / totalLines * trackHeight);
+				var scrollRatio = (currentScroll - 1) / (maxScroll - 1);
+				var thumbY = scrollRatio * (trackHeight - thumbHeight);
+				this._vScrollThumb.get_graphics().clear();
+				var thumbColor = this._isDraggingV ? 43775 : this._vThumbHover ? 6974090 : 4868714;
+				this._vScrollThumb.get_graphics().beginFill(thumbColor);
+				this._vScrollThumb.get_graphics().drawRoundRect(1,thumbY,10.,thumbHeight,3,3);
+				this._vScrollThumb.get_graphics().endFill();
+				this._vScrollThumb.set_visible(true);
+			} else {
+				this._vScrollThumb.set_visible(false);
+			}
+		}
+		if(this._hScroll && this._hScrollThumb != null && this._hScrollTrack != null && !this._wordWrap) {
+			var maxScrollH = this._textField.get_maxScrollH();
+			var currentScrollH = this._textField.get_scrollH();
+			var trackWidth = this._textField.get_width();
+			if(maxScrollH > 0) {
+				var visibleWidth = this._textField.get_width();
+				var totalWidth = this._textField.get_textWidth() + 20;
+				var thumbWidth = Math.max(30,visibleWidth / totalWidth * trackWidth);
+				var scrollRatio = currentScrollH / maxScrollH;
+				var thumbX = scrollRatio * (trackWidth - thumbWidth);
+				this._hScrollThumb.get_graphics().clear();
+				var thumbColor = this._isDraggingH ? 43775 : this._hThumbHover ? 6974090 : 4868714;
+				this._hScrollThumb.get_graphics().beginFill(thumbColor);
+				this._hScrollThumb.get_graphics().drawRoundRect(thumbX,1,thumbWidth,10.,3,3);
+				this._hScrollThumb.get_graphics().endFill();
+				this._hScrollThumb.set_visible(true);
+			} else {
+				this._hScrollThumb.set_visible(false);
+			}
+		}
+	}
+	,onVThumbMouseDown: function(e) {
+		this._isDraggingV = true;
+		this._dragStartY = e.stageY;
+		this._dragStartScrollV = this._textField.get_scrollV();
+		this.stage.addEventListener("mouseMove",$bind(this,this.onVThumbDrag));
+		this.stage.addEventListener("mouseUp",$bind(this,this.onVThumbMouseUp));
+		e.stopPropagation();
+	}
+	,onVThumbDrag: function(e) {
+		if(!this._isDraggingV || this._textField == null) {
+			return;
+		}
+		var deltaY = e.stageY - this._dragStartY;
+		var trackHeight = this._textField.get_height();
+		var maxScroll = this._textField.get_maxScrollV();
+		if(maxScroll > 1) {
+			var scrollDelta = deltaY / trackHeight * maxScroll | 0;
+			var newScroll = Math.max(1,Math.min(maxScroll,this._dragStartScrollV + scrollDelta));
+			this._textField.set_scrollV(newScroll | 0);
+			this.updateScrollbarThumbs();
+		}
+	}
+	,onVThumbMouseUp: function(e) {
+		this._isDraggingV = false;
+		this.stage.removeEventListener("mouseMove",$bind(this,this.onVThumbDrag));
+		this.stage.removeEventListener("mouseUp",$bind(this,this.onVThumbMouseUp));
+		this.updateScrollbarThumbs();
+	}
+	,onVTrackClick: function(e) {
+		if(this._textField == null || this._vScrollTrack == null) {
+			return;
+		}
+		var localY = this._vScrollTrack.get_mouseY();
+		var trackHeight = this._textField.get_height();
+		var maxScroll = this._textField.get_maxScrollV();
+		if(maxScroll > 1) {
+			var scrollRatio = localY / trackHeight;
+			var newScroll = Math.max(1,Math.min(maxScroll,scrollRatio * maxScroll | 0));
+			this._textField.set_scrollV(newScroll | 0);
+			this.updateScrollbarThumbs();
+		}
+	}
+	,onVThumbOver: function(e) {
+		this._vThumbHover = true;
+		this.updateScrollbarThumbs();
+	}
+	,onVThumbOut: function(e) {
+		this._vThumbHover = false;
+		this.updateScrollbarThumbs();
+	}
+	,onHThumbMouseDown: function(e) {
+		this._isDraggingH = true;
+		this._dragStartX = e.stageX;
+		this._dragStartScrollH = this._textField.get_scrollH();
+		this.stage.addEventListener("mouseMove",$bind(this,this.onHThumbDrag));
+		this.stage.addEventListener("mouseUp",$bind(this,this.onHThumbMouseUp));
+		e.stopPropagation();
+	}
+	,onHThumbDrag: function(e) {
+		if(!this._isDraggingH || this._textField == null) {
+			return;
+		}
+		var deltaX = e.stageX - this._dragStartX;
+		var trackWidth = this._textField.get_width();
+		var maxScrollH = this._textField.get_maxScrollH();
+		if(maxScrollH > 0) {
+			var scrollDelta = deltaX / trackWidth * maxScrollH | 0;
+			var newScroll = Math.max(0,Math.min(maxScrollH,this._dragStartScrollH + scrollDelta));
+			this._textField.set_scrollH(newScroll | 0);
+			this.updateScrollbarThumbs();
+		}
+	}
+	,onHThumbMouseUp: function(e) {
+		this._isDraggingH = false;
+		this.stage.removeEventListener("mouseMove",$bind(this,this.onHThumbDrag));
+		this.stage.removeEventListener("mouseUp",$bind(this,this.onHThumbMouseUp));
+		this.updateScrollbarThumbs();
+	}
+	,onHTrackClick: function(e) {
+		if(this._textField == null || this._hScrollTrack == null) {
+			return;
+		}
+		var localX = this._hScrollTrack.get_mouseX();
+		var trackWidth = this._textField.get_width();
+		var maxScrollH = this._textField.get_maxScrollH();
+		if(maxScrollH > 0) {
+			var scrollRatio = localX / trackWidth;
+			var newScroll = Math.max(0,Math.min(maxScrollH,scrollRatio * maxScrollH | 0));
+			this._textField.set_scrollH(newScroll | 0);
+			this.updateScrollbarThumbs();
+		}
+	}
+	,onHThumbOver: function(e) {
+		this._hThumbHover = true;
+		this.updateScrollbarThumbs();
+	}
+	,onHThumbOut: function(e) {
+		this._hThumbHover = false;
+		this.updateScrollbarThumbs();
+	}
+	,syncFromAtom: function() {
+		if(this.atom == null || this._textField == null) {
+			return;
+		}
+		var textOut = this.atom.getOutput("text");
+		if(textOut != null && textOut.get_value() != null) {
+			var newText = Std.string(textOut.get_value());
+			if(newText != this._textField.get_text()) {
+				this._suppressUpdate = true;
+				this._textField.set_text(newText);
+				this._lastText = newText;
+				this._suppressUpdate = false;
+				if(this._autoScroll) {
+					this._textField.set_scrollV(this._textField.get_maxScrollV());
+				}
+				this.updateScrollbarThumbs();
+			}
+		}
+		this.updateStatusBar();
+	}
+	,onContactChanged: function(contact,newValue) {
+		if(this.isDisposed) {
+			return;
+		}
+		switch(contact.name) {
+		case "autoScroll":
+			this._autoScroll = newValue == true;
+			if(this._autoScroll) {
+				this._textField.set_scrollV(this._textField.get_maxScrollV());
+				this.updateScrollbarThumbs();
+			}
+			break;
+		case "changed":
+			this.syncFromAtom();
+			break;
+		case "editable":
+			this._editable = newValue == true;
+			this.applyEditableState();
+			this.drawBackground();
+			break;
+		case "hScroll":
+			this._hScroll = newValue == true;
+			this.syncConfigFromAtom();
+			this.recalcSize();
+			this.rebuildUI();
+			this.syncFromAtom();
+			break;
+		case "lineCount":
+			this.updateStatusBar();
+			this.updateScrollbarThumbs();
+			break;
+		case "maxChars":
+			var v = newValue | 0;
+			if(v >= 5 && v <= 200 && v != this._maxChars) {
+				this._maxChars = v;
+				this.recalcSize();
+				this.rebuildUI();
+				this.syncFromAtom();
+			}
+			break;
+		case "numLines":
+			var v = newValue | 0;
+			if(v >= 1 && v <= 100 && v != this._numLines) {
+				this._numLines = v;
+				this.recalcSize();
+				this.rebuildUI();
+				this.syncFromAtom();
+			}
+			break;
+		case "text":
+			if(!this._isEditing) {
+				var newText = newValue != null ? Std.string(newValue) : "";
+				if(newText != this._textField.get_text()) {
+					this._suppressUpdate = true;
+					this._textField.set_text(newText);
+					this._lastText = newText;
+					this._suppressUpdate = false;
+					if(this._autoScroll) {
+						this._textField.set_scrollV(this._textField.get_maxScrollV());
+					}
+					this.updateScrollbarThumbs();
+				}
+			}
+			break;
+		case "vScroll":
+			this._vScroll = newValue == true;
+			this.syncConfigFromAtom();
+			this.recalcSize();
+			this.rebuildUI();
+			this.syncFromAtom();
+			break;
+		case "wordWrap":
+			this._wordWrap = newValue == true;
+			this._textField.set_wordWrap(this._wordWrap);
+			this.updateScrollbarThumbs();
+			break;
+		}
+	}
+	,onTextChange: function(e) {
+		if(this._suppressUpdate || this.isDisposed) {
+			return;
+		}
+		var currentText = this._textField.get_text();
+		if(currentText != this._lastText) {
+			this._lastText = currentText;
+			if(this._textAreaAtom != null) {
+				this._textAreaAtom.setTextFromWidget(currentText);
+			} else {
+				var textOut = this.atom.getOutput("text");
+				if(textOut != null) {
+					textOut.set_value(currentText);
+				}
+			}
+			this.updateStatusBar();
+			this.updateScrollbarThumbs();
+		}
+	}
+	,onFocusIn: function(e) {
+		this._isEditing = true;
+		if(this._textField != null) {
+			this._textField.set_borderColor(43775);
+		}
+	}
+	,onFocusOut: function(e) {
+		this._isEditing = false;
+		if(this._textField != null) {
+			this._textField.set_borderColor(this._editable ? 3355477 : 2763322);
+		}
+		if(this._textField != null && this._textField.get_text() != this._lastText) {
+			this._lastText = this._textField.get_text();
+			if(this._textAreaAtom != null) {
+				this._textAreaAtom.setTextFromWidget(this._lastText);
+			}
+		}
+		core_logic_Impulsys.quickEmit(core_logic_EventType.VALUE_COMMITTED);
+	}
+	,onKeyDown: function(e) {
+		e.stopImmediatePropagation();
+		haxe_Timer.delay($bind(this,this.updateStatusBar),10);
+	}
+	,onScroll: function(e) {
+		this.updateStatusBar();
+		this.updateScrollbarThumbs();
+	}
+	,updateStatusBar: function() {
+		if(this._statusBar == null || this._textField == null) {
+			return;
+		}
+		var lineCount = this._textField.get_numLines();
+		var scrollLine = this._textField.get_scrollV();
+		var maxScroll = this._textField.get_maxScrollV();
+		var caretIndex = this._textField.get_caretIndex();
+		var cursorLine = 1;
+		var cursorCol = 1;
+		try {
+			cursorLine = this._textField.getLineIndexOfChar(caretIndex) + 1;
+			var lineOffset = this._textField.getLineOffset(cursorLine - 1);
+			cursorCol = caretIndex - lineOffset + 1;
+		} catch( _g ) {
+			haxe_NativeStackTrace.lastError = _g;
+		}
+		var editState = this._editable ? "EDIT" : "READ";
+		var wrapState = this._wordWrap ? "WRAP" : "NOWRAP";
+		this._statusBar.set_text("" + editState + " | Ln " + cursorLine + "/" + lineCount + ", Col " + cursorCol + " | " + wrapState);
+		if(this._textAreaAtom != null) {
+			this._textAreaAtom.setCursorLine(cursorLine);
+		}
+	}
+	,flushTransientState: function() {
+		if(this._textField != null && this._textField.get_text() != this._lastText) {
+			this._lastText = this._textField.get_text();
+			if(this._textAreaAtom != null) {
+				this._textAreaAtom.setTextFromWidget(this._lastText);
+			}
+		}
+	}
+	,dispose: function() {
+		if(this._textField != null) {
+			this._textField.removeEventListener("change",$bind(this,this.onTextChange));
+			this._textField.removeEventListener("focusIn",$bind(this,this.onFocusIn));
+			this._textField.removeEventListener("focusOut",$bind(this,this.onFocusOut));
+			this._textField.removeEventListener("keyDown",$bind(this,this.onKeyDown));
+			this._textField.removeEventListener("scroll",$bind(this,this.onScroll));
+		}
+		if(this._vScrollThumb != null) {
+			this._vScrollThumb.removeEventListener("mouseDown",$bind(this,this.onVThumbMouseDown));
+			this._vScrollThumb.removeEventListener("mouseOver",$bind(this,this.onVThumbOver));
+			this._vScrollThumb.removeEventListener("mouseOut",$bind(this,this.onVThumbOut));
+		}
+		if(this._hScrollThumb != null) {
+			this._hScrollThumb.removeEventListener("mouseDown",$bind(this,this.onHThumbMouseDown));
+			this._hScrollThumb.removeEventListener("mouseOver",$bind(this,this.onHThumbOver));
+			this._hScrollThumb.removeEventListener("mouseOut",$bind(this,this.onHThumbOut));
+		}
+		if(this.stage != null) {
+			this.stage.removeEventListener("mouseMove",$bind(this,this.onVThumbDrag));
+			this.stage.removeEventListener("mouseUp",$bind(this,this.onVThumbMouseUp));
+			this.stage.removeEventListener("mouseMove",$bind(this,this.onHThumbDrag));
+			this.stage.removeEventListener("mouseUp",$bind(this,this.onHThumbMouseUp));
+		}
+		this._bg = null;
+		this._textField = null;
+		this._statusBar = null;
+		this._headerLabel = null;
+		this._textAreaAtom = null;
+		this._vScrollBar = null;
+		this._vScrollTrack = null;
+		this._vScrollThumb = null;
+		this._hScrollBar = null;
+		this._hScrollTrack = null;
+		this._hScrollThumb = null;
+		core_view_DeviceView.prototype.dispose.call(this);
+	}
+	,__class__: core_view_TextAreaWidget
 });
 var core_view_TextInputWidget = function(atom) {
 	this.widgetHeight = 24;
@@ -9773,9 +11994,10 @@ var editor_ContextMenuManager = function(settingsPanel) {
 $hxClasses["editor.ContextMenuManager"] = editor_ContextMenuManager;
 editor_ContextMenuManager.__name__ = "editor.ContextMenuManager";
 editor_ContextMenuManager.prototype = {
-	setContext: function(editor,assembly) {
+	setContext: function(editor,assembly,isNameTakenGlobally) {
 		this._editor = editor;
 		this._assembly = assembly;
+		this._isNameTakenGlobally = isNameTakenGlobally;
 	}
 	,getView: function() {
 		return this._menu;
@@ -9799,6 +12021,7 @@ editor_ContextMenuManager.prototype = {
 		this._assembly = null;
 		this._settingsPanel = null;
 		this._contextTargetId = null;
+		this._isNameTakenGlobally = null;
 	}
 	,onCanvasRightClick: function(impulse) {
 		if(this._isDisposed) {
@@ -9997,15 +12220,16 @@ editor_ContextMenuManager.prototype = {
 		if(selectedIds.length < 1) {
 			return;
 		}
-		var cmd = new system_commands_editor_GroupAtomsCommand(this._assembly.blueprint,this._assembly,selectedIds);
-		cmd.execute();
+		var cmd = new system_commands_editor_GroupAtomsCommand(this._assembly.blueprint,this._assembly,selectedIds,this._isNameTakenGlobally);
+		system_managers_UndoManager.getInstance().executeAndStore(cmd);
 		this._editor.deselectAll();
 	}
 	,__class__: editor_ContextMenuManager
 };
-var editor_EditorActionHandler = function(assembly,blueprint) {
+var editor_EditorActionHandler = function(assembly,blueprint,isNameTakenGlobally) {
 	this._assembly = assembly;
 	this._blueprint = blueprint;
+	this._isNameTakenGlobally = isNameTakenGlobally;
 };
 $hxClasses["editor.EditorActionHandler"] = editor_EditorActionHandler;
 editor_EditorActionHandler.__name__ = "editor.EditorActionHandler";
@@ -10015,7 +12239,11 @@ editor_EditorActionHandler.prototype = {
 		if(bp == null) {
 			return;
 		}
-		var cmd = new system_commands_editor_CreateAtomCommand(this._blueprint,this._assembly,typeId,null,x,y);
+		var cmd = new system_commands_editor_CreateAtomCommand(this._blueprint,this._assembly,typeId,null,x,y,this._isNameTakenGlobally,null,false);
+		system_managers_UndoManager.getInstance().executeAndStore(cmd);
+	}
+	,createAtomWithId: function(typeId,instanceId,x,y) {
+		var cmd = new system_commands_editor_CreateAtomCommand(this._blueprint,this._assembly,typeId,instanceId,x,y,this._isNameTakenGlobally,null,false);
 		system_managers_UndoManager.getInstance().executeAndStore(cmd);
 	}
 	,deleteAtoms: function(ids) {
@@ -10076,7 +12304,15 @@ editor_EditorActionHandler.prototype = {
 			++_g;
 			var def = this.findAtomDef(id);
 			if(def != null) {
-				atomsData.push({ id : id, typeId : def.typeId, x : def.x, y : def.y});
+				var atomInst = this._assembly.internalAtoms.h[id];
+				if(atomInst == null) {
+					var runtimeId = this._assembly.get_idMap().h[id];
+					if(runtimeId != null) {
+						atomInst = this._assembly.internalAtoms.h[runtimeId];
+					}
+				}
+				var dName = atomInst != null ? atomInst.get_displayName() : null;
+				atomsData.push({ id : id, typeId : def.typeId, x : def.x, y : def.y, displayName : dName});
 			}
 		}
 		if(this._blueprint.internalConnections != null) {
@@ -10098,7 +12334,7 @@ editor_EditorActionHandler.prototype = {
 			}
 		}
 		editor_EditorActionHandler._clipboard = { atoms : atomsData, connections : connsData};
-		haxe_Log.trace("Copied " + atomsData.length + " atoms",{ fileName : "src/editor/EditorActionHandler.hx", lineNumber : 233, className : "editor.EditorActionHandler", methodName : "copySelection"});
+		haxe_Log.trace("Copied " + atomsData.length + " atoms",{ fileName : "src/editor/EditorActionHandler.hx", lineNumber : 281, className : "editor.EditorActionHandler", methodName : "copySelection"});
 	}
 	,cutSelection: function(selectedIds) {
 		this.copySelection(selectedIds);
@@ -10117,7 +12353,7 @@ editor_EditorActionHandler.prototype = {
 			++_g;
 			var newId = utils_UID.generate();
 			idMap.h[data.id] = newId;
-			var cmd = new system_commands_editor_CreateAtomCommand(this._blueprint,this._assembly,data.typeId,newId,data.x + offset,data.y + offset);
+			var cmd = new system_commands_editor_CreateAtomCommand(this._blueprint,this._assembly,data.typeId,newId,data.x + offset,data.y + offset,this._isNameTakenGlobally,data.displayName,true);
 			macrocom.addCommand(cmd);
 		}
 		var _g = 0;
@@ -10220,12 +12456,13 @@ editor_EditorContext.prototype = {
 			this._layer.addChild(blocker);
 			top.editor.mouseEnabled = false;
 			top.editor.mouseChildren = false;
+			top.editor.isActive = false;
 			top.blocker = blocker;
 		}
 		var container = new openfl_display_Sprite();
 		this.drawContainerFrame(container);
 		this._layer.addChild(container);
-		var editor = new editor_NodeEditor(assembly);
+		var editor = new editor_NodeEditor(assembly,$bind(this,this.isNameTakenGlobally));
 		editor.setSize(container.get_width(),container.get_height());
 		container.addChild(editor);
 		editor.forceFullRedraw();
@@ -10242,10 +12479,10 @@ editor_EditorContext.prototype = {
 		if(Object.prototype.hasOwnProperty.call(this._cameraStates.h,bpId)) {
 			var state = this._cameraStates.h[bpId];
 			editor.setViewState(state);
-			haxe_Log.trace("EditorContext: Restored camera state for \"" + bpId + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 168, className : "editor.EditorContext", methodName : "push"});
+			haxe_Log.trace("EditorContext: Restored camera state for \"" + bpId + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 360, className : "editor.EditorContext", methodName : "push"});
 		} else {
 			editor.centerOnContent();
-			haxe_Log.trace("EditorContext: Auto-centered on \"" + bpId + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 174, className : "editor.EditorContext", methodName : "push"});
+			haxe_Log.trace("EditorContext: Auto-centered on \"" + bpId + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 366, className : "editor.EditorContext", methodName : "push"});
 		}
 	}
 	,pop: function(updateInstances) {
@@ -10259,7 +12496,7 @@ editor_EditorContext.prototype = {
 		var editedId = current.assembly.blueprint.id;
 		var currentState = current.editor.getViewState();
 		this._cameraStates.h[editedId] = currentState;
-		haxe_Log.trace("EditorContext: Saved camera state for \"" + editedId + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 193, className : "editor.EditorContext", methodName : "pop"});
+		haxe_Log.trace("EditorContext: Saved camera state for \"" + editedId + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 385, className : "editor.EditorContext", methodName : "pop"});
 		current.editor.dispose();
 		if(this._layer.contains(current.container)) {
 			this._layer.removeChild(current.container);
@@ -10273,6 +12510,7 @@ editor_EditorContext.prototype = {
 		}
 		prev.editor.mouseEnabled = true;
 		prev.editor.mouseChildren = true;
+		prev.editor.isActive = true;
 		this.currentEditor = prev.editor;
 		this.currentAssembly = prev.assembly;
 		prev.editor.forceFullRedraw();
@@ -10283,18 +12521,26 @@ editor_EditorContext.prototype = {
 		},50);
 		if(current.parentCameraState != null) {
 			this.currentEditor.setViewState(current.parentCameraState);
-			haxe_Log.trace("EditorContext: Restored parent camera state",{ fileName : "src/editor/EditorContext.hx", lineNumber : 228, className : "editor.EditorContext", methodName : "pop"});
+			haxe_Log.trace("EditorContext: Restored parent camera state",{ fileName : "src/editor/EditorContext.hx", lineNumber : 425, className : "editor.EditorContext", methodName : "pop"});
 		}
 		if(updateInstances) {
-			this.updateInstancesOf(editedId);
+			var asm = current.assembly;
+			asm.refreshExternalPortNames();
+			asm.syncDisplayNamesToBlueprint();
+			asm.syncConnectionsToTemplateIds();
+			library_AtomRegistry.registerBlueprint(asm.blueprint.id,asm.blueprint);
+			this.updateInstancesOf(asm.blueprint.id);
 		}
 		this.currentEditor.refreshAssemblyViews();
 	}
 	,updateInstancesOf: function(typeId) {
+		haxe_Log.trace("🔍 updateInstancesOf: Looking for assemblies of type \"" + typeId + "\" in parent \"" + this.currentAssembly.blueprint.name + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 509, className : "editor.EditorContext", methodName : "updateInstancesOf"});
 		var newBp = library_AtomRegistry.get(typeId);
 		if(newBp == null) {
+			haxe_Log.trace("❌ updateInstancesOf: Blueprint \"" + typeId + "\" not found in registry!",{ fileName : "src/editor/EditorContext.hx", lineNumber : 513, className : "editor.EditorContext", methodName : "updateInstancesOf"});
 			return;
 		}
+		var foundCount = 0;
 		var h = this.currentAssembly.internalAtoms.h;
 		var id_h = h;
 		var id_keys = Object.keys(h);
@@ -10306,9 +12552,243 @@ editor_EditorContext.prototype = {
 			if(((atom) instanceof core_base_Assembly)) {
 				var asm = js_Boot.__cast(atom , core_base_Assembly);
 				if(asm.blueprint.id == typeId) {
-					asm.updateFromBlueprint(newBp);
+					++foundCount;
+					haxe_Log.trace("✅ updateInstancesOf: Found assembly \"" + typeId + "\" with runtimeId=\"" + id + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 527, className : "editor.EditorContext", methodName : "updateInstancesOf"});
+					var oldRuntimeId = asm.get_id();
+					this.unlinkParentWiresTo(asm);
+					asm.dispose();
+					var newInstance = core_base_AssemblyFactory.createAtom(typeId,oldRuntimeId);
+					if(newInstance == null) {
+						haxe_Log.trace("ERROR: EditorContext.updateInstancesOf: Failed to recreate assembly " + typeId + " (" + oldRuntimeId + ")",{ fileName : "src/editor/EditorContext.hx", lineNumber : 554, className : "editor.EditorContext", methodName : "updateInstancesOf"});
+						continue;
+					}
+					this.currentAssembly.internalAtoms.h[oldRuntimeId] = newInstance;
+					if(((newInstance) instanceof core_base_Assembly)) {
+						this.reconnectExternalLinksToAssembly(js_Boot.__cast(newInstance , core_base_Assembly));
+					}
+					this.currentEditor.reattachNodeView(oldRuntimeId,newInstance);
 				}
 			}
+		}
+		if(foundCount == 0) {
+			haxe_Log.trace("⚠️ updateInstancesOf: No assemblies of type \"" + typeId + "\" found in parent!",{ fileName : "src/editor/EditorContext.hx", lineNumber : 590, className : "editor.EditorContext", methodName : "updateInstancesOf"});
+		}
+	}
+	,unlinkParentWiresTo: function(targetAsm) {
+		var bp = this.currentAssembly.blueprint;
+		if(bp.internalConnections == null) {
+			return;
+		}
+		var _g = 0;
+		var _g1 = bp.internalConnections;
+		while(_g < _g1.length) {
+			var conn = _g1[_g];
+			++_g;
+			var isTarget = false;
+			var parentSide = null;
+			if(conn.to.atomId != "SELF") {
+				var realAtomId = this.currentAssembly.get_idMap().h[conn.to.atomId];
+				if(realAtomId == null) {
+					realAtomId = conn.to.atomId;
+				}
+				if(realAtomId == targetAsm.get_id() || conn.to.atomId == targetAsm.get_id()) {
+					isTarget = true;
+					parentSide = conn.from;
+				}
+			}
+			if(!isTarget && conn.from.atomId != "SELF") {
+				var realAtomId1 = this.currentAssembly.get_idMap().h[conn.from.atomId];
+				if(realAtomId1 == null) {
+					realAtomId1 = conn.from.atomId;
+				}
+				if(realAtomId1 == targetAsm.get_id() || conn.from.atomId == targetAsm.get_id()) {
+					isTarget = true;
+					parentSide = conn.to;
+				}
+			}
+			if(!isTarget || parentSide == null) {
+				continue;
+			}
+			var parentContact = this.resolveContactInParent(parentSide);
+			if(parentContact == null) {
+				continue;
+			}
+			var h = targetAsm.ports.h;
+			var port_h = h;
+			var port_keys = Object.keys(h);
+			var port_length = port_keys.length;
+			var port_current = 0;
+			while(port_current < port_length) {
+				var port = port_h[port_keys[port_current++]];
+				if(port == null || port.external == null || port.external.isDisposed) {
+					continue;
+				}
+				if(parentContact.hasLink(port.external)) {
+					parentContact.unlink(port.external);
+				}
+			}
+		}
+	}
+	,prepareCurrentAssemblyForSave: function() {
+		if(this.currentAssembly == null) {
+			return;
+		}
+		this.currentAssembly.refreshExternalPortNames();
+		this.currentAssembly.syncDisplayNamesToBlueprint();
+		if(this.currentAssembly.get_displayName() != null && this.currentAssembly.get_displayName() != this.currentAssembly.blueprint.name) {
+			this.currentAssembly.blueprint.name = this.currentAssembly.get_displayName();
+		}
+		this.currentAssembly.syncConnectionsToTemplateIds();
+		library_AtomRegistry.registerBlueprint(this.currentAssembly.blueprint.id,this.currentAssembly.blueprint);
+	}
+	,reconnectExternalLinksToAssembly: function(targetAsm) {
+		haxe_Log.trace("🔗 reconnectExternalLinksToAssembly: targetAsm.id=\"" + targetAsm.get_id() + "\", targetAsm.blueprint.id=\"" + targetAsm.blueprint.id + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 751, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+		var bp = this.currentAssembly.blueprint;
+		if(bp.internalConnections == null) {
+			haxe_Log.trace("❌ reconnectExternalLinksToAssembly: parent blueprint has NO connections!",{ fileName : "src/editor/EditorContext.hx", lineNumber : 755, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+			return;
+		}
+		haxe_Log.trace("🔗 reconnectExternalLinksToAssembly: parent has " + bp.internalConnections.length + " connections",{ fileName : "src/editor/EditorContext.hx", lineNumber : 758, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+		var reconnectedCount = 0;
+		var _g = 0;
+		var _g1 = bp.internalConnections;
+		while(_g < _g1.length) {
+			var conn = _g1[_g];
+			++_g;
+			var isTarget = false;
+			if(conn.to.atomId != "SELF") {
+				var realAtomId = this.currentAssembly.get_idMap().h[conn.to.atomId];
+				if(realAtomId == null) {
+					realAtomId = conn.to.atomId;
+				}
+				if(realAtomId == targetAsm.get_id() || conn.to.atomId == targetAsm.get_id()) {
+					isTarget = true;
+				}
+			}
+			if(!isTarget && conn.from.atomId != "SELF") {
+				var realAtomId1 = this.currentAssembly.get_idMap().h[conn.from.atomId];
+				if(realAtomId1 == null) {
+					realAtomId1 = conn.from.atomId;
+				}
+				if(realAtomId1 == targetAsm.get_id() || conn.from.atomId == targetAsm.get_id()) {
+					isTarget = true;
+				}
+			}
+			if(isTarget) {
+				++reconnectedCount;
+				var cOut = this.resolveContactInParent(conn.from);
+				var cIn = this.resolveContactInParent(conn.to);
+				if(cIn == null && conn.to.atomId != "SELF") {
+					var toAsm = this.resolveAssemblyInParent(conn.to.atomId);
+					if(toAsm != null) {
+						var requestedName = conn.to.contactName;
+						var fallbackPort = this.findPortByContactSuffix(toAsm,requestedName,core_types_ContactType.INPUT);
+						if(fallbackPort != null) {
+							conn.to.contactName = fallbackPort.externalName;
+							cIn = this.resolveContactInParent(conn.to);
+							haxe_Log.trace("   🔄 Reconciled cIn: \"" + requestedName + "\" → \"" + conn.to.contactName + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 832, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+						}
+					}
+				}
+				if(cOut == null && conn.from.atomId != "SELF") {
+					var fromAsm = this.resolveAssemblyInParent(conn.from.atomId);
+					if(fromAsm != null) {
+						var requestedName1 = conn.from.contactName;
+						var fallbackPort1 = this.findPortByContactSuffix(fromAsm,requestedName1,core_types_ContactType.OUTPUT);
+						if(fallbackPort1 != null) {
+							conn.from.contactName = fallbackPort1.externalName;
+							cOut = this.resolveContactInParent(conn.from);
+							haxe_Log.trace("   🔄 Reconciled cOut: \"" + requestedName1 + "\" → \"" + conn.from.contactName + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 849, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+						}
+					}
+				}
+				haxe_Log.trace("🔗 reconnect: " + conn.from.atomId + "." + conn.from.contactName + " → " + conn.to.atomId + "." + conn.to.contactName,{ fileName : "src/editor/EditorContext.hx", lineNumber : 854, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+				haxe_Log.trace("   cOut=" + (cOut != null ? cOut.name : "null") + ", cIn=" + (cIn != null ? cIn.name : "null"),{ fileName : "src/editor/EditorContext.hx", lineNumber : 855, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+				if(cOut != null && cIn != null && !cOut.hasLink(cIn)) {
+					cOut.link(cIn);
+					haxe_Log.trace("   ✓ Linked!",{ fileName : "src/editor/EditorContext.hx", lineNumber : 858, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+				} else if(cOut == null || cIn == null) {
+					haxe_Log.trace("   ✗ FAILED to link!",{ fileName : "src/editor/EditorContext.hx", lineNumber : 860, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+				}
+			}
+		}
+		haxe_Log.trace("🔗 reconnect: Reconnected " + reconnectedCount + " links",{ fileName : "src/editor/EditorContext.hx", lineNumber : 864, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+	}
+	,resolveAssemblyInParent: function(atomId) {
+		if(atomId == null || atomId == "SELF") {
+			return null;
+		}
+		var realAtomId = this.currentAssembly.get_idMap().h[atomId];
+		if(realAtomId == null) {
+			realAtomId = atomId;
+		}
+		var obj = this.currentAssembly.internalAtoms.h[realAtomId];
+		if(obj == null) {
+			return null;
+		}
+		if(((obj) instanceof core_base_Assembly)) {
+			return js_Boot.__cast(obj , core_base_Assembly);
+		}
+		return null;
+	}
+	,findPortByContactSuffix: function(asm,requestedName,type) {
+		if(asm == null || asm.ports == null) {
+			return null;
+		}
+		var h = asm.ports.h;
+		var p_h = h;
+		var p_keys = Object.keys(h);
+		var p_length = p_keys.length;
+		var p_current = 0;
+		while(p_current < p_length) {
+			var p = p_h[p_keys[p_current++]];
+			if(p != null && p.externalName == requestedName && p.type == type) {
+				return p;
+			}
+		}
+		var suffix = "_" + requestedName;
+		var h = asm.ports.h;
+		var p_h = h;
+		var p_keys = Object.keys(h);
+		var p_length = p_keys.length;
+		var p_current = 0;
+		while(p_current < p_length) {
+			var p = p_h[p_keys[p_current++]];
+			if(p == null || p.externalName == null) {
+				continue;
+			}
+			if(p.type != type) {
+				continue;
+			}
+			if(StringTools.endsWith(p.externalName,suffix)) {
+				return p;
+			}
+		}
+		return null;
+	}
+	,resolveContactInParent: function(point) {
+		if(point.atomId == "SELF") {
+			var port = this.currentAssembly.ports.h[point.contactName];
+			if(port != null) {
+				return port.internal;
+			} else {
+				return null;
+			}
+		} else {
+			var realAtomId = this.currentAssembly.get_idMap().h[point.atomId];
+			if(realAtomId == null) {
+				realAtomId = point.atomId;
+			}
+			var obj = this.currentAssembly.internalAtoms.h[realAtomId];
+			if(obj == null) {
+				return null;
+			}
+			var atom = obj;
+			var c = atom.getInput(point.contactName);
+			if(c != null) {
+				return c;
+			}
+			return atom.getOutput(point.contactName);
 		}
 	}
 	,clear: function() {
@@ -10331,6 +12811,9 @@ editor_EditorContext.prototype = {
 	}
 	,getStackEntries: function() {
 		return this._stack.slice();
+	}
+	,isNameTakenGlobally: function(name,excludeId) {
+		return core_logic_NamingService.isInstanceNameTaken(name,excludeId);
 	}
 	,drawContainerFrame: function(container) {
 		var margin = 12;
@@ -10513,7 +12996,8 @@ editor_GroupSelectionManager.prototype = {
 	}
 	,__class__: editor_GroupSelectionManager
 };
-var editor_NodeEditor = function(assembly) {
+var editor_NodeEditor = function(assembly,isNameTakenGlobally) {
+	this.isActive = true;
 	this.isDisposed = false;
 	this._lastVisibilityUpdate = 0;
 	this._forcedHeight = 0;
@@ -10530,6 +13014,7 @@ var editor_NodeEditor = function(assembly) {
 	this._assembly = assembly;
 	this._blueprint = assembly.blueprint;
 	this._theme = editor_EditorTheme.getInstance();
+	this._isNameTakenGlobally = isNameTakenGlobally;
 	this._selection = new editor_SelectionManager();
 	this._editorContainer = new openfl_display_Sprite();
 	this.addChild(this._editorContainer);
@@ -10548,7 +13033,7 @@ var editor_NodeEditor = function(assembly) {
 	this._bgHitArea.addEventListener("mouseDown",$bind(this,this.onCanvasMouseDown));
 	this._bgHitArea.addEventListener("rightClick",$bind(this,this.onCanvasRightClick));
 	this._viewport = new editor_ViewportManager(this._canvas);
-	this._actions = new editor_EditorActionHandler(this._assembly,this._blueprint);
+	this._actions = new editor_EditorActionHandler(this._assembly,this._blueprint,this._isNameTakenGlobally);
 	this._wireRenderer = new editor_WireRenderer();
 	this._wireRenderer.configure(this._blueprint,this._assembly,this._canvas,$bind(this,this.getNodeViewById),$bind(this,this.getEdgePortById),function() {
 		return _gthis._selection.getSelectedWireIds();
@@ -10566,31 +13051,57 @@ var editor_NodeEditor = function(assembly) {
 	this.addChild(this._edgePortsContainer);
 	this._fileNameField = new openfl_text_TextField();
 	this._fileNameField.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",12,this._theme.NODE_TEXT_COLOR));
-	this._fileNameField.set_text(this._blueprint.name);
+	this._fileNameField.set_text(this._assembly.get_displayName());
 	this._fileNameField.set_autoSize(1);
 	this._fileNameField.set_selectable(false);
 	this.addChild(this._fileNameField);
 	this.addEventListener("addedToStage",$bind(this,this.onAddedToStage_Frame));
-	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.PORT_DRAG_START,$bind(this,this.onPortDragStart));
-	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.EDITOR_NODE_MOVED,$bind(this,this.onNodeMoved));
-	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.NODE_DRAG_FINISHED,$bind(this,this.onNodeDragFinished));
-	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.FORCE_UPDATE_NODE_POSITION,$bind(this,this.onForceUpdatePosition));
-	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.REDRAW_WIRES,function(_) {
-		_gthis._wireRenderer.rebuildAll();
-	});
-	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.ASSEMBLY_PORTS_CHANGED,function(_) {
+	this._onPortDragStart = $bind(this,this.onPortDragStart);
+	this._onNodeMoved = $bind(this,this.onNodeMoved);
+	this._onNodeDragFinished = $bind(this,this.onNodeDragFinished);
+	this._onForceUpdatePosition = $bind(this,this.onForceUpdatePosition);
+	this._onRedrawWires = function(_) {
+		if(_gthis.isDisposed || !_gthis.isActive) {
+			return;
+		}
+		if(_gthis._wireRenderer != null) {
+			_gthis._wireRenderer.rebuildAll();
+		}
+	};
+	this._onAssemblyPortsChanged = function(_) {
+		if(_gthis.isDisposed || !_gthis.isActive) {
+			return;
+		}
 		_gthis.drawFrame();
-		_gthis._wireRenderer.rebuildAll();
-	});
-	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.ATOM_DELETED,$bind(this,this.onAtomDeleted));
-	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.ATOM_RESTORED,$bind(this,this.onAtomRestored));
-	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.NODE_CLICKED,$bind(this,this.onNodeClicked));
+		if(_gthis._wireRenderer != null) {
+			_gthis._wireRenderer.rebuildAll();
+		}
+	};
+	this._onAtomDeleted = $bind(this,this.onAtomDeleted);
+	this._onAtomRestored = $bind(this,this.onAtomRestored);
+	this._onNodeClicked = $bind(this,this.onNodeClicked);
+	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.PORT_DRAG_START,this._onPortDragStart);
+	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.EDITOR_NODE_MOVED,this._onNodeMoved);
+	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.NODE_DRAG_FINISHED,this._onNodeDragFinished);
+	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.FORCE_UPDATE_NODE_POSITION,this._onForceUpdatePosition);
+	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.REDRAW_WIRES,this._onRedrawWires);
+	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.ASSEMBLY_PORTS_CHANGED,this._onAssemblyPortsChanged);
+	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.ATOM_DELETED,this._onAtomDeleted);
+	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.ATOM_RESTORED,this._onAtomRestored);
+	core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.NODE_CLICKED,this._onNodeClicked);
 };
 $hxClasses["editor.NodeEditor"] = editor_NodeEditor;
 editor_NodeEditor.__name__ = "editor.NodeEditor";
 editor_NodeEditor.__super__ = openfl_display_Sprite;
 editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
-	onAddedToStage_Frame: function(e) {
+	createAtomWithId: function(typeId,instanceId,posX,posY) {
+		var localPoint = this._canvas.globalToLocal(new openfl_geom_Point(posX,posY));
+		this._actions.createAtomWithId(typeId,instanceId,localPoint.x,localPoint.y);
+	}
+	,connectAtoms: function(fromId,fromContact,toId,toContact) {
+		this._actions.connect(fromId,fromContact,toId,toContact);
+	}
+	,onAddedToStage_Frame: function(e) {
 		var _gthis = this;
 		this.removeEventListener("addedToStage",$bind(this,this.onAddedToStage_Frame));
 		this.stage.addEventListener("resize",$bind(this,this.onResize));
@@ -10624,6 +13135,9 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.stage.addEventListener("mouseWheel",$bind(this,this.onMouseWheel));
 	}
 	,drawFrame: function(e) {
+		if(this.isDisposed) {
+			return;
+		}
 		var w = this._forcedWidth > 0 ? this._forcedWidth : this.stage != null ? this.stage.stageWidth : 1024;
 		var h = this._forcedHeight > 0 ? this._forcedHeight : this.stage != null ? this.stage.stageHeight : 600;
 		this._frame.get_graphics().clear();
@@ -10711,6 +13225,7 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		var view = new editor_NodeView(atom,id);
 		view.setPosition(x,y);
 		view.setParentAssembly(this._assembly);
+		view.isNameTakenGlobally = this._isNameTakenGlobally;
 		this._canvas.addChild(view);
 		this._nodes.h[id] = view;
 	}
@@ -10731,11 +13246,34 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		var view_current = 0;
 		while(view_current < view_length) {
 			var view = view_h[view_keys[view_current++]];
-			if(((view.atom) instanceof core_base_Assembly)) {
+			if(((view.get_atom()) instanceof core_base_Assembly)) {
 				view.redraw();
 			}
 		}
 		this._wireRenderer.rebuildAll();
+	}
+	,reattachNodeView: function(atomId,newAtom) {
+		haxe_Log.trace("🔄 reattachNodeView: atomId=\"" + atomId + "\", newAtom.id=\"" + newAtom.get_id() + "\"",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 574, className : "editor.NodeEditor", methodName : "reattachNodeView"});
+		var view = this._nodes.h[atomId];
+		if(view == null) {
+			haxe_Log.trace("❌ reattachNodeView: NO NodeView found for \"" + atomId + "\"!",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 578, className : "editor.NodeEditor", methodName : "reattachNodeView"});
+			var _g = [];
+			var h = this._nodes.h;
+			var k_h = h;
+			var k_keys = Object.keys(h);
+			var k_length = k_keys.length;
+			var k_current = 0;
+			while(k_current < k_length) {
+				var k = k_keys[k_current++];
+				_g.push(k);
+			}
+			haxe_Log.trace("   Available keys: " + Std.string(_g),{ fileName : "src/editor/NodeEditor.hx", lineNumber : 579, className : "editor.NodeEditor", methodName : "reattachNodeView"});
+			return;
+		}
+		haxe_Log.trace("✅ reattachNodeView: Found NodeView, calling reattachToAtom",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 582, className : "editor.NodeEditor", methodName : "reattachNodeView"});
+		view.reattachToAtom(newAtom);
+		this._wireRenderer.rebuildAll();
+		haxe_Log.trace("✅ reattachNodeView: rebuildAll completed",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 585, className : "editor.NodeEditor", methodName : "reattachNodeView"});
 	}
 	,forceFullRedraw: function() {
 		if(this.isDisposed) {
@@ -11031,7 +13569,6 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 	}
 	,onMouseWheel: function(e) {
 		this._viewport.handleZoom(e.delta,e.stageX,e.stageY,this);
-		this._wireRenderer.rebuildAll();
 		this.updateVisibility();
 	}
 	,updateVisibility: function() {
@@ -11199,7 +13736,7 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._canvas.set_y(targetY);
 		this._wireRenderer.rebuildAll();
 		this.updateVisibility();
-		haxe_Log.trace("NodeEditor: Auto-centered on content (zoom=" + zoom + ")",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 1014, className : "editor.NodeEditor", methodName : "centerOnContent"});
+		haxe_Log.trace("NodeEditor: Auto-centered on content (zoom=" + zoom + ")",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 1174, className : "editor.NodeEditor", methodName : "centerOnContent"});
 	}
 	,deleteSelectedNodes: function() {
 		var ids = this._selection.getSelectedNodeIds();
@@ -11360,7 +13897,6 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		return this._wireRenderer.getWireCount();
 	}
 	,dispose: function() {
-		var _gthis = this;
 		if(this.isDisposed) {
 			return;
 		}
@@ -11373,20 +13909,24 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.stage.removeEventListener("middleMouseUp",$bind(this,this.onMiddleMouseUp));
 			this.stage.removeEventListener("mouseWheel",$bind(this,this.onMouseWheel));
 		}
-		core_logic_Impulsys.removeImpulse(core_logic_EventType.PORT_DRAG_START,$bind(this,this.onPortDragStart));
-		core_logic_Impulsys.removeImpulse(core_logic_EventType.EDITOR_NODE_MOVED,$bind(this,this.onNodeMoved));
-		core_logic_Impulsys.removeImpulse(core_logic_EventType.NODE_DRAG_FINISHED,$bind(this,this.onNodeDragFinished));
-		core_logic_Impulsys.removeImpulse(core_logic_EventType.FORCE_UPDATE_NODE_POSITION,$bind(this,this.onForceUpdatePosition));
-		core_logic_Impulsys.removeImpulse(core_logic_EventType.REDRAW_WIRES,function(_) {
-			_gthis._wireRenderer.rebuildAll();
-		});
-		core_logic_Impulsys.removeImpulse(core_logic_EventType.ASSEMBLY_PORTS_CHANGED,function(_) {
-			_gthis.drawFrame();
-			_gthis._wireRenderer.rebuildAll();
-		});
-		core_logic_Impulsys.removeImpulse(core_logic_EventType.ATOM_DELETED,$bind(this,this.onAtomDeleted));
-		core_logic_Impulsys.removeImpulse(core_logic_EventType.ATOM_RESTORED,$bind(this,this.onAtomRestored));
-		core_logic_Impulsys.removeImpulse(core_logic_EventType.NODE_CLICKED,$bind(this,this.onNodeClicked));
+		core_logic_Impulsys.removeImpulse(core_logic_EventType.PORT_DRAG_START,this._onPortDragStart);
+		core_logic_Impulsys.removeImpulse(core_logic_EventType.EDITOR_NODE_MOVED,this._onNodeMoved);
+		core_logic_Impulsys.removeImpulse(core_logic_EventType.NODE_DRAG_FINISHED,this._onNodeDragFinished);
+		core_logic_Impulsys.removeImpulse(core_logic_EventType.FORCE_UPDATE_NODE_POSITION,this._onForceUpdatePosition);
+		core_logic_Impulsys.removeImpulse(core_logic_EventType.REDRAW_WIRES,this._onRedrawWires);
+		core_logic_Impulsys.removeImpulse(core_logic_EventType.ASSEMBLY_PORTS_CHANGED,this._onAssemblyPortsChanged);
+		core_logic_Impulsys.removeImpulse(core_logic_EventType.ATOM_DELETED,this._onAtomDeleted);
+		core_logic_Impulsys.removeImpulse(core_logic_EventType.ATOM_RESTORED,this._onAtomRestored);
+		core_logic_Impulsys.removeImpulse(core_logic_EventType.NODE_CLICKED,this._onNodeClicked);
+		this._onPortDragStart = null;
+		this._onNodeMoved = null;
+		this._onNodeDragFinished = null;
+		this._onForceUpdatePosition = null;
+		this._onRedrawWires = null;
+		this._onAssemblyPortsChanged = null;
+		this._onAtomDeleted = null;
+		this._onAtomRestored = null;
+		this._onNodeClicked = null;
 		this._selection.dispose();
 		this._wireRenderer.dispose();
 		var h = this._nodes.h;
@@ -11415,6 +13955,7 @@ var editor_NodeView = function(atom,nodeId) {
 	this._dragOffsetY = 0;
 	this._dragOffsetX = 0;
 	this._isDragging = false;
+	this.isNameTakenGlobally = null;
 	this._parentAssembly = null;
 	this._isEditingName = false;
 	this._nameInput = null;
@@ -11424,7 +13965,7 @@ var editor_NodeView = function(atom,nodeId) {
 	this._nodeHeight = 90.;
 	this._nodeWidth = 180;
 	openfl_display_Sprite.call(this);
-	this.atom = atom;
+	this._atom = atom;
 	this.nodeId = nodeId;
 	this._theme = editor_EditorTheme.getInstance();
 	this.inputPorts = new haxe_ds_StringMap();
@@ -11445,7 +13986,14 @@ $hxClasses["editor.NodeView"] = editor_NodeView;
 editor_NodeView.__name__ = "editor.NodeView";
 editor_NodeView.__super__ = openfl_display_Sprite;
 editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
-	set_selected: function(value) {
+	get_atom: function() {
+		return this._atom;
+	}
+	,set_atom: function(value) {
+		this._atom = value;
+		return value;
+	}
+	,set_selected: function(value) {
 		this.selected = value;
 		this.updateSelectionVisual();
 		return value;
@@ -11460,6 +14008,35 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 	,setParentAssembly: function(asm) {
 		this._parentAssembly = asm;
 	}
+	,reattachToAtom: function(newAtom) {
+		if(newAtom == null) {
+			return;
+		}
+		if(this._atom == newAtom) {
+			return;
+		}
+		if(this.deviceView != null) {
+			this.deviceView.deactivate();
+			if(this.deviceView.parent == this._previewContainer) {
+				this._previewContainer.removeChild(this.deviceView);
+			}
+			if(this._atom != null) {
+				core_view_DeviceViewRegistry.getInstance().clearContainer(this._atom.get_id());
+			}
+			this.deviceView = null;
+			this.hasWidget = false;
+		}
+		this._atom = newAtom;
+		if(((newAtom) instanceof core_base_Assembly)) {
+			this.assembly = js_Boot.__cast(newAtom , core_base_Assembly);
+		} else {
+			this.assembly = null;
+		}
+		this.acquireWidget();
+		this.updateLayout();
+		this.createInlineEditors();
+		this.realignInlineEditors();
+	}
 	,recalcSize: function() {
 		var bodyWidth = 180;
 		var widgetHeight = 0;
@@ -11471,8 +14048,8 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 			widgetHeight = scaledH + 5;
 		}
 		var portsHeight = 68;
-		var inputCount = this.atom != null && this.atom.getInputs() != null ? this.atom.getInputs().length : 0;
-		var outputCount = this.atom != null && this.atom.getOutputs() != null ? this.atom.getOutputs().length : 0;
+		var inputCount = this.get_atom() != null && this.get_atom().getInputs() != null ? this.get_atom().getInputs().length : 0;
+		var outputCount = this.get_atom() != null && this.get_atom().getOutputs() != null ? this.get_atom().getOutputs().length : 0;
 		var maxPorts = Math.max(inputCount,outputCount) | 0;
 		if(maxPorts > 0) {
 			portsHeight = (maxPorts + 1) * 32;
@@ -11488,12 +14065,12 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.realignInlineEditors();
 	}
 	,realignInlineEditors: function() {
-		var inputs = this.atom.getInputs();
+		var inputs = this.get_atom().getInputs();
 		if(inputs == null || inputs.length == 0) {
 			return;
 		}
 		var inputCount = inputs.length;
-		var outputCount = this.atom.getOutputs() != null ? this.atom.getOutputs().length : 0;
+		var outputCount = this.get_atom().getOutputs() != null ? this.get_atom().getOutputs().length : 0;
 		var maxPorts = Math.max(inputCount,outputCount) | 0;
 		var portsHeight = 68;
 		if(maxPorts > 0) {
@@ -11544,7 +14121,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._titleLabel.mouseEnabled = true;
 		this._titleLabel.doubleClickEnabled = true;
 		this._titleLabel.set_defaultTextFormat(new openfl_text_TextFormat("_sans",11,this._theme.NODE_TEXT_COLOR,true,null,null,null,null,openfl_text_TextFormatAlign.fromString("left")));
-		this._titleLabel.set_text(this.atom != null ? this.atom.get_displayName() != null ? this.atom.get_displayName() : this.atom.name : "Node");
+		this._titleLabel.set_text(this.get_atom() != null ? this.get_atom().get_displayName() != null ? this.get_atom().get_displayName() : this.get_atom().name : "Node");
 		this._titleBar.addChild(this._titleLabel);
 		this._settingsButton = new openfl_display_Sprite();
 		this._settingsButton.get_graphics().beginFill(this._theme.NODE_SETTINGS_BTN_COLOR);
@@ -11595,7 +14172,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		g.clear();
 		g.beginFill(2763322,0.95);
 		g.lineStyle(this.selected ? 2 : 1,this.selected ? this._theme.NODE_SELECTED_COLOR : this._theme.NODE_BORDER_COLOR);
-		if(this.atom.get_isLogic()) {
+		if(this.get_atom().get_isLogic()) {
 			var cut = 10.0;
 			g.moveTo(cut,0);
 			g.lineTo(w - cut,0);
@@ -11614,7 +14191,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		var tg = this._titleBar.get_graphics();
 		tg.clear();
 		tg.beginFill(3816010,0.9);
-		if(this.atom.get_isLogic()) {
+		if(this.get_atom().get_isLogic()) {
 			var cut = 10.0;
 			tg.moveTo(cut,0);
 			tg.lineTo(w - cut,0);
@@ -11645,7 +14222,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		sg.clear();
 		if(this.selected) {
 			sg.lineStyle(3,this._theme.NODE_SELECTED_COLOR,0.6);
-			if(this.atom.get_isLogic()) {
+			if(this.get_atom().get_isLogic()) {
 				var cut = 12.0;
 				sg.moveTo(cut,-3);
 				sg.lineTo(w - cut,-3);
@@ -11693,8 +14270,8 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		this.inputPorts.h = Object.create(null);
 		this.outputPorts.h = Object.create(null);
-		var inputs = this.atom.getInputs();
-		var outputs = this.atom.getOutputs();
+		var inputs = this.get_atom().getInputs();
+		var outputs = this.get_atom().getOutputs();
 		var portsHeight = 68;
 		var inputCount = inputs != null ? inputs.length : 0;
 		var outputCount = outputs != null ? outputs.length : 0;
@@ -11814,7 +14391,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 			}
 		}
 		this._inlineEditors.h = Object.create(null);
-		var inputs = this.atom.getInputs();
+		var inputs = this.get_atom().getInputs();
 		if(inputs == null) {
 			return;
 		}
@@ -11861,8 +14438,8 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 	}
 	,getPinDefForContact: function(contact) {
-		if(this.atom != null && ((this.atom) instanceof core_base_Assembly)) {
-			var asm = js_Boot.__cast(this.atom , core_base_Assembly);
+		if(this.get_atom() != null && ((this.get_atom()) instanceof core_base_Assembly)) {
+			var asm = js_Boot.__cast(this.get_atom() , core_base_Assembly);
 			if(asm.blueprint != null && asm.blueprint.pins != null) {
 				var _g = 0;
 				var _g1 = asm.blueprint.pins;
@@ -11875,8 +14452,8 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 				}
 			}
 		}
-		if(this.atom != null && this.atom.type != null) {
-			var bp = library_AtomRegistry.get(this.atom.type);
+		if(this.get_atom() != null && this.get_atom().type != null) {
+			var bp = library_AtomRegistry.get(this.get_atom().type);
 			if(bp != null && bp.pins != null) {
 				var _g = 0;
 				var _g1 = bp.pins;
@@ -11892,7 +14469,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		return null;
 	}
 	,updateInlineEditorsVisibility: function() {
-		var inputs = this.atom.getInputs();
+		var inputs = this.get_atom().getInputs();
 		if(inputs == null) {
 			return;
 		}
@@ -11953,15 +14530,15 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 	}
 	,acquireWidget: function() {
-		if(this.atom == null) {
+		if(this.get_atom() == null) {
 			return;
 		}
 		var registry = core_view_DeviceViewRegistry.getInstance();
-		this.deviceView = registry.getOrCreate(this.atom,true);
+		this.deviceView = registry.getOrCreate(this.get_atom(),true);
 		if(this.deviceView == null) {
 			return;
 		}
-		if(registry.isInDeviceWindow(this.atom.get_id())) {
+		if(registry.isInDeviceWindow(this.get_atom().get_id())) {
 			this.hasWidget = false;
 			return;
 		}
@@ -11980,7 +14557,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.deviceView.set_scaleY(0.7);
 		this._previewContainer.addChild(this.deviceView);
 		this.enableDoubleClickRecursive(this.deviceView);
-		core_view_DeviceViewRegistry.getInstance().setContainer(this.atom.get_id(),"NodeView");
+		core_view_DeviceViewRegistry.getInstance().setContainer(this.get_atom().get_id(),"NodeView");
 		if(!this.deviceView.isActive) {
 			this.deviceView.activate();
 		}
@@ -12028,16 +14605,13 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		return this.deviceView;
 	}
 	,acceptWidget: function() {
-		var _gthis = this;
 		if(this.deviceView == null) {
 			this.acquireWidget();
 		} else {
 			this.deviceView.set_scaleX(0.7);
 			this.deviceView.set_scaleY(0.7);
 			this.addWidgetToPreview();
-			haxe_Timer.delay(function() {
-				_gthis.centerPreviewContainer();
-			},50);
+			this.centerPreviewContainer();
 		}
 	}
 	,isInteractiveTarget: function(target) {
@@ -12131,12 +14705,12 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 			return;
 		}
 		e.stopPropagation();
-		if(((this.atom) instanceof core_base_Assembly)) {
-			haxe_Log.trace("NodeView: Double-click detected on Assembly. Emitting request for ID: " + this.atom.get_id(),{ fileName : "src/editor/NodeView.hx", lineNumber : 982, className : "editor.NodeView", methodName : "onDoubleClick"});
-			core_logic_Impulsys.quickEmit(core_logic_EventType.OPEN_ASSEMBLY_REQUEST,{ atomId : this.atom.get_id()});
+		if(((this.get_atom()) instanceof core_base_Assembly)) {
+			haxe_Log.trace("NodeView: Double-click detected on Assembly. Emitting request for ID: " + this.get_atom().get_id(),{ fileName : "src/editor/NodeView.hx", lineNumber : 1130, className : "editor.NodeView", methodName : "onDoubleClick"});
+			core_logic_Impulsys.quickEmit(core_logic_EventType.OPEN_ASSEMBLY_REQUEST,{ atomId : this.get_atom().get_id()});
 			return;
 		}
-		haxe_Log.trace("NodeView: Double-click on simple atom " + this.atom.get_id() + " (ignored)",{ fileName : "src/editor/NodeView.hx", lineNumber : 986, className : "editor.NodeView", methodName : "onDoubleClick"});
+		haxe_Log.trace("NodeView: Double-click on simple atom " + this.get_atom().get_id() + " (ignored)",{ fileName : "src/editor/NodeView.hx", lineNumber : 1134, className : "editor.NodeView", methodName : "onDoubleClick"});
 	}
 	,onClick: function(e) {
 		if(this._isEditingName) {
@@ -12212,7 +14786,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 	}
 	,onSettingsClick: function(e) {
 		e.stopPropagation();
-		core_logic_Impulsys.quickEmit(core_logic_EventType.ATOM_PROPERTIES_REQUEST,{ atom : this.atom, view : this});
+		core_logic_Impulsys.quickEmit(core_logic_EventType.ATOM_PROPERTIES_REQUEST,{ atom : this.get_atom(), view : this});
 	}
 	,onMouseDown: function(e) {
 		if(this._isEditingName) {
@@ -12308,14 +14882,14 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 			this._nameInput.addEventListener("focusOut",$bind(this,this.onNameFocusOut));
 			this._titleBar.addChild(this._nameInput);
 		}
-		this._nameInput.set_text(this.atom.get_displayName());
+		this._nameInput.set_text(this.get_atom().get_displayName());
 		this._nameInput.set_visible(true);
 		this._nameInput.set_borderColor(43775);
 		this._nameInput.setSelection(0,this._nameInput.get_text().length);
 		if(this.stage != null) {
 			this.stage.set_focus(this._nameInput);
 		}
-		haxe_Log.trace("NodeView: Started name editing for \"" + this.atom.get_displayName() + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1330, className : "editor.NodeView", methodName : "startNameEditing"});
+		haxe_Log.trace("NodeView: Started name editing for \"" + this.get_atom().get_displayName() + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1480, className : "editor.NodeView", methodName : "startNameEditing"});
 	}
 	,finishNameEditing: function() {
 		var _gthis = this;
@@ -12323,18 +14897,24 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 			return;
 		}
 		this._isEditingName = false;
-		var newName = StringTools.trim(this._nameInput.get_text());
-		if(newName.length == 0) {
+		var typedName = StringTools.trim(this._nameInput.get_text());
+		if(typedName.length == 0) {
 			this.cancelNameEditing();
 			return;
 		}
-		if(newName == this.atom.get_displayName()) {
+		if(typedName == this.get_atom().get_displayName()) {
 			this._nameInput.set_visible(false);
 			this._titleLabel.set_visible(true);
 			return;
 		}
-		if(this._parentAssembly != null && this._parentAssembly.hasAtomWithName(newName,this.atom.get_id())) {
-			haxe_Log.trace("NodeView: Name \"" + newName + "\" already exists in assembly!",{ fileName : "src/editor/NodeView.hx", lineNumber : 1359, className : "editor.NodeView", methodName : "finishNameEditing"});
+		var oldName = this.get_atom().get_displayName();
+		var finalName = core_logic_NamingService.resolveUniqueInstanceName(typedName,this.get_atom().get_id());
+		if(finalName != typedName) {
+			haxe_Log.trace("NodeView: Name \"" + typedName + "\" taken — applied as \"" + finalName + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1530, className : "editor.NodeView", methodName : "finishNameEditing"});
+		}
+		var ok = core_logic_NamingService.renameInstance(oldName,finalName,this.get_atom().get_id());
+		if(!ok) {
+			haxe_Log.trace("NodeView: renameInstance FAILED for \"" + finalName + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1540, className : "editor.NodeView", methodName : "finishNameEditing"});
 			this._nameInput.set_borderColor(16724787);
 			haxe_Timer.delay(function() {
 				if(_gthis._nameInput != null) {
@@ -12344,16 +14924,18 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 			this._isEditingName = true;
 			return;
 		}
-		this.atom.set_displayName(newName);
-		if(((this.atom) instanceof core_base_Assembly)) {
-			var asm = js_Boot.__cast(this.atom , core_base_Assembly);
-			asm.blueprint.name = newName;
+		this.get_atom().set_displayName(finalName);
+		if(((this.get_atom()) instanceof core_base_Assembly)) {
+			var asm = js_Boot.__cast(this.get_atom() , core_base_Assembly);
+			if(asm.blueprint != null) {
+				asm.blueprint.name = finalName;
+			}
 		}
-		this._titleLabel.set_text(newName);
+		this._titleLabel.set_text(finalName);
 		this._nameInput.set_visible(false);
 		this._titleLabel.set_visible(true);
 		core_logic_Impulsys.quickEmit(core_logic_EventType.VALUE_COMMITTED);
-		haxe_Log.trace("NodeView: Renamed atom to \"" + newName + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1386, className : "editor.NodeView", methodName : "finishNameEditing"});
+		haxe_Log.trace("NodeView: Renamed atom \"" + oldName + "\" → \"" + finalName + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1576, className : "editor.NodeView", methodName : "finishNameEditing"});
 	}
 	,cancelNameEditing: function() {
 		this._isEditingName = false;
@@ -12406,7 +14988,10 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 			port = this.outputPorts.h[contactName];
 		}
 		if(port == null) {
-			return { x : this.get_x(), y : this.get_y()};
+			return null;
+		}
+		if(port.stage == null) {
+			return null;
 		}
 		var global = port.localToGlobal(new openfl_geom_Point(0,0));
 		return { x : global.x, y : global.y};
@@ -12427,8 +15012,8 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		return { width : this._nodeWidth, height : this._nodeHeight};
 	}
 	,onAssemblyPortsChanged: function(impulse) {
-		if(impulse.data != null && impulse.data.assemblyId == this.atom.get_id()) {
-			haxe_Log.trace("NodeView: Ports changed event received for " + this.atom.get_displayName() + ". Rebuilding layout.",{ fileName : "src/editor/NodeView.hx", lineNumber : 1507, className : "editor.NodeView", methodName : "onAssemblyPortsChanged"});
+		if(impulse.data != null && impulse.data.assemblyId == this.get_atom().get_id()) {
+			haxe_Log.trace("NodeView: Ports changed event received for " + this.get_atom().get_displayName() + ". Rebuilding layout.",{ fileName : "src/editor/NodeView.hx", lineNumber : 1720, className : "editor.NodeView", methodName : "onAssemblyPortsChanged"});
 			this.updateLayout();
 			this.alignInlineEditors();
 		}
@@ -12476,7 +15061,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.inputPorts.h = Object.create(null);
 		this.outputPorts.h = Object.create(null);
 		this.deviceView = null;
-		this.atom = null;
+		this._atom = null;
 		this.assembly = null;
 		this.onOpenDeviceWindow = null;
 		this.onSelect = null;
@@ -12486,10 +15071,10 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._previewContainer = null;
 		this._selectionHighlight = null;
 		this._settingsButton = null;
-		haxe_Log.trace("NodeView: Disposed",{ fileName : "src/editor/NodeView.hx", lineNumber : 1569, className : "editor.NodeView", methodName : "dispose"});
+		haxe_Log.trace("NodeView: Disposed",{ fileName : "src/editor/NodeView.hx", lineNumber : 1782, className : "editor.NodeView", methodName : "dispose"});
 	}
 	,__class__: editor_NodeView
-	,__properties__: $extend(openfl_display_Sprite.prototype.__properties__,{set_isSelected:"set_isSelected",get_isSelected:"get_isSelected",set_selected:"set_selected"})
+	,__properties__: $extend(openfl_display_Sprite.prototype.__properties__,{set_isSelected:"set_isSelected",get_isSelected:"get_isSelected",set_selected:"set_selected",set_atom:"set_atom",get_atom:"get_atom"})
 });
 var editor_SelectionManager = function() {
 	this._lassoStartY = 0;
@@ -12940,6 +15525,9 @@ editor_WireRenderer.prototype = {
 				var thickness = isSelected ? 4 : this._theme.WIRE_THICKNESS;
 				var color = isSelected ? this._theme.WIRE_COLOR_SELECTED : this._theme.WIRE_COLOR_DEFAULT;
 				this.drawWireGraphics(entry.sprite.get_graphics(),link,color,thickness);
+				if(entry.hitSprite != null) {
+					this.drawWireGraphics(entry.hitSprite.get_graphics(),link,16711935,12.0);
+				}
 			}
 		}
 	}
@@ -12947,6 +15535,7 @@ editor_WireRenderer.prototype = {
 		if(this._isDisposed) {
 			return;
 		}
+		haxe_Log.trace("🎨 WireRenderer.rebuildAll: blueprint has " + (this._blueprint.internalConnections != null ? this._blueprint.internalConnections.length : 0) + " connections",{ fileName : "src/editor/WireRenderer.hx", lineNumber : 339, className : "editor.WireRenderer", methodName : "rebuildAll"});
 		var activeWireIds_h = Object.create(null);
 		var ghostWireIds = [];
 		if(this._blueprint.internalConnections != null) {
@@ -12970,6 +15559,9 @@ editor_WireRenderer.prototype = {
 					var color = isSelected ? this._theme.WIRE_COLOR_SELECTED : this._theme.WIRE_COLOR_DEFAULT;
 					var thickness = isSelected ? 4 : this._theme.WIRE_THICKNESS;
 					this.drawWireGraphics(entry.sprite.get_graphics(),link,color,thickness);
+					if(entry.hitSprite != null) {
+						this.drawWireGraphics(entry.hitSprite.get_graphics(),link,16711935,12.0);
+					}
 				} else {
 					this.createWireSprite(link);
 				}
@@ -13012,13 +15604,26 @@ editor_WireRenderer.prototype = {
 			if(entry == null) {
 				continue;
 			}
-			entry.sprite.removeEventListener("click",entry.clickHandler);
-			if(entry.rightClickHandler != null) {
-				entry.sprite.removeEventListener("rightClick",entry.rightClickHandler);
+			if(entry.hitSprite != null) {
+				if(entry.mouseDownHandler != null) {
+					entry.hitSprite.removeEventListener("mouseDown",entry.mouseDownHandler);
+				}
+				if(entry.clickHandler != null) {
+					entry.hitSprite.removeEventListener("click",entry.clickHandler);
+				}
+				if(entry.rightClickHandler != null) {
+					entry.hitSprite.removeEventListener("rightClick",entry.rightClickHandler);
+				}
+				entry.hitSprite.get_graphics().clear();
+				if(entry.hitSprite.parent != null) {
+					entry.hitSprite.parent.removeChild(entry.hitSprite);
+				}
 			}
-			entry.sprite.get_graphics().clear();
-			if(entry.sprite.parent != null) {
-				entry.sprite.parent.removeChild(entry.sprite);
+			if(entry.sprite != null) {
+				entry.sprite.get_graphics().clear();
+				if(entry.sprite.parent != null) {
+					entry.sprite.parent.removeChild(entry.sprite);
+				}
 			}
 		}
 		this._wireSprites.h = Object.create(null);
@@ -13038,6 +15643,9 @@ editor_WireRenderer.prototype = {
 				var entry = this._wireSprites.h[wireID];
 				if(entry != null) {
 					this.drawWireGraphics(entry.sprite.get_graphics(),link);
+					if(entry.hitSprite != null) {
+						this.drawWireGraphics(entry.hitSprite.get_graphics(),link,16711935,12.0);
+					}
 				}
 			}
 		}
@@ -13071,13 +15679,26 @@ editor_WireRenderer.prototype = {
 		if(entry == null) {
 			return;
 		}
-		entry.sprite.removeEventListener("click",entry.clickHandler);
-		if(entry.rightClickHandler != null) {
-			entry.sprite.removeEventListener("rightClick",entry.rightClickHandler);
+		if(entry.hitSprite != null) {
+			if(entry.mouseDownHandler != null) {
+				entry.hitSprite.removeEventListener("mouseDown",entry.mouseDownHandler);
+			}
+			if(entry.clickHandler != null) {
+				entry.hitSprite.removeEventListener("click",entry.clickHandler);
+			}
+			if(entry.rightClickHandler != null) {
+				entry.hitSprite.removeEventListener("rightClick",entry.rightClickHandler);
+			}
+			entry.hitSprite.get_graphics().clear();
+			if(entry.hitSprite.parent != null) {
+				entry.hitSprite.parent.removeChild(entry.hitSprite);
+			}
 		}
-		entry.sprite.get_graphics().clear();
-		if(entry.sprite.parent != null) {
-			entry.sprite.parent.removeChild(entry.sprite);
+		if(entry.sprite != null) {
+			entry.sprite.get_graphics().clear();
+			if(entry.sprite.parent != null) {
+				entry.sprite.parent.removeChild(entry.sprite);
+			}
 		}
 		var _this = this._wireSprites;
 		if(Object.prototype.hasOwnProperty.call(_this.h,id)) {
@@ -13104,18 +15725,19 @@ editor_WireRenderer.prototype = {
 	}
 	,createWireSprite: function(link) {
 		var _gthis = this;
-		var spr = new openfl_display_Sprite();
-		spr.mouseEnabled = true;
-		spr.set_buttonMode(true);
 		var id = editor_WireRenderer.getWireIDStatic(link);
 		var selectedIds = this._getSelectedWireIds();
 		var isSelected = selectedIds.indexOf(id) != -1;
 		var color = isSelected ? this._theme.WIRE_COLOR_SELECTED : this._theme.WIRE_COLOR_DEFAULT;
 		var thickness = isSelected ? 4 : this._theme.WIRE_THICKNESS;
-		this.drawWireGraphics(spr.get_graphics(),link,color,thickness);
-		spr.addEventListener("mouseDown",function(e) {
+		var hitSpr = new openfl_display_Sprite();
+		hitSpr.mouseEnabled = true;
+		hitSpr.set_buttonMode(true);
+		hitSpr.set_alpha(0);
+		this.drawWireGraphics(hitSpr.get_graphics(),link,16711935,12.0);
+		var mouseDownHandler = function(e) {
 			e.stopPropagation();
-		});
+		};
 		var clickHandler = function(e) {
 			e.stopPropagation();
 			_gthis.handleWireClick(id,e.ctrlKey);
@@ -13124,10 +15746,16 @@ editor_WireRenderer.prototype = {
 			e.stopPropagation();
 			_gthis.handleWireRightClick(id);
 		};
-		spr.addEventListener("click",clickHandler);
-		spr.addEventListener("rightClick",rightClickHandler);
+		hitSpr.addEventListener("mouseDown",mouseDownHandler);
+		hitSpr.addEventListener("click",clickHandler);
+		hitSpr.addEventListener("rightClick",rightClickHandler);
+		var spr = new openfl_display_Sprite();
+		spr.mouseEnabled = false;
+		spr.mouseChildren = false;
+		this.drawWireGraphics(spr.get_graphics(),link,color,thickness);
+		this._container.addChild(hitSpr);
 		this._container.addChild(spr);
-		this._wireSprites.h[id] = { sprite : spr, clickHandler : clickHandler, rightClickHandler : rightClickHandler};
+		this._wireSprites.h[id] = { sprite : spr, hitSprite : hitSpr, clickHandler : clickHandler, rightClickHandler : rightClickHandler, mouseDownHandler : mouseDownHandler};
 		return spr;
 	}
 	,handleWireClick: function(wireId,ctrlKey) {
@@ -13202,7 +15830,7 @@ editor_WireRenderer.prototype = {
 	,getWirePoint: function(point) {
 		if(point.atomId == "SELF") {
 			var portSpr = this._getEdgePort(point.contactName);
-			if(portSpr == null) {
+			if(portSpr == null || portSpr.stage == null) {
 				return null;
 			}
 			var pt = this._canvas.globalToLocal(portSpr.localToGlobal(new openfl_geom_Point(0,0)));
@@ -13214,10 +15842,12 @@ editor_WireRenderer.prototype = {
 			}
 			var view = this._getNodeView(runtimeId);
 			if(view == null) {
+				haxe_Log.trace("⚠️ getWirePoint: No NodeView for runtimeId=\"" + runtimeId + "\" (atomId=\"" + point.atomId + "\")",{ fileName : "src/editor/WireRenderer.hx", lineNumber : 738, className : "editor.WireRenderer", methodName : "getWirePoint"});
 				return null;
 			}
 			var portPos = view.getPortPosition(point.contactName);
 			if(portPos == null) {
+				haxe_Log.trace("⚠️ getWirePoint: No port position for contactName=\"" + point.contactName + "\" on view \"" + runtimeId + "\"",{ fileName : "src/editor/WireRenderer.hx", lineNumber : 743, className : "editor.WireRenderer", methodName : "getWirePoint"});
 				return null;
 			}
 			var pt = this._canvas.globalToLocal(new openfl_geom_Point(portPos.x,portPos.y));
@@ -17221,6 +19851,7 @@ library_AtomRegistry.initialize = function() {
 	library_AtomRegistry.reg("Toggle","Toggle Switch",[{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "bool"}],null,"toggle");
 	library_AtomRegistry.reg("TextInput","Text Input",[{ name : "set", type : core_types_ContactType.INPUT, dataType : "string"},{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "string"}],null,"textinput");
 	library_AtomRegistry.reg("Relay","Relay",[{ name : "signal", type : core_types_ContactType.INPUT, dataType : "any"},{ name : "control", type : core_types_ContactType.INPUT, dataType : "bool"},{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "any"}],null,"relay");
+	library_AtomRegistry.reg("TextArea","Text Area",[{ name : "text", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL, label : "Text"},{ name : "append", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Append"},{ name : "clear", type : core_types_ContactType.INPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Clear"},{ name : "editable", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.IMPORTANT, label : "Editable", visibleInEditor : true},{ name : "wordWrap", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "WordWrap", visibleInEditor : true},{ name : "autoScroll", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "AutoScroll", visibleInEditor : true},{ name : "hScroll", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "HScroll", visibleInEditor : true},{ name : "vScroll", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "VScroll", visibleInEditor : true},{ name : "maxChars", type : core_types_ContactType.INPUT, defaultValue : 40, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Width", visibleInEditor : true},{ name : "numLines", type : core_types_ContactType.INPUT, defaultValue : 8, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Lines", visibleInEditor : true},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "lineCount", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Lines"},{ name : "cursorLine", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "Cursor"}],null,"textarea");
 	library_AtomRegistry.reg("SignalGenerator","Signal Generator",[{ name : "freq", type : core_types_ContactType.INPUT, defaultValue : 1.0, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Freq", visibleInEditor : true},{ name : "quantum", type : core_types_ContactType.INPUT, defaultValue : 0.1, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL, visibleInEditor : false},{ name : "mode", type : core_types_ContactType.INPUT, defaultValue : 3, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Mode", visibleInEditor : true},{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL}],null,"panel",true,true);
 	library_AtomRegistry.reg("BufferingAtom","Audio Buffer",[{ name : "bufferSize", type : core_types_ContactType.INPUT, defaultValue : 512, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Size", visibleInEditor : true},{ name : "quantum", type : core_types_ContactType.INPUT, defaultValue : 0.1, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL, visibleInEditor : false},{ name : "mode", type : core_types_ContactType.INPUT, defaultValue : 0, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Mode", visibleInEditor : true},{ name : "in", type : core_types_ContactType.INPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL},{ name : "buffer", type : core_types_ContactType.OUTPUT, dataType : "array", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "count", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Count"},{ name : "full", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.IMPORTANT, label : "Full"}],null,"buffer",true,true);
 	library_AtomRegistry.reg("MiniAudioAtom","Mini Audio Capture",[{ name : "mode", type : core_types_ContactType.INPUT, defaultValue : 1, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Mode"},{ name : "quantum", type : core_types_ContactType.INPUT, defaultValue : 0.01, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL},{ name : "gain", type : core_types_ContactType.INPUT, defaultValue : 1.0, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Gain"},{ name : "channel", type : core_types_ContactType.INPUT, defaultValue : 0, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL},{ name : "rate", type : core_types_ContactType.INPUT, defaultValue : 0, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL},{ name : "sample", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "rms", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "RMS"},{ name : "clip", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "tick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL},{ name : "level", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Level"},{ name : "device", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.OPTIONAL}],null,"miniaudio",true,true);
@@ -17246,10 +19877,10 @@ library_AtomRegistry.remove = function(id) {
 		if(Object.prototype.hasOwnProperty.call(_this.h,id)) {
 			delete(_this.h[id]);
 		}
-		haxe_Log.trace("AtomRegistry: Removed " + id,{ fileName : "src/library/AtomRegistry.hx", lineNumber : 317, className : "library.AtomRegistry", methodName : "remove"});
+		haxe_Log.trace("AtomRegistry: Removed " + id,{ fileName : "src/library/AtomRegistry.hx", lineNumber : 349, className : "library.AtomRegistry", methodName : "remove"});
 		return true;
 	}
-	haxe_Log.trace("AtomRegistry: " + id + " not found for removal",{ fileName : "src/library/AtomRegistry.hx", lineNumber : 320, className : "library.AtomRegistry", methodName : "remove"});
+	haxe_Log.trace("AtomRegistry: " + id + " not found for removal",{ fileName : "src/library/AtomRegistry.hx", lineNumber : 352, className : "library.AtomRegistry", methodName : "remove"});
 	return false;
 };
 library_AtomRegistry.exists = function(id) {
@@ -18451,6 +21082,49 @@ library_electro_OscilloscopeAtom.prototype = $extend(core_base_Atom.prototype,{
 	}
 	,__class__: library_electro_OscilloscopeAtom
 });
+var library_electro_PassThroughAtom = function(id) {
+	this._changedTimer = 0.0;
+	core_base_Atom.call(this,[new core_base_Contact(null,core_types_ContactType.INPUT,"in")],[new core_base_Contact(null,core_types_ContactType.OUTPUT,"out"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"changed")],null,id,"PassThrough",false);
+	var input = this.getInput("in");
+	var output = this.getOutput("out");
+	var changed = this.getOutput("changed");
+	if(input != null && output != null) {
+		input.link(output);
+		input.subscribe(function(v) {
+			if(changed != null && changed.get_value() == false) {
+				changed.set_value(true);
+				core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
+					core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
+						core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
+							if(changed != null) {
+								changed.set_value(false);
+							}
+						});
+					});
+				});
+			}
+		});
+		input.ignoreOscillation = true;
+	}
+};
+$hxClasses["library.electro.PassThroughAtom"] = library_electro_PassThroughAtom;
+library_electro_PassThroughAtom.__name__ = "library.electro.PassThroughAtom";
+library_electro_PassThroughAtom.__super__ = core_base_Atom;
+library_electro_PassThroughAtom.prototype = $extend(core_base_Atom.prototype,{
+	update: function(dt) {
+		core_base_Atom.prototype.update.call(this,dt);
+		if(this._changedTimer > 0) {
+			this._changedTimer -= dt;
+			if(this._changedTimer <= 0) {
+				var changed = this.getOutput("changed");
+				if(changed != null) {
+					changed.set_value(false);
+				}
+			}
+		}
+	}
+	,__class__: library_electro_PassThroughAtom
+});
 var library_electro_RelayAtom = function(id) {
 	this._controlValue = false;
 	this._signalValue = null;
@@ -18521,6 +21195,210 @@ library_electro_RelayAtom.prototype = $extend(core_base_Atom.prototype,{
 		}
 	}
 	,__class__: library_electro_RelayAtom
+});
+var library_electro_TextAreaAtom = function(id) {
+	this._numLines = 8;
+	this._maxChars = 40;
+	this._vScroll = true;
+	this._hScroll = false;
+	this._autoScroll = true;
+	this._wordWrap = true;
+	this._editable = true;
+	this._text = "";
+	core_base_Atom.call(this,[new core_base_Contact("",core_types_ContactType.INPUT,"text"),new core_base_Contact("",core_types_ContactType.INPUT,"append"),new core_base_Contact(false,core_types_ContactType.INPUT,"clear"),new core_base_Contact(true,core_types_ContactType.INPUT,"editable"),new core_base_Contact(true,core_types_ContactType.INPUT,"wordWrap"),new core_base_Contact(true,core_types_ContactType.INPUT,"autoScroll"),new core_base_Contact(false,core_types_ContactType.INPUT,"hScroll"),new core_base_Contact(true,core_types_ContactType.INPUT,"vScroll"),new core_base_Contact(40,core_types_ContactType.INPUT,"maxChars"),new core_base_Contact(8,core_types_ContactType.INPUT,"numLines")],[new core_base_Contact("",core_types_ContactType.OUTPUT,"text"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"changed"),new core_base_Contact(1,core_types_ContactType.OUTPUT,"lineCount"),new core_base_Contact(1,core_types_ContactType.OUTPUT,"cursorLine")],null,id,"TextArea");
+};
+$hxClasses["library.electro.TextAreaAtom"] = library_electro_TextAreaAtom;
+library_electro_TextAreaAtom.__name__ = "library.electro.TextAreaAtom";
+library_electro_TextAreaAtom.__super__ = core_base_Atom;
+library_electro_TextAreaAtom.prototype = $extend(core_base_Atom.prototype,{
+	onContactChanged: function(c) {
+		if(this._isDisposed) {
+			return;
+		}
+		switch(c.name) {
+		case "append":
+			var appendStr = Std.string(c.get_value());
+			if(appendStr != "" && appendStr != "null") {
+				if(this._text.length > 0) {
+					this._text += "\n" + appendStr;
+				} else {
+					this._text = appendStr;
+				}
+				this.pushTextToOutput();
+				c.set_value("");
+			}
+			break;
+		case "autoScroll":
+			this._autoScroll = c.get_value() == true;
+			break;
+		case "clear":
+			if(c.get_value() == true) {
+				this._text = "";
+				this.pushTextToOutput();
+				c.set_value(false);
+			}
+			break;
+		case "editable":
+			this._editable = c.get_value() == true;
+			break;
+		case "hScroll":
+			this._hScroll = c.get_value() == true;
+			break;
+		case "maxChars":
+			var v = c.get_value() | 0;
+			if(v >= 5 && v <= 200) {
+				this._maxChars = v;
+			}
+			break;
+		case "numLines":
+			var v = c.get_value() | 0;
+			if(v >= 1 && v <= 100) {
+				this._numLines = v;
+			}
+			break;
+		case "text":
+			var newText = Std.string(c.get_value());
+			if(newText != this._text) {
+				this._text = newText;
+				this.pushTextToOutput();
+			}
+			break;
+		case "vScroll":
+			this._vScroll = c.get_value() == true;
+			break;
+		case "wordWrap":
+			this._wordWrap = c.get_value() == true;
+			break;
+		}
+		core_base_Atom.prototype.onContactChanged.call(this,c);
+	}
+	,pushTextToOutput: function() {
+		var textOut = this.getOutput("text");
+		if(textOut != null) {
+			textOut.set_value(this._text);
+		}
+		var lineCountOut = this.getOutput("lineCount");
+		if(lineCountOut != null) {
+			var lines = this._text.split("\n");
+			lineCountOut.set_value(lines.length);
+		}
+		var changedOut = this.getOutput("changed");
+		if(changedOut != null) {
+			changedOut.set_value(true);
+			core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
+				core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
+					core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
+						if(changedOut != null) {
+							changedOut.set_value(false);
+						}
+					});
+				});
+			});
+		}
+	}
+	,getText: function() {
+		return this._text;
+	}
+	,isEditable: function() {
+		return this._editable;
+	}
+	,isWordWrap: function() {
+		return this._wordWrap;
+	}
+	,isAutoScroll: function() {
+		return this._autoScroll;
+	}
+	,isHScroll: function() {
+		return this._hScroll;
+	}
+	,isVScroll: function() {
+		return this._vScroll;
+	}
+	,getMaxChars: function() {
+		return this._maxChars;
+	}
+	,getNumLines: function() {
+		return this._numLines;
+	}
+	,setTextFromWidget: function(newText) {
+		if(newText != this._text) {
+			this._text = newText;
+			var textIn = this.getInput("text");
+			if(textIn != null) {
+				textIn.setValueSilent(this._text);
+			}
+			this.pushTextToOutput();
+		}
+	}
+	,setCursorLine: function(line) {
+		var c = this.getOutput("cursorLine");
+		if(c != null) {
+			c.set_value(line);
+		}
+	}
+	,getPersistentState: function() {
+		var base = core_base_Atom.prototype.getPersistentState.call(this);
+		var result = { text : this._text, editable : this._editable, wordWrap : this._wordWrap, autoScroll : this._autoScroll, hScroll : this._hScroll, vScroll : this._vScroll, maxChars : this._maxChars, numLines : this._numLines};
+		if(base != null) {
+			var _g = 0;
+			var _g1 = Reflect.fields(base);
+			while(_g < _g1.length) {
+				var field = _g1[_g];
+				++_g;
+				result[field] = Reflect.field(base,field);
+			}
+		}
+		return result;
+	}
+	,restoreState: function(state) {
+		if(state == null) {
+			return;
+		}
+		core_base_Atom.prototype.restoreState.call(this,state);
+		if(state.text != null) {
+			this._text = Std.string(state.text);
+			var textOut = this.getOutput("text");
+			if(textOut != null) {
+				textOut.set_value(this._text);
+			}
+			var textIn = this.getInput("text");
+			if(textIn != null) {
+				textIn.set_value(this._text);
+			}
+		}
+		if(state.editable != null) {
+			this._editable = state.editable;
+		}
+		if(state.wordWrap != null) {
+			this._wordWrap = state.wordWrap;
+		}
+		if(state.autoScroll != null) {
+			this._autoScroll = state.autoScroll;
+		}
+		if(state.hScroll != null) {
+			this._hScroll = state.hScroll;
+		}
+		if(state.vScroll != null) {
+			this._vScroll = state.vScroll;
+		}
+		if(state.maxChars != null) {
+			var v = state.maxChars | 0;
+			if(v >= 5 && v <= 200) {
+				this._maxChars = v;
+			}
+		}
+		if(state.numLines != null) {
+			var v = state.numLines | 0;
+			if(v >= 1 && v <= 100) {
+				this._numLines = v;
+			}
+		}
+		var lineCountOut = this.getOutput("lineCount");
+		if(lineCountOut != null) {
+			lineCountOut.set_value(this._text.split("\n").length);
+		}
+	}
+	,__class__: library_electro_TextAreaAtom
 });
 var library_electro_TextInputAtom = function(id) {
 	core_base_Atom.call(this,[new core_base_Contact(null,core_types_ContactType.INPUT,"set")],[new core_base_Contact("",core_types_ContactType.OUTPUT,"out")],null,id,"TextInput");
@@ -18664,49 +21542,6 @@ library_electro_ToggleAtom.prototype = $extend(core_base_Atom.prototype,{
 		}
 	}
 	,__class__: library_electro_ToggleAtom
-});
-var library_logic_PassThroughAtom = function(id) {
-	this._changedTimer = 0.0;
-	core_base_Atom.call(this,[new core_base_Contact(null,core_types_ContactType.INPUT,"in")],[new core_base_Contact(null,core_types_ContactType.OUTPUT,"out"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"changed")],null,id,"PassThrough",false);
-	var input = this.getInput("in");
-	var output = this.getOutput("out");
-	var changed = this.getOutput("changed");
-	if(input != null && output != null) {
-		input.link(output);
-		input.subscribe(function(v) {
-			if(changed != null && changed.get_value() == false) {
-				changed.set_value(true);
-				core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
-					core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
-						core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
-							if(changed != null) {
-								changed.set_value(false);
-							}
-						});
-					});
-				});
-			}
-		});
-		input.ignoreOscillation = true;
-	}
-};
-$hxClasses["library.logic.PassThroughAtom"] = library_logic_PassThroughAtom;
-library_logic_PassThroughAtom.__name__ = "library.logic.PassThroughAtom";
-library_logic_PassThroughAtom.__super__ = core_base_Atom;
-library_logic_PassThroughAtom.prototype = $extend(core_base_Atom.prototype,{
-	update: function(dt) {
-		core_base_Atom.prototype.update.call(this,dt);
-		if(this._changedTimer > 0) {
-			this._changedTimer -= dt;
-			if(this._changedTimer <= 0) {
-				var changed = this.getOutput("changed");
-				if(changed != null) {
-					changed.set_value(false);
-				}
-			}
-		}
-	}
-	,__class__: library_logic_PassThroughAtom
 });
 var lime__$internal_backend_html5_GameDeviceData = function() {
 	this.connected = true;
@@ -35914,7 +38749,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 658106;
+	this.version = 763274;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
@@ -38006,8 +40841,58 @@ lime_utils_Preloader.prototype = {
 	,update: function(loaded,total) {
 	}
 	,updateProgress: function() {
+		var _gthis = this;
 		if(!this.simulateProgress) {
 			this.onProgress.dispatch(this.bytesLoaded,this.bytesTotal);
+		}
+		if(this.loadedLibraries == this.libraries.length && !this.initLibraryNames) {
+			this.initLibraryNames = true;
+			var _g = 0;
+			var _g1 = this.libraryNames;
+			while(_g < _g1.length) {
+				var name = [_g1[_g]];
+				++_g;
+				lime_utils_Log.verbose("Preloading asset library: " + name[0],{ fileName : "lime/utils/Preloader.hx", lineNumber : 239, className : "lime.utils.Preloader", methodName : "updateProgress"});
+				lime_utils_Assets.loadLibrary(name[0]).onProgress((function(name) {
+					return function(loaded,total) {
+						if(total > 0) {
+							if(!Object.prototype.hasOwnProperty.call(_gthis.bytesTotalCache.h,name[0])) {
+								_gthis.bytesTotalCache.h[name[0]] = total;
+								_gthis.bytesTotal += total - 200;
+							}
+							if(loaded > total) {
+								loaded = total;
+							}
+							if(!Object.prototype.hasOwnProperty.call(_gthis.bytesLoadedCache2.h,name[0])) {
+								_gthis.bytesLoaded += loaded;
+							} else {
+								_gthis.bytesLoaded += loaded - _gthis.bytesLoadedCache2.h[name[0]];
+							}
+							_gthis.bytesLoadedCache2.h[name[0]] = loaded;
+							if(!_gthis.simulateProgress) {
+								_gthis.onProgress.dispatch(_gthis.bytesLoaded,_gthis.bytesTotal);
+							}
+						}
+					};
+				})(name)).onComplete((function(name) {
+					return function(library) {
+						var total = 200;
+						if(Object.prototype.hasOwnProperty.call(_gthis.bytesTotalCache.h,name[0])) {
+							total = _gthis.bytesTotalCache.h[name[0]];
+						}
+						if(!Object.prototype.hasOwnProperty.call(_gthis.bytesLoadedCache2.h,name[0])) {
+							_gthis.bytesLoaded += total;
+						} else {
+							_gthis.bytesLoaded += total - _gthis.bytesLoadedCache2.h[name[0]];
+						}
+						_gthis.loadedAssetLibrary(name[0]);
+					};
+				})(name)).onError((function() {
+					return function(e) {
+						lime_utils_Log.error(e,{ fileName : "lime/utils/Preloader.hx", lineNumber : 293, className : "lime.utils.Preloader", methodName : "updateProgress"});
+					};
+				})());
+			}
 		}
 		if(!this.simulateProgress && this.loadedLibraries == this.libraries.length + this.libraryNames.length) {
 			if(!this.preloadComplete) {
@@ -40258,6 +43143,9 @@ openfl_display_BitmapData.prototype = {
 		if(matrix != null) {
 			transform.concat(matrix);
 		}
+		if(sourceAsDisplayObject != null && sourceAsDisplayObject.__scrollRect != null) {
+			transform.translate(-sourceAsDisplayObject.__scrollRect.x,-sourceAsDisplayObject.__scrollRect.y);
+		}
 		var clipMatrix = null;
 		if(clipRect != null) {
 			clipMatrix = openfl_geom_Matrix.__pool.get();
@@ -41569,7 +44457,7 @@ openfl_display_DisplayObjectRenderer.prototype = $extend(openfl_events_EventDisp
 		var updated = false;
 		if(displayObject.get_cacheAsBitmap() || renderer.__type != "opengl" && !colorTransform.__isDefault(true)) {
 			var rect = null;
-			var needRender = displayObject.__cacheBitmap == null || displayObject.__renderDirty && (force || displayObject.__children != null && displayObject.__children.length > 0) || displayObject.opaqueBackground != displayObject.__cacheBitmapBackground;
+			var needRender = displayObject.__cacheBitmap == null || displayObject.__renderDirty && (force || displayObject.__cacheBitmap != null || displayObject.__children != null && displayObject.__children.length > 0) || displayObject.opaqueBackground != displayObject.__cacheBitmapBackground;
 			var softwareDirty = needRender || displayObject.__graphics != null && displayObject.__graphics.__softwareDirty || !displayObject.__cacheBitmapColorTransform.__equals(colorTransform,true);
 			var hardwareDirty = needRender || displayObject.__graphics != null && displayObject.__graphics.__hardwareDirty;
 			var renderType = renderer.__type;
@@ -45507,8 +48395,6 @@ openfl_display_Graphics.prototype = {
 			height = openfl_display_Graphics.maxTextureHeight;
 			scaleY = openfl_display_Graphics.maxTextureHeight / this.__bounds.height;
 		}
-		var newWidth = Math.ceil(width + 1.0);
-		var newHeight = Math.ceil(height + 1.0);
 		var inverseA;
 		var inverseD;
 		if(this.__owner.__worldScale9Grid != null) {
@@ -45517,8 +48403,8 @@ openfl_display_Graphics.prototype = {
 			inverseA = 1 / pixelRatio;
 			inverseD = 1 / pixelRatio;
 		} else {
-			this.__renderTransform.a = newWidth / this.__bounds.width;
-			this.__renderTransform.d = newHeight / this.__bounds.height;
+			this.__renderTransform.a = width / this.__bounds.width;
+			this.__renderTransform.d = height / this.__bounds.height;
 			inverseA = 1 / this.__renderTransform.a;
 			inverseD = 1 / this.__renderTransform.d;
 		}
@@ -45544,6 +48430,8 @@ openfl_display_Graphics.prototype = {
 		var _this = this.__worldTransform;
 		var norm = _this.a * _this.d - _this.b * _this.c;
 		this.__renderTransform.ty = norm == 0 ? -_this.ty : 1.0 / norm * (_this.a * (ty - _this.ty) + _this.b * (_this.tx - tx));
+		var newWidth = Math.ceil(width + 1.0);
+		var newHeight = Math.ceil(height + 1.0);
 		if(newWidth != this.__width || newHeight != this.__height) {
 			this.set___dirty(true);
 		}
@@ -47270,40 +50158,10 @@ openfl_display_OpenGLRenderer.prototype = $extend(openfl_display_DisplayObjectRe
 	,__resize: function(width,height) {
 		this.__width = width;
 		this.__height = height;
-		var w = this.__defaultRenderTarget == null ? this.__stage.stageWidth : this.__defaultRenderTarget.width;
-		var h = this.__defaultRenderTarget == null ? this.__stage.stageHeight : this.__defaultRenderTarget.height;
-		var tmp;
-		if(this.__defaultRenderTarget == null) {
-			var _this = this.__worldTransform;
-			tmp = Math.round(0 * _this.a + 0 * _this.c + _this.tx);
-		} else {
-			tmp = 0;
-		}
-		this.__offsetX = tmp;
-		var tmp;
-		if(this.__defaultRenderTarget == null) {
-			var _this = this.__worldTransform;
-			tmp = Math.round(0 * _this.b + 0 * _this.d + _this.ty);
-		} else {
-			tmp = 0;
-		}
-		this.__offsetY = tmp;
-		var tmp;
-		if(this.__defaultRenderTarget == null) {
-			var _this = this.__worldTransform;
-			tmp = Math.round(w * _this.a + 0 * _this.c + _this.tx - this.__offsetX);
-		} else {
-			tmp = w;
-		}
-		this.__displayWidth = tmp;
-		var tmp;
-		if(this.__defaultRenderTarget == null) {
-			var _this = this.__worldTransform;
-			tmp = Math.round(0 * _this.b + h * _this.d + _this.ty - this.__offsetY);
-		} else {
-			tmp = h;
-		}
-		this.__displayHeight = tmp;
+		this.__offsetX = 0;
+		this.__offsetY = 0;
+		this.__displayWidth = this.__defaultRenderTarget == null ? width : this.__defaultRenderTarget.width;
+		this.__displayHeight = this.__defaultRenderTarget == null ? height : this.__defaultRenderTarget.height;
 		lime_math_Matrix4.createOrtho(this.__projection,0,this.__displayWidth + this.__offsetX * 2,0,this.__displayHeight + this.__offsetY * 2,-1000,1000);
 		lime_math_Matrix4.createOrtho(this.__projectionFlipped,0,this.__displayWidth + this.__offsetX * 2,this.__displayHeight + this.__offsetY * 2,0,-1000,1000);
 	}
@@ -48640,7 +51498,9 @@ openfl_display_Stage.prototype = $extend(openfl_display_DisplayObjectContainer.p
 			break;
 		case "opengl":case "opengles":case "webgl":
 			this.context3D = new openfl_display3D_Context3D(this);
-			this.context3D.configureBackBuffer(this.stageWidth,this.stageHeight,0,true,true,true);
+			var unscaledWindowWidth = this.window.__width | 0;
+			var unscaledWindowHeight = this.window.__height | 0;
+			this.context3D.configureBackBuffer(unscaledWindowWidth,unscaledWindowHeight,0,true,true,true);
 			this.context3D.present();
 			this.__renderer = new openfl_display_OpenGLRenderer(this.context3D);
 			break;
@@ -50470,32 +53330,38 @@ openfl_display_Stage.prototype = $extend(openfl_display_DisplayObjectContainer.p
 		var visibleHeight = this.__logicalHeight - Math.round((scaledHeight - windowHeight) / scaleY);
 		var visibleX = 0.0;
 		var visibleY = 0.0;
-		switch(this.align) {
-		case 0:
+		var _g = this.align;
+		if(_g == null) {
 			visibleX = Math.round((this.__logicalWidth - visibleWidth) / 2);
-			visibleY = Math.round(this.__logicalHeight - visibleHeight);
-			break;
-		case 1:
-			visibleY = Math.round(this.__logicalHeight - visibleHeight);
-			break;
-		case 2:
-			visibleX = Math.round(this.__logicalWidth - visibleWidth);
-			visibleY = Math.round(this.__logicalHeight - visibleHeight);
-			break;
-		case 3:
 			visibleY = Math.round((this.__logicalHeight - visibleHeight) / 2);
-			break;
-		case 4:
-			visibleX = Math.round(this.__logicalWidth - visibleWidth);
-			visibleY = Math.round((this.__logicalHeight - visibleHeight) / 2);
-			break;
-		case 5:
-			visibleX = Math.round((this.__logicalWidth - visibleWidth) / 2);
-			break;
-		case 7:
-			visibleX = Math.round(this.__logicalWidth - visibleWidth);
-			break;
-		default:
+		} else {
+			switch(_g) {
+			case 0:
+				visibleX = Math.round((this.__logicalWidth - visibleWidth) / 2);
+				visibleY = Math.round(this.__logicalHeight - visibleHeight);
+				break;
+			case 1:
+				visibleY = Math.round(this.__logicalHeight - visibleHeight);
+				break;
+			case 2:
+				visibleX = Math.round(this.__logicalWidth - visibleWidth);
+				visibleY = Math.round(this.__logicalHeight - visibleHeight);
+				break;
+			case 3:
+				visibleY = Math.round((this.__logicalHeight - visibleHeight) / 2);
+				break;
+			case 4:
+				visibleX = Math.round(this.__logicalWidth - visibleWidth);
+				visibleY = Math.round((this.__logicalHeight - visibleHeight) / 2);
+				break;
+			case 5:
+				visibleX = Math.round((this.__logicalWidth - visibleWidth) / 2);
+				break;
+			case 7:
+				visibleX = Math.round(this.__logicalWidth - visibleWidth);
+				break;
+			default:
+			}
 		}
 		this.__displayMatrix.translate(-visibleX,-visibleY);
 		this.__displayMatrix.scale(scaleX,scaleY);
@@ -50544,7 +53410,9 @@ openfl_display_Stage.prototype = $extend(openfl_display_DisplayObjectContainer.p
 			}
 		}
 		if(this.context3D != null) {
-			this.context3D.configureBackBuffer(this.stageWidth,this.stageHeight,0,true,true,true);
+			var unscaledWindowWidth = this.window.__width | 0;
+			var unscaledWindowHeight = this.window.__height | 0;
+			this.context3D.configureBackBuffer(unscaledWindowWidth,unscaledWindowHeight,0,true,true,true);
 		}
 		var stage3D = this.stage3Ds.iterator();
 		while(stage3D.hasNext()) {
@@ -51011,22 +53879,37 @@ openfl_display_Stage3D.prototype = $extend(openfl_events_EventDispatcher.prototy
 });
 var openfl_display_StageAlign = {};
 openfl_display_StageAlign.fromString = function(value) {
+	if(value == null) {
+		return null;
+	}
+	var upperCaseValue = value.toUpperCase();
+	var value = "";
+	if(upperCaseValue.indexOf("T") != -1) {
+		value += "T";
+	} else if(upperCaseValue.indexOf("B") != -1) {
+		value += "B";
+	}
+	if(upperCaseValue.indexOf("L") != -1) {
+		value += "L";
+	} else if(upperCaseValue.indexOf("R") != -1) {
+		value += "R";
+	}
 	switch(value) {
-	case "bottom":
+	case "B":
 		return 0;
-	case "bottomLeft":
+	case "BL":
 		return 1;
-	case "bottomRight":
+	case "BR":
 		return 2;
-	case "left":
+	case "L":
 		return 3;
-	case "right":
+	case "R":
 		return 4;
-	case "top":
+	case "T":
 		return 5;
-	case "topLeft":
+	case "TL":
 		return 6;
-	case "topRight":
+	case "TR":
 		return 7;
 	default:
 		return null;
@@ -51035,21 +53918,21 @@ openfl_display_StageAlign.fromString = function(value) {
 openfl_display_StageAlign.toString = function(this1) {
 	switch(this1) {
 	case 0:
-		return "bottom";
+		return "B";
 	case 1:
-		return "bottomLeft";
+		return "BL";
 	case 2:
-		return "bottomRight";
+		return "BR";
 	case 3:
-		return "left";
+		return "L";
 	case 4:
-		return "right";
+		return "R";
 	case 5:
-		return "top";
+		return "T";
 	case 6:
-		return "topLeft";
+		return "TL";
 	case 7:
-		return "topRight";
+		return "TR";
 	default:
 		return null;
 	}
@@ -52943,6 +55826,7 @@ openfl_display__$internal_CanvasBitmapData.renderDrawable = function(bitmapData,
 	}
 	var context = renderer.context;
 	context.globalAlpha = 1;
+	renderer.__setBlendMode(10);
 	renderer.setTransform(bitmapData.__renderTransform,context);
 	context.drawImage(image.get_src(),0,0,image.width,image.height);
 };
@@ -55135,7 +58019,7 @@ openfl_display__$internal_CanvasGraphics.closePath = function(strokeBefore) {
 	}
 	if(!openfl_display__$internal_CanvasGraphics.hitTesting && openfl_display__$internal_CanvasGraphics.strokePattern != null) {
 		var scale9Grid = openfl_display__$internal_CanvasGraphics.graphics.__owner.__scale9Grid;
-		var hasScale9Grid = scale9Grid != null && !openfl_display__$internal_CanvasGraphics.graphics.__owner.__isMask && openfl_display__$internal_CanvasGraphics.graphics.__worldTransform.b == 0 && openfl_display__$internal_CanvasGraphics.graphics.__worldTransform.c == 0;
+		var hasScale9Grid = scale9Grid != null && !openfl_display__$internal_CanvasGraphics.graphics.__owner.__isMask && Math.abs(openfl_display__$internal_CanvasGraphics.graphics.__owner.__rotation) < 0.02;
 		if(openfl_display__$internal_CanvasGraphics.bitmapStrokeMatrix != null || hasScale9Grid && openfl_display__$internal_CanvasGraphics.strokeScale9Bounds != null && openfl_display__$internal_CanvasGraphics.bitmapStroke != null) {
 			var matrix = openfl_geom_Matrix.__pool.get();
 			if(openfl_display__$internal_CanvasGraphics.bitmapStrokeMatrix != null) {
@@ -55193,7 +58077,7 @@ openfl_display__$internal_CanvasGraphics.createGradientPattern = function(type,c
 			point2.x = px * matrix.a + py * matrix.c + matrix.tx;
 			point2.y = px * matrix.b + py * matrix.d + matrix.ty;
 			var scale9Grid = openfl_display__$internal_CanvasGraphics.graphics.__owner.__scale9Grid;
-			var hasScale9Grid = scale9Grid != null && !openfl_display__$internal_CanvasGraphics.graphics.__owner.__isMask && openfl_display__$internal_CanvasGraphics.graphics.__worldTransform.b == 0 && openfl_display__$internal_CanvasGraphics.graphics.__worldTransform.c == 0;
+			var hasScale9Grid = scale9Grid != null && !openfl_display__$internal_CanvasGraphics.graphics.__owner.__isMask && Math.abs(openfl_display__$internal_CanvasGraphics.graphics.__owner.__rotation) < 0.02;
 			if(hasScale9Grid) {
 				point.x = openfl_display__$internal_CanvasGraphics.toScale9Position(point.x,scale9Grid.x,scale9Grid.width,openfl_display__$internal_CanvasGraphics.bounds.width,openfl_display__$internal_CanvasGraphics.graphics.__owner.get_scaleX());
 				point.y = openfl_display__$internal_CanvasGraphics.toScale9Position(point.y,scale9Grid.y,scale9Grid.height,openfl_display__$internal_CanvasGraphics.bounds.height,openfl_display__$internal_CanvasGraphics.graphics.__owner.get_scaleY());
@@ -55339,7 +58223,7 @@ openfl_display__$internal_CanvasGraphics.createGradientPattern = function(type,c
 		point3.x = px * matrix.a + py * matrix.c + matrix.tx;
 		point3.y = px * matrix.b + py * matrix.d + matrix.ty;
 		var scale9Grid = openfl_display__$internal_CanvasGraphics.graphics.__owner.__scale9Grid;
-		var hasScale9Grid = scale9Grid != null && !openfl_display__$internal_CanvasGraphics.graphics.__owner.__isMask && openfl_display__$internal_CanvasGraphics.graphics.__worldTransform.b == 0 && openfl_display__$internal_CanvasGraphics.graphics.__worldTransform.c == 0;
+		var hasScale9Grid = scale9Grid != null && !openfl_display__$internal_CanvasGraphics.graphics.__owner.__isMask && Math.abs(openfl_display__$internal_CanvasGraphics.graphics.__owner.__rotation) < 0.02;
 		if(hasScale9Grid) {
 			point.x = openfl_display__$internal_CanvasGraphics.toScale9Position(point.x,scale9Grid.x,scale9Grid.width,openfl_display__$internal_CanvasGraphics.bounds.width,openfl_display__$internal_CanvasGraphics.graphics.__owner.get_scaleX());
 			point.y = openfl_display__$internal_CanvasGraphics.toScale9Position(point.y,scale9Grid.y,scale9Grid.height,openfl_display__$internal_CanvasGraphics.bounds.height,openfl_display__$internal_CanvasGraphics.graphics.__owner.get_scaleY());
@@ -57104,7 +59988,7 @@ openfl_display__$internal_CanvasGraphics.playCommands = function(commands,stroke
 	openfl_display__$internal_CanvasGraphics.setSmoothing(true);
 	var hasPath = false;
 	var scale9Grid = openfl_display__$internal_CanvasGraphics.graphics.__owner.__scale9Grid;
-	var hasScale9Grid = scale9Grid != null && !openfl_display__$internal_CanvasGraphics.graphics.__owner.__isMask && openfl_display__$internal_CanvasGraphics.graphics.__worldTransform.b == 0 && openfl_display__$internal_CanvasGraphics.graphics.__worldTransform.c == 0;
+	var hasScale9Grid = scale9Grid != null && !openfl_display__$internal_CanvasGraphics.graphics.__owner.__isMask && Math.abs(openfl_display__$internal_CanvasGraphics.graphics.__owner.__rotation) < 0.02;
 	if(!hasScale9Grid) {
 		scale9Grid = null;
 		if(openfl_display__$internal_CanvasGraphics.fillScale9Bounds != null) {
@@ -59307,7 +62191,7 @@ openfl_display__$internal_CanvasGraphics.playCommands = function(commands,stroke
 openfl_display__$internal_CanvasGraphics.render = function(graphics,renderer) {
 	var pixelRatio = renderer.__pixelRatio;
 	var scale9Grid = graphics.__owner.__scale9Grid;
-	var hasScale9Grid = scale9Grid != null && !graphics.__owner.__isMask && graphics.__worldTransform.b == 0 && graphics.__worldTransform.c == 0;
+	var hasScale9Grid = scale9Grid != null && !graphics.__owner.__isMask && Math.abs(graphics.__owner.__rotation) < 0.02;
 	if(hasScale9Grid) {
 		graphics.__bitmapScaleX = graphics.__owner.get_scaleX();
 		graphics.__bitmapScaleY = graphics.__owner.get_scaleY();
@@ -64034,7 +66918,7 @@ openfl_display__$internal_Context3DGraphics.buildBuffer = function(graphics,rend
 	var bitmap = null;
 	var bitmapMatrix = null;
 	var scale9Grid = graphics.__owner.__scale9Grid;
-	var hasScale9Grid = scale9Grid != null && !graphics.__owner.__isMask && graphics.__worldTransform.b == 0 && graphics.__worldTransform.c == 0;
+	var hasScale9Grid = scale9Grid != null && !graphics.__owner.__isMask && Math.abs(graphics.__owner.__rotation) < 0.02;
 	if(!hasScale9Grid) {
 		scale9Grid = null;
 	}
@@ -66356,7 +69240,7 @@ openfl_display__$internal_Context3DGraphics.render = function(graphics,renderer)
 				openfl_display__$internal_Context3DGraphics.buildBuffer(graphics,renderer);
 			}
 			var scale9Grid = graphics.__owner.__scale9Grid;
-			var hasScale9Grid = scale9Grid != null && !graphics.__owner.__isMask && graphics.__worldTransform.b == 0 && graphics.__worldTransform.c == 0;
+			var hasScale9Grid = scale9Grid != null && !graphics.__owner.__isMask && Math.abs(graphics.__owner.__rotation) < 0.02;
 			if(!hasScale9Grid) {
 				scale9Grid = null;
 			}
@@ -78427,24 +81311,11 @@ openfl_events_Event.prototype = {
 		event.currentTarget = this.currentTarget;
 		return event;
 	}
-	,formatToString: function(className,p1,p2,p3,p4,p5) {
-		var parameters = [];
-		if(p1 != null) {
-			parameters.push(p1);
-		}
-		if(p2 != null) {
-			parameters.push(p2);
-		}
-		if(p3 != null) {
-			parameters.push(p3);
-		}
-		if(p4 != null) {
-			parameters.push(p4);
-		}
-		if(p5 != null) {
-			parameters.push(p5);
-		}
-		return $bind(this,this.__formatToString).apply(this,[className,parameters]);
+	,formatToString: function(className) {
+		var $l=arguments.length;
+		var args = new Array($l>1?$l-1:0);
+		for(var $i=1;$i<$l;++$i){args[$i-1]=arguments[$i];}
+		return this.__formatToString(className,args.slice());
 	}
 	,isDefaultPrevented: function() {
 		return this.__preventDefault;
@@ -81903,6 +84774,35 @@ $hxClasses["openfl.system.SecurityDomain"] = openfl_system_SecurityDomain;
 openfl_system_SecurityDomain.__name__ = "openfl.system.SecurityDomain";
 openfl_system_SecurityDomain.prototype = {
 	__class__: openfl_system_SecurityDomain
+};
+var openfl_system_System = function() { };
+$hxClasses["openfl.system.System"] = openfl_system_System;
+openfl_system_System.__name__ = "openfl.system.System";
+openfl_system_System.__properties__ = {get_vmVersion:"get_vmVersion",get_totalMemoryNumber:"get_totalMemoryNumber",get_totalMemory:"get_totalMemory"};
+openfl_system_System.disposeXML = function(node) {
+};
+openfl_system_System.exit = function(code) {
+	lime_system_System.exit(code);
+};
+openfl_system_System.gc = function() {
+};
+openfl_system_System.pause = function() {
+	openfl_utils__$internal_Lib.notImplemented({ fileName : "openfl/system/System.hx", lineNumber : 234, className : "openfl.system.System", methodName : "pause"});
+};
+openfl_system_System.resume = function() {
+	openfl_utils__$internal_Lib.notImplemented({ fileName : "openfl/system/System.hx", lineNumber : 250, className : "openfl.system.System", methodName : "resume"});
+};
+openfl_system_System.setClipboard = function(string) {
+	lime_system_Clipboard.set_text(string);
+};
+openfl_system_System.get_totalMemory = function() {
+	return (window.performance && window.performance.memory) ? window.performance.memory.usedJSHeapSize : 0;
+};
+openfl_system_System.get_totalMemoryNumber = function() {
+	return openfl_system_System.get_totalMemory();
+};
+openfl_system_System.get_vmVersion = function() {
+	return "1.0.0";
 };
 var openfl_text_AntiAliasType = {};
 openfl_text_AntiAliasType.fromString = function(value) {
@@ -91935,7 +94835,7 @@ system_commands_editor_ConnectCommand.prototype = $extend(system_commands_base_C
 		var cOut = this.resolveContact(this._fromId,this._fromContact,core_types_ContactType.OUTPUT);
 		var cIn = this.resolveContact(this._toId,this._toContact,core_types_ContactType.INPUT);
 		if(cOut == null || cIn == null) {
-			haxe_Log.trace("ConnectCommand: Aborted. Contacts not found. " + this._fromId + ":" + this._fromContact + " -> " + this._toId + ":" + this._toContact,{ fileName : "src/system/commands/editor/ConnectCommand.hx", lineNumber : 66, className : "system.commands.editor.ConnectCommand", methodName : "executeInternal"});
+			haxe_Log.trace("ConnectCommand: Aborted. Contacts not found. " + this._fromId + ":" + this._fromContact + " -> " + this._toId + ":" + this._toContact,{ fileName : "src/system/commands/editor/ConnectCommand.hx", lineNumber : 88, className : "system.commands.editor.ConnectCommand", methodName : "executeInternal"});
 			this.complete();
 			return;
 		}
@@ -91956,6 +94856,7 @@ system_commands_editor_ConnectCommand.prototype = $extend(system_commands_base_C
 			cOut.link(cIn);
 			if(this._fromId == "SELF" || this._toId == "SELF") {
 				this._assembly.rebuildInternalConnections();
+				this._assembly.refreshExternalPortNames();
 			}
 		}
 		core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
@@ -91969,7 +94870,10 @@ system_commands_editor_ConnectCommand.prototype = $extend(system_commands_base_C
 			if(cOut != null && cIn != null) {
 				cOut.unlink(cIn);
 			} else {
-				haxe_Log.trace("ConnectCommand Undo: Contacts missing, skipping unlink.",{ fileName : "src/system/commands/editor/ConnectCommand.hx", lineNumber : 106, className : "system.commands.editor.ConnectCommand", methodName : "undo"});
+				haxe_Log.trace("ConnectCommand Undo: Contacts missing, skipping unlink.",{ fileName : "src/system/commands/editor/ConnectCommand.hx", lineNumber : 135, className : "system.commands.editor.ConnectCommand", methodName : "undo"});
+			}
+			if(this._fromId == "SELF" || this._toId == "SELF") {
+				this._assembly.refreshExternalPortNames();
 			}
 			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
 		}
@@ -92005,7 +94909,10 @@ system_commands_editor_ConnectCommand.prototype = $extend(system_commands_base_C
 	}
 	,__class__: system_commands_editor_ConnectCommand
 });
-var system_commands_editor_CreateAtomCommand = function(blueprint,assembly,typeId,instanceId,x,y) {
+var system_commands_editor_CreateAtomCommand = function(blueprint,assembly,typeId,instanceId,x,y,isNameTaken,desiredDisplayName,isPaste) {
+	if(isPaste == null) {
+		isPaste = false;
+	}
 	system_commands_base_Command.call(this);
 	this._blueprint = blueprint;
 	this._assembly = assembly;
@@ -92013,6 +94920,9 @@ var system_commands_editor_CreateAtomCommand = function(blueprint,assembly,typeI
 	this._instanceId = instanceId;
 	this._posX = x;
 	this._posY = y;
+	this._isNameTaken = isNameTaken;
+	this._desiredDisplayName = desiredDisplayName;
+	this._isPaste = isPaste;
 };
 $hxClasses["system.commands.editor.CreateAtomCommand"] = system_commands_editor_CreateAtomCommand;
 system_commands_editor_CreateAtomCommand.__name__ = "system.commands.editor.CreateAtomCommand";
@@ -92031,13 +94941,16 @@ system_commands_editor_CreateAtomCommand.prototype = $extend(system_commands_bas
 		if(this._atomInstance == null) {
 			this._atomInstance = core_base_AssemblyFactory.createAtom(this._typeId,this._instanceId);
 			if(this._atomInstance == null) {
-				haxe_Log.trace("CreateAtomCommand ERROR: Factory failed to create " + this._typeId,{ fileName : "src/system/commands/editor/CreateAtomCommand.hx", lineNumber : 81, className : "system.commands.editor.CreateAtomCommand", methodName : "executeInternal"});
+				haxe_Log.trace("CreateAtomCommand ERROR: Factory failed to create " + this._typeId,{ fileName : "src/system/commands/editor/CreateAtomCommand.hx", lineNumber : 129, className : "system.commands.editor.CreateAtomCommand", methodName : "executeInternal"});
 				return;
 			}
 		}
 		if(this._atomInstance.get_displayName() == null || this._atomInstance.get_displayName() == this._atomInstance.type) {
-			this._atomInstance.set_displayName(core_base_AssemblyFactory.generateUniqueDisplayName(this._typeId,this._assembly));
+			var predicate = this._isNameTaken != null ? this._isNameTaken : core_logic_NamingService.isInstanceNameTaken;
+			var uniqueName = core_base_AssemblyFactory.generateUniqueDisplayName(this._typeId,predicate,this._desiredDisplayName,this._isPaste);
+			this._atomInstance.set_displayName(uniqueName);
 		}
+		core_logic_NamingService.registerInstanceName(this._atomInstance.get_displayName(),this._instanceId);
 		this._assembly.internalAtoms.h[this._instanceId] = this._atomInstance;
 		core_logic_Impulsys.quickEmit(core_logic_EventType.ATOM_RESTORED,{ assemblyId : this._assembly.get_id(), id : this._instanceId, x : this._posX, y : this._posY, atom : this._atomInstance});
 		this.complete();
@@ -92052,7 +94965,7 @@ system_commands_editor_CreateAtomCommand.prototype = $extend(system_commands_bas
 				} catch( _g ) {
 					haxe_NativeStackTrace.lastError = _g;
 					var e = haxe_Exception.caught(_g).unwrap();
-					haxe_Log.trace("Error disposing atom: " + Std.string(e),{ fileName : "src/system/commands/editor/CreateAtomCommand.hx", lineNumber : 110, className : "system.commands.editor.CreateAtomCommand", methodName : "undo"});
+					haxe_Log.trace("Error disposing atom: " + Std.string(e),{ fileName : "src/system/commands/editor/CreateAtomCommand.hx", lineNumber : 185, className : "system.commands.editor.CreateAtomCommand", methodName : "undo"});
 				}
 			}
 			var key = this._instanceId;
@@ -92069,7 +94982,31 @@ system_commands_editor_CreateAtomCommand.prototype = $extend(system_commands_bas
 	}
 	,__class__: system_commands_editor_CreateAtomCommand
 });
+var system_commands_editor_CreateNewAssemblyCommand = function() {
+	system_commands_base_Command.call(this);
+};
+$hxClasses["system.commands.editor.CreateNewAssemblyCommand"] = system_commands_editor_CreateNewAssemblyCommand;
+system_commands_editor_CreateNewAssemblyCommand.__name__ = "system.commands.editor.CreateNewAssemblyCommand";
+system_commands_editor_CreateNewAssemblyCommand.__super__ = system_commands_base_Command;
+system_commands_editor_CreateNewAssemblyCommand.prototype = $extend(system_commands_base_Command.prototype,{
+	executeInternal: function() {
+		var id = "asm_" + Std.random(100000);
+		var pins = [{ name : "incoming_1", type : core_types_ContactType.INPUT, externalName : "incoming_1"},{ name : "outgoing_1", type : core_types_ContactType.OUTPUT, externalName : "outgoing_1"}];
+		var bpName = core_logic_NamingService.resolveUniqueBlueprintName("New Assembly");
+		var bp = new core_data_Blueprint(id,bpName,pins);
+		core_logic_Impulsys.quickEmit(core_logic_EventType.REQUEST_NEW_ASSEMBLY_CONTEXT,{ blueprint : bp, id : id});
+		this.complete();
+	}
+	,undo: function() {
+		core_logic_Impulsys.quickEmit(core_logic_EventType.REQUEST_CLOSE_CURRENT_CONTEXT,{ });
+	}
+	,getDescription: function() {
+		return "Create New Assembly";
+	}
+	,__class__: system_commands_editor_CreateNewAssemblyCommand
+});
 var system_commands_editor_DeleteAtomCommand = function(blueprint,assembly,atomId) {
+	this._savedDisplayName = null;
 	system_commands_base_Command.call(this);
 	this._blueprint = blueprint;
 	this._assembly = assembly;
@@ -92104,13 +95041,17 @@ system_commands_editor_DeleteAtomCommand.prototype = $extend(system_commands_bas
 		}
 		var atomInstance = this._assembly.internalAtoms.h[this._atomId];
 		if(atomInstance != null) {
+			var atom = atomInstance;
+			if(atom != null && atom.get_displayName() != null) {
+				this._savedDisplayName = atom.get_displayName();
+			}
 			if(js_Boot.__implements(atomInstance,core_base_IDisposable)) {
 				try {
 					(js_Boot.__cast(atomInstance , core_base_IDisposable)).dispose();
 				} catch( _g ) {
 					haxe_NativeStackTrace.lastError = _g;
 					var e = haxe_Exception.caught(_g).unwrap();
-					haxe_Log.trace("Error disposing: " + Std.string(e),{ fileName : "src/system/commands/editor/DeleteAtomCommand.hx", lineNumber : 106, className : "system.commands.editor.DeleteAtomCommand", methodName : "executeInternal"});
+					haxe_Log.trace("Error disposing: " + Std.string(e),{ fileName : "src/system/commands/editor/DeleteAtomCommand.hx", lineNumber : 114, className : "system.commands.editor.DeleteAtomCommand", methodName : "executeInternal"});
 				}
 			}
 			var key = this._atomId;
@@ -92138,10 +95079,18 @@ system_commands_editor_DeleteAtomCommand.prototype = $extend(system_commands_bas
 		}
 		var atom = core_base_AssemblyFactory.createAtom(this._atomType,this._atomId);
 		if(atom == null) {
-			haxe_Log.trace("DeleteAtomCommand.undo: Failed to create " + this._atomType,{ fileName : "src/system/commands/editor/DeleteAtomCommand.hx", lineNumber : 137, className : "system.commands.editor.DeleteAtomCommand", methodName : "undo"});
+			haxe_Log.trace("DeleteAtomCommand.undo: Failed to create " + this._atomType,{ fileName : "src/system/commands/editor/DeleteAtomCommand.hx", lineNumber : 145, className : "system.commands.editor.DeleteAtomCommand", methodName : "undo"});
 			return;
 		}
 		this._assembly.internalAtoms.h[this._atomId] = atom;
+		var finalName;
+		if(this._savedDisplayName != null) {
+			finalName = core_logic_NamingService.resolveUniqueInstanceName(this._savedDisplayName,this._atomId);
+		} else {
+			finalName = core_base_AssemblyFactory.generateUniqueDisplayName(this._atomType,core_logic_NamingService.isInstanceNameTaken,null,false);
+		}
+		atom.set_displayName(finalName);
+		core_logic_NamingService.registerInstanceName(finalName,this._atomId);
 		if(this._connections != null) {
 			var _g = 0;
 			var _g1 = this._connections;
@@ -92337,7 +95286,7 @@ system_commands_editor_DeleteWiresCommand.prototype = $extend(system_commands_ba
 	}
 	,__class__: system_commands_editor_DeleteWiresCommand
 });
-var system_commands_editor_GroupAtomsCommand = function(blueprint,assembly,selectedIds) {
+var system_commands_editor_GroupAtomsCommand = function(blueprint,assembly,selectedIds,isNameTakenGlobally) {
 	this._isUndone = false;
 	this._isExecuted = false;
 	system_commands_base_Command.call(this);
@@ -92345,6 +95294,7 @@ var system_commands_editor_GroupAtomsCommand = function(blueprint,assembly,selec
 	this._assembly = assembly;
 	this._selectedNodeIds = selectedIds != null ? selectedIds.slice() : [];
 	this._snapshot = new system_commands_editor_GroupAtomsSnapshot();
+	this._isNameTakenGlobally = isNameTakenGlobally;
 };
 $hxClasses["system.commands.editor.GroupAtomsCommand"] = system_commands_editor_GroupAtomsCommand;
 system_commands_editor_GroupAtomsCommand.__name__ = "system.commands.editor.GroupAtomsCommand";
@@ -92352,12 +95302,12 @@ system_commands_editor_GroupAtomsCommand.__super__ = system_commands_base_Comman
 system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_base_Command.prototype,{
 	executeInternal: function() {
 		if(this._selectedNodeIds == null || this._selectedNodeIds.length == 0) {
-			haxe_Log.trace("GroupAtomsCommand: Nothing to group",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 129, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeInternal"});
+			haxe_Log.trace("GroupAtomsCommand: Nothing to group",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 247, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeInternal"});
 			this.complete();
 			return;
 		}
 		if(!this.validateNoCircularReference()) {
-			haxe_Log.trace("GroupAtomsCommand: Aborted - circular reference detected",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 136, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeInternal"});
+			haxe_Log.trace("GroupAtomsCommand: Aborted - circular reference detected",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 253, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeInternal"});
 			this.complete();
 			return;
 		}
@@ -92369,7 +95319,7 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		this.complete();
 	}
 	,executeGrouping: function() {
-		haxe_Log.trace("GroupAtomsCommand v3.3: Grouping " + this._selectedNodeIds.length + " atoms...",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 157, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+		haxe_Log.trace("GroupAtomsCommand v3.12: Grouping " + this._selectedNodeIds.length + " atoms...",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 273, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
 		var selectedTemplateIds = [];
 		var _g = 0;
 		var _g1 = this._selectedNodeIds;
@@ -92411,27 +95361,8 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 			}
 		}
 		if(atomsToMove.length == 0) {
-			haxe_Log.trace("ERROR: GroupAtomsCommand: No atoms to move!",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 209, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+			haxe_Log.trace("ERROR: GroupAtomsCommand: No atoms to move!",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 324, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
 			return;
-		}
-		this._snapshot.setSelectedNodeIds(this._selectedNodeIds);
-		var _g = 0;
-		while(_g < atomsToMove.length) {
-			var atomDef = atomsToMove[_g];
-			++_g;
-			this._snapshot.addRemovedAtom(atomDef);
-		}
-		var _g = 0;
-		while(_g < internalConns.length) {
-			var conn = internalConns[_g];
-			++_g;
-			this._snapshot.addRemovedInternalConnection(conn);
-		}
-		var _g = 0;
-		while(_g < externalConns.length) {
-			var conn = externalConns[_g];
-			++_g;
-			this._snapshot.addRemovedExternalConnection(conn);
 		}
 		var newTypeId = "CustomAssembly_" + this.generateShortId();
 		var newPins = [];
@@ -92481,7 +95412,6 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 				++incomingCount;
 				internalName = "incoming_" + incomingCount;
 			}
-			haxe_Log.trace("  Port: external=\"" + externalName + "\", internal=\"" + internalName + "\" (" + Std.string(portType) + ")",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 304, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
 			this._snapshot.addPortMapping(conn,internalName,portType == core_types_ContactType.INPUT);
 			newPins.push({ name : internalName, type : portType, externalName : externalName});
 			if(isFromSelected) {
@@ -92494,7 +95424,23 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		while(_g < atomsToMove.length) {
 			var atomDef = atomsToMove[_g];
 			++_g;
-			newInternalAtoms.push({ instanceId : atomDef.instanceId, typeId : atomDef.typeId, x : atomDef.x, y : atomDef.y});
+			var liveAtom = null;
+			var liveAtomId = atomDef.instanceId;
+			liveAtom = this._assembly.internalAtoms.h[liveAtomId];
+			if(liveAtom == null) {
+				var rtId = this._assembly.get_idMap().h[atomDef.instanceId];
+				if(rtId != null) {
+					liveAtom = this._assembly.internalAtoms.h[rtId];
+				}
+			}
+			var values = null;
+			if(liveAtom != null) {
+				values = liveAtom.getPersistentState();
+			}
+			if(values == null) {
+				values = atomDef.values;
+			}
+			newInternalAtoms.push({ instanceId : atomDef.instanceId, typeId : atomDef.typeId, x : atomDef.x, y : atomDef.y, values : values});
 		}
 		var _g = 0;
 		while(_g < internalConns.length) {
@@ -92502,7 +95448,8 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 			++_g;
 			newInternalConnections.push({ from : { atomId : conn.from.atomId, contactName : conn.from.contactName}, to : { atomId : conn.to.atomId, contactName : conn.to.contactName}});
 		}
-		var newBp = new core_data_Blueprint(newTypeId,"Custom Assembly",newPins,null,newInternalAtoms,newInternalConnections);
+		var bpName = core_logic_NamingService.resolveUniqueBlueprintName("Custom Assembly");
+		var newBp = new core_data_Blueprint(newTypeId,bpName,newPins,null,newInternalAtoms,newInternalConnections);
 		newBp.isNative = false;
 		var allConnsToRemove = internalConns.concat(externalConns);
 		var _g = 0;
@@ -92542,6 +95489,19 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		while(_g < _g1.length) {
 			var nodeId = _g1[_g];
 			++_g;
+			core_view_DeviceViewRegistry.getInstance().remove(nodeId,true);
+			var atomToDispose = this._assembly.internalAtoms.h[nodeId];
+			if(atomToDispose != null) {
+				if(js_Boot.__implements(atomToDispose,core_base_IDisposable)) {
+					try {
+						(js_Boot.__cast(atomToDispose , core_base_IDisposable)).dispose();
+					} catch( _g2 ) {
+						haxe_NativeStackTrace.lastError = _g2;
+						var e = haxe_Exception.caught(_g2).unwrap();
+						haxe_Log.trace("GroupAtoms: Error disposing atom " + nodeId + ": " + Std.string(e),{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 569, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+					}
+				}
+			}
 			var _this = this._assembly.internalAtoms;
 			if(Object.prototype.hasOwnProperty.call(_this.h,nodeId)) {
 				delete(_this.h[nodeId]);
@@ -92551,14 +95511,18 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		this.saveNewAssembly(newBp);
 		var newInstance = core_base_AssemblyFactory.createAtom(newTypeId);
 		if(newInstance == null) {
-			haxe_Log.trace("ERROR: GroupAtomsCommand failed to create assembly instance",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 389, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+			haxe_Log.trace("ERROR: GroupAtomsCommand failed to create assembly instance",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 584, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
 			return;
 		}
 		var centerPos = this.calculateCenterPosition(atomsToMove);
+		this._assembly.registerAtomMapping(newTypeId,newInstance.get_id());
+		var finalInstanceName = core_base_AssemblyFactory.generateUniqueDisplayName(newTypeId,this._isNameTakenGlobally,bpName,false);
+		newInstance.set_displayName(finalInstanceName);
+		core_logic_NamingService.registerInstanceName(finalInstanceName,newInstance.get_id());
 		var this1 = this._assembly.internalAtoms;
 		var key = newInstance.get_id();
 		this1.h[key] = newInstance;
-		var newAtomDef = { instanceId : newInstance.get_id(), typeId : newTypeId, x : centerPos.x, y : centerPos.y};
+		var newAtomDef = { instanceId : newTypeId, typeId : newTypeId, x : centerPos.x, y : centerPos.y};
 		this._blueprint.internalAtoms.push(newAtomDef);
 		var createdExternalConns = [];
 		var _g = 0;
@@ -92569,10 +95533,13 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 			var originalConn = pm.originalConnection;
 			var newConn;
 			var externalPortName = this.resolveExternalPortName(newPins,pm.portName);
+			haxe_Log.trace("  Reconnecting: internalName=\"" + pm.portName + "\" → externalName=\"" + externalPortName + "\"",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 639, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+			var fromTemplateId = originalConn.from.atomId == "SELF" ? "SELF" : this._assembly.getTemplateId(originalConn.from.atomId);
+			var toTemplateId = originalConn.to.atomId == "SELF" ? "SELF" : this._assembly.getTemplateId(originalConn.to.atomId);
 			if(pm.isInput) {
-				newConn = { from : originalConn.from, to : { atomId : newInstance.get_id(), contactName : externalPortName}};
+				newConn = { from : { atomId : fromTemplateId, contactName : originalConn.from.contactName}, to : { atomId : newTypeId, contactName : externalPortName}};
 			} else {
-				newConn = { from : { atomId : newInstance.get_id(), contactName : externalPortName}, to : originalConn.to};
+				newConn = { from : { atomId : newTypeId, contactName : externalPortName}, to : { atomId : toTemplateId, contactName : originalConn.to.contactName}};
 			}
 			this._blueprint.internalConnections.push(newConn);
 			createdExternalConns.push(newConn);
@@ -92580,6 +95547,19 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 			var cIn = this.resolveContact(newConn.to.atomId,newConn.to.contactName,core_types_ContactType.INPUT);
 			if(cOut != null && cIn != null) {
 				cOut.link(cIn);
+				haxe_Log.trace("  ✓ Linked: " + cOut.name + " → " + cIn.name,{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 699, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+			} else {
+				haxe_Log.trace("  ✗ FAILED to link: cOut=" + (cOut != null ? cOut.name : "null") + ", cIn=" + (cIn != null ? cIn.name : "null"),{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 703, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+				haxe_Log.trace("  DEBUG: newConn.to.atomId=" + newConn.to.atomId + ", contactName=" + newConn.to.contactName,{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 704, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+				var _g2 = [];
+				var _g3 = 0;
+				var _g4 = newInstance.getInputs();
+				while(_g3 < _g4.length) {
+					var c = _g4[_g3];
+					++_g3;
+					_g2.push(c.name);
+				}
+				haxe_Log.trace("  DEBUG: newInstance.inputs=" + Std.string(_g2),{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 705, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
 			}
 		}
 		this._assembly.rebuildInternalConnections();
@@ -92597,7 +95577,7 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
 		},50);
 		this._isExecuted = true;
-		haxe_Log.trace("GroupAtomsCommand v3.3: Created " + newTypeId + " with " + newPins.length + " semantic ports (Spatially Sorted)",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 469, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
+		haxe_Log.trace("GroupAtomsCommand v3.12: Created " + newTypeId + " with " + newPins.length + " semantic ports (Spatially Sorted)",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 740, className : "system.commands.editor.GroupAtomsCommand", methodName : "executeGrouping"});
 	}
 	,resolveExternalPortName: function(pins,internalName) {
 		var _g = 0;
@@ -92605,11 +95585,8 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 			var pin = pins[_g];
 			++_g;
 			if(pin.name == internalName) {
-				if(Object.prototype.hasOwnProperty.call(pin,"externalName")) {
-					var extName = Reflect.field(pin,"externalName");
-					if(extName != null && extName != "") {
-						return extName;
-					}
+				if(pin.externalName != null && pin.externalName != "") {
+					return pin.externalName;
 				}
 				return pin.name;
 			}
@@ -92617,32 +95594,33 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 		return internalName;
 	}
 	,getAtomDisplayName: function(atomId) {
-		var atom = this._assembly.internalAtoms.h[atomId];
-		if(atom == null) {
+		var atom = null;
+		if(atomId != null && atomId != "SELF") {
+			atom = this._assembly.internalAtoms.h[atomId];
+		}
+		if(atom == null && atomId != null && atomId != "SELF") {
 			var runtimeId = this._assembly.get_idMap().h[atomId];
 			if(runtimeId != null) {
 				atom = this._assembly.internalAtoms.h[runtimeId];
 			}
 		}
-		if(atom == null) {
-			atom = this._assembly.internalAtoms.h[atomId];
-		}
 		if(atom != null) {
-			var name = atom.displayName;
+			var name = atom.get_displayName();
 			if(name == null || name == "" || name == atom.type) {
 				name = atom.type;
 			}
 			return StringTools.replace(name," ","_");
 		}
-		return atomId;
+		haxe_Log.trace("GroupAtomsCommand.getAtomDisplayName: Could not resolve atom \"" + atomId + "\" — using fallback",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 833, className : "system.commands.editor.GroupAtomsCommand", methodName : "getAtomDisplayName"});
+		return "Atom";
 	}
 	,undo: function() {
 		var error = this._snapshot.validate();
 		if(error != null) {
-			haxe_Log.trace("ERROR: GroupAtomsCommand undo failed: " + error,{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 522, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
+			haxe_Log.trace("ERROR: GroupAtomsCommand undo failed: " + error,{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 845, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
 			return;
 		}
-		haxe_Log.trace("GroupAtomsCommand: Undoing grouping...",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 526, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
+		haxe_Log.trace("GroupAtomsCommand: Undoing grouping...",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 848, className : "system.commands.editor.GroupAtomsCommand", methodName : "undo"});
 		var _g = 0;
 		var _g1 = this._snapshot.getCreatedConnections();
 		while(_g < _g1.length) {
@@ -92674,8 +95652,12 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 				delete(_this.h[createdId]);
 			}
 		}
-		library_AtomRegistry.remove(this._snapshot.getCreatedTypeId());
-		this.deleteAssemblyFile(this._snapshot.getCreatedTypeId());
+		var createdTypeId = this._snapshot.getCreatedTypeId();
+		if(createdTypeId != null) {
+			this._assembly.unregisterAtomMapping(createdTypeId);
+		}
+		library_AtomRegistry.remove(createdTypeId);
+		this.deleteAssemblyFile(createdTypeId);
 		var _g = 0;
 		var _g1 = this._snapshot.getRemovedAtomDefs();
 		while(_g < _g1.length) {
@@ -92778,6 +95760,20 @@ system_commands_editor_GroupAtomsCommand.prototype = $extend(system_commands_bas
 				return atom.getOutput(contactName);
 			}
 		}
+	}
+	,resolveRuntimeId: function(atomId) {
+		if(atomId == null) {
+			return null;
+		}
+		var runtimeId = this._assembly.get_idMap().h[atomId];
+		if(runtimeId != null) {
+			return runtimeId;
+		}
+		if(Object.prototype.hasOwnProperty.call(this._assembly.internalAtoms.h,atomId)) {
+			return atomId;
+		}
+		haxe_Log.trace("GroupAtomsCommand.resolveRuntimeId: Could not resolve \"" + atomId + "\"",{ fileName : "src/system/commands/editor/GroupAtomsCommand.hx", lineNumber : 1012, className : "system.commands.editor.GroupAtomsCommand", methodName : "resolveRuntimeId"});
+		return null;
 	}
 	,calculateCenterPosition: function(atoms) {
 		if(atoms == null || atoms.length == 0) {
@@ -93303,6 +96299,182 @@ system_managers_DriverManager.prototype = {
 	}
 	,__class__: system_managers_DriverManager
 };
+var system_managers_ProjectManager = function() {
+};
+$hxClasses["system.managers.ProjectManager"] = system_managers_ProjectManager;
+system_managers_ProjectManager.__name__ = "system.managers.ProjectManager";
+system_managers_ProjectManager.getInstance = function() {
+	if(system_managers_ProjectManager._instance == null) {
+		system_managers_ProjectManager._instance = new system_managers_ProjectManager();
+	}
+	return system_managers_ProjectManager._instance;
+};
+system_managers_ProjectManager.prototype = {
+	init: function() {
+		this.selfrunPath = "Selfrun.atom";
+		this.libraryPath = "library";
+	}
+	,saveSelfrun: function(rootAssembly,viewState,deviceWindowData,isDeviceWindowOpen,windowWidth,windowHeight,windowX,windowY) {
+		if(windowY == null) {
+			windowY = 100;
+		}
+		if(windowX == null) {
+			windowX = 100;
+		}
+		if(windowHeight == null) {
+			windowHeight = 320;
+		}
+		if(windowWidth == null) {
+			windowWidth = 420;
+		}
+	}
+	,loadSelfrun: function() {
+		return null;
+	}
+	,saveAssemblyToLibrary: function(asm) {
+	}
+	,deleteAssemblyFile: function(typeId) {
+	}
+	,saveInternalAssemblies: function(asm) {
+	}
+	,parseBlueprintFromJson: function(rawBp) {
+		var pins = [];
+		if(rawBp.pins != null) {
+			var _g = 0;
+			var _g1 = js_Boot.__cast(rawBp.pins , Array);
+			while(_g < _g1.length) {
+				var p = _g1[_g];
+				++_g;
+				var dt = null;
+				if(p.dataType != null) {
+					dt = Std.string(p.dataType);
+					if(dt == "null") {
+						dt = null;
+					}
+				}
+				var extName = null;
+				if(p.externalName != null) {
+					extName = Std.string(p.externalName);
+					if(extName == "null") {
+						extName = null;
+					}
+				}
+				pins.push({ name : Std.string(p.name), type : this._parseContactType(p.type), defaultValue : p.defaultValue, dataType : dt, externalName : extName});
+			}
+		}
+		var conns = [];
+		if(rawBp.internalConnections != null) {
+			var _g = 0;
+			var _g1 = js_Boot.__cast(rawBp.internalConnections , Array);
+			while(_g < _g1.length) {
+				var c = _g1[_g];
+				++_g;
+				conns.push({ from : { atomId : Std.string(c.from.atomId), contactName : Std.string(c.from.contactName)}, to : { atomId : Std.string(c.to.atomId), contactName : Std.string(c.to.contactName)}});
+			}
+		}
+		var atoms = [];
+		if(rawBp.internalAtoms != null) {
+			var _g = 0;
+			var _g1 = js_Boot.__cast(rawBp.internalAtoms , Array);
+			while(_g < _g1.length) {
+				var a = _g1[_g];
+				++_g;
+				atoms.push({ instanceId : Std.string(a.instanceId), typeId : Std.string(a.typeId), x : a.x, y : a.y, values : a.values});
+			}
+		}
+		this._sanitizeConnections(conns,atoms,pins,Std.string(rawBp.id));
+		return new core_data_Blueprint(Std.string(rawBp.id),Std.string(rawBp.name),pins,null,atoms,conns,Std.string(rawBp.category));
+	}
+	,_sanitizeConnections: function(conns,atoms,pins,bpId) {
+		if(conns == null || conns.length == 0) {
+			return;
+		}
+		var atomIds = new haxe_ds_StringMap();
+		var _g = 0;
+		while(_g < atoms.length) {
+			var a = atoms[_g];
+			++_g;
+			atomIds.h[a.instanceId] = true;
+		}
+		var pinNames = new haxe_ds_StringMap();
+		var _g = 0;
+		while(_g < pins.length) {
+			var p = pins[_g];
+			++_g;
+			pinNames.h[p.name] = true;
+		}
+		var toRemove = [];
+		var _g = 0;
+		while(_g < conns.length) {
+			var conn = conns[_g];
+			++_g;
+			var fromValid = this._isEndpointValid(conn.from.atomId,conn.from.contactName,atomIds,pinNames);
+			var toValid = this._isEndpointValid(conn.to.atomId,conn.to.contactName,atomIds,pinNames);
+			if(!fromValid || !toValid) {
+				toRemove.push(conn);
+			}
+		}
+		var _g = 0;
+		while(_g < toRemove.length) {
+			var conn = toRemove[_g];
+			++_g;
+			HxOverrides.remove(conns,conn);
+			haxe_Log.trace("  🔧 SANITIZE [" + bpId + "]: Removed ghost connection: " + ("" + conn.from.atomId + "." + conn.from.contactName + " → ") + ("" + conn.to.atomId + "." + conn.to.contactName),{ fileName : "src/system/managers/ProjectManager.hx", lineNumber : 704, className : "system.managers.ProjectManager", methodName : "_sanitizeConnections"});
+		}
+	}
+	,_isEndpointValid: function(atomId,contactName,atomIds,pinNames) {
+		if(atomId == "SELF") {
+			return Object.prototype.hasOwnProperty.call(pinNames.h,contactName);
+		} else {
+			return Object.prototype.hasOwnProperty.call(atomIds.h,atomId);
+		}
+	}
+	,_parseContactType: function(val) {
+		if(js_Boot.__instanceof(val,core_types_ContactType)) {
+			return val;
+		}
+		if(typeof(val) == "string") {
+			switch(Std.string(val)) {
+			case "BIDIRECTIONAL":
+				return core_types_ContactType.BIDIRECTIONAL;
+			case "INPUT":
+				return core_types_ContactType.INPUT;
+			case "OUTPUT":
+				return core_types_ContactType.OUTPUT;
+			default:
+				return core_types_ContactType.UNDEFINED;
+			}
+		}
+		if(typeof(val) == "number" && ((val | 0) === val) || typeof(val) == "number") {
+			switch(val | 0) {
+			case 0:
+				return core_types_ContactType.INPUT;
+			case 1:
+				return core_types_ContactType.OUTPUT;
+			case 2:
+				return core_types_ContactType.BIDIRECTIONAL;
+			default:
+				return core_types_ContactType.UNDEFINED;
+			}
+		}
+		return core_types_ContactType.UNDEFINED;
+	}
+	,_safeFloat: function(v,def) {
+		if(def == null) {
+			def = 0.0;
+		}
+		if(v == null) {
+			return def;
+		}
+		var f = parseFloat(Std.string(v));
+		if(isNaN(f)) {
+			return def;
+		} else {
+			return f;
+		}
+	}
+	,__class__: system_managers_ProjectManager
+};
 var system_managers_UndoManager = function() {
 	this._maxHistorySize = 50;
 	openfl_events_EventDispatcher.call(this);
@@ -93320,14 +96492,24 @@ system_managers_UndoManager.getInstance = function() {
 system_managers_UndoManager.__super__ = openfl_events_EventDispatcher;
 system_managers_UndoManager.prototype = $extend(openfl_events_EventDispatcher.prototype,{
 	executeAndStore: function(cmd) {
-		cmd.execute();
-		this._undoStack.push(cmd);
-		this.enforceHistoryLimit(this._undoStack);
-		if(this._redoStack.length > 0) {
-			this._redoStack = [];
-			this.dispatchEvent(new openfl_events_Event("redoStackChanged"));
+		var tg = core_logic_TickGenerator.getInstance();
+		tg.lockTopology();
+		try {
+			cmd.execute();
+			this._undoStack.push(cmd);
+			this.enforceHistoryLimit(this._undoStack);
+			if(this._redoStack.length > 0) {
+				this._redoStack = [];
+				this.dispatchEvent(new openfl_events_Event("redoStackChanged"));
+			}
+			this.dispatchEvent(new openfl_events_Event("undoStackChanged"));
+			tg.unlockTopology();
+		} catch( _g ) {
+			haxe_NativeStackTrace.lastError = _g;
+			var e = haxe_Exception.caught(_g).unwrap();
+			haxe_Log.trace("[UndoManager] Error executing command: " + Std.string(e),{ fileName : "src/system/managers/UndoManager.hx", lineNumber : 130, className : "system.managers.UndoManager", methodName : "executeAndStore"});
+			tg.unlockTopology();
 		}
-		this.dispatchEvent(new openfl_events_Event("undoStackChanged"));
 	}
 	,storeExecuted: function(cmd) {
 		this._undoStack.push(cmd);
@@ -93343,28 +96525,40 @@ system_managers_UndoManager.prototype = $extend(openfl_events_EventDispatcher.pr
 			return;
 		}
 		var action = this._undoStack.pop();
+		var tg = core_logic_TickGenerator.getInstance();
+		tg.lockTopology();
 		try {
 			action.undo();
+			this._redoStack.push(action);
+			this.dispatchEvent(new openfl_events_Event("undoStackChanged"));
+			this.dispatchEvent(new openfl_events_Event("redoStackChanged"));
+			tg.unlockTopology();
 		} catch( _g ) {
 			haxe_NativeStackTrace.lastError = _g;
+			var e = haxe_Exception.caught(_g).unwrap();
+			haxe_Log.trace("[UndoManager] Error in Undo: " + Std.string(e),{ fileName : "src/system/managers/UndoManager.hx", lineNumber : 180, className : "system.managers.UndoManager", methodName : "undo"});
+			tg.unlockTopology();
 		}
-		this._redoStack.push(action);
-		this.dispatchEvent(new openfl_events_Event("undoStackChanged"));
-		this.dispatchEvent(new openfl_events_Event("redoStackChanged"));
 	}
 	,redo: function() {
 		if(this._redoStack.length == 0) {
 			return;
 		}
 		var action = this._redoStack.pop();
+		var tg = core_logic_TickGenerator.getInstance();
+		tg.lockTopology();
 		try {
 			action.execute();
+			this._undoStack.push(action);
+			this.dispatchEvent(new openfl_events_Event("undoStackChanged"));
+			this.dispatchEvent(new openfl_events_Event("redoStackChanged"));
+			tg.unlockTopology();
 		} catch( _g ) {
 			haxe_NativeStackTrace.lastError = _g;
+			var e = haxe_Exception.caught(_g).unwrap();
+			haxe_Log.trace("[UndoManager] Error in Redo: " + Std.string(e),{ fileName : "src/system/managers/UndoManager.hx", lineNumber : 210, className : "system.managers.UndoManager", methodName : "redo"});
+			tg.unlockTopology();
 		}
-		this._undoStack.push(action);
-		this.dispatchEvent(new openfl_events_Event("undoStackChanged"));
-		this.dispatchEvent(new openfl_events_Event("redoStackChanged"));
 	}
 	,clear: function() {
 		this._undoStack = [];
@@ -93385,6 +96579,51 @@ system_managers_UndoManager.prototype = $extend(openfl_events_EventDispatcher.pr
 	}
 	,__class__: system_managers_UndoManager
 	,__properties__: {get_canRedo:"get_canRedo",get_canUndo:"get_canUndo"}
+});
+var ui_ButtonComponent = function(label,action) {
+	openfl_display_Sprite.call(this);
+	this._action = action;
+	this.redraw(false);
+	this._textField = new openfl_text_TextField();
+	var format = new openfl_text_TextFormat("_sans",18,16777215,true);
+	format.align = 0;
+	this._textField.set_defaultTextFormat(format);
+	this._textField.set_y(5);
+	this._textField.set_width(40);
+	this._textField.set_height(40);
+	this._textField.set_text(label);
+	this._textField.set_selectable(false);
+	this._textField.mouseEnabled = false;
+	this.addChild(this._textField);
+	this.set_buttonMode(true);
+	this.useHandCursor = true;
+	this.addEventListener("click",$bind(this,this.onClick));
+	this.addEventListener("mouseOver",$bind(this,this.onOver));
+	this.addEventListener("mouseOut",$bind(this,this.onOut));
+};
+$hxClasses["ui.ButtonComponent"] = ui_ButtonComponent;
+ui_ButtonComponent.__name__ = "ui.ButtonComponent";
+ui_ButtonComponent.__super__ = openfl_display_Sprite;
+ui_ButtonComponent.prototype = $extend(openfl_display_Sprite.prototype,{
+	redraw: function(isOver) {
+		this.get_graphics().clear();
+		this.get_graphics().beginFill(isOver ? 4868698 : 3816010);
+		this.get_graphics().lineStyle(1,isOver ? 8947848 : 6710886);
+		this.get_graphics().drawRoundRect(0,0,40,40,5,5);
+		this.get_graphics().endFill();
+	}
+	,onClick: function(e) {
+		if(this._action != null) {
+			this._action();
+		}
+	}
+	,onOver: function(e) {
+		this.redraw(true);
+	}
+	,onOut: function(e) {
+		this.redraw(false);
+	}
+	,__class__: ui_ButtonComponent
 });
 var ui_ContextMenu = function() {
 	this._spawnY = 0;
@@ -93493,6 +96732,1471 @@ ui_ContextMenuItem.prototype = $extend(openfl_display_Sprite.prototype,{
 		core_logic_Impulsys.emit(new core_logic_Impulse("CONTEXT_MENU_ACTION",{ action : this.action, data : this.data, x : coords.x, y : coords.y}));
 	}
 	,__class__: ui_ContextMenuItem
+});
+var ui_DeviceCard = function(atom,owner,x,y) {
+	if(y == null) {
+		y = 0;
+	}
+	if(x == null) {
+		x = 0;
+	}
+	this._isDisposed = false;
+	this._mouseStartY = 0;
+	this._mouseStartX = 0;
+	this._dragStartY = 0;
+	this._dragStartX = 0;
+	this._cardDragging = false;
+	this._cardVisibility = false;
+	this.cardHeight = 80;
+	this.cardWidth = 100;
+	openfl_display_Sprite.call(this);
+	this.atom = atom;
+	this._owner = owner;
+	this.set_x(x);
+	this.set_y(y);
+	this.buildCard();
+};
+$hxClasses["ui.DeviceCard"] = ui_DeviceCard;
+ui_DeviceCard.__name__ = "ui.DeviceCard";
+ui_DeviceCard.__super__ = openfl_display_Sprite;
+ui_DeviceCard.prototype = $extend(openfl_display_Sprite.prototype,{
+	buildCard: function() {
+		var registry = core_view_DeviceViewRegistry.getInstance();
+		this._deviceView = registry.getOrCreate(this.atom,true);
+		if(this._deviceView == null) {
+			haxe_Log.trace("DeviceCard: Could not get widget for atom \"" + this.atom.name + "\"",{ fileName : "src/ui/DeviceCard.hx", lineNumber : 96, className : "ui.DeviceCard", methodName : "buildCard"});
+			this.createFallbackCard();
+			return;
+		}
+		this._deviceView = registry.moveToDeviceWindow(this.atom.get_id(),this,0,20);
+		if(this._deviceView == null) {
+			haxe_Log.trace("DeviceCard: Failed to move widget for atom \"" + this.atom.name + "\"",{ fileName : "src/ui/DeviceCard.hx", lineNumber : 107, className : "ui.DeviceCard", methodName : "buildCard"});
+			this.createFallbackCard();
+			return;
+		}
+		var viewWidth = this._deviceView.get_width();
+		var viewHeight = this._deviceView.get_height();
+		if(viewWidth < 50) {
+			viewWidth = 100;
+		}
+		if(viewHeight < 30) {
+			viewHeight = 60;
+		}
+		this.cardWidth = viewWidth + 30;
+		this.cardHeight = viewHeight + 40;
+		this._titleBar = new openfl_display_Sprite();
+		this._titleBar.get_graphics().beginFill(3816010);
+		this._titleBar.get_graphics().drawRect(0,0,viewWidth + 20,20);
+		this._titleBar.get_graphics().endFill();
+		this.addChild(this._titleBar);
+		this._titleLabel = new openfl_text_TextField();
+		this._titleLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",10,16777215));
+		this._titleLabel.set_text(" " + (this.atom != null ? this.atom.get_displayName() != null ? this.atom.get_displayName() : this.atom.name : "Device"));
+		this._titleLabel.set_width(viewWidth);
+		this._titleLabel.set_height(20);
+		this._titleLabel.set_selectable(false);
+		this._titleLabel.mouseEnabled = false;
+		this._titleBar.addChild(this._titleLabel);
+		var closeBtn = new openfl_display_Sprite();
+		closeBtn.get_graphics().beginFill(8926003);
+		closeBtn.get_graphics().drawRect(0,0,16,16);
+		closeBtn.get_graphics().endFill();
+		closeBtn.set_x(viewWidth + 2);
+		closeBtn.set_y(2);
+		var xText = new openfl_text_TextField();
+		xText.set_text("x");
+		xText.set_width(16);
+		xText.set_height(16);
+		xText.set_selectable(false);
+		xText.mouseEnabled = false;
+		xText.set_defaultTextFormat(new openfl_text_TextFormat("_sans",10,16777215,false,null,null,null,null,openfl_text_TextFormatAlign.fromString("center")));
+		closeBtn.addChild(xText);
+		closeBtn.set_buttonMode(true);
+		closeBtn.addEventListener("click",$bind(this,this.onCloseClick));
+		closeBtn.addEventListener("mouseDown",function(e) {
+			e.stopPropagation();
+		});
+		this._titleBar.addChild(closeBtn);
+		this.get_graphics().clear();
+		this.get_graphics().beginFill(2763322,0.9);
+		this.get_graphics().lineStyle(1,4868698);
+		this.get_graphics().drawRoundRect(-5,-5,this.cardWidth,this.cardHeight,4,4);
+		this.get_graphics().endFill();
+		this._titleBar.set_buttonMode(true);
+		this._titleBar.addEventListener("mouseDown",$bind(this,this.onCardMouseDown));
+	}
+	,createFallbackCard: function() {
+		this.cardWidth = 80;
+		this.cardHeight = 50;
+		this.get_graphics().beginFill(3355460);
+		this.get_graphics().drawRoundRect(0,0,this.cardWidth,this.cardHeight,4,4);
+		this.get_graphics().endFill();
+		var txt = new openfl_text_TextField();
+		txt.set_defaultTextFormat(new openfl_text_TextFormat("_sans",10,16777215));
+		txt.set_text(this.atom != null ? this.atom.name : "?");
+		txt.set_width(80);
+		txt.set_height(50);
+		txt.set_selectable(false);
+		txt.mouseEnabled = false;
+		this.addChild(txt);
+	}
+	,onCloseClick: function(e) {
+		e.stopPropagation();
+		if(this._owner != null) {
+			if(Object.prototype.hasOwnProperty.call(this._owner,"removeDevice")) {
+				Reflect.field(this._owner,"removeDevice").apply(this._owner,[this]);
+			}
+		}
+	}
+	,onCardMouseDown: function(e) {
+		if(this._isDisposed) {
+			return;
+		}
+		this._cardDragging = true;
+		this._dragStartX = this.get_x();
+		this._dragStartY = this.get_y();
+		this._mouseStartX = e.stageX;
+		this._mouseStartY = e.stageY;
+		if(this.parent != null) {
+			this.parent.addChild(this);
+		}
+		if(this.stage != null) {
+			this.stage.addEventListener("mouseMove",$bind(this,this.onCardMouseMove));
+			this.stage.addEventListener("mouseUp",$bind(this,this.onCardMouseUp));
+		}
+	}
+	,onCardMouseMove: function(e) {
+		if(!this._cardDragging || this._isDisposed) {
+			return;
+		}
+		this.set_x(this._dragStartX + (e.stageX - this._mouseStartX));
+		this.set_y(this._dragStartY + (e.stageY - this._mouseStartY));
+	}
+	,onCardMouseUp: function(e) {
+		this._cardDragging = false;
+		if(this.stage != null) {
+			this.stage.removeEventListener("mouseMove",$bind(this,this.onCardMouseMove));
+			this.stage.removeEventListener("mouseUp",$bind(this,this.onCardMouseUp));
+		}
+		core_logic_Impulsys.quickEmit(core_logic_EventType.DEVICE_WINDOW_CHANGED);
+	}
+	,dispose: function() {
+		if(this._isDisposed) {
+			return;
+		}
+		this._isDisposed = true;
+		if(this._titleBar != null) {
+			this._titleBar.removeEventListener("mouseDown",$bind(this,this.onCardMouseDown));
+		}
+		if(this.stage != null) {
+			this.stage.removeEventListener("mouseMove",$bind(this,this.onCardMouseMove));
+			this.stage.removeEventListener("mouseUp",$bind(this,this.onCardMouseUp));
+		}
+		if(this._deviceView != null) {
+			if(this.contains(this._deviceView)) {
+				this.removeChild(this._deviceView);
+			}
+			core_view_DeviceViewRegistry.getInstance().clearContainer(this.atom.get_id());
+			this._deviceView.deactivate();
+			this._deviceView = null;
+		}
+		this.atom = null;
+		this._owner = null;
+		this._titleBar = null;
+		this._titleLabel = null;
+	}
+	,__class__: ui_DeviceCard
+});
+var ui_DevicePanel = function() {
+	this._mouseStartY = 0;
+	this._mouseStartX = 0;
+	this._dragging = false;
+	this._menuVisible = false;
+	openfl_display_Sprite.call(this);
+	this._deviceCards = [];
+	this._theme = editor_EditorTheme.getInstance();
+	this.addEventListener("addedToStage",$bind(this,this.onAdded));
+};
+$hxClasses["ui.DevicePanel"] = ui_DevicePanel;
+ui_DevicePanel.__name__ = "ui.DevicePanel";
+ui_DevicePanel._ensureDragTickRegistered = function() {
+};
+ui_DevicePanel._onDragTick = function() {
+	var stage = openfl_Lib.get_current().stage;
+	if(stage == null) {
+		return;
+	}
+	try {
+		var app = lime_app_Application.current;
+		if(app != null && app.onUpdate != null) {
+			app.onUpdate.dispatch(15);
+		}
+	} catch( _g ) {
+		haxe_NativeStackTrace.lastError = _g;
+	}
+	try {
+		stage.__renderDirty = true;
+		stage.__clearDirty = true;
+		stage.invalidate();
+	} catch( _g ) {
+		haxe_NativeStackTrace.lastError = _g;
+	}
+	try {
+		var win = stage.window;
+		var ctx = win.context;
+		if(ctx == null) {
+			ctx = stage.__context;
+		}
+		if(win != null && ctx != null) {
+			win.onRender.dispatch(ctx);
+		}
+	} catch( _g ) {
+		haxe_NativeStackTrace.lastError = _g;
+	}
+};
+ui_DevicePanel._nativeStartDrag = function() {
+	return false;
+};
+ui_DevicePanel.__super__ = openfl_display_Sprite;
+ui_DevicePanel.prototype = $extend(openfl_display_Sprite.prototype,{
+	onAdded: function(e) {
+		this.removeEventListener("addedToStage",$bind(this,this.onAdded));
+		this.setupUI();
+	}
+	,setSize: function(w,h) {
+		this.drawBackground(w,h);
+		if(this._header != null) {
+			this._header.get_graphics().clear();
+			this._header.get_graphics().beginFill(2763316);
+			this._header.get_graphics().drawRect(0,0,w,30);
+			this._header.get_graphics().endFill();
+			if(this._btnClose != null) {
+				this._btnClose.set_x(w - 45);
+				this._btnClose.set_y(5);
+			}
+			var btnX = w - 45;
+			var _g = 0;
+			var _g1 = this._header.get_numChildren();
+			while(_g < _g1) {
+				var i = _g++;
+				var child = this._header.getChildAt(this._header.get_numChildren() - 1 - i);
+				if(((child) instanceof openfl_display_Sprite) && child != this._titleLabel && child != this._btnClose) {
+					btnX -= child.get_width() + 10;
+					child.set_x(btnX);
+				}
+			}
+		}
+	}
+	,setContext: function(assembly) {
+		this._assembly = assembly;
+		this._titleLabel.set_text("  Device Panel: " + assembly.blueprint.name);
+	}
+	,setMaximizedState: function(isMaximized) {
+		if(this._maximizeBtnLabel != null) {
+			this._maximizeBtnLabel.set_text(isMaximized ? "◱" : "□");
+		}
+	}
+	,addDevice: function(atom,x,y) {
+		if(atom == null) {
+			return;
+		}
+		var _g = 0;
+		var _g1 = this._deviceCards;
+		while(_g < _g1.length) {
+			var card = _g1[_g];
+			++_g;
+			if(card.atom == atom) {
+				return;
+			}
+		}
+		var card = new ui_DeviceCard(atom,this);
+		this._deviceCards.push(card);
+		this.addChild(card);
+		if(x != null && y != null) {
+			card.set_x(x);
+			card.set_y(y);
+		} else {
+			var pos = this.findFreePosition(card);
+			card.set_x(pos.x);
+			card.set_y(pos.y);
+		}
+		core_logic_Impulsys.quickEmit(core_logic_EventType.DEVICE_WINDOW_CHANGED);
+	}
+	,removeDevice: function(card) {
+		if(HxOverrides.remove(this._deviceCards,card)) {
+			if(this.contains(card)) {
+				this.removeChild(card);
+			}
+			card.dispose();
+			core_logic_Impulsys.quickEmit(core_logic_EventType.DEVICE_WINDOW_CHANGED);
+		}
+	}
+	,clearDevices: function() {
+		while(this._deviceCards.length > 0) {
+			var card = this._deviceCards.pop();
+			if(this.contains(card)) {
+				this.removeChild(card);
+			}
+			card.dispose();
+		}
+	}
+	,getDeviceCards: function() {
+		return this._deviceCards;
+	}
+	,setupUI: function() {
+		this.drawBackground(800,600);
+		this.createHeader();
+		this.stage.addEventListener("click",$bind(this,this.onStageClick));
+		this.stage.addEventListener("rightClick",$bind(this,this.onRightClick));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.ATOM_DELETED,$bind(this,this.onAtomDeleted));
+	}
+	,drawBackground: function(w,h) {
+		this.get_graphics().clear();
+		this.get_graphics().beginFill(this._theme.DEVICE_CANVAS_BG_COLOR,1.0);
+		this.get_graphics().drawRect(0,0,w,h);
+		this.get_graphics().endFill();
+	}
+	,createHeader: function() {
+		var _gthis = this;
+		var headerWidth = this.stage != null ? this.stage.stageWidth : 800;
+		this._header = new openfl_display_Sprite();
+		this._header.get_graphics().beginFill(2763316);
+		this._header.get_graphics().drawRect(0,0,headerWidth,30);
+		this._header.get_graphics().endFill();
+		this.addChild(this._header);
+		this._titleLabel = new openfl_text_TextField();
+		this._titleLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",12,16777215,true));
+		this._titleLabel.set_text("  Device Panel");
+		this._titleLabel.set_width(300);
+		this._titleLabel.set_height(30);
+		this._titleLabel.set_selectable(false);
+		this._titleLabel.mouseEnabled = false;
+		this._header.addChild(this._titleLabel);
+		var editorBtn = this.createHeaderButton("E",21760,function(_) {
+			if(_gthis.onShowEditor != null) {
+				_gthis.onShowEditor();
+			}
+		});
+		editorBtn.set_x(headerWidth - 164);
+		this._header.addChild(editorBtn);
+		var clearBtn = this.createHeaderButton("C",5592320,function(_) {
+			_gthis.clearDevices();
+			core_logic_Impulsys.quickEmit(core_logic_EventType.DEVICE_WINDOW_CHANGED);
+		});
+		clearBtn.set_x(headerWidth - 126);
+		this._maximizeBtn = this.createHeaderButton("□",5592320,function(_) {
+			if(_gthis.onToggleMaximize != null) {
+				_gthis.onToggleMaximize();
+			}
+		});
+		this._maximizeBtn.set_x(headerWidth - 88);
+		this._header.addChild(this._maximizeBtn);
+		this._maximizeBtnLabel = js_Boot.__cast(this._maximizeBtn.getChildAt(0) , openfl_text_TextField);
+		this._btnClose = new ui_ButtonComponent("X",function() {
+			if(_gthis.onCloseApp != null) {
+				_gthis.onCloseApp();
+			}
+		});
+		this._btnClose.set_x(headerWidth - 45);
+		this._btnClose.set_y(5);
+		this._header.addChild(this._btnClose);
+		this._header.addEventListener("mouseDown",$bind(this,this.onHeaderMouseDown));
+		this._header.set_buttonMode(true);
+		this._header.doubleClickEnabled = true;
+		this._header.addEventListener("doubleClick",$bind(this,this.onHeaderDoubleClick));
+	}
+	,createHeaderButton: function(label,color,onClick) {
+		var btn = new openfl_display_Sprite();
+		btn.get_graphics().beginFill(color);
+		btn.get_graphics().drawRect(0,0,28,26);
+		btn.get_graphics().endFill();
+		var txt = new openfl_text_TextField();
+		txt.set_text(label);
+		txt.set_width(28);
+		txt.set_height(26);
+		txt.set_selectable(false);
+		txt.mouseEnabled = false;
+		txt.set_defaultTextFormat(new openfl_text_TextFormat("_sans",11,16777215,true,null,null,null,null,openfl_text_TextFormatAlign.fromString("center")));
+		btn.addChild(txt);
+		btn.set_buttonMode(true);
+		btn.addEventListener("click",onClick);
+		btn.addEventListener("mouseDown",function(e) {
+			e.stopPropagation();
+		});
+		return btn;
+	}
+	,onHeaderMouseDown: function(e) {
+		if(this._dragging) {
+			return;
+		}
+		var targetObj = e.target;
+		while(targetObj != null && targetObj != this._header) {
+			if(((targetObj) instanceof openfl_display_Sprite)) {
+				var s = js_Boot.__cast(targetObj , openfl_display_Sprite);
+				if(s.get_buttonMode() && targetObj.parent == this._header) {
+					return;
+				}
+			}
+			targetObj = targetObj.parent;
+		}
+		if(ui_DevicePanel._nativeStartDrag()) {
+			return;
+		}
+		this._dragging = true;
+		this._mouseStartX = e.stageX;
+		this._mouseStartY = e.stageY;
+		if(this.onWindowDragStart != null) {
+			this.onWindowDragStart();
+		}
+		if(this.stage != null) {
+			this.stage.addEventListener("mouseMove",$bind(this,this.onHeaderMouseMove));
+			this.stage.addEventListener("mouseUp",$bind(this,this.onHeaderMouseUp));
+		}
+	}
+	,onHeaderMouseMove: function(e) {
+		if(!this._dragging) {
+			return;
+		}
+		var dx = e.stageX - this._mouseStartX;
+		var dy = e.stageY - this._mouseStartY;
+		if(this.onWindowDrag != null) {
+			this.onWindowDrag(dx,dy);
+		}
+	}
+	,onHeaderMouseUp: function(e) {
+		this._dragging = false;
+		if(this.stage != null) {
+			this.stage.removeEventListener("mouseMove",$bind(this,this.onHeaderMouseMove));
+			this.stage.removeEventListener("mouseUp",$bind(this,this.onHeaderMouseUp));
+		}
+	}
+	,onHeaderDoubleClick: function(e) {
+		var targetObj = e.target;
+		while(targetObj != null && targetObj != this._header) {
+			if(((targetObj) instanceof openfl_display_Sprite)) {
+				var s = js_Boot.__cast(targetObj , openfl_display_Sprite);
+				if(s.get_buttonMode() && targetObj.parent == this._header) {
+					return;
+				}
+			}
+			targetObj = targetObj.parent;
+		}
+		if(this.onToggleMaximize != null) {
+			this.onToggleMaximize();
+		}
+	}
+	,onRightClick: function(e) {
+		if(this._menuVisible) {
+			this.hideContextMenu();
+		} else {
+			this.showContextMenu(e.stageX,e.stageY);
+		}
+	}
+	,showContextMenu: function(x,y) {
+		this.hideContextMenu();
+		this._contextMenu = new openfl_display_Sprite();
+		var yPos = 5;
+		var headerItem = this.createMenuItem("Add Device:",null,true);
+		headerItem.set_y(yPos);
+		this._contextMenu.addChild(headerItem);
+		yPos += 28;
+		var devices = this.onGetAssemblyList != null ? this.onGetAssemblyList() : [];
+		var _g = [];
+		var _g1 = 0;
+		while(_g1 < devices.length) {
+			var d = devices[_g1];
+			++_g1;
+			if(d.id != "selfrun") {
+				_g.push(d);
+			}
+		}
+		devices = _g;
+		if(devices.length == 0) {
+			var emptyItem = this.createMenuItem("(No devices)",null,true);
+			emptyItem.set_y(yPos);
+			this._contextMenu.addChild(emptyItem);
+			yPos += 26;
+		} else {
+			var _g = 0;
+			while(_g < devices.length) {
+				var item = devices[_g];
+				++_g;
+				var displayName = item.atom.get_displayName() != null ? item.atom.get_displayName() : item.atom.name;
+				var menuItem = this.createMenuItem(displayName,item.atom,false);
+				menuItem.set_y(yPos);
+				this._contextMenu.addChild(menuItem);
+				yPos += 26;
+			}
+		}
+		this._contextMenu.get_graphics().beginFill(3355460,0.98);
+		this._contextMenu.get_graphics().lineStyle(1,5592422);
+		this._contextMenu.get_graphics().drawRoundRect(0,0,190,yPos + 10,6,6);
+		this._contextMenu.get_graphics().endFill();
+		this._contextMenu.set_x(Math.min(x,this.stage.stageWidth - 200));
+		this._contextMenu.set_y(Math.min(Math.max(y - 30,0),this.stage.stageHeight - yPos - 20));
+		this.addChild(this._contextMenu);
+		this._menuVisible = true;
+	}
+	,hideContextMenu: function() {
+		if(this._contextMenu != null && this._contextMenu.parent != null) {
+			this.removeChild(this._contextMenu);
+		}
+		this._contextMenu = null;
+		this._menuVisible = false;
+	}
+	,onStageClick: function(e) {
+		if(this._menuVisible && this._contextMenu != null) {
+			if(!this._contextMenu.hitTestPoint(e.stageX,e.stageY)) {
+				this.hideContextMenu();
+			}
+		}
+	}
+	,createMenuItem: function(label,atom,disabled) {
+		var _gthis = this;
+		var item = new openfl_display_Sprite();
+		item.get_graphics().beginFill(disabled ? 3355460 : 4473941);
+		item.get_graphics().drawRect(0,0,180,24);
+		item.get_graphics().endFill();
+		var txt = new openfl_text_TextField();
+		txt.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",11,disabled ? 7829384 : 16777215));
+		txt.set_text(disabled || atom == null ? label : "+ " + label);
+		txt.set_width(170);
+		txt.set_height(24);
+		txt.set_x(8);
+		txt.set_selectable(false);
+		txt.mouseEnabled = false;
+		item.addChild(txt);
+		if(!disabled && atom != null) {
+			item.set_buttonMode(true);
+			var capturedAtom = atom;
+			item.addEventListener("click",function(e) {
+				_gthis.addDevice(capturedAtom);
+				_gthis.hideContextMenu();
+			});
+			item.addEventListener("mouseOver",function(e) {
+				item.get_graphics().clear();
+				item.get_graphics().beginFill(5596791);
+				item.get_graphics().drawRect(0,0,180,24);
+				item.get_graphics().endFill();
+			});
+			item.addEventListener("mouseOut",function(e) {
+				item.get_graphics().clear();
+				item.get_graphics().beginFill(4473941);
+				item.get_graphics().drawRect(0,0,180,24);
+				item.get_graphics().endFill();
+			});
+		}
+		return item;
+	}
+	,onAtomDeleted: function(impulse) {
+		if(impulse.data == null) {
+			return;
+		}
+		var deletedId = impulse.data.id;
+		var toRemove = [];
+		var _g = 0;
+		var _g1 = this._deviceCards;
+		while(_g < _g1.length) {
+			var card = _g1[_g];
+			++_g;
+			if(card.atom != null && card.atom.get_id() == deletedId) {
+				toRemove.push(card);
+			}
+		}
+		var _g = 0;
+		while(_g < toRemove.length) {
+			var card = toRemove[_g];
+			++_g;
+			this.removeDevice(card);
+		}
+	}
+	,findFreePosition: function(card) {
+		var startX = 10;
+		var startY = 50;
+		var stepX = 120;
+		var stepY = 100;
+		var _g = 0;
+		while(_g < 10) {
+			var y = _g++;
+			var px = startX + 0 * stepX;
+			var py = startY + y * stepY;
+			if(this.isPositionFree(px,py)) {
+				return { x : px, y : py};
+			}
+			var px1 = startX + stepX;
+			var py1 = startY + y * stepY;
+			if(this.isPositionFree(px1,py1)) {
+				return { x : px1, y : py1};
+			}
+			var px2 = startX + 2 * stepX;
+			var py2 = startY + y * stepY;
+			if(this.isPositionFree(px2,py2)) {
+				return { x : px2, y : py2};
+			}
+			var px3 = startX + 3 * stepX;
+			var py3 = startY + y * stepY;
+			if(this.isPositionFree(px3,py3)) {
+				return { x : px3, y : py3};
+			}
+			var px4 = startX + 4 * stepX;
+			var py4 = startY + y * stepY;
+			if(this.isPositionFree(px4,py4)) {
+				return { x : px4, y : py4};
+			}
+		}
+		return { x : startX + Math.random() * 200, y : startY + Math.random() * 150};
+	}
+	,isPositionFree: function(x,y) {
+		var _g = 0;
+		var _g1 = this._deviceCards;
+		while(_g < _g1.length) {
+			var card = _g1[_g];
+			++_g;
+			if(Math.abs(card.get_x() - x) < 100 && Math.abs(card.get_y() - y) < 80) {
+				return false;
+			}
+		}
+		return true;
+	}
+	,dispose: function() {
+		this.clearDevices();
+		if(this._btnClose != null) {
+			if(this._btnClose.parent != null) {
+				this._btnClose.parent.removeChild(this._btnClose);
+			}
+			this._btnClose = null;
+		}
+		this._maximizeBtn = null;
+		this._maximizeBtnLabel = null;
+		this.stage.removeEventListener("click",$bind(this,this.onStageClick));
+		this.stage.removeEventListener("rightClick",$bind(this,this.onRightClick));
+		core_logic_Impulsys.removeImpulse(core_logic_EventType.ATOM_DELETED,$bind(this,this.onAtomDeleted));
+	}
+	,__class__: ui_DevicePanel
+});
+var ui_DeviceWindow = function(initX,initY,initWidth,initHeight) {
+	if(initHeight == null) {
+		initHeight = 320;
+	}
+	if(initWidth == null) {
+		initWidth = 420;
+	}
+	if(initY == null) {
+		initY = 100;
+	}
+	if(initX == null) {
+		initX = 100;
+	}
+	this._dragOffsetY = 0;
+	this._dragOffsetX = 0;
+	this._dragging = false;
+	this._isDisposed = false;
+	this._menuVisible = false;
+	this._deviceCards = [];
+	this._initX = initX;
+	this._initY = initY;
+	this._initWidth = initWidth;
+	this._initHeight = initHeight;
+	this.create();
+};
+$hxClasses["ui.DeviceWindow"] = ui_DeviceWindow;
+ui_DeviceWindow.__name__ = "ui.DeviceWindow";
+ui_DeviceWindow.prototype = {
+	get_windowWidth: function() {
+		if(this._window != null) {
+			return this._window.__width;
+		} else {
+			return this._initWidth;
+		}
+	}
+	,get_windowHeight: function() {
+		if(this._window != null) {
+			return this._window.__height;
+		} else {
+			return this._initHeight;
+		}
+	}
+	,get_windowX: function() {
+		if(this._window != null) {
+			return this._window.__x;
+		} else {
+			return this._initX;
+		}
+	}
+	,get_windowY: function() {
+		if(this._window != null) {
+			return this._window.__y;
+		} else {
+			return this._initY;
+		}
+	}
+	,get_isOpen: function() {
+		if(this._window != null) {
+			return !this._isDisposed;
+		} else {
+			return false;
+		}
+	}
+	,create: function() {
+		var config = { title : "Device Window", width : this._initWidth | 0, height : this._initHeight | 0, x : this._initX | 0, y : this._initY | 0, resizable : true, context : { background : 1710628, antialiasing : 0, borderless : true, hardware : false}};
+		this._window = openfl_Lib.get_application().createWindow(config);
+		if(this._window == null || this._window.stage == null) {
+			haxe_Log.trace("DeviceWindow: Failed to create window",{ fileName : "src/ui/DeviceWindow.hx", lineNumber : 156, className : "ui.DeviceWindow", methodName : "create"});
+			if(this._impulseCallback != null) {
+				core_logic_Impulsys.removeImpulse(core_logic_EventType.ATOM_DELETED,this._impulseCallback);
+				this._impulseCallback = null;
+			}
+			return;
+		}
+		this._window.set_x(this._initX | 0);
+		this._window.set_y(this._initY | 0);
+		var stage = this._window.stage;
+		stage.set_scaleMode(2);
+		stage.align = 6;
+		stage.set_color(1710628);
+		stage.opaqueBackground = 1710628;
+		this._container = new openfl_display_Sprite();
+		stage.addChild(this._container);
+		this._impulseCallback = $bind(this,this.onAtomDeleted);
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.ATOM_DELETED,this._impulseCallback);
+		this.createHeader();
+		this.createDeviceCanvas();
+		this.createContextMenu();
+		var headerWidth = this._window != null && this._window.stage != null ? this._window.stage.stageWidth : this._initWidth | 0;
+		this._btnClose = new ui_ButtonComponent("X",$bind(this,this.close));
+		this._btnClose.set_x(headerWidth - 45);
+		this._btnClose.set_y(5);
+		this._container.addChild(this._btnClose);
+		stage.addEventListener("rightClick",$bind(this,this.onRightClick));
+		stage.addEventListener("click",$bind(this,this.onStageClick));
+		stage.addEventListener("resize",$bind(this,this.onWindowResize));
+		stage.invalidate();
+	}
+	,createHeader: function() {
+		var _gthis = this;
+		var headerWidth = this._window != null && this._window.stage != null ? this._window.stage.stageWidth : this._initWidth | 0;
+		this._header = new openfl_display_Sprite();
+		this._header.get_graphics().beginFill(2763316);
+		this._header.get_graphics().drawRect(0,0,headerWidth,30);
+		this._header.get_graphics().endFill();
+		this._titleLabel = new openfl_text_TextField();
+		this._titleLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",12,16777215,true));
+		this._titleLabel.set_text("  Device (Right-Click to Add)");
+		this._titleLabel.set_width(300);
+		this._titleLabel.set_height(30);
+		this._titleLabel.set_selectable(false);
+		this._titleLabel.mouseEnabled = false;
+		this._header.addChild(this._titleLabel);
+		var editorBtn = this.createHeaderButton("E",21760,function(_) {
+			if(_gthis.onShowEditor != null) {
+				_gthis.onShowEditor();
+			}
+		});
+		editorBtn.set_x(headerWidth - 120);
+		this._header.addChild(editorBtn);
+		var clearBtn = this.createHeaderButton("C",5592320,function(_) {
+			_gthis.clearDevices();
+		});
+		clearBtn.set_x(headerWidth - 90);
+		this._header.addChild(clearBtn);
+		this._header.addEventListener("mouseDown",$bind(this,this.onMouseDown));
+		this._header.set_buttonMode(true);
+		this._container.addChild(this._header);
+	}
+	,createHeaderButton: function(label,color,onClick) {
+		var btn = new openfl_display_Sprite();
+		btn.get_graphics().beginFill(color);
+		btn.get_graphics().drawRect(0,0,28,26);
+		btn.get_graphics().endFill();
+		var txt = new openfl_text_TextField();
+		txt.set_text(label);
+		txt.set_width(28);
+		txt.set_height(26);
+		txt.set_selectable(false);
+		txt.mouseEnabled = false;
+		txt.set_defaultTextFormat(new openfl_text_TextFormat("_sans",11,16777215,true,null,null,null,null,openfl_text_TextFormatAlign.fromString("center")));
+		btn.addChild(txt);
+		btn.set_buttonMode(true);
+		btn.addEventListener("click",onClick);
+		btn.addEventListener("mouseDown",function(e) {
+			e.stopPropagation();
+		});
+		return btn;
+	}
+	,createDeviceCanvas: function() {
+		this.deviceCanvas = new openfl_display_Sprite();
+		this.deviceCanvas.set_y(30);
+		var canvasHeight = this._window != null && this._window.stage != null ? this._window.stage.stageHeight - 30 : this._initHeight - 30 | 0;
+		this.deviceCanvas.get_graphics().beginFill(1710628);
+		var tmp = this._window != null ? this._window.stage.stageWidth : this._initWidth;
+		this.deviceCanvas.get_graphics().drawRect(0,0,tmp,canvasHeight);
+		this.deviceCanvas.get_graphics().endFill();
+		this._container.addChild(this.deviceCanvas);
+	}
+	,createContextMenu: function() {
+		this._contextMenu = new openfl_display_Sprite();
+		this._contextMenu.set_visible(false);
+		this._container.addChild(this._contextMenu);
+	}
+	,addDevice: function(atom,x,y) {
+		if(this._isDisposed || atom == null || this.deviceCanvas == null) {
+			return;
+		}
+		var _g = 0;
+		var _g1 = this._deviceCards;
+		while(_g < _g1.length) {
+			var card = _g1[_g];
+			++_g;
+			if(card.atom == atom) {
+				return;
+			}
+		}
+		var card = new ui_DeviceCard(atom,this);
+		this._deviceCards.push(card);
+		this.deviceCanvas.addChild(card);
+		if(x != null && y != null) {
+			card.set_x(x);
+			card.set_y(y);
+		} else {
+			var pos = this.findFreePosition(card);
+			card.set_x(pos.x);
+			card.set_y(pos.y);
+		}
+		haxe_Log.trace("DeviceWindow: Added device \"" + atom.name + "\" at (" + card.get_x() + ", " + card.get_y() + ")",{ fileName : "src/ui/DeviceWindow.hx", lineNumber : 326, className : "ui.DeviceWindow", methodName : "addDevice"});
+	}
+	,removeDevice: function(card) {
+		if(this._isDisposed || card == null) {
+			return;
+		}
+		HxOverrides.remove(this._deviceCards,card);
+		if(this.deviceCanvas != null && this.deviceCanvas.contains(card)) {
+			this.deviceCanvas.removeChild(card);
+		}
+		card.dispose();
+		core_logic_Impulsys.quickEmit(core_logic_EventType.DEVICE_WINDOW_CHANGED);
+	}
+	,clearDevices: function() {
+		while(this._deviceCards.length > 0) {
+			var card = this._deviceCards.pop();
+			if(this.deviceCanvas != null && this.deviceCanvas.contains(card)) {
+				this.deviceCanvas.removeChild(card);
+			}
+			card.dispose();
+		}
+		core_logic_Impulsys.quickEmit(core_logic_EventType.DEVICE_WINDOW_CHANGED);
+	}
+	,getDeviceCards: function() {
+		return this._deviceCards;
+	}
+	,onAtomDeleted: function(impulse) {
+		if(this._isDisposed || impulse == null || impulse.data == null) {
+			return;
+		}
+		var deletedId = impulse.data.id;
+		var toRemove = [];
+		var _g = 0;
+		var _g1 = this._deviceCards;
+		while(_g < _g1.length) {
+			var card = _g1[_g];
+			++_g;
+			if(card.atom != null && card.atom.get_id() == deletedId) {
+				toRemove.push(card);
+			}
+		}
+		var _g = 0;
+		while(_g < toRemove.length) {
+			var card = toRemove[_g];
+			++_g;
+			this.removeDevice(card);
+		}
+	}
+	,onWindowResize: function(e) {
+		this.updateBackground();
+		if(this.deviceCanvas != null && this._window != null && this._window.stage != null) {
+			this.deviceCanvas.get_graphics().clear();
+			this.deviceCanvas.get_graphics().beginFill(1710628);
+			this.deviceCanvas.get_graphics().drawRect(0,0,this._window.stage.stageWidth,this._window.stage.stageHeight - 30);
+			this.deviceCanvas.get_graphics().endFill();
+		}
+		if(this._btnClose != null && this._window != null && this._window.stage != null) {
+			this._btnClose.set_x(this._window.stage.stageWidth - 45);
+			this._btnClose.set_y(5);
+		}
+		core_logic_Impulsys.quickEmit(core_logic_EventType.DEVICE_WINDOW_CHANGED);
+	}
+	,updateBackground: function() {
+		if(this._container != null && this._window != null && this._window.stage != null && this._header != null) {
+			var newWidth = this._window.stage.stageWidth;
+			this._header.get_graphics().clear();
+			this._header.get_graphics().beginFill(2763316);
+			this._header.get_graphics().drawRect(0,0,newWidth,30);
+			this._header.get_graphics().endFill();
+		}
+	}
+	,onMouseDown: function(e) {
+		if(this._isDisposed) {
+			return;
+		}
+		var targetObj = e.target;
+		while(targetObj != null && targetObj != this._header) {
+			if(((targetObj) instanceof openfl_display_Sprite)) {
+				var s = js_Boot.__cast(targetObj , openfl_display_Sprite);
+				if(s.get_buttonMode() && targetObj.parent == this._header) {
+					return;
+				}
+			}
+			targetObj = targetObj.parent;
+		}
+		this._dragging = true;
+		this._dragOffsetX = e.localX;
+		this._dragOffsetY = e.localY;
+		this._window.stage.addEventListener("mouseMove",$bind(this,this.onMouseMove));
+		this._window.stage.addEventListener("mouseUp",$bind(this,this.onMouseUp));
+	}
+	,onMouseMove: function(e) {
+		if(this._isDisposed || !this._dragging) {
+			return;
+		}
+		if(this._window != null) {
+			this._window.set_x(this._window.__x + (e.stageX - this._dragOffsetX) | 0);
+			this._window.set_y(this._window.__y + (e.stageY - this._dragOffsetY) | 0);
+		}
+	}
+	,onMouseUp: function(e) {
+		this._dragging = false;
+		if(this._window != null && this._window.stage != null) {
+			this._window.stage.removeEventListener("mouseMove",$bind(this,this.onMouseMove));
+			this._window.stage.removeEventListener("mouseUp",$bind(this,this.onMouseUp));
+		}
+		core_logic_Impulsys.quickEmit(core_logic_EventType.DEVICE_WINDOW_CHANGED);
+	}
+	,onRightClick: function(e) {
+		if(this._isDisposed) {
+			return;
+		}
+		e.stopPropagation();
+		this.showContextMenu(e.stageX,e.stageY);
+	}
+	,onStageClick: function(e) {
+		if(this._isDisposed) {
+			return;
+		}
+		if(this._menuVisible) {
+			this.hideContextMenu();
+		}
+	}
+	,showContextMenu: function(x,y) {
+		while(this._contextMenu.get_numChildren() > 0) this._contextMenu.removeChildAt(0);
+		var devices = this.onGetAssemblyList != null ? this.onGetAssemblyList() : [];
+		var _g = [];
+		var _g1 = 0;
+		while(_g1 < devices.length) {
+			var d = devices[_g1];
+			++_g1;
+			if(d.id != "selfrun") {
+				_g.push(d);
+			}
+		}
+		devices = _g;
+		var yPos = 0;
+		var headerItem = this.createMenuItem("Add Device:",null,true);
+		headerItem.set_y(yPos);
+		this._contextMenu.addChild(headerItem);
+		yPos += 28;
+		var sep = new openfl_display_Sprite();
+		sep.get_graphics().lineStyle(1,4473941);
+		sep.get_graphics().moveTo(0,0);
+		sep.get_graphics().lineTo(180,0);
+		sep.set_y(yPos);
+		this._contextMenu.addChild(sep);
+		yPos += 8;
+		if(devices.length == 0) {
+			var emptyItem = this.createMenuItem("(No devices available)",null,true);
+			emptyItem.set_y(yPos);
+			this._contextMenu.addChild(emptyItem);
+			yPos += 26;
+		} else {
+			var _g = 0;
+			while(_g < devices.length) {
+				var item = devices[_g];
+				++_g;
+				var menuItem = this.createMenuItem(item.name,item.atom,false);
+				menuItem.set_y(yPos);
+				this._contextMenu.addChild(menuItem);
+				yPos += 26;
+			}
+		}
+		this._contextMenu.get_graphics().clear();
+		this._contextMenu.get_graphics().beginFill(3355460,0.98);
+		this._contextMenu.get_graphics().lineStyle(1,5592422);
+		this._contextMenu.get_graphics().drawRoundRect(0,0,190,yPos + 4,6,6);
+		this._contextMenu.get_graphics().endFill();
+		var maxX = this._window != null && this._window.stage != null ? this._window.stage.stageWidth : this._initWidth;
+		var maxY = this._window != null && this._window.stage != null ? this._window.stage.stageHeight : this._initHeight;
+		this._contextMenu.set_x(Math.min(x,maxX - 200));
+		this._contextMenu.set_y(Math.min(Math.max(y - 30,0),maxY - yPos - 10));
+		this._menuVisible = true;
+		this._contextMenu.set_visible(true);
+	}
+	,hideContextMenu: function() {
+		this._menuVisible = false;
+		this._contextMenu.set_visible(false);
+	}
+	,createMenuItem: function(label,atom,disabled) {
+		var _gthis = this;
+		var item = new openfl_display_Sprite();
+		item.get_graphics().beginFill(disabled ? 3355460 : 4473941);
+		item.get_graphics().drawRect(0,0,180,24);
+		item.get_graphics().endFill();
+		var txt = new openfl_text_TextField();
+		txt.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",11,disabled ? 7829384 : 16777215));
+		txt.set_text(disabled || atom == null ? label : "+ " + label);
+		txt.set_width(170);
+		txt.set_height(24);
+		txt.set_x(8);
+		txt.set_selectable(false);
+		txt.mouseEnabled = false;
+		item.addChild(txt);
+		if(!disabled && atom != null) {
+			item.set_buttonMode(true);
+			var capturedAtom = atom;
+			item.addEventListener("click",function(e) {
+				_gthis.addDevice(capturedAtom);
+				if(_gthis.onAssemblySelected != null) {
+					_gthis.onAssemblySelected(capturedAtom);
+				}
+				_gthis.hideContextMenu();
+			});
+			item.addEventListener("mouseOver",function(e) {
+				item.get_graphics().clear();
+				item.get_graphics().beginFill(5596791);
+				item.get_graphics().drawRect(0,0,180,24);
+				item.get_graphics().endFill();
+			});
+			item.addEventListener("mouseOut",function(e) {
+				item.get_graphics().clear();
+				item.get_graphics().beginFill(4473941);
+				item.get_graphics().drawRect(0,0,180,24);
+				item.get_graphics().endFill();
+			});
+		}
+		return item;
+	}
+	,findFreePosition: function(card) {
+		var startX = 10;
+		var startY = 10;
+		var stepX = 120;
+		var stepY = 100;
+		var px = startX + 0 * stepX;
+		var py = startY + 0 * stepY;
+		if(this.isPositionFree(px,py)) {
+			return { x : px, y : py};
+		}
+		var px = startX + stepX;
+		var py = startY + 0 * stepY;
+		if(this.isPositionFree(px,py)) {
+			return { x : px, y : py};
+		}
+		var px = startX + 2 * stepX;
+		var py = startY + 0 * stepY;
+		if(this.isPositionFree(px,py)) {
+			return { x : px, y : py};
+		}
+		var px = startX + 3 * stepX;
+		var py = startY + 0 * stepY;
+		if(this.isPositionFree(px,py)) {
+			return { x : px, y : py};
+		}
+		var px = startX + 0 * stepX;
+		var py = startY + stepY;
+		if(this.isPositionFree(px,py)) {
+			return { x : px, y : py};
+		}
+		var px = startX + stepX;
+		var py = startY + stepY;
+		if(this.isPositionFree(px,py)) {
+			return { x : px, y : py};
+		}
+		var px = startX + 2 * stepX;
+		var py = startY + stepY;
+		if(this.isPositionFree(px,py)) {
+			return { x : px, y : py};
+		}
+		var px = startX + 3 * stepX;
+		var py = startY + stepY;
+		if(this.isPositionFree(px,py)) {
+			return { x : px, y : py};
+		}
+		var px = startX + 0 * stepX;
+		var py = startY + 2 * stepY;
+		if(this.isPositionFree(px,py)) {
+			return { x : px, y : py};
+		}
+		var px = startX + stepX;
+		var py = startY + 2 * stepY;
+		if(this.isPositionFree(px,py)) {
+			return { x : px, y : py};
+		}
+		var px = startX + 2 * stepX;
+		var py = startY + 2 * stepY;
+		if(this.isPositionFree(px,py)) {
+			return { x : px, y : py};
+		}
+		var px = startX + 3 * stepX;
+		var py = startY + 2 * stepY;
+		if(this.isPositionFree(px,py)) {
+			return { x : px, y : py};
+		}
+		return { x : startX + Math.random() * 200, y : startY + Math.random() * 150};
+	}
+	,isPositionFree: function(x,y) {
+		var _g = 0;
+		var _g1 = this._deviceCards;
+		while(_g < _g1.length) {
+			var card = _g1[_g];
+			++_g;
+			if(Math.abs(card.get_x() - x) < 100 && Math.abs(card.get_y() - y) < 80) {
+				return false;
+			}
+		}
+		return true;
+	}
+	,close: function() {
+		if(this._isDisposed) {
+			return;
+		}
+		this._isDisposed = true;
+		if(this._impulseCallback != null) {
+			core_logic_Impulsys.removeImpulse(core_logic_EventType.ATOM_DELETED,this._impulseCallback);
+			this._impulseCallback = null;
+		}
+		if(this._window != null && this._window.stage != null) {
+			this._window.stage.removeEventListener("mouseMove",$bind(this,this.onMouseMove));
+			this._window.stage.removeEventListener("mouseUp",$bind(this,this.onMouseUp));
+			this._window.stage.removeEventListener("rightClick",$bind(this,this.onRightClick));
+			this._window.stage.removeEventListener("click",$bind(this,this.onStageClick));
+			this._window.stage.removeEventListener("resize",$bind(this,this.onWindowResize));
+		}
+		if(this._btnClose != null) {
+			if(this._btnClose.parent != null) {
+				this._btnClose.parent.removeChild(this._btnClose);
+			}
+			this._btnClose = null;
+		}
+		this.clearDevices();
+		this.deviceCanvas = null;
+		this._contextMenu = null;
+		this._container = null;
+		if(this._window != null) {
+			this._window.close();
+			this._window = null;
+		}
+		this.onGetAssemblyList = null;
+		this.onAssemblySelected = null;
+		this.onShowEditor = null;
+	}
+	,__class__: ui_DeviceWindow
+	,__properties__: {get_isOpen:"get_isOpen",get_windowY:"get_windowY",get_windowX:"get_windowX",get_windowHeight:"get_windowHeight",get_windowWidth:"get_windowWidth"}
+};
+var ui_PropertiesWindow = function() {
+	this._isDisposed = false;
+	var _gthis = this;
+	openfl_display_Sprite.call(this);
+	this._widgets = [];
+	this._bg = new openfl_display_Sprite();
+	this.addChild(this._bg);
+	this._drawBg(300,200);
+	this._title = new openfl_text_TextField();
+	this._title.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",12,16777215,true));
+	this._title.set_width(280);
+	this._title.set_height(20);
+	this._title.set_x(10);
+	this._title.set_y(5);
+	this._title.set_selectable(false);
+	this._title.mouseEnabled = false;
+	this.addChild(this._title);
+	this._content = new openfl_display_Sprite();
+	this._content.set_y(30);
+	this._content.set_x(10);
+	this.addChild(this._content);
+	var closeBtn = new openfl_display_Sprite();
+	closeBtn.get_graphics().beginFill(11141120);
+	closeBtn.get_graphics().drawRect(0,0,15,15);
+	closeBtn.set_x(280);
+	closeBtn.set_y(5);
+	closeBtn.set_buttonMode(true);
+	closeBtn.addEventListener("click",function(_) {
+		_gthis._close();
+	});
+	closeBtn.addEventListener("mouseDown",function(e) {
+		e.stopPropagation();
+	});
+	this.addChild(closeBtn);
+	this._title.addEventListener("mouseDown",$bind(this,this._onMouseDownHeader));
+	if(this.stage != null) {
+		this.stage.addEventListener("mouseUp",$bind(this,this._onMouseUpStage));
+	} else {
+		this.addEventListener("addedToStage",$bind(this,this._onAddedToStage));
+	}
+};
+$hxClasses["ui.PropertiesWindow"] = ui_PropertiesWindow;
+ui_PropertiesWindow.__name__ = "ui.PropertiesWindow";
+ui_PropertiesWindow.__super__ = openfl_display_Sprite;
+ui_PropertiesWindow.prototype = $extend(openfl_display_Sprite.prototype,{
+	_onAddedToStage: function(e) {
+		this.removeEventListener("addedToStage",$bind(this,this._onAddedToStage));
+		if(this.stage != null) {
+			this.stage.addEventListener("mouseUp",$bind(this,this._onMouseUpStage));
+		}
+	}
+	,_onMouseDownHeader: function(e) {
+		this.startDrag();
+	}
+	,_onMouseUpStage: function(e) {
+		this.stopDrag();
+	}
+	,show: function(target,x,y) {
+		if(this._isDisposed) {
+			return;
+		}
+		this._target = target;
+		this.set_x(x);
+		this.set_y(y);
+		this._clearContent();
+		if(((target) instanceof core_base_Atom)) {
+			this._populateAtom(target);
+		} else {
+			this._title.set_text("Properties");
+			var tf = new openfl_text_TextField();
+			tf.set_text("Unknown object");
+			tf.set_width(250);
+			this._content.addChild(tf);
+		}
+		this.set_visible(true);
+	}
+	,_clearContent: function() {
+		var _g = 0;
+		var _g1 = this._widgets;
+		while(_g < _g1.length) {
+			var w = _g1[_g];
+			++_g;
+			if(w != null) {
+				try {
+					w.dispose();
+				} catch( _g2 ) {
+					haxe_NativeStackTrace.lastError = _g2;
+					var e = haxe_Exception.caught(_g2).unwrap();
+					haxe_Log.trace("WARN: Error disposing widget: " + Std.string(e),{ fileName : "src/ui/PropertiesWindow.hx", lineNumber : 260, className : "ui.PropertiesWindow", methodName : "_clearContent"});
+				}
+			}
+		}
+		this._widgets = [];
+		while(this._content.get_numChildren() > 0) this._content.removeChildAt(0);
+	}
+	,close: function() {
+		this._close();
+	}
+	,_close: function() {
+		if(this._isDisposed) {
+			return;
+		}
+		this.set_visible(false);
+		this.stopDrag();
+		this._clearContent();
+	}
+	,_populateAtom: function(atom) {
+		var _gthis = this;
+		if(this._isDisposed || atom == null) {
+			return;
+		}
+		this._title.set_text("Atom: " + atom.name);
+		var yPos = 0;
+		var isLogicTarget = ((atom) instanceof core_base_Assembly);
+		if(isLogicTarget) {
+			var modeLabel = new openfl_text_TextField();
+			modeLabel.set_text("Simulation Mode:");
+			modeLabel.set_width(250);
+			modeLabel.set_height(20);
+			modeLabel.set_selectable(false);
+			modeLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",11,11184810));
+			modeLabel.set_y(yPos);
+			this._content.addChild(modeLabel);
+			yPos += 22;
+			var modeText = atom.get_isLogic() ? "Digital (Delayed)" : "Analog (Immediate)";
+			var modeBtn = new openfl_display_Sprite();
+			modeBtn.get_graphics().beginFill(atom.get_isLogic() ? 2775610 : 3824202);
+			modeBtn.get_graphics().drawRoundRect(0,0,250,25,4,4);
+			modeBtn.get_graphics().endFill();
+			modeBtn.set_y(yPos);
+			modeBtn.set_buttonMode(true);
+			var tf = new openfl_text_TextField();
+			tf.set_text(modeText);
+			tf.set_width(250);
+			tf.set_height(25);
+			tf.set_selectable(false);
+			tf.mouseEnabled = false;
+			tf.set_defaultTextFormat(new openfl_text_TextFormat("_sans",12,16777215,false,null,null,null,null,openfl_text_TextFormatAlign.fromString("center")));
+			modeBtn.addChild(tf);
+			modeBtn.addEventListener("click",function(e) {
+				atom.set_isLogic(!atom.get_isLogic());
+				_gthis._populateAtom(atom);
+				core_logic_Impulsys.quickEmit(core_logic_EventType.VALUE_COMMITTED);
+			});
+			this._content.addChild(modeBtn);
+			yPos += 35;
+		}
+		if(((atom) instanceof library_electro_OscilloscopeAtom)) {
+			var oscAtom = atom;
+			var shapeLabel = new openfl_text_TextField();
+			shapeLabel.set_text("Display Shape:");
+			shapeLabel.set_width(250);
+			shapeLabel.set_height(20);
+			shapeLabel.set_selectable(false);
+			shapeLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",11,11184810));
+			shapeLabel.set_y(yPos);
+			this._content.addChild(shapeLabel);
+			yPos += 22;
+			var shapes = [{ label : "Rectangular", value : 0},{ label : "Square", value : 1},{ label : "Circular", value : 2}];
+			var _g = 0;
+			while(_g < shapes.length) {
+				var shape = shapes[_g];
+				++_g;
+				var isSelected = oscAtom.getDisplayShape() == shape.value;
+				var btn = new openfl_display_Sprite();
+				btn.get_graphics().beginFill(isSelected ? 2775610 : 3816010);
+				btn.get_graphics().drawRoundRect(0,0,250,25,4,4);
+				btn.get_graphics().endFill();
+				btn.set_y(yPos);
+				btn.set_buttonMode(true);
+				var btf = new openfl_text_TextField();
+				btf.set_text(shape.label);
+				btf.set_width(250);
+				btf.set_height(25);
+				btf.set_selectable(false);
+				btf.mouseEnabled = false;
+				btf.set_defaultTextFormat(new openfl_text_TextFormat("_sans",12,isSelected ? 65416 : 16777215,false,null,null,null,null,openfl_text_TextFormatAlign.fromString("center")));
+				btn.addChild(btf);
+				var capturedValue = [shape.value];
+				btn.addEventListener("click",(function(capturedValue) {
+					return function(e) {
+						oscAtom.setDisplayShape(capturedValue[0]);
+						_gthis._populateAtom(atom);
+						core_logic_Impulsys.quickEmit(core_logic_EventType.VALUE_COMMITTED);
+					};
+				})(capturedValue));
+				this._content.addChild(btn);
+				yPos += 30;
+			}
+			yPos += 10;
+			var frLabel = new openfl_text_TextField();
+			frLabel.set_text("Frame Rate (FPS):");
+			frLabel.set_width(250);
+			frLabel.set_height(20);
+			frLabel.set_selectable(false);
+			frLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",11,11184810));
+			frLabel.set_y(yPos);
+			this._content.addChild(frLabel);
+			yPos += 22;
+			var frInput = new ui_widgets_NumberInput(oscAtom.getInput("frameRate"),"FPS");
+			frInput.set_y(yPos);
+			this._content.addChild(frInput);
+			this._widgets.push(frInput);
+			yPos += 40;
+			var decLabel = new openfl_text_TextField();
+			decLabel.set_text("Sample Decimation:");
+			decLabel.set_width(250);
+			decLabel.set_height(20);
+			decLabel.set_selectable(false);
+			decLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",11,11184810));
+			decLabel.set_y(yPos);
+			this._content.addChild(decLabel);
+			yPos += 22;
+			var decInput = new ui_widgets_NumberInput(oscAtom.getInput("decimation"),"Decimation");
+			decInput.set_y(yPos);
+			this._content.addChild(decInput);
+			this._widgets.push(decInput);
+			yPos += 40;
+		}
+		if(atom.getInputs() != null) {
+			var _g = 0;
+			var _g1 = atom.getInputs();
+			while(_g < _g1.length) {
+				var c = _g1[_g];
+				++_g;
+				if(c == null || c.isDisposed) {
+					continue;
+				}
+				try {
+					var input = new ui_widgets_NumberInput(c,"In: " + c.name);
+					input.set_y(yPos);
+					this._content.addChild(input);
+					this._widgets.push(input);
+					yPos += 40;
+				} catch( _g2 ) {
+					haxe_NativeStackTrace.lastError = _g2;
+					var e = haxe_Exception.caught(_g2).unwrap();
+					haxe_Log.trace("ERROR: Failed to create NumberInput: " + Std.string(e),{ fileName : "src/ui/PropertiesWindow.hx", lineNumber : 491, className : "ui.PropertiesWindow", methodName : "_populateAtom"});
+				}
+			}
+		}
+		if(atom.getOutputs() != null) {
+			var _g = 0;
+			var _g1 = atom.getOutputs();
+			while(_g < _g1.length) {
+				var c = _g1[_g];
+				++_g;
+				if(c == null || c.isDisposed) {
+					continue;
+				}
+				try {
+					var output = new ui_widgets_NumberDisplay(c,"Out: " + c.name);
+					output.set_y(yPos);
+					this._content.addChild(output);
+					this._widgets.push(output);
+					yPos += 40;
+				} catch( _g2 ) {
+					haxe_NativeStackTrace.lastError = _g2;
+					var e = haxe_Exception.caught(_g2).unwrap();
+					haxe_Log.trace("ERROR: Failed to create NumberDisplay: " + Std.string(e),{ fileName : "src/ui/PropertiesWindow.hx", lineNumber : 514, className : "ui.PropertiesWindow", methodName : "_populateAtom"});
+				}
+			}
+		}
+		this._drawBg(300,yPos + 50);
+	}
+	,_drawBg: function(w,h) {
+		if(this._isDisposed) {
+			return;
+		}
+		this._bg.get_graphics().clear();
+		this._bg.get_graphics().beginFill(2236979,0.95);
+		this._bg.get_graphics().lineStyle(1,43775);
+		this._bg.get_graphics().drawRoundRect(0,0,w,h,10,10);
+		this._bg.get_graphics().endFill();
+	}
+	,dispose: function() {
+		if(this._isDisposed) {
+			return;
+		}
+		this._isDisposed = true;
+		this._clearContent();
+		this._widgets = null;
+		if(this.stage != null) {
+			this.stage.removeEventListener("mouseUp",$bind(this,this._onMouseUpStage));
+		}
+		if(this._bg != null && this._bg.parent != null) {
+			this._bg.parent.removeChild(this._bg);
+			this._bg = null;
+		}
+		if(this._content != null && this._content.parent != null) {
+			this._content.parent.removeChild(this._content);
+			this._content = null;
+		}
+		if(this._title != null && this._title.parent != null) {
+			this._title.parent.removeChild(this._title);
+			this._title = null;
+		}
+	}
+	,__class__: ui_PropertiesWindow
 });
 var ui_SettingsPanel = function() {
 	this._wireButtons = [];
@@ -93867,11 +98571,472 @@ ui_RadioButton.prototype = $extend(openfl_display_Sprite.prototype,{
 	,__class__: ui_RadioButton
 	,__properties__: $extend(openfl_display_Sprite.prototype.__properties__,{set_checked:"set_checked"})
 });
+var ui_TextInputPopup = function() {
+	this._isConfirmMode = false;
+	openfl_display_Sprite.call(this);
+	this.set_visible(false);
+	this.mouseEnabled = false;
+};
+$hxClasses["ui.TextInputPopup"] = ui_TextInputPopup;
+ui_TextInputPopup.__name__ = "ui.TextInputPopup";
+ui_TextInputPopup.__super__ = openfl_display_Sprite;
+ui_TextInputPopup.prototype = $extend(openfl_display_Sprite.prototype,{
+	show: function(title,defaultText,callback) {
+		this._callback = callback;
+		this._isConfirmMode = false;
+		this.buildUI(title,defaultText,false);
+	}
+	,showConfirm: function(title,message,callback) {
+		this._boolCallback = callback;
+		this._isConfirmMode = true;
+		this.buildUI(title,message,true);
+	}
+	,buildUI: function(title,content,isConfirm) {
+		this._bg = new openfl_display_Sprite();
+		this._bg.get_graphics().beginFill(0,0.6);
+		this._bg.get_graphics().drawRect(0,0,this.stage.stageWidth,this.stage.stageHeight);
+		this._bg.get_graphics().endFill();
+		this.addChild(this._bg);
+		var windowHeight = isConfirm ? 150 : 180;
+		this._window = new openfl_display_Sprite();
+		this._window.get_graphics().beginFill(2236979);
+		this._window.get_graphics().lineStyle(2,43775);
+		this._window.get_graphics().drawRoundRect(0,0,400,windowHeight,10,10);
+		this._window.get_graphics().endFill();
+		this._window.set_x((this.stage.stageWidth - 400) / 2);
+		this._window.set_y((this.stage.stageHeight - windowHeight) / 2);
+		this.addChild(this._window);
+		var titleTF = new openfl_text_TextField();
+		titleTF.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",16,43775,true));
+		titleTF.set_text(title);
+		titleTF.set_width(380);
+		titleTF.set_x(10);
+		titleTF.set_y(10);
+		titleTF.set_selectable(false);
+		this._window.addChild(titleTF);
+		if(isConfirm) {
+			this._messageField = new openfl_text_TextField();
+			this._messageField.set_defaultTextFormat(new openfl_text_TextFormat("_sans",14,16777215));
+			this._messageField.set_text(content);
+			this._messageField.set_width(380);
+			this._messageField.set_height(60);
+			this._messageField.set_x(10);
+			this._messageField.set_y(45);
+			this._messageField.set_selectable(false);
+			this._messageField.set_wordWrap(true);
+			this._window.addChild(this._messageField);
+		} else {
+			this._input = new openfl_text_TextField();
+			this._input.set_type(1);
+			this._input.set_defaultTextFormat(new openfl_text_TextFormat("_sans",14,16777215));
+			this._input.set_text(content);
+			this._input.set_width(380);
+			this._input.set_height(30);
+			this._input.set_x(10);
+			this._input.set_y(45);
+			this._input.set_border(true);
+			this._input.set_borderColor(43775);
+			this._input.set_background(true);
+			this._input.set_backgroundColor(1118498);
+			this._window.addChild(this._input);
+		}
+		this._okBtn = this.createButton("OK");
+		this._okBtn.set_x(100);
+		this._okBtn.set_y(isConfirm ? 100 : 130);
+		this._okBtn.addEventListener("click",$bind(this,this.onOk));
+		this._window.addChild(this._okBtn);
+		this._cancelBtn = this.createButton("Cancel");
+		this._cancelBtn.set_x(210);
+		this._cancelBtn.set_y(isConfirm ? 100 : 130);
+		this._cancelBtn.addEventListener("click",$bind(this,this.onCancel));
+		this._window.addChild(this._cancelBtn);
+		this.set_visible(true);
+		if(!isConfirm && this._input != null) {
+			this.stage.set_focus(this._input);
+			this._input.setSelection(0,this._input.get_text().length);
+		} else {
+			this.stage.set_focus(this._okBtn);
+		}
+		this.stage.addEventListener("keyDown",$bind(this,this.onKeyDown));
+	}
+	,createButton: function(label) {
+		var s = new openfl_display_Sprite();
+		s.get_graphics().beginFill(3816010);
+		s.get_graphics().lineStyle(1,6710886);
+		s.get_graphics().drawRoundRect(0,0,80,30,5,5);
+		s.get_graphics().endFill();
+		var tf = new openfl_text_TextField();
+		tf.set_defaultTextFormat(new openfl_text_TextFormat("_sans",12,16777215,null,null,null,null,null,0));
+		tf.set_text(label);
+		tf.set_width(80);
+		tf.set_height(30);
+		tf.set_selectable(false);
+		tf.mouseEnabled = false;
+		s.addChild(tf);
+		s.set_buttonMode(true);
+		return s;
+	}
+	,onKeyDown: function(e) {
+		if(e.keyCode == 13) {
+			this.onOk(null);
+		}
+		if(e.keyCode == 27) {
+			this.onCancel(null);
+		}
+	}
+	,onOk: function(_) {
+		var resultText = "";
+		if(!this._isConfirmMode && this._input != null) {
+			resultText = this._input.get_text();
+		}
+		this.hide();
+		if(this._isConfirmMode) {
+			if(this._boolCallback != null) {
+				this._boolCallback(true);
+				this._boolCallback = null;
+			}
+		} else if(this._callback != null) {
+			this._callback(resultText);
+			this._callback = null;
+		}
+	}
+	,onCancel: function(_) {
+		this.hide();
+		if(this._isConfirmMode) {
+			if(this._boolCallback != null) {
+				this._boolCallback(false);
+				this._boolCallback = null;
+			}
+		} else if(this._callback != null) {
+			this._callback(null);
+			this._callback = null;
+		}
+	}
+	,hide: function() {
+		this.stage.removeEventListener("keyDown",$bind(this,this.onKeyDown));
+		if(this._okBtn != null) {
+			this._okBtn.removeEventListener("click",$bind(this,this.onOk));
+		}
+		if(this._cancelBtn != null) {
+			this._cancelBtn.removeEventListener("click",$bind(this,this.onCancel));
+		}
+		while(this.get_numChildren() > 0) this.removeChildAt(0);
+		if(this._window != null) {
+			while(this._window.get_numChildren() > 0) this._window.removeChildAt(0);
+		}
+		this._bg = null;
+		this._window = null;
+		this._input = null;
+		this._messageField = null;
+		this._okBtn = null;
+		this._cancelBtn = null;
+		this.set_visible(false);
+	}
+	,__class__: ui_TextInputPopup
+});
+var ui_WindowController = function() {
+	this._dwmEnabled = false;
+	this._window = openfl_Lib.get_current().stage.window;
+	this.debugLog("WindowController initialized");
+	this.debugLog("F4=Toggle F5=Blur F6=Debug F7=Opacity");
+	this.debugLog("NOTE: Black pixels (0x000000) become transparent!");
+	this.debugLog("Other colors with alpha=1.0 are OPAQUE");
+};
+$hxClasses["ui.WindowController"] = ui_WindowController;
+ui_WindowController.__name__ = "ui.WindowController";
+ui_WindowController.prototype = {
+	enableLayeredTransparency: function() {
+		return false;
+	}
+	,enableDWMTransparency: function() {
+		return false;
+	}
+	,toggleTransparency: function() {
+		return false;
+	}
+	,toggleBlurBehind: function() {
+		return false;
+	}
+	,setOpacity: function(alpha) {
+		return false;
+	}
+	,debugWindowInfo: function() {
+	}
+	,debugLog: function(msg) {
+	}
+	,__class__: ui_WindowController
+};
 var ui_WireType = $hxEnums["ui.WireType"] = { __ename__:"ui.WireType",__constructs__:null
 	,BEZIER: {_hx_name:"BEZIER",_hx_index:0,__enum__:"ui.WireType",toString:$estr}
 	,STRAIGHT: {_hx_name:"STRAIGHT",_hx_index:1,__enum__:"ui.WireType",toString:$estr}
 };
 ui_WireType.__constructs__ = [ui_WireType.BEZIER,ui_WireType.STRAIGHT];
+var ui_widgets_IHMIWidget = function() { };
+$hxClasses["ui.widgets.IHMIWidget"] = ui_widgets_IHMIWidget;
+ui_widgets_IHMIWidget.__name__ = "ui.widgets.IHMIWidget";
+ui_widgets_IHMIWidget.__isInterface__ = true;
+ui_widgets_IHMIWidget.prototype = {
+	__class__: ui_widgets_IHMIWidget
+};
+var ui_widgets_NumberDisplay = function(contact,label) {
+	if(label == null) {
+		label = "Output";
+	}
+	this._callbackId = null;
+	this._isDisposed = false;
+	openfl_display_Sprite.call(this);
+	if(contact == null) {
+		haxe_Log.trace("WARN: NumberDisplay created with null contact for \"" + label + "\"",{ fileName : "src/ui/widgets/NumberDisplay.hx", lineNumber : 24, className : "ui.widgets.NumberDisplay", methodName : "new"});
+		return;
+	}
+	this.contact = contact;
+	this._createUI(label);
+	this._subscribe();
+};
+$hxClasses["ui.widgets.NumberDisplay"] = ui_widgets_NumberDisplay;
+ui_widgets_NumberDisplay.__name__ = "ui.widgets.NumberDisplay";
+ui_widgets_NumberDisplay.__interfaces__ = [ui_widgets_IHMIWidget];
+ui_widgets_NumberDisplay.__super__ = openfl_display_Sprite;
+ui_widgets_NumberDisplay.prototype = $extend(openfl_display_Sprite.prototype,{
+	_createUI: function(label) {
+		this._label = new openfl_text_TextField();
+		this._label.set_text(label);
+		this._label.set_width(150);
+		this._label.set_height(20);
+		this._label.set_textColor(11184810);
+		this._label.set_selectable(false);
+		this._label.mouseEnabled = false;
+		this.addChild(this._label);
+		this._display = new openfl_text_TextField();
+		this._display.set_border(true);
+		this._display.set_borderColor(16746496);
+		this._display.set_background(true);
+		this._display.set_backgroundColor(0);
+		this._display.set_textColor(65280);
+		this._display.set_width(150);
+		this._display.set_height(30);
+		this._display.set_y(20);
+		this._display.set_selectable(true);
+		this._display.mouseEnabled = true;
+		this._display.set_wordWrap(true);
+		this._display.set_multiline(false);
+		this._display.set_autoSize(2);
+		this._display.set_maxChars(50);
+		var fmt = new openfl_text_TextFormat("_typewriter",14);
+		this._display.set_defaultTextFormat(fmt);
+		this._display.set_text(this._safeStringValue(this.contact.get_value()));
+		this.addChild(this._display);
+	}
+	,_subscribe: function() {
+		if(this.contact != null && !this.contact.isDisposed) {
+			this.contact.subscribe($bind(this,this._onValueChanged));
+		}
+	}
+	,_onValueChanged: function(newValue) {
+		if(this._isDisposed) {
+			return;
+		}
+		if(this.contact == null || this.contact.isDisposed) {
+			this._unsubscribe();
+			return;
+		}
+		this._updateDisplay(newValue);
+	}
+	,onValueChanged: function(newValue) {
+		this._onValueChanged(newValue);
+	}
+	,_updateDisplay: function(value) {
+		if(this._display == null || this._label == null) {
+			return;
+		}
+		var str = this._safeStringValue(value);
+		if(str.length > 50) {
+			str = HxOverrides.substr(str,0,47) + "...";
+		}
+		if(this._display.get_text() != str) {
+			this._display.set_text(str);
+		}
+	}
+	,_safeStringValue: function(value) {
+		if(value == null) {
+			return "null";
+		}
+		try {
+			return Std.string(value);
+		} catch( _g ) {
+			haxe_NativeStackTrace.lastError = _g;
+			return "[error]";
+		}
+	}
+	,_unsubscribe: function() {
+		if(this.contact != null && !this.contact.isDisposed) {
+			this.contact.unsubscribe($bind(this,this._onValueChanged));
+		}
+	}
+	,dispose: function() {
+		if(this._isDisposed) {
+			return;
+		}
+		this._isDisposed = true;
+		this._unsubscribe();
+		this.contact = null;
+		if(this._display != null) {
+			if(this._display.parent != null) {
+				this._display.parent.removeChild(this._display);
+			}
+			this._display = null;
+		}
+		if(this._label != null) {
+			if(this._label.parent != null) {
+				this._label.parent.removeChild(this._label);
+			}
+			this._label = null;
+		}
+	}
+	,__class__: ui_widgets_NumberDisplay
+});
+var ui_widgets_NumberInput = function(contact,label) {
+	if(label == null) {
+		label = "Input";
+	}
+	this._isEditing = false;
+	this._isDisposed = false;
+	openfl_display_Sprite.call(this);
+	if(contact == null) {
+		haxe_Log.trace("WARN: NumberInput created with null contact for \"" + label + "\"",{ fileName : "src/ui/widgets/NumberInput.hx", lineNumber : 27, className : "ui.widgets.NumberInput", methodName : "new"});
+		return;
+	}
+	this.contact = contact;
+	this._createUI(label);
+	this._subscribe();
+};
+$hxClasses["ui.widgets.NumberInput"] = ui_widgets_NumberInput;
+ui_widgets_NumberInput.__name__ = "ui.widgets.NumberInput";
+ui_widgets_NumberInput.__interfaces__ = [ui_widgets_IHMIWidget];
+ui_widgets_NumberInput.__super__ = openfl_display_Sprite;
+ui_widgets_NumberInput.prototype = $extend(openfl_display_Sprite.prototype,{
+	_createUI: function(label) {
+		this._label = new openfl_text_TextField();
+		this._label.set_text(label);
+		this._label.set_width(150);
+		this._label.set_height(20);
+		this._label.set_textColor(11184810);
+		this._label.set_selectable(false);
+		this._label.mouseEnabled = false;
+		this.addChild(this._label);
+		this._input = new openfl_text_TextField();
+		this._input.set_type(1);
+		this._input.set_border(true);
+		this._input.set_borderColor(43775);
+		this._input.set_background(true);
+		this._input.set_backgroundColor(2236979);
+		this._input.set_textColor(16777215);
+		this._input.set_width(150);
+		this._input.set_height(30);
+		this._input.set_y(20);
+		this._input.set_selectable(true);
+		this._input.mouseEnabled = true;
+		this._input.set_wordWrap(false);
+		this._input.set_multiline(false);
+		this._input.set_autoSize(2);
+		this._input.set_maxChars(30);
+		var fmt = new openfl_text_TextFormat("_typewriter",14);
+		this._input.set_defaultTextFormat(fmt);
+		this._input.set_text(this._safeStringValue(this.contact.get_value()));
+		this.addChild(this._input);
+		this._input.addEventListener("change",$bind(this,this._onUserInput));
+		this._input.addEventListener("focusIn",$bind(this,this._onFocusIn));
+		this._input.addEventListener("focusOut",$bind(this,this._onFocusOut));
+	}
+	,_subscribe: function() {
+		if(this.contact != null && !this.contact.isDisposed) {
+			this.contact.subscribe($bind(this,this._onContactUpdate));
+		}
+	}
+	,_onFocusIn: function(e) {
+		this._isEditing = true;
+	}
+	,_onFocusOut: function(e) {
+		this._isEditing = false;
+		this._validateAndPush();
+	}
+	,_onUserInput: function(e) {
+		this._validateAndPush();
+	}
+	,_validateAndPush: function() {
+		if(this._isDisposed || this.contact == null || this.contact.isDisposed) {
+			return;
+		}
+		var val = parseFloat(this._input.get_text());
+		if(!isNaN(val)) {
+			this.contact.set_value(val);
+		}
+	}
+	,_onContactUpdate: function(val) {
+		if(this._isDisposed) {
+			return;
+		}
+		if(this._isEditing) {
+			return;
+		}
+		this._updateInput(val);
+	}
+	,onValueChanged: function(newValue) {
+		this._updateInput(newValue);
+	}
+	,_updateInput: function(value) {
+		if(this._input == null || this._label == null) {
+			return;
+		}
+		var str = this._safeStringValue(value);
+		if(str.length > 30) {
+			str = HxOverrides.substr(str,0,27) + "...";
+		}
+		if(this._input.get_text() != str) {
+			this._input.set_text(str);
+		}
+	}
+	,_safeStringValue: function(value) {
+		if(value == null) {
+			return "null";
+		}
+		try {
+			return Std.string(value);
+		} catch( _g ) {
+			haxe_NativeStackTrace.lastError = _g;
+			return "[error]";
+		}
+	}
+	,_unsubscribe: function() {
+		if(this.contact != null && !this.contact.isDisposed) {
+			this.contact.unsubscribe($bind(this,this._onContactUpdate));
+		}
+	}
+	,dispose: function() {
+		if(this._isDisposed) {
+			return;
+		}
+		this._isDisposed = true;
+		this._unsubscribe();
+		if(this._input != null) {
+			this._input.removeEventListener("change",$bind(this,this._onUserInput));
+			this._input.removeEventListener("focusIn",$bind(this,this._onFocusIn));
+			this._input.removeEventListener("focusOut",$bind(this,this._onFocusOut));
+			if(this._input.parent != null) {
+				this._input.parent.removeChild(this._input);
+			}
+			this._input = null;
+		}
+		if(this._label != null) {
+			if(this._label.parent != null) {
+				this._label.parent.removeChild(this._label);
+			}
+			this._label = null;
+		}
+		this.contact = null;
+	}
+	,__class__: ui_widgets_NumberInput
+});
 var utils_UID = function() { };
 $hxClasses["utils.UID"] = utils_UID;
 utils_UID.__name__ = "utils.UID";
@@ -94022,6 +99187,7 @@ core_logic_EventType.CONTEXT_MENU_ACTION = "CONTEXT_MENU_ACTION";
 core_logic_EventType.FFT_SPECTRUM_READY = "FFT_SPECTRUM_READY";
 core_logic_Impulsys._bus = new haxe_ds_StringMap();
 core_logic_Impulsys._totalListeners = 0;
+core_logic_NamingService._instanceNames = new haxe_ds_StringMap();
 core_view_DeviceViewRegistry.CONTAINER_NODE_VIEW = "NodeView";
 core_view_DeviceViewRegistry.CONTAINER_DEVICE_WINDOW = "DeviceWindow";
 core_view_OscilloscopeWidget.HISTORY_LAYERS = 5;
@@ -94029,6 +99195,21 @@ core_view_SignalGeneratorWidget.MIN_FREQ = 0.1;
 core_view_SignalGeneratorWidget.MAX_FREQ = 20000.0;
 core_view_SignalGeneratorWidget.MIN_QUANTUM = 0.001;
 core_view_SignalGeneratorWidget.MAX_QUANTUM = 1.0;
+core_view_TextAreaWidget.CHAR_WIDTH = 8.0;
+core_view_TextAreaWidget.LINE_HEIGHT = 18.0;
+core_view_TextAreaWidget.PADDING = 8.0;
+core_view_TextAreaWidget.SCROLLBAR_SIZE = 14.0;
+core_view_TextAreaWidget.STATUS_HEIGHT = 18.0;
+core_view_TextAreaWidget.MIN_CHARS = 5;
+core_view_TextAreaWidget.MAX_CHARS = 200;
+core_view_TextAreaWidget.MIN_LINES = 1;
+core_view_TextAreaWidget.MAX_LINES = 100;
+core_view_TextAreaWidget.SCROLL_BG_COLOR = 1710628;
+core_view_TextAreaWidget.SCROLL_TRACK_COLOR = 2763322;
+core_view_TextAreaWidget.SCROLL_THUMB_COLOR = 4868714;
+core_view_TextAreaWidget.SCROLL_THUMB_HOVER = 6974090;
+core_view_TextAreaWidget.SCROLL_THUMB_DRAG = 43775;
+core_view_TextAreaWidget.SCROLL_BORDER_COLOR = 3355477;
 ecs_ECS._initialized = false;
 editor_EditorState._isZooming = false;
 editor_EditorState._isPanning = false;
@@ -94041,6 +99222,7 @@ editor_NodeView.PORT_RADIUS = 7;
 editor_NodeView.PORT_SPACING = 32;
 editor_NodeView.INLINE_EDITOR_X_OFFSET = 11;
 editor_ViewportManager.VISIBILITY_THROTTLE = 0.05;
+editor_WireRenderer.HIT_SPRITE_THICKNESS = 12.0;
 haxe_Serializer.USE_CACHE = false;
 haxe_Serializer.USE_ENUM_INDEX = false;
 haxe_Serializer.BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789%:";
@@ -94093,7 +99275,7 @@ library_electro_FFTAtom.WINDOW_HAMMING = 2;
 library_electro_OscilloscopeAtom.SHAPE_RECTANGULAR = 0;
 library_electro_OscilloscopeAtom.SHAPE_SQUARE = 1;
 library_electro_OscilloscopeAtom.SHAPE_CIRCULAR = 2;
-library_logic_PassThroughAtom.PULSE_DURATION = 0.05;
+library_electro_PassThroughAtom.PULSE_DURATION = 0.05;
 lime__$internal_backend_html5_HTML5HTTPRequest.OPTION_REVOKE_URL = 1;
 lime__$internal_backend_html5_HTML5HTTPRequest.activeRequests = 0;
 lime__$internal_backend_html5_HTML5HTTPRequest.requestLimit = 17;
@@ -95886,6 +101068,7 @@ openfl_net_URLVariables.__meta__ = { statics : { __get : { SuppressWarnings : ["
 openfl_system_ApplicationDomain.currentDomain = new openfl_system_ApplicationDomain(null);
 openfl_system_SecurityDomain.__meta__ = { obj : { SuppressWarnings : ["checkstyle:UnnecessaryConstructor"]}};
 openfl_system_SecurityDomain.currentDomain = new openfl_system_SecurityDomain();
+openfl_system_System.useCodePage = false;
 openfl_text_AntiAliasType.ADVANCED = 0;
 openfl_text_AntiAliasType.NORMAL = 1;
 openfl_text_Font.__fontByName = new haxe_ds_StringMap();
@@ -96363,6 +101546,8 @@ openfl_utils__$internal_format_amf3_AMF3Array.__meta__ = { fields : { extra : { 
 system_commands_editor_GroupAtomsCommand.MAX_NESTING_DEPTH = 10;
 system_managers_UndoManager.UNDO_STACK_CHANGED = "undoStackChanged";
 system_managers_UndoManager.REDO_STACK_CHANGED = "redoStackChanged";
+ui_ButtonComponent.SIZE = 40;
+ui_DevicePanel._dragTickRegistered = false;
 ApplicationMain.main();
 })(typeof exports != "undefined" ? exports : typeof window != "undefined" ? window : typeof self != "undefined" ? self : this, typeof window != "undefined" ? window : typeof global != "undefined" ? global : typeof self != "undefined" ? self : this);
 
@@ -96373,7 +101558,7 @@ ApplicationMain.main();
 	} else {
 		$hx_exports.lime = $hx_exports.lime || {};
 		$hx_exports.lime.$scripts = $hx_exports.lime.$scripts || {};
-		$hx_exports.lime.$scripts["MyApplication"] = $hx_script;
+		$hx_exports.lime.$scripts["ALTAURI"] = $hx_script;
 		$hx_exports.lime.embed = function (projectName) {
 			var exports = {};
 			var script = $hx_exports.lime.$scripts[projectName];

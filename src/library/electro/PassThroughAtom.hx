@@ -1,4 +1,4 @@
-package library.logic;
+package library.electro;
 
 import core.base.Atom;
 import core.base.Contact;

@@ -12,11 +12,11 @@ import library.electro.RelayAtom;
 import library.electro.OscilloscopeAtom;
 import library.electro.FFTAtom;
 import library.electro.BufferingAtom;
+import library.electro.PassThroughAtom;
 import library.drivers.MiniAudioAtom;
 import library.drivers.SignalGenerator;
 import library.drivers.ComPortAtom;
 import library.drivers.ComEnumeratorAtom;
-import library.logic.PassThroughAtom;
 
 using StringTools;
 
@@ -124,6 +124,15 @@ class AssemblyFactory
                                 case "COMENUMERATOR":
                                         normalizedTypeId = "ComEnumeratorAtom";
 // ─────────────────────────────────────────────────────────────
+// WEBSOCKET — WEBSocket client
+// ─────────────────────────────────────────────────────────────
+								#if cpp
+								case "WEBSocketAtom":
+								case "WEBSOCKET":
+								case "WEBSOCKET ATOM":
+									normalizedTypeId = "WEBSocketAtom";
+								#end
+// ─────────────────────────────────────────────────────────────
 // NET RADIO PLAYER — Internet radio metadata driver
 // ─────────────────────────────────────────────────────────────
                                 case "NETRADIOPLAYERATOM":
@@ -153,6 +162,7 @@ class AssemblyFactory
                                 case "FFTATOM":
                                 case "FFT": normalizedTypeId = "FFTAtom";
                                 case "TEXTINPUT": normalizedTypeId = "TextInput";
+								case "TEXTAREA": normalizedTypeId = "TextArea";
 // ─────────────────────────────────────────────────────────────
 // LOGIC
 // ─────────────────────────────────────────────────────────────
@@ -201,6 +211,14 @@ class AssemblyFactory
                                 trace('🔍 AssemblyFactory: Created ComEnumeratorAtom...');
                                 #end
 // =============================================================
+// WEB SOCKET — Web Socket port
+// =============================================================
+						case "WEBSocketAtom":
+								#if cpp
+								atom = new library.drivers.WEBSocketAtom(id);
+								trace('🌐 AssemblyFactory: Created WEBSocketAtom...');
+								#end
+// =============================================================
 // NET RADIO PLAYER — internet radio metadata extraction
 // =============================================================
                         case "NETRadioPlayerAtom":
@@ -247,6 +265,8 @@ class AssemblyFactory
                                 atom = new FFTAtom(id);
                         case "TextInput":
                                 atom = new TextInputAtom(id);
+						case "TextArea":
+								atom = new library.electro.TextAreaAtom(id);
 // =============================================================
 // LOGIC
 // =============================================================

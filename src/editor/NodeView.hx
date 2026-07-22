@@ -1547,8 +1547,20 @@ class NodeView extends Sprite
 			return;
 		}
 
-		// Apply new displayName to atom
+		// Apply displayName to Atom
 		atom.displayName = finalName;
+
+		// Для Assembly также обновляем blueprint.name, чтобы заголовок
+		// редактора и .atom файл отражали переименование.
+		// blueprint.id остаётся стабильным идентификатором.
+		if (Std.isOfType(atom, Assembly))
+		{
+			var asm:Assembly = cast(atom, Assembly);
+			if (asm.blueprint != null)
+			{
+				asm.blueprint.name = finalName;
+			}
+		}
 
 		// v3.4: blueprint.name is NOT modified here. Per the new naming
 		// policy (b), blueprint.name is a unique blueprint identifier

@@ -108,6 +108,8 @@ class DeviceWidgetFactory
 				new FFTWidget(asm);
 			case "textinput":
 				new TextInputWidget(asm);
+			case "textarea":
+				new TextAreaWidget(asm);
 				#if cpp
 			case "miniaudioatom", "mini audio capture":
 				new MiniAudioWidget(asm);
@@ -146,12 +148,14 @@ class DeviceWidgetFactory
 				new ToggleWidget(atom, "out");
 			case "textinput":
 				new TextInputWidget(atom);
-				#if cpp
+			case "textarea":
+				new TextAreaWidget(atom);
 			case "oscilloscope":
 				new OscilloscopeWidget(atom, "in");
 			case "fftatom", "fft spectrum":
 				new FFTWidget(atom);
-			case "audioin", "audioinput", "audio":
+				#if cpp
+				case "audioin", "audioinput", "audio":
 				new OscilloscopeWidget(atom, "samples");
 			case "systemvumeteratom", "system vu meter", "vumeter":
 				new SystemVUMeterWidget(atom);
@@ -166,6 +170,8 @@ class DeviceWidgetFactory
 				new ComPortWidget(atom);
 			case "comenumeratoratom", "com enumerator":
 				new ComEnumeratorWidget(atom);
+			case "websocketatom", "websocket":
+				new WEBSocketWidget(atom);
 			case "netradioplayeratom", "net radio player":
 				new NETRadioPlayerWidget(atom);
 			case "miniaudioatom", "mini audio capture":

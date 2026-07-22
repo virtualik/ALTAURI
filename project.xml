@@ -1,34 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
 <project>
-		
-	<meta title="ALTAURI" package="com.virtualik.altauri" version="1.0.0" company="ViRTUALiK" />
+	
 
-	<!-- Условная компиляция главного класса -->
-    <app main="MainHTML5" if="html5" />
-    <app main="Main" if="cpp" file="ALTAURI" path="bin" />
+	<!-- ========================================================================= -->
+	<!-- META INFORMATION                                                          -->
+	<!-- ========================================================================= -->
+	<meta title="ALTAURI" package="com.virtualik.altauri" version="1.0.0" company="ViRTUALiK" />
 	
+	<!-- ========================================================================= -->
+	<!-- APPLICATION ENTRY POINTS                                                  -->
+	<!-- ========================================================================= -->
+	<!-- Используем единый класс Main для обеих платформ -->
+	<app main="Main" file="ALTAURI" path="bin" />
+	
+	<!-- Для C++ явно указываем тип вывода -->
 	<output type="Application" mainClass="Main" />
-	<window visible="false"
+	
+	<!-- ========================================================================= -->
+	<!-- WINDOW SETTINGS                                                           -->
+	<!-- ========================================================================= -->
+	<!-- Общие настройки для всех платформ -->
+	<window hardware="true" vsync="true" allow-shaders="true" antialiasing="0" fps="60" />
+	
+	<!-- Специфичные настройки для Windows / C++ -->
+	<window if="cpp" 
+			visible="false"
 			borderless="true"
-			hardware="true"
-			vsync="true"
-			allow-shaders="true"
-			antialiasing="0"
 			allow-high-dpi="false"
-			width="1280" height="800"
-			fps="60"
+			width="1280" 
+			height="800"
 			background="#FF00FF"
-			transparent="true">
-	</window>/>
+			transparent="true" />
 	
-	<setenv name="OPENFL_DISABLE_DIRTY_REGIONS" value="true" />
-	<setenv name="LIME_RENDER_CONTEXT" value="opengl" />
+	<!-- Специфичные настройки для HTML5 -->
+	<!-- ВАЖНО: Не задаём width и height, чтобы браузер сам подогнал canvas 1:1 -->
+	<window if="html5" 
+			background="#FFFFFF"
+			allow-high-dpi="false" />
+
+	<!-- ========================================================================= -->
+	<!-- ENVIRONMENT VARIABLES (C++ Only)                                          -->
+	<!-- ========================================================================= -->
 	
+	<setenv name="OPENFL_DISABLE_DIRTY_REGIONS" value="true" if="cpp" />
+	<setenv name="LIME_RENDER_CONTEXT" value="opengl" if="cpp" />
+	
+	<!-- ========================================================================= -->
+	<!-- SOURCE PATHS                                                              -->
+	<!-- ========================================================================= -->
 	<source path="src" />
 	
-	<haxelib name="openfl" version="9.5.1"/>
+	<haxelib name="openfl" />
 	<haxelib name="hxcpp" if="cpp" />
 	<haxedef name="utf8" />
-	<icon path="assets/openfl.svg" />
+	
+	<assets path="Assets" rename="assets" />
+	<!-- После успешной сборки HTML5, синхронизируем с ATELIER -->
+	<postbuild command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1" />
 
 </project>

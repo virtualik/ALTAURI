@@ -101,7 +101,8 @@ class PanelWidget extends DeviceView
         _titleLabel.mouseEnabled = false;
         var fmt = new TextFormat("_sans", 12, 0xFFFFFF, true);
         _titleLabel.defaultTextFormat = fmt;
-        _titleLabel.text = (assembly != null && assembly.blueprint != null) ? assembly.blueprint.name : "Panel";
+		// Widget title name
+        _titleLabel.text = (assembly != null && assembly.blueprint != null) ? assembly.displayName : "Panel";
         _header.addChild(_titleLabel);
 
         // Content area

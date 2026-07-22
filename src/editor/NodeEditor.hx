@@ -162,7 +162,23 @@ class NodeEditor extends Sprite
 	private var _editorContainer:Sprite;
 	private var _canvas:Sprite;
 	private var _bgHitArea:Sprite;
+	/**
+	* Creates atom in setted up lication with particular ID.
+	* It's good for demo-scheme creation with code.
+	*/
+	public function createAtomWithId(typeId:String, instanceId:String, posX:Float, posY:Float):Void
+	{
+		var localPoint = _canvas.globalToLocal(new Point(posX, posY));
+		_actions.createAtomWithId(typeId, instanceId, localPoint.x, localPoint.y);
+	}
 
+	/**
+	* Connects two atoms using their ID and contact names.
+	*/
+	public function connectAtoms(fromId:String, fromContact:String, toId:String, toContact:String):Void
+	{
+		_actions.connect(fromId, fromContact, toId, toContact);
+	}
 	// =========================================================================
 	// PORT DRAG
 	// =========================================================================
@@ -304,7 +320,8 @@ class NodeEditor extends Sprite
 
 		_fileNameField = new openfl.text.TextField();
 		_fileNameField.defaultTextFormat = new openfl.text.TextFormat("_typewriter", 12, _theme.NODE_TEXT_COLOR);
-		_fileNameField.text = _blueprint.name;
+		// Display Assembly name
+		_fileNameField.text = _assembly.displayName;
 		_fileNameField.autoSize = LEFT;
 		_fileNameField.selectable = false;
 		addChild(_fileNameField);
@@ -989,7 +1006,7 @@ class NodeEditor extends Sprite
 	private function onMouseWheel(e:MouseEvent):Void
 	{
 		_viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
-		_wireRenderer.rebuildAll();
+		//_wireRenderer.rebuildAll();
 		updateVisibility();
 	}
 

@@ -36,6 +36,7 @@ import system.commands.editor.DeleteAtomCommand;
 import system.commands.base.MacroCommand;
 import ecs.ECS;
 import library.AtomRegistry;
+import utils.UID;
 using StringTools;
 
 /**
@@ -219,7 +220,7 @@ class Main extends Sprite
 
 		// Set low rendering quality.
 		// This disables Anti-Aliasing for vector graphics (lines, circles).
-		stage.quality = HIGH;
+		stage.quality = openfl.display.StageQuality.LOW;
 
 		_editorContext = new EditorContext(_editorLayer);
 
@@ -245,8 +246,14 @@ class Main extends Sprite
 			});
 		});
 
+		#if html5
+		// Create demo project manually
+        createDemoProject();
+		#end
+		#if windows
+		// Load project manually
 		loadProject();
-
+		#end
 		// Pass control of the limit to TickGenerator
 		TickGenerator.getInstance().maxStepsPerFrame = 100;
 	}
@@ -275,6 +282,66 @@ class Main extends Sprite
 			log("Main Window: Transparency NOT SUPPORTED or FAILED");
 		}
 		#end
+	}
+	
+	// =========================================================================
+	// DEMO PROJECT (v1.1 — with connections)
+	// =========================================================================
+	private function createDemoProject():Void
+	{
+		var demoBlueprint = new Blueprint("demo", "Demo Showcase", [
+			{name: "IN", type: INPUT},
+			{name: "OUT", type: OUTPUT}
+		]);
+		
+		var rootAssembly = new Assembly("main_asm", demoBlueprint);
+		_editorContext.push(rootAssembly, true);
+		
+		var editor = _editorContext.currentEditor;
+		
+		// === Generate IDs for connections ===
+		var sigGenId = UID.generate();
+		var oscId = UID.generate();
+		var buttonId = UID.generate();
+		var ledId = UID.generate();
+		var toggleId = UID.generate();
+		var relayId = UID.generate();
+		var led2Id = UID.generate();
+		
+		// === Create atoms ===
+		editor.createAtomWithId("SignalGenerator", sigGenId, 200, 200);
+		editor.createAtomWithId("Oscilloscope", oscId, 500, 200);
+		
+		editor.createAtomWithId("Button", buttonId, 200, 400);
+		editor.createAtomWithId("LED", ledId, 450, 400);
+		
+		editor.createAtomWithId("Toggle", toggleId, 200, 550);
+		editor.createAtomWithId("Relay", relayId, 400, 550);
+		editor.createAtomWithId("LED", led2Id, 600, 550);
+		
+		// === Connect them! ===
+		// SignalGenerator.out → Oscilloscope.in
+		editor.connectAtoms(sigGenId, "out", oscId, "in");
+		
+		// Button.out → LED.in
+		editor.connectAtoms(buttonId, "out", ledId, "in");
+		
+		// Toggle.out → Relay.control
+		editor.connectAtoms(toggleId, "out", relayId, "control");
+		
+		// Relay.out → LED_2.in
+		editor.connectAtoms(relayId, "out", led2Id, "in");
+		
+		trace("MainHTML5: Demo project created with 7 atoms and 4 connections");
+		
+		// Force redraw after a short delay
+		haxe.Timer.delay(function() {
+			if (editor != null && !editor.isDisposed) {
+				editor.forceFullRedraw();
+			}
+		}, 100);
+		updateNavigationUI();
+		updateButtonStates();
 	}
 
 	// =========================================================================

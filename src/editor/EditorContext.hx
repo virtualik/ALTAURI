@@ -719,7 +719,15 @@ class EditorContext
 
 		// 2. Sync renamed atom displayNames into atomDef.values
 		currentAssembly.syncDisplayNamesToBlueprint();
-
+		
+		// 2b. Sync the assembly's own displayName into blueprint.name
+		//     so the .atom file on disk reflects the user's rename.
+		if (currentAssembly.displayName != null
+			&& currentAssembly.displayName != currentAssembly.blueprint.name)
+		{
+			currentAssembly.blueprint.name = currentAssembly.displayName;
+		}
+		
 		// 3. Translate runtime IDs → template IDs in internalConnections
 		currentAssembly.syncConnectionsToTemplateIds();
 

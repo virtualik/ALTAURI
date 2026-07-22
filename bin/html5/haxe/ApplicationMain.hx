@@ -16,11 +16,11 @@ class ApplicationMain
 	#if !macro
 	public static function main()
 	{
-		lime.system.System.__registerEntryPoint("MyApplication", create);
+		lime.system.System.__registerEntryPoint("ALTAURI", create);
 
 		#if (js && html5)
 		#if (munit || (utest && openfl_enable_utest_legacy_mode))
-		lime.system.System.embed("MyApplication", null, 1280, 800);
+		lime.system.System.embed("ALTAURI", null, 0, 0);
 		#end
 		#else
 		create(null);
@@ -35,9 +35,9 @@ class ApplicationMain
 		ManifestResources.init(config);
 		#end
 
-		app.meta["build"] = "147";
+		app.meta["build"] = "155";
 		app.meta["company"] = "ViRTUALiK";
-		app.meta["file"] = "MyApplication";
+		app.meta["file"] = "ALTAURI";
 		app.meta["name"] = "ALTAURI";
 		app.meta["packageName"] = "com.virtualik.altauri";
 		app.meta["version"] = "1.0.0";
@@ -49,26 +49,26 @@ class ApplicationMain
 		var attributes:lime.ui.WindowAttributes = {
 			allowHighDPI: false,
 			alwaysOnTop: false,
-			borderless: true,
+			borderless: false,
 			// display: 0,
 			element: null,
 			frameRate: 60,
 			#if !web fullscreen: false, #end
-			height: 800,
+			height: 0,
 			hidden: #if munit true #else false #end,
 			maximized: false,
 			minimized: false,
 			parameters: {},
 			resizable: true,
 			title: "ALTAURI",
-			width: 1280,
+			width: 0,
 			x: null,
 			y: null,
 		};
 
 		attributes.context = {
 			antialiasing: 0,
-			background: 16711935,
+			background: 16777215,
 			colorDepth: 32,
 			depth: true,
 			hardware: true,
@@ -104,7 +104,7 @@ class ApplicationMain
 		#elseif air
 		app.window.title = "ALTAURI";
 		#else
-		app.window.context.attributes.background = 16711935;
+		app.window.context.attributes.background = 16777215;
 		app.window.frameRate = 60;
 		#end
 
@@ -185,7 +185,7 @@ class ApplicationMain
 	{
 		var hasMain = false;
 
-		switch (Context.follow(Context.getType("MainHTML5")))
+		switch (Context.follow(Context.getType("Main")))
 		{
 			case TInst(t, params):
 
@@ -201,7 +201,7 @@ class ApplicationMain
 
 				if (hasMain)
 				{
-					return Context.parse("@:privateAccess MainHTML5.main()", Context.currentPos());
+					return Context.parse("@:privateAccess Main.main()", Context.currentPos());
 				}
 				else if (type.constructor != null)
 				{
@@ -224,12 +224,12 @@ class ApplicationMain
 				}
 				else
 				{
-					Context.fatalError("Main class \"MainHTML5\" has neither a static main nor a constructor.", Context.currentPos());
+					Context.fatalError("Main class \"Main\" has neither a static main nor a constructor.", Context.currentPos());
 				}
 
 			default:
 
-				Context.fatalError("Main class \"MainHTML5\" isn't a class.", Context.currentPos());
+				Context.fatalError("Main class \"Main\" isn't a class.", Context.currentPos());
 		}
 
 		return null;
@@ -291,7 +291,7 @@ class ApplicationMain
 
 #if !macro
 @:build(DocumentClass.build())
-@:keep @:dox(hide) class DocumentClass extends MainHTML5 {}
+@:keep @:dox(hide) class DocumentClass extends Main {}
 #else
 class DocumentClass
 {

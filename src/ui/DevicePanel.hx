@@ -121,8 +121,8 @@ void _dp_registerDragTick(void* inTick) {
 * │                                     │                            │      │
 * │                                     │ [E][C][□]          [X]     │      │
 * │                                     │  ↑  ↑  ↑           ↑       │      │
-* │                                     │ Ed Cl Max/         Close    │      │
-* │                                     │ it ar Restore      (40x40)  │      │
+* │                                     │ Ed Cl Max/         Close   │      │
+* │                                     │ it ar Restore      (40x40) │      │
 * │                                     │    (28x26)                 │      │
 * │                                     └────────────────────────────┘      │
 * │                                              │                          │
@@ -1062,13 +1062,14 @@ class DevicePanel extends Sprite
     * Implementation: Uses untyped __cpp__() to call global extern "C" function
     * declared in @:cppFileCode, avoiding namespace resolution issues.
     */
-    private static function _registerDragTickBridge(inTick:cpp.RawPointer<cpp.Void>):Void
+    #if windows
+	private static function _registerDragTickBridge(inTick:cpp.RawPointer<cpp.Void>):Void
     {
-        #if windows
+        
         untyped __cpp__('::_dp_registerDragTick((void*){0});', inTick);
-        #end
+       
     }
-    
+     #end
     // =========================================================================
     // v3.6: HEADER DRAG HANDLERS
     // =========================================================================

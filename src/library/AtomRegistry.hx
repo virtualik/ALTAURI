@@ -131,8 +131,24 @@ class AtomRegistry
             {name: "control", type: INPUT, dataType: "bool"},
             {name: "out", type: OUTPUT, dataType: "any"}
         ], null, "relay");
+
+		reg("TextArea", "Text Area", [
+			{name: "text",       type: INPUT,  dataType: "string", priority: CRITICAL, label: "Text"},
+			{name: "append",     type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Append"},
+			{name: "clear",      type: INPUT,  dataType: "bool",   priority: OPTIONAL, label: "Clear"},
+			{name: "editable",   type: INPUT,  defaultValue: true, dataType: "bool",   priority: IMPORTANT, label: "Editable", visibleInEditor: true},
+			{name: "wordWrap",   type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL, label: "WordWrap", visibleInEditor: true},
+			{name: "autoScroll", type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL, label: "AutoScroll", visibleInEditor: true},
+			{name: "hScroll",    type: INPUT,  defaultValue: false,dataType: "bool",   priority: OPTIONAL, label: "HScroll", visibleInEditor: true},
+			{name: "vScroll",    type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL, label: "VScroll", visibleInEditor: true},
+			{name: "maxChars",   type: INPUT,  defaultValue: 40,   dataType: "int",    priority: IMPORTANT, label: "Width", visibleInEditor: true},
+			{name: "numLines",   type: INPUT,  defaultValue: 8,    dataType: "int",    priority: IMPORTANT, label: "Lines", visibleInEditor: true},
+			{name: "changed",    type: OUTPUT, dataType: "bool",   priority: OPTIONAL},
+			{name: "lineCount",  type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Lines"},
+			{name: "cursorLine", type: OUTPUT, dataType: "int",    priority: OPTIONAL, label: "Cursor"}
+		], null, "textarea");
         
-        // =================================================================
+		// =================================================================
         // ACTIVE DRIVERS (require DriverManager updates)
         // =================================================================
         
@@ -210,7 +226,23 @@ class AtomRegistry
         reg("ComEnumeratorAtom", "COM Enumerator", [
             {name: "ports", type: OUTPUT, dataType: "string", priority: CRITICAL}
         ], null, "comenumerator", true, true);
-        
+
+		#if cpp
+		reg("WEBSocketAtom", "WebSocket Client", [
+			{name: "url", type: INPUT, dataType: "string", priority: IMPORTANT, label: "URL"},
+			{name: "connect", type: INPUT, dataType: "bool", priority: CRITICAL},
+			{name: "disconnect", type: INPUT, dataType: "bool", priority: CRITICAL},
+			{name: "send", type: INPUT, dataType: "bool", priority: CRITICAL},
+			{name: "sendData", type: INPUT, dataType: "string", priority: IMPORTANT, label: "Data"},
+			{name: "isConnected", type: OUTPUT, dataType: "bool", priority: CRITICAL},
+			{name: "receivedData", type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "RX"},
+			{name: "receivedTick", type: OUTPUT, dataType: "bool", priority: INTERNAL},
+			{name: "sentTick", type: OUTPUT, dataType: "bool", priority: INTERNAL},
+			{name: "error", type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
+			{name: "errorTick", type: OUTPUT, dataType: "bool", priority: INTERNAL}
+		], null, "websocket", true, true);
+		#end
+
 		reg("NETRadioPlayerAtom", "NET Radio Player", [
 			{name: "stream_url",    type: INPUT,  dataType: "string",  priority: IMPORTANT, label: "URL"},
 			{name: "poll_interval", type: INPUT,  defaultValue: 5.0,   dataType: "float",   priority: OPTIONAL, label: "Poll (s)"},

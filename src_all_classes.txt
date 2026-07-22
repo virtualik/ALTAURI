@@ -2360,7 +2360,7 @@ class Assembly extends Atom
 
 ================================================================================
 // FILE: core\base\AssemblyFactory.hx
-// Lines: 435 | Chars: 21815
+// Lines: 455 | Chars: 22607
 ================================================================================
 
 package core.base;
@@ -2377,11 +2377,11 @@ import library.electro.RelayAtom;
 import library.electro.OscilloscopeAtom;
 import library.electro.FFTAtom;
 import library.electro.BufferingAtom;
+import library.electro.PassThroughAtom;
 import library.drivers.MiniAudioAtom;
 import library.drivers.SignalGenerator;
 import library.drivers.ComPortAtom;
 import library.drivers.ComEnumeratorAtom;
-import library.logic.PassThroughAtom;
 
 using StringTools;
 
@@ -2489,6 +2489,15 @@ class AssemblyFactory
                                 case "COMENUMERATOR":
                                         normalizedTypeId = "ComEnumeratorAtom";
 // ─────────────────────────────────────────────────────────────
+// WEBSOCKET — WEBSocket client
+// ─────────────────────────────────────────────────────────────
+								#if cpp
+								case "WEBSocketAtom":
+								case "WEBSOCKET":
+								case "WEBSOCKET ATOM":
+									normalizedTypeId = "WEBSocketAtom";
+								#end
+// ─────────────────────────────────────────────────────────────
 // NET RADIO PLAYER — Internet radio metadata driver
 // ─────────────────────────────────────────────────────────────
                                 case "NETRADIOPLAYERATOM":
@@ -2518,6 +2527,7 @@ class AssemblyFactory
                                 case "FFTATOM":
                                 case "FFT": normalizedTypeId = "FFTAtom";
                                 case "TEXTINPUT": normalizedTypeId = "TextInput";
+								case "TEXTAREA": normalizedTypeId = "TextArea";
 // ─────────────────────────────────────────────────────────────
 // LOGIC
 // ─────────────────────────────────────────────────────────────
@@ -2566,6 +2576,14 @@ class AssemblyFactory
                                 trace('🔍 AssemblyFactory: Created ComEnumeratorAtom...');
                                 #end
 // =============================================================
+// WEB SOCKET — Web Socket port
+// =============================================================
+						case "WEBSocketAtom":
+								#if cpp
+								atom = new library.drivers.WEBSocketAtom(id);
+								trace('🌐 AssemblyFactory: Created WEBSocketAtom...');
+								#end
+// =============================================================
 // NET RADIO PLAYER — internet radio metadata extraction
 // =============================================================
                         case "NETRadioPlayerAtom":
@@ -2612,6 +2630,8 @@ class AssemblyFactory
                                 atom = new FFTAtom(id);
                         case "TextInput":
                                 atom = new TextInputAtom(id);
+						case "TextArea":
+								atom = new library.electro.TextAreaAtom(id);
 // =============================================================
 // LOGIC
 // =============================================================
@@ -8228,7 +8248,7 @@ class DeviceViewRegistry
 
 ================================================================================
 // FILE: core\view\DeviceWidgetFactory.hx
-// Lines: 243 | Chars: 7993
+// Lines: 249 | Chars: 8162
 ================================================================================
 
 package core.view;
@@ -8341,6 +8361,8 @@ class DeviceWidgetFactory
 				new FFTWidget(asm);
 			case "textinput":
 				new TextInputWidget(asm);
+			case "textarea":
+				new TextAreaWidget(asm);
 				#if cpp
 			case "miniaudioatom", "mini audio capture":
 				new MiniAudioWidget(asm);
@@ -8379,12 +8401,14 @@ class DeviceWidgetFactory
 				new ToggleWidget(atom, "out");
 			case "textinput":
 				new TextInputWidget(atom);
-				#if cpp
+			case "textarea":
+				new TextAreaWidget(atom);
 			case "oscilloscope":
 				new OscilloscopeWidget(atom, "in");
 			case "fftatom", "fft spectrum":
 				new FFTWidget(atom);
-			case "audioin", "audioinput", "audio":
+				#if cpp
+				case "audioin", "audioinput", "audio":
 				new OscilloscopeWidget(atom, "samples");
 			case "systemvumeteratom", "system vu meter", "vumeter":
 				new SystemVUMeterWidget(atom);
@@ -8399,6 +8423,8 @@ class DeviceWidgetFactory
 				new ComPortWidget(atom);
 			case "comenumeratoratom", "com enumerator":
 				new ComEnumeratorWidget(atom);
+			case "websocketatom", "websocket":
+				new WEBSocketWidget(atom);
 			case "netradioplayeratom", "net radio player":
 				new NETRadioPlayerWidget(atom);
 			case "miniaudioatom", "mini audio capture":
@@ -10560,7 +10586,7 @@ class OscilloscopeWidget extends DeviceView
 
 ================================================================================
 // FILE: core\view\PanelWidget.hx
-// Lines: 264 | Chars: 9374
+// Lines: 265 | Chars: 9394
 ================================================================================
 
 package core.view;
@@ -10666,7 +10692,8 @@ class PanelWidget extends DeviceView
         _titleLabel.mouseEnabled = false;
         var fmt = new TextFormat("_sans", 12, 0xFFFFFF, true);
         _titleLabel.defaultTextFormat = fmt;
-        _titleLabel.text = (assembly != null && assembly.blueprint != null) ? assembly.blueprint.name : "Panel";
+		// Widget title name
+        _titleLabel.text = (assembly != null && assembly.blueprint != null) ? assembly.displayName : "Panel";
         _header.addChild(_titleLabel);
 
         // Content area
@@ -12544,6 +12571,980 @@ class SystemVUMeterWidget extends DeviceView
 #end
 
 ================================================================================
+// FILE: core\view\TextAreaWidget.hx
+// Lines: 968 | Chars: 35977
+================================================================================
+
+// FILE: core\view\TextAreaWidget.hx
+package core.view;
+
+import openfl.display.Sprite;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import openfl.text.TextFieldType;
+import openfl.events.Event;
+import openfl.events.FocusEvent;
+import openfl.events.KeyboardEvent;
+import openfl.events.MouseEvent;
+import openfl.ui.Keyboard;
+import core.base.Atom;
+import core.base.Contact;
+import core.logic.Impulsys;
+import core.logic.EventType;
+import library.electro.TextAreaAtom;
+
+/**
+* TEXT AREA WIDGET v1.1 (Custom Scrollbars)
+*
+* Visual component (Face) for TextAreaAtom.
+* Provides a multi-line text editing area with configurable dimensions,
+* custom-drawn scrollbars, word wrap, and auto-scroll behavior.
+*
+* Architecture: "ATOM IS DATABANK & COMPUTE CORE"
+* ┌─────────────────────────────────────────────────────────────────────────┐
+* │   TextAreaAtom (Databank)                                               │
+* │                                                                         │
+* │   Contact "text"     ◄──► TextAreaWidget                                │
+* │   Contact "editable"  ──► TextAreaWidget (enable/disable)               │
+* │   Contact "wordWrap"  ──► TextAreaWidget                                │
+* │   Contact "autoScroll"──► TextAreaWidget                                │
+* │   Contact "hScroll"   ──► TextAreaWidget                                │
+* │   Contact "vScroll"   ──► TextAreaWidget                                │
+* │   Contact "maxChars"  ──► TextAreaWidget (width)                        │
+* │   Contact "numLines"  ──► TextAreaWidget (height)                       │
+* │                                                                         │
+* │   Widget READS config from atom's contacts.                             │
+* │   Widget WRITES to atom via setTextFromWidget().                        │
+* │   Atom is the Databank — single source of truth.                        │
+* │                                                                         │
+* │   ┌───────────────────────────────────────────────────────────────┐     │
+* │   │  ┌─────────────────────────────────────────────────────────┐  │     │
+* │   │  │  Line 1: Hello World                                  │▐ │     │
+* │   │  │  Line 2: This is a TextArea widget                    │▐ │     │
+* │   │  │  Line 3: with configurable parameters                 │▐ │     │
+* │   │  │  Line 4:                                              │█ │     │
+* │   │  │  Line 5:                                              │█ │     │
+* │   │  │  Line 6:                                              │█ │     │
+* │   │  │  Line 7:                                              │▄ │     │
+* │   │  │  Line 8:                                              │  │     │
+* │   │  └─────────────────────────────────────────────────────────┘  │     │
+* │   │  ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀       │
+* │   │  Lines: 8 | Cursor: 3                                         │     │
+* │   └───────────────────────────────────────────────────────────────┘     │
+* │                                                                         │
+* └─────────────────────────────────────────────────────────────────────────┘
+*
+* Sizing Formula:
+* ┌─────────────────────────────────────────────────────────────────────────┐
+* │  charWidth  = 8px  (monospace _typewriter at 12pt)                     │
+* │  lineHeight = 18px                                                     │
+* │  padding    = 8px                                                      │
+* │  scrollbar  = 14px (custom drawn)                                      │
+* │                                                                         │
+* │  widgetWidth  = maxChars × charWidth + padding×2 + (vScroll ? 14 : 0)  │
+* │  widgetHeight = numLines × lineHeight + padding×2 + (hScroll ? 14 : 0) │
+* │                 + statusBarHeight(18)                                   │
+* └─────────────────────────────────────────────────────────────────────────┘
+*/
+class TextAreaWidget extends DeviceView
+{
+    // =========================================================================
+    // CONSTANTS
+    // =========================================================================
+    private static inline var CHAR_WIDTH:Float = 8.0;
+    private static inline var LINE_HEIGHT:Float = 18.0;
+    private static inline var PADDING:Float = 8.0;
+    private static inline var SCROLLBAR_SIZE:Float = 14.0;
+    private static inline var STATUS_HEIGHT:Float = 18.0;
+    private static inline var MIN_CHARS:Int = 5;
+    private static inline var MAX_CHARS:Int = 200;
+    private static inline var MIN_LINES:Int = 1;
+    private static inline var MAX_LINES:Int = 100;
+    
+    // Scrollbar colors
+    private static inline var SCROLL_BG_COLOR:Int = 0x1a1a24;
+    private static inline var SCROLL_TRACK_COLOR:Int = 0x2a2a3a;
+    private static inline var SCROLL_THUMB_COLOR:Int = 0x4a4a6a;
+    private static inline var SCROLL_THUMB_HOVER:Int = 0x6a6a8a;
+    private static inline var SCROLL_THUMB_DRAG:Int = 0x00AAFF;
+    private static inline var SCROLL_BORDER_COLOR:Int = 0x333355;
+
+    // =========================================================================
+    // UI COMPONENTS
+    // =========================================================================
+    private var _bg:Sprite;
+    private var _textField:TextField;
+    private var _statusBar:TextField;
+    private var _headerLabel:TextField;
+    
+    // Custom scrollbars
+    private var _vScrollBar:Sprite;
+    private var _vScrollTrack:Sprite;
+    private var _vScrollThumb:Sprite;
+    private var _hScrollBar:Sprite;
+    private var _hScrollTrack:Sprite;
+    private var _hScrollThumb:Sprite;
+
+    // =========================================================================
+    // STATE
+    // =========================================================================
+    private var _textAreaAtom:TextAreaAtom;
+    private var _isEditing:Bool = false;
+    private var _lastText:String = "";
+    private var _suppressUpdate:Bool = false;
+    
+    // Scrollbar drag state
+    private var _isDraggingV:Bool = false;
+    private var _isDraggingH:Bool = false;
+    private var _dragStartY:Float = 0;
+    private var _dragStartX:Float = 0;
+    private var _dragStartScrollV:Int = 0;
+    private var _dragStartScrollH:Int = 0;
+    private var _vThumbHover:Bool = false;
+    private var _hThumbHover:Bool = false;
+
+    // =========================================================================
+    // CONFIGURATION (cached from atom)
+    // =========================================================================
+    private var _maxChars:Int = 40;
+    private var _numLines:Int = 8;
+    private var _editable:Bool = true;
+    private var _wordWrap:Bool = true;
+    private var _autoScroll:Bool = true;
+    private var _hScroll:Bool = false;
+    private var _vScroll:Bool = true;
+
+    // =========================================================================
+    // DYNAMIC SIZE
+    // =========================================================================
+    public var widgetWidth(default, null):Float = 350;
+    public var widgetHeight(default, null):Float = 190;
+
+    override public function getWidgetSize():{width:Float, height:Float}
+    {
+        return {width: widgetWidth, height: widgetHeight};
+    }
+
+    // =========================================================================
+    // CONSTRUCTOR
+    // =========================================================================
+    public function new(atom:Atom)
+    {
+        super(atom);
+
+        // Resolve TextAreaAtom reference
+        if (Std.isOfType(atom, TextAreaAtom))
+        {
+            _textAreaAtom = cast(atom, TextAreaAtom);
+        }
+
+        syncConfigFromAtom();
+        recalcSize();
+        buildUI();
+        syncFromAtom();
+    }
+
+    // =========================================================================
+    // INITIALIZATION
+    // =========================================================================
+    override private function onActivate():Void
+    {
+        syncConfigFromAtom();
+        recalcSize();
+        rebuildUI();
+        syncFromAtom();
+    }
+
+    /**
+    * Read all configuration parameters from the atom's contacts.
+    */
+    private function syncConfigFromAtom():Void
+    {
+        if (_textAreaAtom != null)
+        {
+            _maxChars = _textAreaAtom.getMaxChars();
+            _numLines = _textAreaAtom.getNumLines();
+            _editable = _textAreaAtom.isEditable();
+            _wordWrap = _textAreaAtom.isWordWrap();
+            _autoScroll = _textAreaAtom.isAutoScroll();
+            _hScroll = _textAreaAtom.isHScroll();
+            _vScroll = _textAreaAtom.isVScroll();
+        }
+        else
+        {
+            // Fallback: read from contacts directly
+            _maxChars = readIntInput("maxChars", 40);
+            _numLines = readIntInput("numLines", 8);
+            _editable = readBoolInput("editable", true);
+            _wordWrap = readBoolInput("wordWrap", true);
+            _autoScroll = readBoolInput("autoScroll", true);
+            _hScroll = readBoolInput("hScroll", false);
+            _vScroll = readBoolInput("vScroll", true);
+        }
+    }
+
+    private function readIntInput(name:String, def:Int):Int
+    {
+        if (atom == null) return def;
+        var c = atom.getInput(name);
+        if (c != null && c.value != null)
+        {
+            var v = Std.int(c.value);
+            return v;
+        }
+        return def;
+    }
+
+    private function readBoolInput(name:String, def:Bool):Bool
+    {
+        if (atom == null) return def;
+        var c = atom.getInput(name);
+        if (c != null && c.value != null) return (c.value == true);
+        return def;
+    }
+
+    /**
+    * Recalculate widget dimensions based on current configuration.
+    */
+    private function recalcSize():Void
+    {
+        var scrollW = _vScroll ? SCROLLBAR_SIZE : 0;
+        var scrollH = _hScroll ? SCROLLBAR_SIZE : 0;
+
+        widgetWidth = _maxChars * CHAR_WIDTH + PADDING * 2 + scrollW + 4;
+        widgetHeight = _numLines * LINE_HEIGHT + PADDING * 2 + scrollH + STATUS_HEIGHT + 4;
+
+        // Clamp to reasonable bounds
+        if (widgetWidth < 100) widgetWidth = 100;
+        if (widgetWidth > 800) widgetWidth = 800;
+        if (widgetHeight < 60) widgetHeight = 60;
+        if (widgetHeight > 600) widgetHeight = 600;
+    }
+
+    // =========================================================================
+    // UI CONSTRUCTION
+    // =========================================================================
+    private function buildUI():Void
+    {
+        // === BACKGROUND ===
+        _bg = new Sprite();
+        addChild(_bg);
+        drawBackground();
+
+        // === HEADER LABEL ===
+        _headerLabel = new TextField();
+        _headerLabel.defaultTextFormat = new TextFormat("_typewriter", 9, 0x666688);
+        _headerLabel.text = "TEXT AREA";
+        _headerLabel.width = widgetWidth;
+        _headerLabel.height = 14;
+        _headerLabel.x = PADDING;
+        _headerLabel.y = 2;
+        _headerLabel.selectable = false;
+        _headerLabel.mouseEnabled = false;
+        addChild(_headerLabel);
+
+        // === TEXT FIELD ===
+        _textField = new TextField();
+        _textField.x = PADDING;
+        _textField.y = 16;
+        _textField.width = widgetWidth - PADDING * 2 - (_vScroll ? SCROLLBAR_SIZE : 0) - 4;
+        _textField.height = widgetHeight - 16 - PADDING * 2 - STATUS_HEIGHT - (_hScroll ? SCROLLBAR_SIZE : 0);
+        _textField.multiline = true;
+        _textField.wordWrap = _wordWrap;
+        _textField.selectable = true;
+        _textField.mouseEnabled = true;
+        _textField.border = true;
+        _textField.borderColor = 0x333355;
+        _textField.background = true;
+        _textField.backgroundColor = 0x0d0d18;
+        _textField.textColor = 0x00FF88;
+
+        var fmt = new TextFormat("_typewriter", 12, 0x00FF88);
+        _textField.defaultTextFormat = fmt;
+
+        applyEditableState();
+
+        _textField.addEventListener(Event.CHANGE, onTextChange);
+        _textField.addEventListener(FocusEvent.FOCUS_IN, onFocusIn);
+        _textField.addEventListener(FocusEvent.FOCUS_OUT, onFocusOut);
+        _textField.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
+        _textField.addEventListener(Event.SCROLL, onScroll);
+        addChild(_textField);
+
+        // === CUSTOM SCROLLBARS ===
+        buildScrollbars();
+
+        // === STATUS BAR ===
+        _statusBar = new TextField();
+        _statusBar.defaultTextFormat = new TextFormat("_typewriter", 9, 0x555577);
+        _statusBar.text = "Lines: 1 | Ln 1, Col 1";
+        _statusBar.width = widgetWidth - PADDING * 2;
+        _statusBar.height = STATUS_HEIGHT;
+        _statusBar.x = PADDING;
+        _statusBar.y = widgetHeight - STATUS_HEIGHT - 2;
+        _statusBar.selectable = false;
+        _statusBar.mouseEnabled = false;
+        addChild(_statusBar);
+    }
+
+    /**
+    * Build custom scrollbars (vertical and horizontal).
+    * OpenFL TextField does not draw scrollbars automatically,
+    * so we create custom sprites for visual feedback and interaction.
+    */
+    private function buildScrollbars():Void
+    {
+        // === VERTICAL SCROLLBAR ===
+        if (_vScroll)
+        {
+            _vScrollBar = new Sprite();
+            _vScrollBar.x = widgetWidth - SCROLLBAR_SIZE - 2;
+            _vScrollBar.y = 16;
+            
+            // Track (background)
+            _vScrollTrack = new Sprite();
+            _vScrollTrack.graphics.beginFill(SCROLL_TRACK_COLOR);
+            _vScrollTrack.graphics.drawRect(0, 0, SCROLLBAR_SIZE - 2, _textField.height);
+            _vScrollTrack.graphics.endFill();
+            _vScrollTrack.graphics.lineStyle(1, SCROLL_BORDER_COLOR);
+            _vScrollTrack.graphics.drawRect(0, 0, SCROLLBAR_SIZE - 2, _textField.height);
+            _vScrollBar.addChild(_vScrollTrack);
+            
+            // Thumb (draggable)
+            _vScrollThumb = new Sprite();
+            _vScrollThumb.graphics.beginFill(SCROLL_THUMB_COLOR);
+            _vScrollThumb.graphics.drawRoundRect(1, 0, SCROLLBAR_SIZE - 4, 40, 3, 3);
+            _vScrollThumb.graphics.endFill();
+            _vScrollThumb.buttonMode = true;
+            _vScrollThumb.addEventListener(MouseEvent.MOUSE_DOWN, onVThumbMouseDown);
+            _vScrollThumb.addEventListener(MouseEvent.MOUSE_OVER, onVThumbOver);
+            _vScrollThumb.addEventListener(MouseEvent.MOUSE_OUT, onVThumbOut);
+            _vScrollBar.addChild(_vScrollThumb);
+            
+            // Track click for jump-to-position
+            _vScrollTrack.buttonMode = true;
+            _vScrollTrack.addEventListener(MouseEvent.MOUSE_DOWN, onVTrackClick);
+            
+            addChild(_vScrollBar);
+        }
+
+        // === HORIZONTAL SCROLLBAR ===
+        if (_hScroll)
+        {
+            _hScrollBar = new Sprite();
+            _hScrollBar.x = PADDING;
+            _hScrollBar.y = widgetHeight - STATUS_HEIGHT - SCROLLBAR_SIZE - 2;
+            
+            // Track (background)
+            _hScrollTrack = new Sprite();
+            _hScrollTrack.graphics.beginFill(SCROLL_TRACK_COLOR);
+            _hScrollTrack.graphics.drawRect(0, 0, _textField.width, SCROLLBAR_SIZE - 2);
+            _hScrollTrack.graphics.endFill();
+            _hScrollTrack.graphics.lineStyle(1, SCROLL_BORDER_COLOR);
+            _hScrollTrack.graphics.drawRect(0, 0, _textField.width, SCROLLBAR_SIZE - 2);
+            _hScrollBar.addChild(_hScrollTrack);
+            
+            // Thumb (draggable)
+            _hScrollThumb = new Sprite();
+            _hScrollThumb.graphics.beginFill(SCROLL_THUMB_COLOR);
+            _hScrollThumb.graphics.drawRoundRect(0, 1, 60, SCROLLBAR_SIZE - 4, 3, 3);
+            _hScrollThumb.graphics.endFill();
+            _hScrollThumb.buttonMode = true;
+            _hScrollThumb.addEventListener(MouseEvent.MOUSE_DOWN, onHThumbMouseDown);
+            _hScrollThumb.addEventListener(MouseEvent.MOUSE_OVER, onHThumbOver);
+            _hScrollThumb.addEventListener(MouseEvent.MOUSE_OUT, onHThumbOut);
+            _hScrollBar.addChild(_hScrollThumb);
+            
+            // Track click for jump-to-position
+            _hScrollTrack.buttonMode = true;
+            _hScrollTrack.addEventListener(MouseEvent.MOUSE_DOWN, onHTrackClick);
+            
+            addChild(_hScrollBar);
+        }
+    }
+
+    /**
+    * Full UI rebuild (called when configuration changes).
+    */
+    private function rebuildUI():Void
+    {
+        // Remove old children
+        while (numChildren > 0) removeChildAt(0);
+
+        // Remove old listeners
+        if (_textField != null)
+        {
+            _textField.removeEventListener(Event.CHANGE, onTextChange);
+            _textField.removeEventListener(FocusEvent.FOCUS_IN, onFocusIn);
+            _textField.removeEventListener(FocusEvent.FOCUS_OUT, onFocusOut);
+            _textField.removeEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
+            _textField.removeEventListener(Event.SCROLL, onScroll);
+        }
+        
+        // Remove scrollbar listeners
+        if (_vScrollThumb != null)
+        {
+            _vScrollThumb.removeEventListener(MouseEvent.MOUSE_DOWN, onVThumbMouseDown);
+            _vScrollThumb.removeEventListener(MouseEvent.MOUSE_OVER, onVThumbOver);
+            _vScrollThumb.removeEventListener(MouseEvent.MOUSE_OUT, onVThumbOut);
+        }
+        if (_hScrollThumb != null)
+        {
+            _hScrollThumb.removeEventListener(MouseEvent.MOUSE_DOWN, onHThumbMouseDown);
+            _hScrollThumb.removeEventListener(MouseEvent.MOUSE_OVER, onHThumbOver);
+            _hScrollThumb.removeEventListener(MouseEvent.MOUSE_OUT, onHThumbOut);
+        }
+
+        buildUI();
+    }
+
+    private function drawBackground():Void
+    {
+        _bg.graphics.clear();
+        _bg.graphics.beginFill(0x1a1a24, 0.95);
+        _bg.graphics.lineStyle(1, _editable ? 0x00AAFF : 0x444455);
+        _bg.graphics.drawRoundRect(0, 0, widgetWidth, widgetHeight, 6, 6);
+        _bg.graphics.endFill();
+    }
+
+    /**
+    * Apply editable/readonly state to the TextField.
+    */
+    private function applyEditableState():Void
+    {
+        if (_textField == null) return;
+        if (_editable)
+        {
+            _textField.type = TextFieldType.INPUT;
+            _textField.textColor = 0x00FF88;
+            _textField.borderColor = 0x333355;
+            _textField.backgroundColor = 0x0d0d18;
+        }
+        else
+        {
+            _textField.type = TextFieldType.DYNAMIC;
+            _textField.textColor = 0x668866;
+            _textField.borderColor = 0x2a2a3a;
+            _textField.backgroundColor = 0x111118;
+        }
+    }
+
+    // =========================================================================
+    // SCROLLBAR INTERACTION
+    // =========================================================================
+    
+    /**
+    * Update scrollbar thumb positions based on current scroll state.
+    * Called on every scroll event and text change.
+    */
+    private function updateScrollbarThumbs():Void
+    {
+        if (_textField == null) return;
+        
+        // === VERTICAL SCROLLBAR ===
+        if (_vScroll && _vScrollThumb != null && _vScrollTrack != null)
+        {
+            var maxScroll = _textField.maxScrollV;
+            var currentScroll = _textField.scrollV;
+            var trackHeight = _textField.height;
+            
+            if (maxScroll > 1)
+            {
+                // Calculate thumb height (proportional to visible/total lines)
+                var visibleLines = _textField.bottomScrollV - _textField.scrollV + 1;
+                var totalLines = _textField.numLines;
+                var thumbHeight = Math.max(20, (visibleLines / totalLines) * trackHeight);
+                
+                // Calculate thumb position
+                var scrollRatio = (currentScroll - 1) / (maxScroll - 1);
+                var thumbY = scrollRatio * (trackHeight - thumbHeight);
+                
+                // Redraw thumb
+                _vScrollThumb.graphics.clear();
+                var thumbColor = _isDraggingV ? SCROLL_THUMB_DRAG : (_vThumbHover ? SCROLL_THUMB_HOVER : SCROLL_THUMB_COLOR);
+                _vScrollThumb.graphics.beginFill(thumbColor);
+                _vScrollThumb.graphics.drawRoundRect(1, thumbY, SCROLLBAR_SIZE - 4, thumbHeight, 3, 3);
+                _vScrollThumb.graphics.endFill();
+                _vScrollThumb.visible = true;
+            }
+            else
+            {
+                // No scroll needed - hide thumb
+                _vScrollThumb.visible = false;
+            }
+        }
+        
+        // === HORIZONTAL SCROLLBAR ===
+        if (_hScroll && _hScrollThumb != null && _hScrollTrack != null && !_wordWrap)
+        {
+            var maxScrollH = _textField.maxScrollH;
+            var currentScrollH = _textField.scrollH;
+            var trackWidth = _textField.width;
+            
+            if (maxScrollH > 0)
+            {
+                // Calculate thumb width (proportional to visible/total width)
+                var visibleWidth = _textField.width;
+                var totalWidth = _textField.textWidth + 20; // Approximate total width
+                var thumbWidth = Math.max(30, (visibleWidth / totalWidth) * trackWidth);
+                
+                // Calculate thumb position
+                var scrollRatio = currentScrollH / maxScrollH;
+                var thumbX = scrollRatio * (trackWidth - thumbWidth);
+                
+                // Redraw thumb
+                _hScrollThumb.graphics.clear();
+                var thumbColor = _isDraggingH ? SCROLL_THUMB_DRAG : (_hThumbHover ? SCROLL_THUMB_HOVER : SCROLL_THUMB_COLOR);
+                _hScrollThumb.graphics.beginFill(thumbColor);
+                _hScrollThumb.graphics.drawRoundRect(thumbX, 1, thumbWidth, SCROLLBAR_SIZE - 4, 3, 3);
+                _hScrollThumb.graphics.endFill();
+                _hScrollThumb.visible = true;
+            }
+            else
+            {
+                // No scroll needed - hide thumb
+                _hScrollThumb.visible = false;
+            }
+        }
+    }
+
+    // === VERTICAL SCROLLBAR HANDLERS ===
+    
+    private function onVThumbMouseDown(e:MouseEvent):Void
+    {
+        _isDraggingV = true;
+        _dragStartY = e.stageY;
+        _dragStartScrollV = _textField.scrollV;
+        
+        stage.addEventListener(MouseEvent.MOUSE_MOVE, onVThumbDrag);
+        stage.addEventListener(MouseEvent.MOUSE_UP, onVThumbMouseUp);
+        e.stopPropagation();
+    }
+    
+    private function onVThumbDrag(e:MouseEvent):Void
+    {
+        if (!_isDraggingV || _textField == null) return;
+        
+        var deltaY = e.stageY - _dragStartY;
+        var trackHeight = _textField.height;
+        var maxScroll = _textField.maxScrollV;
+        
+        if (maxScroll > 1)
+        {
+            var scrollDelta = Std.int((deltaY / trackHeight) * maxScroll);
+            var newScroll = Math.max(1, Math.min(maxScroll, _dragStartScrollV + scrollDelta));
+            _textField.scrollV = Std.int(newScroll);
+            updateScrollbarThumbs();
+        }
+    }
+    
+    private function onVThumbMouseUp(e:MouseEvent):Void
+    {
+        _isDraggingV = false;
+        stage.removeEventListener(MouseEvent.MOUSE_MOVE, onVThumbDrag);
+        stage.removeEventListener(MouseEvent.MOUSE_UP, onVThumbMouseUp);
+        updateScrollbarThumbs();
+    }
+    
+    private function onVTrackClick(e:MouseEvent):Void
+    {
+        if (_textField == null || _vScrollTrack == null) return;
+        
+        // Jump to clicked position
+        var localY = _vScrollTrack.mouseY;
+        var trackHeight = _textField.height;
+        var maxScroll = _textField.maxScrollV;
+        
+        if (maxScroll > 1)
+        {
+            var scrollRatio = localY / trackHeight;
+            var newScroll = Math.max(1, Math.min(maxScroll, Std.int(scrollRatio * maxScroll)));
+            _textField.scrollV = Std.int(newScroll);
+            updateScrollbarThumbs();
+        }
+    }
+    
+    private function onVThumbOver(e:MouseEvent):Void
+    {
+        _vThumbHover = true;
+        updateScrollbarThumbs();
+    }
+    
+    private function onVThumbOut(e:MouseEvent):Void
+    {
+        _vThumbHover = false;
+        updateScrollbarThumbs();
+    }
+
+    // === HORIZONTAL SCROLLBAR HANDLERS ===
+    
+    private function onHThumbMouseDown(e:MouseEvent):Void
+    {
+        _isDraggingH = true;
+        _dragStartX = e.stageX;
+        _dragStartScrollH = _textField.scrollH;
+        
+        stage.addEventListener(MouseEvent.MOUSE_MOVE, onHThumbDrag);
+        stage.addEventListener(MouseEvent.MOUSE_UP, onHThumbMouseUp);
+        e.stopPropagation();
+    }
+    
+    private function onHThumbDrag(e:MouseEvent):Void
+    {
+        if (!_isDraggingH || _textField == null) return;
+        
+        var deltaX = e.stageX - _dragStartX;
+        var trackWidth = _textField.width;
+        var maxScrollH = _textField.maxScrollH;
+        
+        if (maxScrollH > 0)
+        {
+            var scrollDelta = Std.int((deltaX / trackWidth) * maxScrollH);
+            var newScroll = Math.max(0, Math.min(maxScrollH, _dragStartScrollH + scrollDelta));
+            _textField.scrollH = Std.int(newScroll);
+            updateScrollbarThumbs();
+        }
+    }
+    
+    private function onHThumbMouseUp(e:MouseEvent):Void
+    {
+        _isDraggingH = false;
+        stage.removeEventListener(MouseEvent.MOUSE_MOVE, onHThumbDrag);
+        stage.removeEventListener(MouseEvent.MOUSE_UP, onHThumbMouseUp);
+        updateScrollbarThumbs();
+    }
+    
+    private function onHTrackClick(e:MouseEvent):Void
+    {
+        if (_textField == null || _hScrollTrack == null) return;
+        
+        // Jump to clicked position
+        var localX = _hScrollTrack.mouseX;
+        var trackWidth = _textField.width;
+        var maxScrollH = _textField.maxScrollH;
+        
+        if (maxScrollH > 0)
+        {
+            var scrollRatio = localX / trackWidth;
+            var newScroll = Math.max(0, Math.min(maxScrollH, Std.int(scrollRatio * maxScrollH)));
+            _textField.scrollH = Std.int(newScroll);
+            updateScrollbarThumbs();
+        }
+    }
+    
+    private function onHThumbOver(e:MouseEvent):Void
+    {
+        _hThumbHover = true;
+        updateScrollbarThumbs();
+    }
+    
+    private function onHThumbOut(e:MouseEvent):Void
+    {
+        _hThumbHover = false;
+        updateScrollbarThumbs();
+    }
+
+    // =========================================================================
+    // DATA SYNCHRONIZATION
+    // =========================================================================
+    override private function syncFromAtom():Void
+    {
+        if (atom == null || _textField == null) return;
+
+        // Sync text
+        var textOut = atom.getOutput("text");
+        if (textOut != null && textOut.value != null)
+        {
+            var newText = Std.string(textOut.value);
+            if (newText != _textField.text)
+            {
+                _suppressUpdate = true;
+                _textField.text = newText;
+                _lastText = newText;
+                _suppressUpdate = false;
+
+                if (_autoScroll)
+                {
+                    _textField.scrollV = _textField.maxScrollV;
+                }
+                
+                updateScrollbarThumbs();
+            }
+        }
+
+        updateStatusBar();
+    }
+
+    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void
+    {
+        if (isDisposed) return;
+
+        switch (contact.name)
+        {
+            case "text":
+                if (!_isEditing)
+                {
+                    var newText = (newValue != null) ? Std.string(newValue) : "";
+                    if (newText != _textField.text)
+                    {
+                        _suppressUpdate = true;
+                        _textField.text = newText;
+                        _lastText = newText;
+                        _suppressUpdate = false;
+
+                        if (_autoScroll)
+                        {
+                            _textField.scrollV = _textField.maxScrollV;
+                        }
+                        
+                        updateScrollbarThumbs();
+                    }
+                }
+
+            case "editable":
+                _editable = (newValue == true);
+                applyEditableState();
+                drawBackground();
+
+            case "wordWrap":
+                _wordWrap = (newValue == true);
+                _textField.wordWrap = _wordWrap;
+                updateScrollbarThumbs();
+
+            case "autoScroll":
+                _autoScroll = (newValue == true);
+                if (_autoScroll)
+                {
+                    _textField.scrollV = _textField.maxScrollV;
+                    updateScrollbarThumbs();
+                }
+
+            case "hScroll":
+                _hScroll = (newValue == true);
+                syncConfigFromAtom();
+                recalcSize();
+                rebuildUI();
+                syncFromAtom();
+
+            case "vScroll":
+                _vScroll = (newValue == true);
+                syncConfigFromAtom();
+                recalcSize();
+                rebuildUI();
+                syncFromAtom();
+
+            case "maxChars":
+                var v = Std.int(newValue);
+                if (v >= MIN_CHARS && v <= MAX_CHARS && v != _maxChars)
+                {
+                    _maxChars = v;
+                    recalcSize();
+                    rebuildUI();
+                    syncFromAtom();
+                }
+
+            case "numLines":
+                var v = Std.int(newValue);
+                if (v >= MIN_LINES && v <= MAX_LINES && v != _numLines)
+                {
+                    _numLines = v;
+                    recalcSize();
+                    rebuildUI();
+                    syncFromAtom();
+                }
+
+            case "changed":
+                // Pulse received — sync text
+                syncFromAtom();
+
+            case "lineCount":
+                updateStatusBar();
+                updateScrollbarThumbs();
+        }
+    }
+
+    // =========================================================================
+    // EVENT HANDLERS
+    // =========================================================================
+    private function onTextChange(e:Event):Void
+    {
+        if (_suppressUpdate || isDisposed) return;
+
+        var currentText = _textField.text;
+        if (currentText != _lastText)
+        {
+            _lastText = currentText;
+
+            // Push to atom's databank
+            if (_textAreaAtom != null)
+            {
+                _textAreaAtom.setTextFromWidget(currentText);
+            }
+            else
+            {
+                var textOut = atom.getOutput("text");
+                if (textOut != null) textOut.value = currentText;
+            }
+
+            updateStatusBar();
+            updateScrollbarThumbs();
+        }
+    }
+
+    private function onFocusIn(e:FocusEvent):Void
+    {
+        _isEditing = true;
+        if (_textField != null)
+        {
+            _textField.borderColor = 0x00AAFF;
+        }
+    }
+
+    private function onFocusOut(e:FocusEvent):Void
+    {
+        _isEditing = false;
+        if (_textField != null)
+        {
+            _textField.borderColor = _editable ? 0x333355 : 0x2a2a3a;
+        }
+
+        // Final push to atom
+        if (_textField != null && _textField.text != _lastText)
+        {
+            _lastText = _textField.text;
+            if (_textAreaAtom != null)
+            {
+                _textAreaAtom.setTextFromWidget(_lastText);
+            }
+        }
+
+        // Signal save
+        Impulsys.quickEmit(EventType.VALUE_COMMITTED);
+    }
+
+    private function onKeyDown(e:KeyboardEvent):Void
+    {
+        // Stop global shortcuts while typing
+        e.stopImmediatePropagation();
+
+        // Update cursor position in status bar
+        haxe.Timer.delay(updateStatusBar, 10);
+    }
+
+    private function onScroll(e:Event):Void
+    {
+        updateStatusBar();
+        updateScrollbarThumbs();
+    }
+
+    // =========================================================================
+    // STATUS BAR
+    // =========================================================================
+    private function updateStatusBar():Void
+    {
+        if (_statusBar == null || _textField == null) return;
+
+        var lineCount = _textField.numLines;
+        var scrollLine = _textField.scrollV;
+        var maxScroll = _textField.maxScrollV;
+
+        // Calculate cursor line and column
+        var caretIndex = _textField.caretIndex;
+        var cursorLine = 1;
+        var cursorCol = 1;
+
+        try
+        {
+            cursorLine = _textField.getLineIndexOfChar(caretIndex) + 1;
+            var lineOffset = _textField.getLineOffset(cursorLine - 1);
+            cursorCol = caretIndex - lineOffset + 1;
+        }
+        catch (e:Dynamic)
+        {
+            // Fallback if caretIndex is out of bounds
+        }
+
+        var editState = _editable ? "EDIT" : "READ";
+        var wrapState = _wordWrap ? "WRAP" : "NOWRAP";
+
+        _statusBar.text = '${editState} | Ln ${cursorLine}/${lineCount}, Col ${cursorCol} | ${wrapState}';
+
+        // Report cursor line to atom
+        if (_textAreaAtom != null)
+        {
+            _textAreaAtom.setCursorLine(cursorLine);
+        }
+    }
+
+    // =========================================================================
+    // FLUSH TRANSIENT STATE
+    // =========================================================================
+    override private function flushTransientState():Void
+    {
+        if (_textField != null && _textField.text != _lastText)
+        {
+            _lastText = _textField.text;
+            if (_textAreaAtom != null)
+            {
+                _textAreaAtom.setTextFromWidget(_lastText);
+            }
+        }
+    }
+
+    // =========================================================================
+    // DISPOSE
+    // =========================================================================
+    override public function dispose():Void
+    {
+        if (_textField != null)
+        {
+            _textField.removeEventListener(Event.CHANGE, onTextChange);
+            _textField.removeEventListener(FocusEvent.FOCUS_IN, onFocusIn);
+            _textField.removeEventListener(FocusEvent.FOCUS_OUT, onFocusOut);
+            _textField.removeEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
+            _textField.removeEventListener(Event.SCROLL, onScroll);
+        }
+        
+        // Remove scrollbar listeners
+        if (_vScrollThumb != null)
+        {
+            _vScrollThumb.removeEventListener(MouseEvent.MOUSE_DOWN, onVThumbMouseDown);
+            _vScrollThumb.removeEventListener(MouseEvent.MOUSE_OVER, onVThumbOver);
+            _vScrollThumb.removeEventListener(MouseEvent.MOUSE_OUT, onVThumbOut);
+        }
+        if (_hScrollThumb != null)
+        {
+            _hScrollThumb.removeEventListener(MouseEvent.MOUSE_DOWN, onHThumbMouseDown);
+            _hScrollThumb.removeEventListener(MouseEvent.MOUSE_OVER, onHThumbOver);
+            _hScrollThumb.removeEventListener(MouseEvent.MOUSE_OUT, onHThumbOut);
+        }
+        
+        // Clean up stage listeners
+        if (stage != null)
+        {
+            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onVThumbDrag);
+            stage.removeEventListener(MouseEvent.MOUSE_UP, onVThumbMouseUp);
+            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onHThumbDrag);
+            stage.removeEventListener(MouseEvent.MOUSE_UP, onHThumbMouseUp);
+        }
+
+        _bg = null;
+        _textField = null;
+        _statusBar = null;
+        _headerLabel = null;
+        _textAreaAtom = null;
+        _vScrollBar = null;
+        _vScrollTrack = null;
+        _vScrollThumb = null;
+        _hScrollBar = null;
+        _hScrollTrack = null;
+        _hScrollThumb = null;
+
+        super.dispose();
+    }
+}
+
+================================================================================
 // FILE: core\view\TextInputWidget.hx
 // Lines: 205 | Chars: 7274
 ================================================================================
@@ -13648,6 +14649,496 @@ class URLAudioStreamPlayerWidget extends DeviceView
         super.dispose();
     }
 }
+
+================================================================================
+// FILE: core\view\WEBSocketWidget.hx
+// Lines: 484 | Chars: 16031
+================================================================================
+
+// FILE: core/view/WEBSocketWidget.hx
+#if cpp
+package core.view;
+
+import openfl.display.Sprite;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import openfl.text.TextFormatAlign;
+import openfl.text.TextFieldType;
+import openfl.events.MouseEvent;
+import openfl.events.Event;
+import core.base.Atom;
+import core.base.Contact;
+
+/**
+ * WEBSOCKET WIDGET v1.0
+ * Interactive control panel for WebSocket communication.
+ * 
+ * Architecture: "ATOM IS DATABANK & COMPUTE CORE"
+ */
+class WEBSocketWidget extends DeviceView
+{
+    private var _bg:Sprite;
+    private var _header:Sprite;
+    private var _titleLabel:TextField;
+    
+    private var _urlLabel:TextField;
+    private var _urlInput:TextField;
+    
+    private var _connectBtn:Sprite;
+    private var _disconnectBtn:Sprite;
+    private var _statusLed:Sprite;
+    private var _statusGlow:Sprite;
+    
+    private var _sendSection:Sprite;
+    private var _sendInput:TextField;
+    private var _sendBtn:Sprite;
+    
+    private var _rxSection:Sprite;
+    private var _rxDisplay:TextField;
+    
+    private var _statusBar:TextField;
+    private var _errorDisplay:TextField;
+    
+    private var _urlContact:Contact;
+    private var _connectContact:Contact;
+    private var _disconnectContact:Contact;
+    private var _sendContact:Contact;
+    private var _sendDataContact:Contact;
+    private var _isConnectedContact:Contact;
+    private var _receivedDataContact:Contact;
+    private var _receivedTickContact:Contact;
+    private var _sentTickContact:Contact;
+    private var _errorContact:Contact;
+    private var _errorTickContact:Contact;
+    
+    private var _lastRxData:String = "";
+    private var _lastError:String = "";
+    
+    public var widgetWidth:Float = 300;
+    public var widgetHeight:Float = 380;
+    
+    override public function getWidgetSize():{width:Float, height:Float}
+    {
+        return {width: widgetWidth, height: widgetHeight};
+    }
+    
+    private var _colorBg:Int = 0x1a1a24;
+    private var _colorHeader:Int = 0x2a2a3a;
+    private var _colorAccent:Int = 0x00AAFF;
+    private var _colorActive:Int = 0x00FF88;
+    private var _colorDanger:Int = 0xFF4444;
+    private var _colorInactive:Int = 0x333344;
+    private var _colorText:Int = 0xFFFFFF;
+    private var _colorMuted:Int = 0x888899;
+    private var _colorInputBg:Int = 0x0d0d18;
+    
+    public function new(atom:Atom)
+    {
+        super(atom);
+        findContacts();
+        buildUI();
+        syncFromAtom();
+    }
+    
+    private function findContacts():Void
+    {
+        if (atom == null) return;
+        
+        _urlContact = atom.getInput("url");
+        _connectContact = atom.getInput("connect");
+        _disconnectContact = atom.getInput("disconnect");
+        _sendContact = atom.getInput("send");
+        _sendDataContact = atom.getInput("sendData");
+        
+        _isConnectedContact = atom.getOutput("isConnected");
+        _receivedDataContact = atom.getOutput("receivedData");
+        _receivedTickContact = atom.getOutput("receivedTick");
+        _sentTickContact = atom.getOutput("sentTick");
+        _errorContact = atom.getOutput("error");
+        _errorTickContact = atom.getOutput("errorTick");
+    }
+    
+    override private function onActivate():Void
+    {
+        findContacts();
+        syncFromAtom();
+    }
+    
+    private function buildUI():Void
+    {
+        var yPos:Float = 0;
+        
+        _bg = new Sprite();
+        addChild(_bg);
+        
+        _header = new Sprite();
+        _header.y = yPos;
+        addChild(_header);
+        
+        _titleLabel = new TextField();
+        _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 13, _colorText, true);
+        _titleLabel.text = "  WEBSOCKET";
+        _titleLabel.width = widgetWidth - 40;
+        _titleLabel.height = 28;
+        _titleLabel.selectable = false;
+        _titleLabel.mouseEnabled = false;
+        _header.addChild(_titleLabel);
+        
+        _statusGlow = new Sprite();
+        _statusGlow.graphics.beginFill(_colorDanger, 0.2);
+        _statusGlow.graphics.drawCircle(0, 0, 12);
+        _statusGlow.graphics.endFill();
+        _statusGlow.x = widgetWidth - 18;
+        _statusGlow.y = 14;
+        _statusGlow.visible = false;
+        _header.addChild(_statusGlow);
+        
+        _statusLed = new Sprite();
+        _statusLed.graphics.beginFill(0x440000);
+        _statusLed.graphics.drawCircle(0, 0, 6);
+        _statusLed.graphics.endFill();
+        _statusLed.x = widgetWidth - 18;
+        _statusLed.y = 14;
+        _header.addChild(_statusLed);
+        
+        yPos += 32;
+        
+        _urlLabel = createLabel("URL");
+        _urlLabel.y = yPos;
+        addChild(_urlLabel);
+        yPos += 18;
+        
+        _urlInput = createInputField("ws://localhost:8080", Std.int(widgetWidth - 20));
+        _urlInput.x = 10;
+        _urlInput.y = yPos;
+        _urlInput.addEventListener(Event.CHANGE, onUrlChanged);
+        addChild(_urlInput);
+        yPos += 30;
+        
+        _connectBtn = createActionButton("CONNECT", 0x225533, onConnectClick);
+        _connectBtn.x = 10;
+        _connectBtn.y = yPos;
+        addChild(_connectBtn);
+        
+        _disconnectBtn = createActionButton("DISCONNECT", 0x553322, onDisconnectClick);
+        _disconnectBtn.x = 100;
+        _disconnectBtn.y = yPos;
+        addChild(_disconnectBtn);
+        yPos += 36;
+        
+        _sendSection = new Sprite();
+        _sendSection.y = yPos;
+        addChild(_sendSection);
+        
+        var sendLabel = new TextField();
+        sendLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+        sendLabel.text = "SEND DATA";
+        sendLabel.width = 60;
+        sendLabel.height = 15;
+        sendLabel.selectable = false;
+        _sendSection.addChild(sendLabel);
+        
+        _sendInput = createInputField("", Std.int(widgetWidth - 80));
+        _sendInput.x = 0;
+        _sendInput.y = 15;
+        _sendSection.addChild(_sendInput);
+        
+        _sendBtn = createActionButton("SEND", 0x224466, onSendClick);
+        _sendBtn.x = widgetWidth - 62;
+        _sendBtn.y = 14;
+        _sendSection.addChild(_sendBtn);
+        yPos += 52;
+        
+        _rxSection = new Sprite();
+        _rxSection.y = yPos;
+        addChild(_rxSection);
+        
+        var rxLabel = new TextField();
+        rxLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+        rxLabel.text = "RECEIVED DATA";
+        rxLabel.width = 100;
+        rxLabel.height = 15;
+        rxLabel.selectable = false;
+        _rxSection.addChild(rxLabel);
+        
+        _rxDisplay = new TextField();
+        _rxDisplay.defaultTextFormat = new TextFormat("_typewriter", 11, _colorActive);
+        _rxDisplay.text = "";
+        _rxDisplay.width = widgetWidth - 20;
+        _rxDisplay.height = 100;
+        _rxDisplay.x = 5;
+        _rxDisplay.y = 15;
+        _rxDisplay.background = true;
+        _rxDisplay.backgroundColor = _colorInputBg;
+        _rxDisplay.border = true;
+        _rxDisplay.borderColor = 0x222233;
+        _rxDisplay.multiline = true;
+        _rxDisplay.wordWrap = true;
+        _rxDisplay.selectable = true;
+        _rxDisplay.mouseEnabled = true;
+        _rxSection.addChild(_rxDisplay);
+        yPos += 125;
+        
+        _statusBar = new TextField();
+        _statusBar.defaultTextFormat = new TextFormat("_typewriter", 10, _colorMuted);
+        _statusBar.text = "Disconnected";
+        _statusBar.width = 140;
+        _statusBar.height = 16;
+        _statusBar.x = 10;
+        _statusBar.y = yPos;
+        _statusBar.selectable = false;
+        addChild(_statusBar);
+        yPos += 22;
+        
+        _errorDisplay = new TextField();
+        _errorDisplay.defaultTextFormat = new TextFormat("_typewriter", 9, _colorDanger);
+        _errorDisplay.text = "";
+        _errorDisplay.width = widgetWidth - 20;
+        _errorDisplay.height = 15;
+        _errorDisplay.x = 10;
+        _errorDisplay.y = yPos;
+        _errorDisplay.selectable = false;
+        addChild(_errorDisplay);
+        
+        redrawBackground();
+    }
+    
+    private function redrawBackground():Void
+    {
+        _bg.graphics.clear();
+        _bg.graphics.beginFill(_colorBg, 0.95);
+        _bg.graphics.lineStyle(1, _colorAccent);
+        _bg.graphics.drawRoundRect(0, 0, widgetWidth, widgetHeight, 8, 8);
+        _bg.graphics.endFill();
+        
+        _header.graphics.clear();
+        _header.graphics.beginFill(_colorHeader);
+        _header.graphics.drawRoundRectComplex(0, 0, widgetWidth, 28, 8, 8, 0, 0);
+        _header.graphics.endFill();
+        
+        _sendSection.graphics.clear();
+        _sendSection.graphics.beginFill(0x0d0d18, 0.5);
+        _sendSection.graphics.lineStyle(1, 0x222244);
+        _sendSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 45, 4, 4);
+        _sendSection.graphics.endFill();
+        
+        _rxSection.graphics.clear();
+        _rxSection.graphics.beginFill(0x0d0d18, 0.5);
+        _rxSection.graphics.lineStyle(1, 0x224422);
+        _rxSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 120, 4, 4);
+        _rxSection.graphics.endFill();
+    }
+    
+    private function createLabel(text:String):TextField
+    {
+        var tf = new TextField();
+        tf.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+        tf.text = text;
+        tf.width = 60;
+        tf.height = 16;
+        tf.x = 10;
+        tf.selectable = false;
+        tf.mouseEnabled = false;
+        return tf;
+    }
+    
+    private function createInputField(defaultText:String, width:Int):TextField
+    {
+        var tf = new TextField();
+        tf.defaultTextFormat = new TextFormat("_typewriter", 12, _colorText);
+        tf.text = defaultText;
+        tf.width = width;
+        tf.height = 22;
+        tf.background = true;
+        tf.backgroundColor = _colorInputBg;
+        tf.border = true;
+        tf.borderColor = 0x333355;
+        tf.type = TextFieldType.INPUT;
+        tf.selectable = true;
+        tf.mouseEnabled = true;
+        return tf;
+    }
+    
+    private function createActionButton(label:String, color:Int, callback:MouseEvent -> Void):Sprite
+    {
+        var btn = new Sprite();
+        btn.graphics.beginFill(color);
+        btn.graphics.drawRoundRect(0, 0, 80, 26, 4, 4);
+        btn.graphics.endFill();
+        var tf = new TextField();
+        tf.defaultTextFormat = new TextFormat("_typewriter", 11, _colorText, true, null, null, null, null, TextFormatAlign.CENTER);
+        tf.text = label;
+        tf.width = 80;
+        tf.height = 26;
+        tf.selectable = false;
+        tf.mouseEnabled = false;
+        btn.addChild(tf);
+        btn.buttonMode = true;
+        btn.useHandCursor = true;
+        btn.addEventListener(MouseEvent.CLICK, callback);
+        return btn;
+    }
+    
+    override private function syncFromAtom():Void
+    {
+        if (_urlContact != null && _urlContact.value != null) {
+            _urlInput.text = Std.string(_urlContact.value);
+        }
+        
+        if (_isConnectedContact != null && _isConnectedContact.value != null) {
+            updateConnectionStatus(_isConnectedContact.value == true);
+        }
+        
+        if (_receivedDataContact != null && _receivedDataContact.value != null) {
+            var rxStr = Std.string(_receivedDataContact.value);
+            if (rxStr != "" && rxStr != _lastRxData) {
+                appendRxData(rxStr);
+            }
+        }
+        
+        if (_errorContact != null && _errorContact.value != null) {
+            var errStr = Std.string(_errorContact.value);
+            if (errStr != "" && errStr != _lastError) {
+                _errorDisplay.text = "Error: " + errStr;
+                _lastError = errStr;
+            }
+        }
+    }
+    
+    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void
+    {
+        if (isDisposed) return;
+        
+        if (contact == _isConnectedContact) {
+            updateConnectionStatus(newValue == true);
+        } else if (contact == _receivedDataContact) {
+            if (newValue != null && newValue != "") {
+                appendRxData(Std.string(newValue));
+            }
+        } else if (contact == _errorContact) {
+            if (newValue != null && newValue != "") {
+                _errorDisplay.text = "Error: " + Std.string(newValue);
+                _lastError = Std.string(newValue);
+            } else {
+                _errorDisplay.text = "";
+                _lastError = "";
+            }
+        }
+    }
+    
+    private function updateConnectionStatus(isConnected:Bool):Void
+    {
+        if (isConnected) {
+            _statusLed.graphics.clear();
+            _statusLed.graphics.beginFill(_colorActive);
+            _statusLed.graphics.drawCircle(0, 0, 6);
+            _statusLed.graphics.endFill();
+            _statusGlow.graphics.clear();
+            _statusGlow.graphics.beginFill(_colorActive, 0.2);
+            _statusGlow.graphics.drawCircle(0, 0, 12);
+            _statusGlow.graphics.endFill();
+            _statusGlow.visible = true;
+            _statusBar.text = "Connected";
+            _statusBar.textColor = _colorActive;
+        } else {
+            _statusLed.graphics.clear();
+            _statusLed.graphics.beginFill(0x440000);
+            _statusLed.graphics.drawCircle(0, 0, 6);
+            _statusLed.graphics.endFill();
+            _statusGlow.visible = false;
+            _statusBar.text = "Disconnected";
+            _statusBar.textColor = _colorMuted;
+        }
+    }
+    
+    private function appendRxData(data:String):Void
+    {
+        if (_rxDisplay == null) return;
+        _lastRxData = data;
+        var currentText = _rxDisplay.text;
+        
+        if (currentText.length > 2000) {
+            currentText = currentText.substr(currentText.length - 1000);
+        }
+        
+        _rxDisplay.text = currentText + data + "\n";
+        _rxDisplay.scrollV = _rxDisplay.maxScrollV;
+    }
+    
+    private function onUrlChanged(e:Event):Void
+    {
+        if (_urlContact != null) {
+            _urlContact.value = _urlInput.text;
+        }
+    }
+    
+    private function onConnectClick(e:MouseEvent):Void
+    {
+        if (_urlContact != null) {
+            _urlContact.value = _urlInput.text;
+        }
+        if (_connectContact != null) {
+            _connectContact.value = true;
+        }
+    }
+    
+    private function onDisconnectClick(e:MouseEvent):Void
+    {
+        if (_disconnectContact != null) {
+            _disconnectContact.value = true;
+        }
+    }
+    
+    private function onSendClick(e:MouseEvent):Void
+    {
+        if (_sendDataContact != null) {
+            _sendDataContact.value = _sendInput.text;
+        }
+        if (_sendContact != null) {
+            _sendContact.value = true;
+        }
+    }
+    
+    override public function dispose():Void
+    {
+        if (_connectBtn != null) _connectBtn.removeEventListener(MouseEvent.CLICK, onConnectClick);
+        if (_disconnectBtn != null) _disconnectBtn.removeEventListener(MouseEvent.CLICK, onDisconnectClick);
+        if (_sendBtn != null) _sendBtn.removeEventListener(MouseEvent.CLICK, onSendClick);
+        if (_urlInput != null) _urlInput.removeEventListener(Event.CHANGE, onUrlChanged);
+        
+        _bg = null;
+        _header = null;
+        _titleLabel = null;
+        _urlLabel = null;
+        _urlInput = null;
+        _connectBtn = null;
+        _disconnectBtn = null;
+        _statusLed = null;
+        _statusGlow = null;
+        _sendSection = null;
+        _sendInput = null;
+        _sendBtn = null;
+        _rxSection = null;
+        _rxDisplay = null;
+        _statusBar = null;
+        _errorDisplay = null;
+        
+        _urlContact = null;
+        _connectContact = null;
+        _disconnectContact = null;
+        _sendContact = null;
+        _sendDataContact = null;
+        _isConnectedContact = null;
+        _receivedDataContact = null;
+        _receivedTickContact = null;
+        _sentTickContact = null;
+        _errorContact = null;
+        _errorTickContact = null;
+        
+        super.dispose();
+    }
+}
+#end
 
 ================================================================================
 // FILE: ecs\components\PositionComponent.hx
@@ -14939,7 +16430,7 @@ class ContextMenuManager
 
 ================================================================================
 // FILE: editor\EditorActionHandler.hx
-// Lines: 404 | Chars: 15217
+// Lines: 424 | Chars: 15680
 ================================================================================
 
 package editor;
@@ -15061,7 +16552,27 @@ class EditorActionHandler
         );
         UndoManager.getInstance().executeAndStore(cmd);
     }
-    
+
+	/**
+	* Создает атом с заранее известным ID.
+	* Это необходимо для программного скриптинга, чтобы мы могли сразу соединить атомы.
+	*/
+	public function createAtomWithId(typeId:String, instanceId:String, x:Float, y:Float):Void
+	{
+		var cmd = new CreateAtomCommand(
+			_blueprint,
+			_assembly,
+			typeId,
+			instanceId, // Передаем наш сгенерированный ID
+			x,
+			y,
+			_isNameTakenGlobally,
+			null,
+			false
+		);
+		UndoManager.getInstance().executeAndStore(cmd);
+	}
+
     /**
      * Delete multiple atoms (batch operation).
      */
@@ -15349,7 +16860,7 @@ typedef ClipboardAtomData = {
 
 ================================================================================
 // FILE: editor\EditorContext.hx
-// Lines: 1037 | Chars: 43423
+// Lines: 1045 | Chars: 43740
 ================================================================================
 
 package editor;
@@ -16073,7 +17584,15 @@ class EditorContext
 
 		// 2. Sync renamed atom displayNames into atomDef.values
 		currentAssembly.syncDisplayNamesToBlueprint();
-
+		
+		// 2b. Sync the assembly's own displayName into blueprint.name
+		//     so the .atom file on disk reflects the user's rename.
+		if (currentAssembly.displayName != null
+			&& currentAssembly.displayName != currentAssembly.blueprint.name)
+		{
+			currentAssembly.blueprint.name = currentAssembly.displayName;
+		}
+		
 		// 3. Translate runtime IDs → template IDs in internalConnections
 		currentAssembly.syncConnectionsToTemplateIds();
 
@@ -16927,7 +18446,7 @@ class GroupSelectionManager
 
 ================================================================================
 // FILE: editor\NodeEditor.hx
-// Lines: 1396 | Chars: 46685
+// Lines: 1413 | Chars: 47309
 ================================================================================
 
 package editor;
@@ -17094,7 +18613,23 @@ class NodeEditor extends Sprite
 	private var _editorContainer:Sprite;
 	private var _canvas:Sprite;
 	private var _bgHitArea:Sprite;
+	/**
+	* Creates atom in setted up lication with particular ID.
+	* It's good for demo-scheme creation with code.
+	*/
+	public function createAtomWithId(typeId:String, instanceId:String, posX:Float, posY:Float):Void
+	{
+		var localPoint = _canvas.globalToLocal(new Point(posX, posY));
+		_actions.createAtomWithId(typeId, instanceId, localPoint.x, localPoint.y);
+	}
 
+	/**
+	* Connects two atoms using their ID and contact names.
+	*/
+	public function connectAtoms(fromId:String, fromContact:String, toId:String, toContact:String):Void
+	{
+		_actions.connect(fromId, fromContact, toId, toContact);
+	}
 	// =========================================================================
 	// PORT DRAG
 	// =========================================================================
@@ -17236,7 +18771,8 @@ class NodeEditor extends Sprite
 
 		_fileNameField = new openfl.text.TextField();
 		_fileNameField.defaultTextFormat = new openfl.text.TextFormat("_typewriter", 12, _theme.NODE_TEXT_COLOR);
-		_fileNameField.text = _blueprint.name;
+		// Display Assembly name
+		_fileNameField.text = _assembly.displayName;
 		_fileNameField.autoSize = LEFT;
 		_fileNameField.selectable = false;
 		addChild(_fileNameField);
@@ -18329,7 +19865,7 @@ class NodeEditor extends Sprite
 
 ================================================================================
 // FILE: editor\NodeView.hx
-// Lines: 1772 | Chars: 59887
+// Lines: 1784 | Chars: 60222
 ================================================================================
 
 package editor;
@@ -19881,8 +21417,20 @@ class NodeView extends Sprite
 			return;
 		}
 
-		// Apply new displayName to atom
+		// Apply displayName to Atom
 		atom.displayName = finalName;
+
+		// Для Assembly также обновляем blueprint.name, чтобы заголовок
+		// редактора и .atom файл отражали переименование.
+		// blueprint.id остаётся стабильным идентификатором.
+		if (Std.isOfType(atom, Assembly))
+		{
+			var asm:Assembly = cast(atom, Assembly);
+			if (asm.blueprint != null)
+			{
+				asm.blueprint.name = finalName;
+			}
+		}
 
 		// v3.4: blueprint.name is NOT modified here. Per the new naming
 		// policy (b), blueprint.name is a unique blueprint identifier
@@ -21780,7 +23328,7 @@ typedef WireEntry = {
 
 ================================================================================
 // FILE: library\AtomRegistry.hx
-// Lines: 528 | Chars: 23254
+// Lines: 560 | Chars: 25828
 ================================================================================
 
 package library;
@@ -21916,8 +23464,24 @@ class AtomRegistry
             {name: "control", type: INPUT, dataType: "bool"},
             {name: "out", type: OUTPUT, dataType: "any"}
         ], null, "relay");
+
+		reg("TextArea", "Text Area", [
+			{name: "text",       type: INPUT,  dataType: "string", priority: CRITICAL, label: "Text"},
+			{name: "append",     type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Append"},
+			{name: "clear",      type: INPUT,  dataType: "bool",   priority: OPTIONAL, label: "Clear"},
+			{name: "editable",   type: INPUT,  defaultValue: true, dataType: "bool",   priority: IMPORTANT, label: "Editable", visibleInEditor: true},
+			{name: "wordWrap",   type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL, label: "WordWrap", visibleInEditor: true},
+			{name: "autoScroll", type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL, label: "AutoScroll", visibleInEditor: true},
+			{name: "hScroll",    type: INPUT,  defaultValue: false,dataType: "bool",   priority: OPTIONAL, label: "HScroll", visibleInEditor: true},
+			{name: "vScroll",    type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL, label: "VScroll", visibleInEditor: true},
+			{name: "maxChars",   type: INPUT,  defaultValue: 40,   dataType: "int",    priority: IMPORTANT, label: "Width", visibleInEditor: true},
+			{name: "numLines",   type: INPUT,  defaultValue: 8,    dataType: "int",    priority: IMPORTANT, label: "Lines", visibleInEditor: true},
+			{name: "changed",    type: OUTPUT, dataType: "bool",   priority: OPTIONAL},
+			{name: "lineCount",  type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Lines"},
+			{name: "cursorLine", type: OUTPUT, dataType: "int",    priority: OPTIONAL, label: "Cursor"}
+		], null, "textarea");
         
-        // =================================================================
+		// =================================================================
         // ACTIVE DRIVERS (require DriverManager updates)
         // =================================================================
         
@@ -21995,7 +23559,23 @@ class AtomRegistry
         reg("ComEnumeratorAtom", "COM Enumerator", [
             {name: "ports", type: OUTPUT, dataType: "string", priority: CRITICAL}
         ], null, "comenumerator", true, true);
-        
+
+		#if cpp
+		reg("WEBSocketAtom", "WebSocket Client", [
+			{name: "url", type: INPUT, dataType: "string", priority: IMPORTANT, label: "URL"},
+			{name: "connect", type: INPUT, dataType: "bool", priority: CRITICAL},
+			{name: "disconnect", type: INPUT, dataType: "bool", priority: CRITICAL},
+			{name: "send", type: INPUT, dataType: "bool", priority: CRITICAL},
+			{name: "sendData", type: INPUT, dataType: "string", priority: IMPORTANT, label: "Data"},
+			{name: "isConnected", type: OUTPUT, dataType: "bool", priority: CRITICAL},
+			{name: "receivedData", type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "RX"},
+			{name: "receivedTick", type: OUTPUT, dataType: "bool", priority: INTERNAL},
+			{name: "sentTick", type: OUTPUT, dataType: "bool", priority: INTERNAL},
+			{name: "error", type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
+			{name: "errorTick", type: OUTPUT, dataType: "bool", priority: INTERNAL}
+		], null, "websocket", true, true);
+		#end
+
 		reg("NETRadioPlayerAtom", "NET Radio Player", [
 			{name: "stream_url",    type: INPUT,  dataType: "string",  priority: IMPORTANT, label: "URL"},
 			{name: "poll_interval", type: INPUT,  defaultValue: 5.0,   dataType: "float",   priority: OPTIONAL, label: "Poll (s)"},
@@ -27417,6 +28997,904 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 
 
 ================================================================================
+// FILE: library\drivers\WEBSocketAtom.hx
+// Lines: 892 | Chars: 36770
+================================================================================
+
+// FILE: library/drivers/WEBSocketAtom.hx
+package library.drivers;
+
+import core.base.Atom;
+import core.base.Contact;
+import core.types.ContactType.*;
+import system.managers.DriverManager;
+
+// ============================================================================
+// HTML5-SPECIFIC IMPORTS
+// ============================================================================
+#if html5
+import js.html.WebSocket;
+import js.html.MessageEvent;
+import js.html.Event;
+#end
+
+// ============================================================================
+// C++ HEADER INJECTION
+// ============================================================================
+#if cpp
+@:headerCode('
+#include <string>
+#include <thread>
+#include <mutex>
+#include <map>
+#include <atomic>
+#include <vector>
+')
+
+// ============================================================================
+// C++ IMPLEMENTATION INJECTION
+// ============================================================================
+@:cppFileCode('
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOGDI
+#include <windows.h>
+#include <winhttp.h>
+#pragma comment(lib, "winhttp.lib")
+#endif
+
+// ================================================================
+// WEBSOCKET STATE STRUCTURE (C++ Backend)
+// ================================================================
+struct WebSocketState {
+    std::string url;
+    std::string lastReceivedData;
+    std::string lastError;
+    std::atomic<bool> isConnected;
+    std::atomic<bool> hasNewData;
+    std::atomic<bool> hasError;
+    std::atomic<bool> shouldConnect;
+    std::atomic<bool> shouldDisconnect;
+    std::string pendingSendData;
+    std::atomic<bool> hasPendingSend;
+    std::mutex mtx;
+    std::thread* worker;
+    std::atomic<bool> isRunning;
+
+#ifdef _WIN32
+    HINTERNET hSession;
+    HINTERNET hConnect;
+    HINTERNET hWebSocket;
+    std::mutex hWebSocketMtx;
+#endif
+
+    WebSocketState()
+        : isConnected(false), hasNewData(false), hasError(false),
+          shouldConnect(false), shouldDisconnect(false), hasPendingSend(false),
+          worker(nullptr), isRunning(false)
+#ifdef _WIN32
+          , hSession(NULL), hConnect(NULL), hWebSocket(NULL)
+#endif
+    {}
+};
+
+static std::map<void*, WebSocketState*> _ws_map;
+static std::mutex _ws_map_mutex;
+
+// ================================================================
+// URL PARSER
+// ================================================================
+struct WsUrl {
+    std::string host;
+    std::string path;
+    uint16_t port;
+    bool isSecure;
+    bool valid;
+    WsUrl() : port(80), isSecure(false), valid(false) {}
+};
+
+static WsUrl parse_ws_url(const std::string& url) {
+    WsUrl result;
+    std::string u = url;
+    size_t schemeEnd = u.find("://");
+    if (schemeEnd == std::string::npos) return result;
+    std::string scheme = u.substr(0, schemeEnd);
+    if (scheme == "wss") { result.isSecure = true; result.port = 443; }
+    else if (scheme == "ws") { result.isSecure = false; result.port = 80; }
+    else { return result; }
+    size_t hostStart = schemeEnd + 3;
+    size_t pathStart = u.find("/", hostStart);
+    size_t portStart = u.find(":", hostStart);
+    if (pathStart == std::string::npos) {
+        result.path = "/";
+        if (portStart != std::string::npos) {
+            result.host = u.substr(hostStart, portStart - hostStart);
+            std::string portStr = u.substr(portStart + 1);
+            try { result.port = (uint16_t)std::stoi(portStr); } catch (...) {}
+        } else { result.host = u.substr(hostStart); }
+    } else {
+        result.path = u.substr(pathStart);
+        if (portStart != std::string::npos && portStart < pathStart) {
+            result.host = u.substr(hostStart, portStart - hostStart);
+            std::string portStr = u.substr(portStart + 1, pathStart - portStart - 1);
+            try { result.port = (uint16_t)std::stoi(portStr); } catch (...) {}
+        } else { result.host = u.substr(hostStart, pathStart - hostStart); }
+    }
+    result.valid = !result.host.empty();
+    return result;
+}
+
+// ================================================================
+// WEBSOCKET WORKER THREAD
+// ================================================================
+static void _ws_worker_func(void* haxePtr) {
+    WebSocketState* st = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(_ws_map_mutex);
+        auto it = _ws_map.find(haxePtr);
+        if (it != _ws_map.end()) st = it->second;
+    }
+    st->isRunning.store(true);
+
+#ifdef _WIN32
+    while (st->isRunning.load()) {
+        if (st->shouldConnect.load()) {
+            st->shouldConnect.store(false);
+            std::string url;
+            { std::lock_guard<std::mutex> lock(st->mtx); url = st->url; }
+            if (url.empty()) {
+                std::lock_guard<std::mutex> lock(st->mtx);
+                st->lastError = "Empty URL";
+                st->hasError.store(true);
+                continue;
+            }
+            WsUrl parsed = parse_ws_url(url);
+            if (!parsed.valid) {
+                std::lock_guard<std::mutex> lock(st->mtx);
+                st->lastError = "Invalid WebSocket URL: " + url;
+                st->hasError.store(true);
+                continue;
+            }
+            st->hSession = WinHttpOpen(L"ALTAURI-WebSocket/1.0",
+                WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+            if (!st->hSession) {
+                std::lock_guard<std::mutex> lock(st->mtx);
+                st->lastError = "WinHttpOpen failed";
+                st->hasError.store(true);
+                continue;
+            }
+            std::wstring wHost(parsed.host.begin(), parsed.host.end());
+            st->hConnect = WinHttpConnect(st->hSession, wHost.c_str(), parsed.port, 0);
+            if (!st->hConnect) {
+                std::lock_guard<std::mutex> lock(st->mtx);
+                st->lastError = "WinHttpConnect failed";
+                st->hasError.store(true);
+                WinHttpCloseHandle(st->hSession); st->hSession = NULL;
+                continue;
+            }
+            std::wstring wPath(parsed.path.begin(), parsed.path.end());
+            DWORD flags = parsed.isSecure ? WINHTTP_FLAG_SECURE : 0;
+            st->hWebSocket = WinHttpOpenRequest(st->hConnect, L"GET", wPath.c_str(),
+                NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+            if (!st->hWebSocket) {
+                std::lock_guard<std::mutex> lock(st->mtx);
+                st->lastError = "WinHttpOpenRequest failed";
+                st->hasError.store(true);
+                WinHttpCloseHandle(st->hConnect); st->hConnect = NULL;
+                WinHttpCloseHandle(st->hSession); st->hSession = NULL;
+                continue;
+            }
+            WinHttpAddRequestHeaders(st->hWebSocket,
+                L"Upgrade: websocket\\r\\nConnection: Upgrade\\r\\n",
+                (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
+            if (!WinHttpSendRequest(st->hWebSocket, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                WINHTTP_NO_REQUEST_DATA, 0, 0, NULL)) {
+                std::lock_guard<std::mutex> lock(st->mtx);
+                st->lastError = "WinHttpSendRequest failed";
+                st->hasError.store(true);
+                WinHttpCloseHandle(st->hWebSocket); st->hWebSocket = NULL;
+                WinHttpCloseHandle(st->hConnect); st->hConnect = NULL;
+                WinHttpCloseHandle(st->hSession); st->hSession = NULL;
+                continue;
+            }
+            if (!WinHttpReceiveResponse(st->hWebSocket, NULL)) {
+                std::lock_guard<std::mutex> lock(st->mtx);
+                st->lastError = "WinHttpReceiveResponse failed";
+                st->hasError.store(true);
+                WinHttpCloseHandle(st->hWebSocket); st->hWebSocket = NULL;
+                WinHttpCloseHandle(st->hConnect); st->hConnect = NULL;
+                WinHttpCloseHandle(st->hSession); st->hSession = NULL;
+                continue;
+            }
+            DWORD statusCode = 0;
+            DWORD dwSize = sizeof(statusCode);
+            WinHttpQueryHeaders(st->hWebSocket,
+                WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &dwSize,
+                WINHTTP_NO_HEADER_INDEX);
+            if (statusCode != 101) {
+                std::lock_guard<std::mutex> lock(st->mtx);
+                st->lastError = "WebSocket handshake failed (status " + std::to_string(statusCode) + ")";
+                st->hasError.store(true);
+                WinHttpCloseHandle(st->hWebSocket); st->hWebSocket = NULL;
+                WinHttpCloseHandle(st->hConnect); st->hConnect = NULL;
+                WinHttpCloseHandle(st->hSession); st->hSession = NULL;
+                continue;
+            }
+            st->isConnected.store(true);
+            { std::lock_guard<std::mutex> lock(st->mtx); st->lastError = ""; }
+
+            // Main WebSocket I/O loop
+            while (st->isRunning.load() && st->isConnected.load()) {
+                if (st->shouldDisconnect.load()) { st->shouldDisconnect.store(false); break; }
+                if (st->hasPendingSend.load()) {
+                    st->hasPendingSend.store(false);
+                    std::string sendData;
+                    { std::lock_guard<std::mutex> lock(st->mtx); sendData = st->pendingSendData; }
+                    if (!sendData.empty() && st->hWebSocket) {
+                        std::vector<BYTE> frame;
+                        frame.push_back(0x81);
+                        if (sendData.length() < 126) {
+                            frame.push_back(0x80 | (BYTE)sendData.length());
+                        } else if (sendData.length() < 65536) {
+                            frame.push_back(0x80 | 126);
+                            frame.push_back((BYTE)((sendData.length() >> 8) & 0xFF));
+                            frame.push_back((BYTE)(sendData.length() & 0xFF));
+                        } else {
+                            frame.push_back(0x80 | 127);
+                            for (int i = 7; i >= 0; i--)
+                                frame.push_back((BYTE)((sendData.length() >> (i * 8)) & 0xFF));
+                        }
+                        BYTE mask[4] = {0x12, 0x34, 0x56, 0x78};
+                        for (int i = 0; i < 4; i++) frame.push_back(mask[i]);
+                        for (size_t i = 0; i < sendData.length(); i++)
+                            frame.push_back(sendData[i] ^ mask[i % 4]);
+                        DWORD bytesWritten;
+                        WinHttpWriteData(st->hWebSocket, frame.data(), (DWORD)frame.size(), &bytesWritten);
+                    }
+                }
+                DWORD bytesAvailable = 0;
+                if (WinHttpQueryDataAvailable(st->hWebSocket, &bytesAvailable) && bytesAvailable > 0) {
+                    std::vector<BYTE> buffer(bytesAvailable);
+                    DWORD bytesRead;
+                    if (WinHttpReadData(st->hWebSocket, buffer.data(), bytesAvailable, &bytesRead) && bytesRead > 0) {
+                        if (bytesRead >= 2) {
+                            BYTE opcode = buffer[0] & 0x0F;
+                            bool masked = (buffer[1] & 0x80) != 0;
+                            uint64_t payloadLen = buffer[1] & 0x7F;
+                            size_t offset = 2;
+                            if (payloadLen == 126) {
+                                if (bytesRead >= 4) { payloadLen = (buffer[2] << 8) | buffer[3]; offset = 4; }
+                            } else if (payloadLen == 127) {
+                                if (bytesRead >= 10) {
+                                    payloadLen = 0;
+                                    for (int i = 0; i < 8; i++) payloadLen = (payloadLen << 8) | buffer[2 + i];
+                                    offset = 10;
+                                }
+                            }
+                            if (masked && bytesRead >= offset + 4) {
+                                BYTE maskKey[4];
+                                memcpy(maskKey, &buffer[offset], 4);
+                                offset += 4;
+                                std::string payload;
+                                for (uint64_t i = 0; i < payloadLen && offset + i < bytesRead; i++)
+                                    payload += (char)(buffer[offset + i] ^ maskKey[i % 4]);
+                                if (opcode == 0x1 || opcode == 0x2) {
+                                    std::lock_guard<std::mutex> lock(st->mtx);
+                                    st->lastReceivedData = payload;
+                                    st->hasNewData.store(true);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
+            }
+            st->isConnected.store(false);
+            if (st->hWebSocket) { WinHttpCloseHandle(st->hWebSocket); st->hWebSocket = NULL; }
+            if (st->hConnect) { WinHttpCloseHandle(st->hConnect); st->hConnect = NULL; }
+            if (st->hSession) { WinHttpCloseHandle(st->hSession); st->hSession = NULL; }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+#else
+    while (st->isRunning.load()) { std::this_thread::sleep_for(std::chrono::milliseconds(100)); }
+#endif
+    st->isRunning.store(false);
+}
+')
+#end
+
+/**
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║                     WEBSOCKET ATOM v2.0                                   ║
+ * ║              (Cross-Platform: C++ WinHTTP + HTML5 Native)                 ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  WebSocket client with dual-platform support.                             ║
+ * ║  At compile time, Haxe selects the appropriate backend:                   ║
+ * ║                                                                           ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │                    COMPILATION FLOW                                 │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  haxe -cpp  ──► #if cpp   ──► WinHTTP + Background Thread          │  ║
+ * ║  │  haxe -js   ──► #if html5 ──► Browser WebSocket API                │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  Common code (contacts, update logic, propagation) is shared.       │  ║
+ * ║  │  Platform-specific code is isolated in #if blocks.                  │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                        ARCHITECTURE                                       ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │                     WEBSocketAtom                                   │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
+ * ║  │  │  COMMON LAYER (all targets)                                   │  │  ║
+ * ║  │  │  ──────────────────────────────────────────────────────────── │  │  ║
+ * ║  │  │  • Contacts: url, connect, disconnect, send, sendData        │  │  ║
+ * ║  │  │  • Outputs: isConnected, receivedData, receivedTick,         │  │  ║
+ * ║  │  │            sentTick, error, errorTick                         │  │  ║
+ * ║  │  │  • update(dt): propagation + pulse timers                    │  │  ║
+ * ║  │  │  • readInputs(): input reading + dispatch                    │  │  ║
+ * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  ┌──────────────────────────┐  ┌────────────────────────────────┐  │  ║
+ * ║  │  │  #if cpp                 │  │  #if html5                     │  │  ║
+ * ║  │  │  ─────────               │  │  ──────────                    │  │  ║
+ * ║  │  │  WebSocketState* (C++)   │  │  _webSocket:WebSocket (JS)     │  │  ║
+ * ║  │  │  Background thread       │  │  onopen/onmessage/onerror      │  │  ║
+ * ║  │  │  WinHTTP API             │  │  .send() / .close()            │  │  ║
+ * ║  │  │  Mutex/Atomic sync       │  │  Single-threaded (event loop)  │  │  ║
+ * ║  │  └──────────────────────────┘  └────────────────────────────────┘  │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
+ * ║  │  │  DATABANK (Haxe fields, shared)                               │  │  ║
+ * ║  │  │  ──────────────────────────────────────────────────────────── │  │  ║
+ * ║  │  │  _lastUrl, _lastReceivedData, _lastError                      │  │  ║
+ * ║  │  │  _isConnectedFlag, _hasPendingReceived, _hasPendingError      │  │  ║
+ * ║  │  │  _receivedTimer, _sentTimer, _errorTimer                      │  │  ║
+ * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                     DATA FLOW COMPARISON                                  ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  C++ Target:                                                              ║
+ * ║  ──────────                                                               ║
+ * ║  Background Thread ──► WebSocketState (mutex) ──► update(dt) polling     ║
+ * ║                        ──► _hasPendingReceived ──► propagateCurrentValue  ║
+ * ║                                                                           ║
+ * ║  HTML5 Target:                                                            ║
+ * ║  ────────────                                                             ║
+ * ║  WebSocket.onmessage ──► _pendingReceivedStr ──► update(dt) propagation  ║
+ * ║                          ──► _hasPendingReceived ──► propagateCurrentValue║
+ * ║                                                                           ║
+ * ║  Both targets converge at the propagation step — identical output         ║
+ * ║  behavior regardless of platform.                                         ║
+ * ║                                                                           ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
+ */
+class WEBSocketAtom extends Atom implements system.managers.Driver
+{
+    // =========================================================================
+    // CONSTANTS (COMMON)
+    // =========================================================================
+    private static inline var PULSE_DURATION:Float = 0.05;
+
+    // =========================================================================
+    // DATABANK — COMMON FIELDS
+    // =========================================================================
+    private var _lastUrl:String = "";
+    private var _lastReceivedData:String = "";
+    private var _lastError:String = "";
+    private var _isConnectedFlag:Bool = false;
+
+    @:volatile private var _hasPendingReceived:Bool = false;
+    @:volatile private var _hasPendingError:Bool = false;
+    private var _pendingReceivedStr:String = "";
+    private var _pendingErrStr:String = "";
+
+    private var _receivedTimer:Float = 0.0;
+    private var _sentTimer:Float = 0.0;
+    private var _errorTimer:Float = 0.0;
+
+    // =========================================================================
+    // PLATFORM-SPECIFIC FIELDS
+    // =========================================================================
+    #if html5
+    /** Native browser WebSocket instance. Null when disconnected. */
+    private var _webSocket:WebSocket = null;
+    #end
+
+    // =========================================================================
+    // CONSTRUCTOR (COMMON)
+    // =========================================================================
+    public function new(id:String)
+    {
+        super(
+            [
+                new Contact("", INPUT, "url"),
+                new Contact(false, INPUT, "connect"),
+                new Contact(false, INPUT, "disconnect"),
+                new Contact(false, INPUT, "send"),
+                new Contact("", INPUT, "sendData")
+            ],
+            [
+                new Contact(false, OUTPUT, "isConnected"),
+                new Contact("", OUTPUT, "receivedData"),
+                new Contact(false, OUTPUT, "receivedTick"),
+                new Contact(false, OUTPUT, "sentTick"),
+                new Contact("", OUTPUT, "error"),
+                new Contact(false, OUTPUT, "errorTick")
+            ],
+            null,
+            id,
+            "WEBSocketAtom",
+            true
+        );
+        init();
+    }
+
+    // =========================================================================
+    // DRIVER INTERFACE
+    // =========================================================================
+
+    /**
+     * Platform-specific initialization.
+     *
+     * C++:    Allocates WebSocketState, spawns background thread.
+     * HTML5:  No-op (WebSocket created lazily on connect).
+     */
+    override public function init():Void
+    {
+        #if cpp
+        untyped __cpp__('
+            WebSocketState* st = new WebSocketState();
+            st->isRunning.store(false);
+            {
+                std::lock_guard<std::mutex> lock(_ws_map_mutex);
+                _ws_map[(void*){0}.mPtr] = st;
+            }
+            st->worker = new std::thread(_ws_worker_func, (void*){0}.mPtr);
+        ', this);
+        #elseif html5
+        trace('WEBSocketAtom: HTML5 mode initialized (native WebSocket API)');
+        #end
+    }
+
+    /**
+     * Main update loop. Called every frame by DriverManager.
+     *
+     * ═══════════════════════════════════════════════════════════════════
+     * FLOW:
+     * ═══════════════════════════════════════════════════════════════════
+     *
+     *  ┌─────────────────────────────────────────────────────────────┐
+     *  │  1. Poll platform backend for new data                      │
+     *  │     C++:    Read from WebSocketState (mutex-protected)      │
+     *  │     HTML5:  Check _hasPendingReceived (set by callbacks)    │
+     *  │                                                             │
+     *  │  2. Process pending received data → propagateCurrentValue   │
+     *  │  3. Process pending errors → propagateCurrentValue          │
+     *  │  4. Update connection status output                         │
+     *  │  5. readInputs() — read user commands                       │
+     *  │  6. updatePulseTimers() — reset tick pulses                 │
+     *  └─────────────────────────────────────────────────────────────┘
+     *
+     * @param dt Delta time in seconds
+     */
+    override public function update(dt:Float):Void
+    {
+        if (_isDisposed) return;
+
+        // ── STEP 1: Poll platform backend ──
+        #if cpp
+        untyped __cpp__('
+            WebSocketState* _ws_stPtr = nullptr;
+            {
+                std::lock_guard<std::mutex> _ws_mapLock(_ws_map_mutex);
+                auto _ws_it = _ws_map.find((void*){0}.mPtr);
+                if (_ws_it != _ws_map.end()) {
+                    _ws_stPtr = _ws_it->second;
+                }
+            }
+            if (_ws_stPtr) {
+                {
+                    std::lock_guard<std::mutex> _ws_dataLock(_ws_stPtr->mtx);
+                    if (_ws_stPtr->hasNewData.load()) {
+                        {0}->_pendingReceivedStr = ::String(_ws_stPtr->lastReceivedData.c_str());
+                        {0}->_hasPendingReceived = true;
+                        _ws_stPtr->hasNewData.store(false);
+                    }
+                }
+                {
+                    std::lock_guard<std::mutex> _ws_errLock(_ws_stPtr->mtx);
+                    if (_ws_stPtr->hasError.load()) {
+                        {0}->_pendingErrStr = ::String(_ws_stPtr->lastError.c_str());
+                        {0}->_hasPendingError = true;
+                        _ws_stPtr->hasError.store(false);
+                    }
+                }
+                {0}->_isConnectedFlag = _ws_stPtr->isConnected.load();
+            }
+        ', this);
+        #end
+        // HTML5: _hasPendingReceived is set directly by WebSocket callbacks
+        // No polling needed — event-driven architecture
+
+        // ── STEP 2: Process pending received data (COMMON) ──
+        if (_hasPendingReceived)
+        {
+            _hasPendingReceived = false;
+            var rxOut = getOutput("receivedData");
+            if (rxOut != null)
+            {
+                rxOut.setValueSilent(_pendingReceivedStr);
+                rxOut.propagateCurrentValue();
+            }
+            var rxTick = getOutput("receivedTick");
+            if (rxTick != null)
+            {
+                rxTick.value = true;
+                _receivedTimer = PULSE_DURATION;
+            }
+        }
+
+        // ── STEP 3: Process pending errors (COMMON) ──
+        if (_hasPendingError)
+        {
+            _hasPendingError = false;
+            var errOut = getOutput("error");
+            if (errOut != null)
+            {
+                errOut.setValueSilent(_pendingErrStr);
+                errOut.propagateCurrentValue();
+            }
+            var errTick = getOutput("errorTick");
+            if (errTick != null)
+            {
+                errTick.value = true;
+                _errorTimer = PULSE_DURATION;
+            }
+        }
+
+        // ── STEP 4: Update connection status (COMMON) ──
+        var connOut = getOutput("isConnected");
+        if (connOut != null && connOut.value != _isConnectedFlag)
+        {
+            connOut.value = _isConnectedFlag;
+        }
+
+        // ── STEP 5: Read inputs and control ──
+        readInputs();
+
+        // ── STEP 6: Update pulse timers ──
+        updatePulseTimers(dt);
+    }
+
+    /**
+     * Safe disposal pattern.
+     *
+     * C++:    Signals thread to stop, joins, frees WebSocketState.
+     * HTML5:  Closes native WebSocket, nullifies reference.
+     */
+    override public function dispose():Void
+    {
+        #if cpp
+        untyped __cpp__('
+            WebSocketState* st = nullptr;
+            {
+                std::lock_guard<std::mutex> _ws_lock(_ws_map_mutex);
+                auto _ws_it = _ws_map.find((void*){0}.mPtr);
+                if (_ws_it != _ws_map.end()) {
+                    st = _ws_it->second;
+                    _ws_map.erase(_ws_it);
+                }
+            }
+            if (st) {
+                st->shouldDisconnect.store(true);
+                st->isRunning.store(false);
+                if (st->worker && st->worker->joinable()) {
+                    st->worker->join();
+                }
+                delete st->worker;
+                delete st;
+            }
+        ', this);
+        #elseif html5
+        if (_webSocket != null)
+        {
+            _webSocket.close();
+            _webSocket = null;
+        }
+        _isConnectedFlag = false;
+        #end
+
+        DriverManager.getInstance().unregister(this.id);
+        super.dispose();
+    }
+
+    // =========================================================================
+    // INPUT READING (COMMON + PLATFORM DISPATCH)
+    // =========================================================================
+
+    /**
+     * Reads input contacts and dispatches platform-specific actions.
+     *
+     * Common logic: read contact values, detect edges.
+     * Platform dispatch: connect/disconnect/send implementation.
+     */
+    private function readInputs():Void
+    {
+        var urlC = getInput("url");
+        var connectC = getInput("connect");
+        var disconnectC = getInput("disconnect");
+        var sendC = getInput("send");
+        var sendDataC = getInput("sendData");
+
+        // ── URL change (COMMON) ──
+        if (urlC != null && urlC.value != null)
+        {
+            var newUrl:String = Std.string(urlC.value);
+            if (newUrl != _lastUrl)
+            {
+                _lastUrl = newUrl;
+                #if cpp
+                untyped __cpp__('
+                    WebSocketState* st = nullptr;
+                    {
+                        std::lock_guard<std::mutex> lock(_ws_map_mutex);
+                        auto it = _ws_map.find((void*){0}.mPtr);
+                        if (it != _ws_map.end()) st = it->second;
+                    }
+                    if (st) {
+                        std::lock_guard<std::mutex> dataLock(st->mtx);
+                        st->url = std::string((const char*){1}.__s);
+                    }
+                ', this, newUrl);
+                #end
+                // HTML5: URL stored in _lastUrl, used on next connect
+            }
+        }
+
+        // ── Connect trigger ──
+        if (connectC != null && connectC.value == true)
+        {
+            connectC.value = false;
+            #if cpp
+            untyped __cpp__('
+                WebSocketState* st = nullptr;
+                {
+                    std::lock_guard<std::mutex> lock(_ws_map_mutex);
+                    auto it = _ws_map.find((void*){0}.mPtr);
+                    if (it != _ws_map.end()) st = it->second;
+                }
+                if (st) { st->shouldConnect.store(true); }
+            ', this);
+            #elseif html5
+            connectWebSocket();
+            #end
+        }
+
+        // ── Disconnect trigger ──
+        if (disconnectC != null && disconnectC.value == true)
+        {
+            disconnectC.value = false;
+            #if cpp
+            untyped __cpp__('
+                WebSocketState* st = nullptr;
+                {
+                    std::lock_guard<std::mutex> lock(_ws_map_mutex);
+                    auto it = _ws_map.find((void*){0}.mPtr);
+                    if (it != _ws_map.end()) st = it->second;
+                }
+                if (st) { st->shouldDisconnect.store(true); }
+            ', this);
+            #elseif html5
+            disconnectWebSocket();
+            #end
+        }
+
+        // ── Send trigger ──
+        if (sendC != null && sendC.value == true && _isConnectedFlag)
+        {
+            sendC.value = false;
+            if (sendDataC != null && sendDataC.value != null)
+            {
+                var data:String = Std.string(sendDataC.value);
+                #if cpp
+                untyped __cpp__('
+                    WebSocketState* st = nullptr;
+                    {
+                        std::lock_guard<std::mutex> lock(_ws_map_mutex);
+                        auto it = _ws_map.find((void*){0}.mPtr);
+                        if (it != _ws_map.end()) st = it->second;
+                    }
+                    if (st) {
+                        std::lock_guard<std::mutex> dataLock(st->mtx);
+                        st->pendingSendData = std::string((const char*){1}.__s);
+                        st->hasPendingSend.store(true);
+                    }
+                ', this, data);
+                #elseif html5
+                sendWebSocketData(data);
+                #end
+
+                var sentTick = getOutput("sentTick");
+                if (sentTick != null)
+                {
+                    sentTick.value = true;
+                    _sentTimer = PULSE_DURATION;
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // HTML5-SPECIFIC IMPLEMENTATION
+    // =========================================================================
+    #if html5
+
+    /**
+     * Create and configure native browser WebSocket.
+     *
+     * Event handlers set pending flags that update() will process
+     * on the next frame — this is the bridge between the browser's
+     * event loop and ALTAURI's TickGenerator-driven update cycle.
+     *
+     * ┌─────────────────────────────────────────────────────────────┐
+     * │  Browser Event Loop          ALTAURI Update Loop            │
+     * │  ──────────────────          ───────────────────            │
+     * │  WebSocket.onmessage  ──►   _hasPendingReceived = true     │
+     * │                              _pendingReceivedStr = data     │
+     * │                                     │                       │
+     * │                                     ▼                       │
+     * │                              update(dt) polls flag          │
+     * │                                     │                       │
+     * │                                     ▼                       │
+     * │                              propagateCurrentValue()        │
+     * └─────────────────────────────────────────────────────────────┘
+     */
+    private function connectWebSocket():Void
+    {
+        // Close existing connection if any
+        if (_webSocket != null)
+        {
+            disconnectWebSocket();
+        }
+
+        if (_lastUrl == null || _lastUrl == "")
+        {
+            setError("Empty URL");
+            return;
+        }
+
+        try
+        {
+            _webSocket = new WebSocket(_lastUrl);
+
+            _webSocket.onopen = function(e:Event) {
+                _isConnectedFlag = true;
+                _lastError = "";
+                trace('WEBSocketAtom: Connected to $_lastUrl');
+            };
+
+            _webSocket.onmessage = function(e:MessageEvent) {
+                var data:String = Std.string(e.data);
+                _pendingReceivedStr = data;
+                _hasPendingReceived = true;
+            };
+
+            _webSocket.onerror = function(e:Event) {
+                setError("WebSocket error");
+            };
+
+            _webSocket.onclose = function(e:Event) {
+                _isConnectedFlag = false;
+                trace('WEBSocketAtom: Connection closed');
+            };
+
+        } catch (e:Dynamic) {
+            setError('Failed to create WebSocket: $e');
+        }
+    }
+
+    /**
+     * Close native WebSocket connection.
+     */
+    private function disconnectWebSocket():Void
+    {
+        if (_webSocket != null)
+        {
+            _webSocket.close();
+            _webSocket = null;
+            _isConnectedFlag = false;
+        }
+    }
+
+    /**
+     * Send data through native WebSocket.
+     *
+     * @param data String data to send
+     */
+    private function sendWebSocketData(data:String):Void
+    {
+        if (_webSocket != null && _isConnectedFlag)
+        {
+            try
+            {
+                _webSocket.send(data);
+            } catch (e:Dynamic) {
+                setError('Send failed: $e');
+            }
+        }
+    }
+
+    /**
+     * Set error state (HTML5 helper).
+     *
+     * @param msg Error message
+     */
+    private function setError(msg:String):Void
+    {
+        _pendingErrStr = msg;
+        _hasPendingError = true;
+        _lastError = msg;
+    }
+
+    #end
+
+    // =========================================================================
+    // PULSE TIMERS (COMMON)
+    // =========================================================================
+
+    /**
+     * Countdown pulse timers for tick outputs.
+     *
+     * Tick outputs (receivedTick, sentTick, errorTick) are short-lived
+     * Bool pulses that fire for PULSE_DURATION seconds and then reset.
+     *
+     * @param dt Delta time in seconds
+     */
+    private function updatePulseTimers(dt:Float):Void
+    {
+        if (_receivedTimer > 0)
+        {
+            _receivedTimer -= dt;
+            if (_receivedTimer <= 0)
+            {
+                var c = getOutput("receivedTick");
+                if (c != null) c.value = false;
+            }
+        }
+        if (_sentTimer > 0)
+        {
+            _sentTimer -= dt;
+            if (_sentTimer <= 0)
+            {
+                var c = getOutput("sentTick");
+                if (c != null) c.value = false;
+            }
+        }
+        if (_errorTimer > 0)
+        {
+            _errorTimer -= dt;
+            if (_errorTimer <= 0)
+            {
+                var c = getOutput("errorTick");
+                if (c != null) c.value = false;
+            }
+        }
+    }
+}
+
+================================================================================
 // FILE: library\electro\BufferingAtom.hx
 // Lines: 457 | Chars: 16645
 ================================================================================
@@ -29101,6 +31579,101 @@ class OscilloscopeAtom extends Atom implements Driver
 }
 
 ================================================================================
+// FILE: library\electro\PassThroughAtom.hx
+// Lines: 89 | Chars: 2643
+================================================================================
+
+package library.electro;
+
+import core.base.Atom;
+import core.base.Contact;
+import core.logic.TickGenerator;
+import core.types.ContactType.*;
+
+/**
+ * PASS-THROUGH ATOM v1.4 (Link-Based + Active Timer)
+ * 
+ * Мгновенно транслирует значение с входа на выход через link().
+ * Генерирует импульс changed (50ms) через subscribe + update timer.
+ * 
+ * ──────────────────────────────────────────────────────┐
+ * │  in ──[LINK]──► out                                  │
+ * │   │                                                  │
+ * │   └──► changed (bool pulse, 50ms via update timer)   │
+ * └──────────────────────────────────────────────────────┘
+ */
+class PassThroughAtom extends Atom
+{
+    /** Длительность импульса changed в секундах */
+    private static inline var PULSE_DURATION:Float = 0.05;
+    
+    /** Таймер обратного отсчёта для сброса changed */
+    private var _changedTimer:Float = 0.0;
+
+    public function new(id:String)
+    {
+        super(
+            [new Contact(null, INPUT, "in")],
+            [
+                new Contact(null, OUTPUT, "out"),
+                new Contact(false, OUTPUT, "changed")
+            ],
+            null,
+            id,
+            "PassThrough",
+            false
+        );
+        
+        var input = getInput("in");
+        var output = getOutput("out");
+        var changed = getOutput("changed");
+        
+        if (input != null && output != null)
+        {
+            // Прямая трансляция значений (без _calculate, без рекурсии)
+            input.link(output);
+            
+            // Подписка на изменения для генерации импульса changed
+			input.subscribe(function(v:Dynamic) {
+				if (changed != null && changed.value == false)
+				{
+					changed.value = true;
+					// Сброс через 3 кадра (~50ms при 60 FPS)
+					TickGenerator.getInstance().scheduleNextTick(function() {
+						TickGenerator.getInstance().scheduleNextTick(function() {
+							TickGenerator.getInstance().scheduleNextTick(function() {
+								if (changed != null) changed.value = false;
+							});
+						});
+					});
+				}
+			});
+            
+            input.ignoreOscillation = true;
+        }
+    }
+    
+    /**
+     * Вызывается DriverManager каждый кадр (isActive = true).
+     * Единственная задача — сбросить changed по истечении таймера.
+     */
+    override public function update(dt:Float):Void
+    {
+        super.update(dt);
+        
+        if (_changedTimer > 0)
+        {
+            _changedTimer -= dt;
+            if (_changedTimer <= 0)
+            {
+                var changed = getOutput("changed");
+                if (changed != null) changed.value = false;
+            }
+        }
+    }
+}
+
+================================================================================
 // FILE: library\electro\RelayAtom.hx
 // Lines: 185 | Chars: 6137
 ================================================================================
@@ -29287,6 +31860,320 @@ class RelayAtom extends Atom
         if (state.controlState != null)
         {
             _controlValue = state.controlState;
+        }
+    }
+}
+
+================================================================================
+// FILE: library\electro\TextAreaAtom.hx
+// Lines: 308 | Chars: 11323
+================================================================================
+
+// FILE: library\electro\TextAreaAtom.hx
+package library.electro;
+
+import core.base.Atom;
+import core.base.Contact;
+import core.types.ContactType;
+
+/**
+* TEXT AREA ATOM v1.0 (Configurable Multi-Line Text)
+*
+* Passive atom for multi-line text display and editing.
+* Extends the concept of TextInputAtom with full textarea configuration.
+*
+* Architecture: "ATOM IS DATABANK & COMPUTE CORE"
+* ┌─────────────────────────────────────────────────────────────────────────┐
+* │   TextAreaAtom (Databank)                                               │
+* │                                                                         │
+* │   ┌─────────────────────────────────────────────────────────────────┐   │
+* │   │  CONFIGURATION INPUTS:                                          │   │
+* │   │  - text       (String)  → Full text content                     │   │
+* │   │  - append     (String)  → Append line to existing text          │   │
+* │   │  - clear      (Bool)    → Clear all text on true                │   │
+* │   │  - editable   (Bool)    → Enable/disable user editing           │   │
+* │   │  - wordWrap   (Bool)    → Word wrap mode                        │   │
+* │   │  - autoScroll (Bool)    → Auto-scroll to bottom on new text     │   │
+* │   │  - hScroll    (Bool)    → Horizontal scrollbar visibility       │   │
+* │   │  - vScroll    (Bool)    → Vertical scrollbar visibility         │   │
+* │   │  - maxChars   (Int)     → Max characters per line (width)       │   │
+* │   │  - numLines   (Int)     → Number of visible lines (height)      │   │
+* │   │                                                                 │   │
+* │   │  OUTPUTS:                                                       │   │
+* │   │  - text       (String)  → Current text content                  │   │
+* │   │  - changed    (Bool)    → Pulse on text change                  │   │
+* │   │  - lineCount  (Int)     → Current number of lines               │   │
+* │   │  - cursorLine (Int)     → Current cursor line number            │   │
+* │   └─────────────────────────────────────────────────────────────────┘   │
+* │                                                                         │
+* │   Widget (TextAreaWidget) reads config from atom's contacts.            │
+* │   Widget writes to "text" contact on user input.                        │
+* │   Atom is the Databank — single source of truth.                        │
+* │                                                                         │
+* └─────────────────────────────────────────────────────────────────────────┘
+*
+* Default Configuration:
+* ┌──────────────────┬───────────────┐
+* │ Parameter        │ Default       │
+* ├──────────────────┼───────────────┤
+* │ maxChars         │ 40            │
+* │ numLines         │ 8             │
+* │ editable         │ true          │
+* │ wordWrap         │ true          │
+* │ autoScroll       │ true          │
+* │ hScroll          │ false         │
+* │ vScroll          │ true          │
+* └──────────────────┴───────────────┘
+*/
+class TextAreaAtom extends Atom
+{
+    // =========================================================================
+    // DATABANK — Configuration State
+    // =========================================================================
+    private var _text:String = "";
+    private var _editable:Bool = true;
+    private var _wordWrap:Bool = true;
+    private var _autoScroll:Bool = true;
+    private var _hScroll:Bool = false;
+    private var _vScroll:Bool = true;
+    private var _maxChars:Int = 40;
+    private var _numLines:Int = 8;
+
+    // =========================================================================
+    // CONSTRUCTOR
+    // =========================================================================
+    public function new(id:String)
+    {
+        super(
+            // === INPUTS ===
+            [
+                new Contact("", INPUT, "text"),
+                new Contact("", INPUT, "append"),
+                new Contact(false, INPUT, "clear"),
+                new Contact(true, INPUT, "editable"),
+                new Contact(true, INPUT, "wordWrap"),
+                new Contact(true, INPUT, "autoScroll"),
+                new Contact(false, INPUT, "hScroll"),
+                new Contact(true, INPUT, "vScroll"),
+                new Contact(40, INPUT, "maxChars"),
+                new Contact(8, INPUT, "numLines")
+            ],
+            // === OUTPUTS ===
+            [
+                new Contact("", OUTPUT, "text"),
+                new Contact(false, OUTPUT, "changed"),
+                new Contact(1, OUTPUT, "lineCount"),
+                new Contact(1, OUTPUT, "cursorLine")
+            ],
+            null,   // No process function — passive atom
+            id,
+            "TextArea"
+        );
+    }
+
+    // =========================================================================
+    // COMPUTE MODULE
+    // =========================================================================
+    /**
+    * Called when any contact value changes.
+    * Routes configuration changes and text operations.
+    */
+    override public function onContactChanged(c:Contact):Void
+    {
+        if (_isDisposed) return;
+
+        switch (c.name)
+        {
+            case "text":
+                var newText = Std.string(c.value);
+                if (newText != _text)
+                {
+                    _text = newText;
+                    pushTextToOutput();
+                }
+
+            case "append":
+                var appendStr = Std.string(c.value);
+                if (appendStr != "" && appendStr != "null")
+                {
+                    if (_text.length > 0)
+                    {
+                        _text += "\n" + appendStr;
+                    }
+                    else
+                    {
+                        _text = appendStr;
+                    }
+                    pushTextToOutput();
+                    // Reset append input to prevent re-trigger
+                    c.value = "";
+                }
+
+            case "clear":
+                if (c.value == true)
+                {
+                    _text = "";
+                    pushTextToOutput();
+                    c.value = false;
+                }
+
+            case "editable":
+                _editable = (c.value == true);
+
+            case "wordWrap":
+                _wordWrap = (c.value == true);
+
+            case "autoScroll":
+                _autoScroll = (c.value == true);
+
+            case "hScroll":
+                _hScroll = (c.value == true);
+
+            case "vScroll":
+                _vScroll = (c.value == true);
+
+            case "maxChars":
+                var v = Std.int(c.value);
+                if (v >= 5 && v <= 200) _maxChars = v;
+
+            case "numLines":
+                var v = Std.int(c.value);
+                if (v >= 1 && v <= 100) _numLines = v;
+        }
+
+        super.onContactChanged(c);
+    }
+
+    /**
+    * Push current text to output and fire changed pulse.
+    */
+    private function pushTextToOutput():Void
+    {
+        var textOut = getOutput("text");
+        if (textOut != null) textOut.value = _text;
+
+        var lineCountOut = getOutput("lineCount");
+        if (lineCountOut != null)
+        {
+            var lines = _text.split("\n");
+            lineCountOut.value = lines.length;
+        }
+
+        var changedOut = getOutput("changed");
+        if (changedOut != null)
+        {
+            changedOut.value = true;
+            // Reset pulse after 3 ticks (~50ms at 60Hz)
+            core.logic.TickGenerator.getInstance().scheduleNextTick(function()
+            {
+                core.logic.TickGenerator.getInstance().scheduleNextTick(function()
+                {
+                    core.logic.TickGenerator.getInstance().scheduleNextTick(function()
+                    {
+                        if (changedOut != null) changedOut.value = false;
+                    });
+                });
+            });
+        }
+    }
+
+    // =========================================================================
+    // PUBLIC API (for Widget)
+    // =========================================================================
+    public function getText():String return _text;
+    public function isEditable():Bool return _editable;
+    public function isWordWrap():Bool return _wordWrap;
+    public function isAutoScroll():Bool return _autoScroll;
+    public function isHScroll():Bool return _hScroll;
+    public function isVScroll():Bool return _vScroll;
+    public function getMaxChars():Int return _maxChars;
+    public function getNumLines():Int return _numLines;
+
+    /**
+    * Called by widget when user edits text.
+    * Updates internal state and output contacts.
+    */
+    public function setTextFromWidget(newText:String):Void
+    {
+        if (newText != _text)
+        {
+            _text = newText;
+            // Sync input contact silently
+            var textIn = getInput("text");
+            if (textIn != null) textIn.setValueSilent(_text);
+            pushTextToOutput();
+        }
+    }
+
+    /**
+    * Called by widget to report cursor line.
+    */
+    public function setCursorLine(line:Int):Void
+    {
+        var c = getOutput("cursorLine");
+        if (c != null) c.value = line;
+    }
+
+    // =========================================================================
+    // STATE SERIALIZATION
+    // =========================================================================
+    override public function getPersistentState():Dynamic
+    {
+        var base = super.getPersistentState();
+        var result:Dynamic = {
+            text: _text,
+            editable: _editable,
+            wordWrap: _wordWrap,
+            autoScroll: _autoScroll,
+            hScroll: _hScroll,
+            vScroll: _vScroll,
+            maxChars: _maxChars,
+            numLines: _numLines
+        };
+        if (base != null)
+        {
+            for (field in Reflect.fields(base))
+            {
+                Reflect.setField(result, field, Reflect.field(base, field));
+            }
+        }
+        return result;
+    }
+
+    override public function restoreState(state:Dynamic):Void
+    {
+        if (state == null) return;
+        super.restoreState(state);
+
+        if (state.text != null)
+        {
+            _text = Std.string(state.text);
+            var textOut = getOutput("text");
+            if (textOut != null) textOut.value = _text;
+            var textIn = getInput("text");
+            if (textIn != null) textIn.value = _text;
+        }
+        if (state.editable != null) _editable = state.editable;
+        if (state.wordWrap != null) _wordWrap = state.wordWrap;
+        if (state.autoScroll != null) _autoScroll = state.autoScroll;
+        if (state.hScroll != null) _hScroll = state.hScroll;
+        if (state.vScroll != null) _vScroll = state.vScroll;
+        if (state.maxChars != null)
+        {
+            var v = Std.int(state.maxChars);
+            if (v >= 5 && v <= 200) _maxChars = v;
+        }
+        if (state.numLines != null)
+        {
+            var v = Std.int(state.numLines);
+            if (v >= 1 && v <= 100) _numLines = v;
+        }
+
+        // Update line count output
+        var lineCountOut = getOutput("lineCount");
+        if (lineCountOut != null)
+        {
+            lineCountOut.value = _text.split("\n").length;
         }
     }
 }
@@ -29655,103 +32542,8 @@ class ToggleAtom extends Atom
 }
 
 ================================================================================
-// FILE: library\Logic\PassThroughAtom.hx
-// Lines: 89 | Chars: 2641
-================================================================================
-
-package library.logic;
-
-import core.base.Atom;
-import core.base.Contact;
-import core.logic.TickGenerator;
-import core.types.ContactType.*;
-
-/**
- * PASS-THROUGH ATOM v1.4 (Link-Based + Active Timer)
- * 
- * Мгновенно транслирует значение с входа на выход через link().
- * Генерирует импульс changed (50ms) через subscribe + update timer.
- * 
- * ──────────────────────────────────────────────────────┐
- * │  in ──[LINK]──► out                                  │
- * │   │                                                  │
- * │   └──► changed (bool pulse, 50ms via update timer)   │
- * └──────────────────────────────────────────────────────┘
- */
-class PassThroughAtom extends Atom
-{
-    /** Длительность импульса changed в секундах */
-    private static inline var PULSE_DURATION:Float = 0.05;
-    
-    /** Таймер обратного отсчёта для сброса changed */
-    private var _changedTimer:Float = 0.0;
-
-    public function new(id:String)
-    {
-        super(
-            [new Contact(null, INPUT, "in")],
-            [
-                new Contact(null, OUTPUT, "out"),
-                new Contact(false, OUTPUT, "changed")
-            ],
-            null,
-            id,
-            "PassThrough",
-            false
-        );
-        
-        var input = getInput("in");
-        var output = getOutput("out");
-        var changed = getOutput("changed");
-        
-        if (input != null && output != null)
-        {
-            // Прямая трансляция значений (без _calculate, без рекурсии)
-            input.link(output);
-            
-            // Подписка на изменения для генерации импульса changed
-			input.subscribe(function(v:Dynamic) {
-				if (changed != null && changed.value == false)
-				{
-					changed.value = true;
-					// Сброс через 3 кадра (~50ms при 60 FPS)
-					TickGenerator.getInstance().scheduleNextTick(function() {
-						TickGenerator.getInstance().scheduleNextTick(function() {
-							TickGenerator.getInstance().scheduleNextTick(function() {
-								if (changed != null) changed.value = false;
-							});
-						});
-					});
-				}
-			});
-            
-            input.ignoreOscillation = true;
-        }
-    }
-    
-    /**
-     * Вызывается DriverManager каждый кадр (isActive = true).
-     * Единственная задача — сбросить changed по истечении таймера.
-     */
-    override public function update(dt:Float):Void
-    {
-        super.update(dt);
-        
-        if (_changedTimer > 0)
-        {
-            _changedTimer -= dt;
-            if (_changedTimer <= 0)
-            {
-                var changed = getOutput("changed");
-                if (changed != null) changed.value = false;
-            }
-        }
-    }
-}
-
-================================================================================
 // FILE: Main.hx
-// Lines: 1747 | Chars: 51622
+// Lines: 1814 | Chars: 53708
 ================================================================================
 
 package;
@@ -29792,6 +32584,7 @@ import system.commands.editor.DeleteAtomCommand;
 import system.commands.base.MacroCommand;
 import ecs.ECS;
 import library.AtomRegistry;
+import utils.UID;
 using StringTools;
 
 /**
@@ -29975,7 +32768,7 @@ class Main extends Sprite
 
 		// Set low rendering quality.
 		// This disables Anti-Aliasing for vector graphics (lines, circles).
-		stage.quality = HIGH;
+		stage.quality = openfl.display.StageQuality.LOW;
 
 		_editorContext = new EditorContext(_editorLayer);
 
@@ -30001,8 +32794,14 @@ class Main extends Sprite
 			});
 		});
 
+		#if html5
+		// Create demo project manually
+        createDemoProject();
+		#end
+		#if windows
+		// Load project manually
 		loadProject();
-
+		#end
 		// Pass control of the limit to TickGenerator
 		TickGenerator.getInstance().maxStepsPerFrame = 100;
 	}
@@ -30031,6 +32830,66 @@ class Main extends Sprite
 			log("Main Window: Transparency NOT SUPPORTED or FAILED");
 		}
 		#end
+	}
+	
+	// =========================================================================
+	// DEMO PROJECT (v1.1 — with connections)
+	// =========================================================================
+	private function createDemoProject():Void
+	{
+		var demoBlueprint = new Blueprint("demo", "Demo Showcase", [
+			{name: "IN", type: INPUT},
+			{name: "OUT", type: OUTPUT}
+		]);
+		
+		var rootAssembly = new Assembly("main_asm", demoBlueprint);
+		_editorContext.push(rootAssembly, true);
+		
+		var editor = _editorContext.currentEditor;
+		
+		// === Generate IDs for connections ===
+		var sigGenId = UID.generate();
+		var oscId = UID.generate();
+		var buttonId = UID.generate();
+		var ledId = UID.generate();
+		var toggleId = UID.generate();
+		var relayId = UID.generate();
+		var led2Id = UID.generate();
+		
+		// === Create atoms ===
+		editor.createAtomWithId("SignalGenerator", sigGenId, 200, 200);
+		editor.createAtomWithId("Oscilloscope", oscId, 500, 200);
+		
+		editor.createAtomWithId("Button", buttonId, 200, 400);
+		editor.createAtomWithId("LED", ledId, 450, 400);
+		
+		editor.createAtomWithId("Toggle", toggleId, 200, 550);
+		editor.createAtomWithId("Relay", relayId, 400, 550);
+		editor.createAtomWithId("LED", led2Id, 600, 550);
+		
+		// === Connect them! ===
+		// SignalGenerator.out → Oscilloscope.in
+		editor.connectAtoms(sigGenId, "out", oscId, "in");
+		
+		// Button.out → LED.in
+		editor.connectAtoms(buttonId, "out", ledId, "in");
+		
+		// Toggle.out → Relay.control
+		editor.connectAtoms(toggleId, "out", relayId, "control");
+		
+		// Relay.out → LED_2.in
+		editor.connectAtoms(relayId, "out", led2Id, "in");
+		
+		trace("MainHTML5: Demo project created with 7 atoms and 4 connections");
+		
+		// Force redraw after a short delay
+		haxe.Timer.delay(function() {
+			if (editor != null && !editor.isDisposed) {
+				editor.forceFullRedraw();
+			}
+		}, 100);
+		updateNavigationUI();
+		updateButtonStates();
 	}
 
 	// =========================================================================
@@ -31500,264 +34359,6 @@ class Main extends Sprite
 
 		return null;
 	}
-}
-
-================================================================================
-// FILE: MainHTML5.hx
-// Lines: 252 | Chars: 9055
-================================================================================
-
-package;
-
-import openfl.display.Sprite;
-import openfl.events.Event;
-import openfl.Lib;
-
-import core.base.Assembly;
-import core.base.Atom;
-import core.data.Blueprint;
-import core.logic.TickGenerator;
-import core.logic.Impulsys;
-
-import editor.EditorContext;
-import editor.EditorTheme;
-import editor.NodeEditor;
-import editor.ContextMenuManager;
-
-import library.AtomRegistry;
-import ecs.ECS;
-
-import system.managers.DriverManager;
-import system.managers.UndoManager;
-import ui.SettingsPanel;
-
-/**
- * MAIN HTML5 v1.0 (Showcase Entry Point)
- * 
- * Lightweight entry point for web showcase/demo.
- * 
- * Features:
- * - Editor with node canvas (drag, connect, delete)
- * - Demo atoms pre-loaded (Button, LED, Toggle, SignalGenerator)
- * - No file system operations
- * - No native drivers (audio, COM ports, etc.)
- * - Responsive layout support
- * - Localization support (optional)
- * 
- * Architecture:
- * ┌─────────────────────────────────────────────────────────────┐
- * │  MainHTML5                                                  │
- * │                                                             │
- * │  ┌───────────────────────────────────────────────────────┐  │
- * │  │  Initialization:                                      │  │
- * │  │  1. AtomRegistry.initialize()  (UI atoms only)        │  │
- * │  │  2. ECS.init()                                        │  │
- * │  │  3. TickGenerator.init()                              │  │
- * │  │  4. Create demo project                               │  │
- * │  │  5. Setup EditorContext                               │  │
- * │  └───────────────────────────────────────────────────────┘  │
- * │                                                             │
- * │  ┌───────────────────────────────────────────────────────┐  │
- * │  │  UI Layers:                                           │  │
- * │  │  - _editorLayer  → NodeEditor (main canvas)           │  │
- * │  │  - _uiLayer      → Buttons, panels (optional)         │  │
- * │  └───────────────────────────────────────────────────────┘  │
- * │                                                             │
- * │  Main Loop:                                                 │
- * │  onEnterFrame() {                                           │
- * │      TickGenerator.getInstance().update(dt);                │
- * │  }                                                          │
- * │                                                             │
- * └─────────────────────────────────────────────────────────────┘
- */
-class MainHTML5 extends Sprite
-{
-    // =========================================================================
-    // UI LAYERS
-    // =========================================================================
-    private var _editorLayer:Sprite;
-    private var _uiLayer:Sprite;
-    
-    // =========================================================================
-    // MANAGERS
-    // =========================================================================
-    private var _editorContext:EditorContext;
-    private var _contextManager:ContextMenuManager;
-    private var _settingsPanel:SettingsPanel;
-    
-	// =========================================================================
-    // STATE
-    // =========================================================================
-    private var _lastTime:Int = 0;
-    private var _theme:EditorTheme;
-    
-    // =========================================================================
-    // CONSTRUCTOR
-    // =========================================================================
-    public function new()
-    {
-        super();
-        
-        _theme = EditorTheme.getInstance();
-        
-        // Disable right-click context menu (browser default)
-        #if html5
-        var canvas:js.html.CanvasElement = cast js.Browser.document.getElementById("openfl-content");
-        if (canvas == null) canvas = cast js.Browser.document.querySelector("canvas");
-        if (canvas != null) canvas.oncontextmenu = function(e) { 
-            e.preventDefault(); 
-            return false; 
-        };
-        #end
-        
-        // Initialize systems
-        initSystems();
-        
-        // Setup UI layers
-        setupLayers();
-        
-        // Wait for stage
-        if (stage != null) init();
-        else addEventListener(Event.ADDED_TO_STAGE, init);
-    }
-    
-    // =========================================================================
-    // INITIALIZATION
-    // =========================================================================
-    private function init(e:Event = null):Void
-    {
-        removeEventListener(Event.ADDED_TO_STAGE, init);
-        
-        // Configure stage for HTML5
-        stage.color = _theme.APP_BG_BLACK;
-        stage.quality = HIGH;
-        
-        // Initialize editor context
-        _editorContext = new EditorContext(_editorLayer);
-        
-		// === ИНИЦИАЛИЗАЦИЯ МЕНЮ ===
-        _settingsPanel = new SettingsPanel();
-        _settingsPanel.visible = false;
-        _uiLayer.addChild(_settingsPanel);
-
-        _contextManager = new ContextMenuManager(_settingsPanel);
-        _uiLayer.addChild(_contextManager.getView());
-
-        addEventListener(Event.ENTER_FRAME, onMainLoop);
-        stage.addEventListener(Event.RESIZE, onResize);
-		
-        // Start main loop
-        addEventListener(Event.ENTER_FRAME, onMainLoop);
-        
-        // Handle resize
-        stage.addEventListener(Event.RESIZE, onResize);
-        
-        // Create demo project
-        createDemoProject();
-        
-		// Передаём контекст меню
-        _contextManager.setContext(_editorContext.currentEditor, _editorContext.currentAssembly);
-        
-		trace("MainHTML5: Showcase initialized");
-    }
-    
-    // =========================================================================
-    // SYSTEMS INITIALIZATION
-    // =========================================================================
-    private function initSystems():Void
-    {
-        // 1. Initialize AtomRegistry (UI atoms only, no native drivers)
-        AtomRegistry.initialize();
-        
-        // 2. Initialize ECS render layer
-        ECS.init();
-        
-        // 3. Initialize managers
-        DriverManager.getInstance();
-        UndoManager.getInstance();
-        
-        // 4. Initialize TickGenerator
-        TickGenerator.getInstance();
-        TickGenerator.getInstance().targetHz = 60;
-        TickGenerator.getInstance().maxStepsPerFrame = 100;
-        
-        trace("MainHTML5: Systems initialized");
-    }
-    
-    // =========================================================================
-    // UI SETUP
-    // =========================================================================
-    private function setupLayers():Void
-    {
-        _editorLayer = new Sprite();
-        addChild(_editorLayer);
-        
-        _uiLayer = new Sprite();
-        addChild(_uiLayer);
-    }
-    
-    // =========================================================================
-    // DEMO PROJECT
-    // =========================================================================
-    private function createDemoProject():Void
-    {
-        // Create empty blueprint
-        var demoBlueprint = new Blueprint("demo", "Demo Showcase", [
-            {name: "IN", type: INPUT},
-            {name: "OUT", type: OUTPUT}
-        ]);
-        
-        var rootAssembly = new Assembly("main_asm", demoBlueprint);
-        
-        // Open in editor context
-        _editorContext.push(rootAssembly, true);
-        
-        // Add demo atoms
-        var editor = _editorContext.currentEditor;
-        
-        // Button → LED connection
-        editor.createAtom("Button", 200, 200);
-        editor.createAtom("LED", 400, 200);
-        
-        // Toggle → Relay → LED chain
-        editor.createAtom("Toggle", 200, 350);
-        editor.createAtom("Relay", 400, 350);
-        editor.createAtom("LED", 600, 350);
-        
-        // SignalGenerator → Oscilloscope
-        editor.createAtom("SignalGenerator", 200, 500);
-        editor.createAtom("Oscilloscope", 500, 500);
-        
-        trace("MainHTML5: Demo project created with 7 atoms");
-    }
-    
-    // =========================================================================
-    // MAIN LOOP
-    // =========================================================================
-    private function onMainLoop(e:Event):Void
-    {
-        var now = Lib.getTimer();
-        var dt = (now - _lastTime) / 1000.0;
-        _lastTime = now;
-        
-        // Update simulation
-        TickGenerator.getInstance().update(dt);
-    }
-    
-    // =========================================================================
-    // RESIZE HANDLER
-    // =========================================================================
-    private function onResize(e:Event):Void
-    {
-        if (_editorContext.currentEditor != null)
-        {
-            var margin = 12;
-            _editorContext.currentEditor.setSize(
-                stage.stageWidth - margin * 2,
-                stage.stageHeight - margin * 2
-            );
-        }
-    }
 }
 
 ================================================================================
@@ -37268,7 +39869,7 @@ class DeviceCard extends Sprite {
 
 ================================================================================
 // FILE: ui\DevicePanel.hx
-// Lines: 1487 | Chars: 56676
+// Lines: 1488 | Chars: 56676
 ================================================================================
 
 package ui;
@@ -37394,8 +39995,8 @@ void _dp_registerDragTick(void* inTick) {
 * │                                     │                            │      │
 * │                                     │ [E][C][□]          [X]     │      │
 * │                                     │  ↑  ↑  ↑           ↑       │      │
-* │                                     │ Ed Cl Max/         Close    │      │
-* │                                     │ it ar Restore      (40x40)  │      │
+* │                                     │ Ed Cl Max/         Close   │      │
+* │                                     │ it ar Restore      (40x40) │      │
 * │                                     │    (28x26)                 │      │
 * │                                     └────────────────────────────┘      │
 * │                                              │                          │
@@ -38335,13 +40936,14 @@ class DevicePanel extends Sprite
     * Implementation: Uses untyped __cpp__() to call global extern "C" function
     * declared in @:cppFileCode, avoiding namespace resolution issues.
     */
-    private static function _registerDragTickBridge(inTick:cpp.RawPointer<cpp.Void>):Void
+    #if windows
+	private static function _registerDragTickBridge(inTick:cpp.RawPointer<cpp.Void>):Void
     {
-        #if windows
+        
         untyped __cpp__('::_dp_registerDragTick((void*){0});', inTick);
-        #end
+       
     }
-    
+     #end
     // =========================================================================
     // v3.6: HEADER DRAG HANDLERS
     // =========================================================================

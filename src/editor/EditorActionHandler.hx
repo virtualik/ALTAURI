@@ -117,7 +117,27 @@ class EditorActionHandler
         );
         UndoManager.getInstance().executeAndStore(cmd);
     }
-    
+
+	/**
+	* Создает атом с заранее известным ID.
+	* Это необходимо для программного скриптинга, чтобы мы могли сразу соединить атомы.
+	*/
+	public function createAtomWithId(typeId:String, instanceId:String, x:Float, y:Float):Void
+	{
+		var cmd = new CreateAtomCommand(
+			_blueprint,
+			_assembly,
+			typeId,
+			instanceId, // Передаем наш сгенерированный ID
+			x,
+			y,
+			_isNameTakenGlobally,
+			null,
+			false
+		);
+		UndoManager.getInstance().executeAndStore(cmd);
+	}
+
     /**
      * Delete multiple atoms (batch operation).
      */
