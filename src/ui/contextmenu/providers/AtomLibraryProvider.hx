@@ -6,33 +6,33 @@ import ui.contextmenu.data.MenuCategory;
 import library.AtomRegistry;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     ATOM LIBRARY PROVIDER                                 ║
  * ║          (Provides built-in atoms for context menu)                       ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Provides all registered atoms from AtomRegistry:                         ║
- *    - Native atoms (Button, LED, Toggle, etc.)                               ║
- *    - Active drivers (SignalGenerator, MiniAudioAtom, etc.)                  ║
- *    - Custom assemblies (user-created)                                       ║
+ * ║  - Native atoms (Button, LED, Toggle, etc.)                               ║
+ * ║  - Active drivers (SignalGenerator, MiniAudioAtom, etc.)                  ║
+ * ║  - Custom assemblies (user-created)                                       ║
  * ║                                                                           ║
- * ║  Architecture:                                                            
+ * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  AtomLibraryProvider (implements MenuEntryProvider)                 │  ║
- *   │                                                                     │  ║
- *   │  Methods:                                                           │  
+ * ║  │                                                                     │  ║
+ * ║  │  Methods:                                                           │  ║
  * ║  │  - getEntries() → Array<MenuEntry>                                  │  ║
  * ║  │  - getCategoryId() → String ("atoms")                               │  ║
  * ║  │  - supportsSearch() → Bool (true)                                   │  ║
  * ║  │  - filter(query) → Array<MenuEntry>                                 │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
- *   Usage:                                                                   ║
+ * ║  Usage:                                                                   ║
  * ║  ───────                                                                  ║
  * ║  var provider = new AtomLibraryProvider(currentBpId);                     ║
- *   var entries = provider.getEntries();                                     ║
+ * ║  var entries = provider.getEntries();                                     ║
  * ║                                                                           ║
- * ═══════════════════════════════════════════════════════════════════════════╝
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 class AtomLibraryProvider implements MenuEntryProvider
 {
@@ -62,16 +62,17 @@ class AtomLibraryProvider implements MenuEntryProvider
         
         for (id in ids)
         {
-            // Skip current blueprint (prevent self-reference)
             if (id == _currentBpId) continue;
-            
             var bp = AtomRegistry.get(id);
-            if (bp != null)
+            
+            // FIX: Only show native atoms
+            if (bp != null && bp.isNative)
             {
-                entries.push(MenuEntry.createAtom(id, bp.name));
+                // Use bp.iconId if available, otherwise fallback to id
+                var iconId = (bp.iconId != null && bp.iconId != "") ? bp.iconId : id;
+                entries.push(MenuEntry.createAtom(id, bp.name, iconId));
             }
         }
-        
         return entries;
     }
     

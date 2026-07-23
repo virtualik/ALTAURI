@@ -1006,7 +1006,7 @@ class NodeEditor extends Sprite
 	private function onMouseWheel(e:MouseEvent):Void
 	{
 		_viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
-		//_wireRenderer.rebuildAll();
+		_wireRenderer.rebuildAll();
 		updateVisibility();
 	}
 

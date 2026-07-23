@@ -87,7 +87,7 @@ import ui.WireType.WireType as WireTypeEnum;
 *
 * ┌─────────────────────────────────────────────────────────────────────────┐
 * │  PROBLEM:                                                               │
-* │  When a port is removed from an assembly (via RemovePortCommand or     │
+* │  When a port is removed from an assembly (via RemovePortCommand or      │
 * │  context menu), connections referencing that port remain in             │
 * │  blueprint.internalConnections. WireRenderer continued to create        │
 * │  sprites for these "ghost" connections, but getWirePoint() returned     │
@@ -95,7 +95,7 @@ import ui.WireType.WireType as WireTypeEnum;
 * │                                                                         │
 * │  SOLUTION:                                                              │
 * │  In rebuildAll(), after detecting that a connection has missing         │
-* │  endpoint(s), the wire sprite is removed from both the map and the     │
+* │  endpoint(s), the wire sprite is removed from both the map and the      │
 * │  display list. This prevents accumulation of "zombie" wire sprites.     │
 * │                                                                         │
 * │  Flow:                                                                  │

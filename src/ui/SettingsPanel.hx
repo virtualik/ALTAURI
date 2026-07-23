@@ -5,6 +5,7 @@ import openfl.text.TextField;
 import openfl.text.TextFormat;
 import openfl.text.TextFormatAlign;
 import openfl.events.MouseEvent;
+import ui.contextmenu.SidebarPosition;
 
 /**
 * SETTINGS PANEL v1.5 (Modal Overlay & Live Stats)
@@ -40,9 +41,9 @@ import openfl.events.MouseEvent;
 *
 * v1.5 Changes:
 * - ADDED: Modal dimmer overlay (_dimmer) that covers the entire stage.
-*          Dims the background by 50% and blocks all mouse interactions 
+*          Dims the background by 50% and blocks all mouse interactions
 *          with the Editor underneath.
-* - FIXED: Statistics block now updates immediately when Wire Type or 
+* - FIXED: Statistics block now updates immediately when Wire Type or
 *          any other setting is changed (via Main.onSettingsChanged).
 *
 * v1.4 Changes:
@@ -59,7 +60,7 @@ class SettingsPanel extends Sprite
 	private var _closeBtn:Sprite;
 
 	// === v1.5: MODAL DIMMER ===
-	/** 
+	/**
 	* Full-screen overlay that dims the background and blocks mouse events.
 	* Drawn at index 0 so it sits behind the panel UI but in front of the Editor.
 	*/
@@ -84,6 +85,14 @@ class SettingsPanel extends Sprite
 	private var _allowAssembly:Bool = true;
 
 	/**
+	* Context menu sidebar position.
+	*/
+	public var contextMenuSidebarPosition(get, set):SidebarPosition;
+	private var _contextMenuSidebarPosition:SidebarPosition = SidebarPosition.LEFT;
+
+	private var _contextMenuRadioButtons:Array<RadioButton> = [];
+
+	/**
 	* Callback when settings change.
 	*/
 	public var onSettingsChanged:Void -> Void = null;
@@ -91,6 +100,21 @@ class SettingsPanel extends Sprite
 	private var _ecsCheckbox:Checkbox;
 	private var _assemblyCheckbox:Checkbox;
 	private var _wireButtons:Array<RadioButton> = [];
+
+	private function get_contextMenuSidebarPosition():SidebarPosition
+	{
+		return _contextMenuSidebarPosition;
+	}
+
+	private function set_contextMenuSidebarPosition(v:SidebarPosition):SidebarPosition
+	{
+		_contextMenuSidebarPosition = v;
+		for (r in _contextMenuRadioButtons)
+		{
+			r.checked = (r.userData == v);
+		}
+		return v;
+	}
 
 	public function new()
 	{
@@ -285,7 +309,47 @@ class SettingsPanel extends Sprite
 			addChild(optDesc);
 		}
 		yPos += 15;
+		yPos += 15;
 
+// Section: Context Menu
+		var contextMenuSection = new TextField();
+		contextMenuSection.defaultTextFormat = new TextFormat("_typewriter", 14, 0x00AAFF, true);
+		contextMenuSection.width = 380;
+		contextMenuSection.height = 25;
+		contextMenuSection.x = 15;
+		contextMenuSection.y = yPos;
+		contextMenuSection.text = "CONTEXT MENU";
+		contextMenuSection.selectable = false;
+		addChild(contextMenuSection);
+		yPos += 35;
+
+// Sidebar position options
+		var sidebarOptions = [
+		{ label: "Sidebar Left", position: SidebarPosition.LEFT, desc: "Categories on left side" },
+		{ label: "Sidebar Right", position: SidebarPosition.RIGHT, desc: "Categories on right side" }
+		];
+		for (opt in sidebarOptions)
+		{
+			var radio = new RadioButton(opt.label, _contextMenuSidebarPosition == opt.position);
+			radio.x = 20;
+			radio.y = yPos;
+			radio.userData = opt.position;
+			radio.onSelect = onContextMenuSidebarSelect;
+			addChild(radio);
+			_contextMenuRadioButtons.push(radio);
+			yPos += 30;
+
+			var optDesc = new TextField();
+			optDesc.defaultTextFormat = new TextFormat("_typewriter", 10, 0x666666);
+			optDesc.width = 360;
+			optDesc.height = 20;
+			optDesc.x = 45;
+			optDesc.y = yPos - 18;
+			optDesc.text = opt.desc;
+			optDesc.selectable = false;
+			addChild(optDesc);
+		}
+		yPos += 15;
 		// Section: Stats
 		var statsLabel = new TextField();
 		statsLabel.defaultTextFormat = new TextFormat("_typewriter", 14, 0x00AAFF, true);
@@ -336,6 +400,19 @@ class SettingsPanel extends Sprite
 	{
 		_wireType = radio.userData;
 		for (r in _wireButtons)
+		{
+			r.checked = (r == radio);
+		}
+		if (onSettingsChanged != null)
+		{
+			onSettingsChanged();
+		}
+	}
+
+	private function onContextMenuSidebarSelect(radio:RadioButton):Void
+	{
+		_contextMenuSidebarPosition = radio.userData;
+		for (r in _contextMenuRadioButtons)
 		{
 			r.checked = (r == radio);
 		}
@@ -427,7 +504,7 @@ class SettingsPanel extends Sprite
 
 		// === v1.5: Draw Modal Dimmer ===
 		// We draw the dimmer relative to the panel's local coordinates.
-		// Since the panel is offset by (x, y), we start drawing at (-x, -y) 
+		// Since the panel is offset by (x, y), we start drawing at (-x, -y)
 		// to ensure the dimmer perfectly covers the (0,0) to (stageW, stageH) area.
 		_dimmer.graphics.clear();
 		_dimmer.graphics.beginFill(0x000000, 0.5);

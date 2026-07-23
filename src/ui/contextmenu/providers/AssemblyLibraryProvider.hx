@@ -6,24 +6,24 @@ import ui.contextmenu.data.MenuCategory;
 import library.AtomRegistry;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     ASSEMBLY LIBRARY PROVIDER                             ║
  * ║          (Provides user-created assemblies for context menu)              ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Provides user-created assemblies (non-native blueprints):                ║
- *    - Custom assemblies saved to library                                     ║
- *    - Excludes native atoms                                                  ║
- *    - Excludes current blueprint (prevent self-reference)                    ║
+ * ║  - Custom assemblies saved to library                                     ║
+ * ║  - Excludes native atoms                                                  ║
+ * ║  - Excludes current blueprint (prevent self-reference)                    ║
  * ║                                                                           ║
  * ║  Architecture:                                                            ║
- *   ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  AssemblyLibraryProvider (implements MenuEntryProvider)             │  ║
  * ║  │                                                                     │  ║
  * ║  │  Methods:                                                           │  ║
  * ║  │  - getEntries() → Array<MenuEntry>                                  │  ║
  * ║  │  - getCategoryId() → String ("assemblies")                          │  ║
- * ║  │  - supportsSearch() → Bool (true)                                   │  
+ * ║  │  - supportsSearch() → Bool (true)                                   │  ║
  * ║  │  - filter(query) → Array<MenuEntry>                                 │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
@@ -62,16 +62,14 @@ class AssemblyLibraryProvider implements MenuEntryProvider
         
         for (id in ids)
         {
-            // Skip current blueprint (prevent self-reference)
             if (id == _currentBpId) continue;
-            
             var bp = AtomRegistry.get(id);
             if (bp != null && !bp.isNative)
             {
-                entries.push(MenuEntry.createAssembly(id, bp.name));
+                // All custom assemblies use the default icon for now
+                entries.push(MenuEntry.createAssembly(id, bp.name, "default_assembly"));
             }
         }
-        
         return entries;
     }
     

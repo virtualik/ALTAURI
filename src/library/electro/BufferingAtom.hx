@@ -10,37 +10,37 @@ import system.managers.DriverManager;
 * ╔═══════════════════════════════════════════════════════════════════════════╗
 * ║                     BUFFERING ATOM v1.0                                   ║
 * ║                     (Batch Mode + Zero-GC)                                ║
-* ╠═══════════════════════════════════════════════════════════════════════════
+* ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  Accumulates incoming samples into a fixed-size buffer.                   ║
-*  When buffer is full, emits it on "buffer" output with "changed" pulse.     ║
+* ║  When buffer is full, emits it on "buffer" output with "changed" pulse.   ║
 * ║                                                                           ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                        ARCHITECTURE                                       ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
-* ║  │                     BufferingAtom                                   │  
+* ║  │                     BufferingAtom                                   │  ║
 * ║  │                                                                     │  ║
 * ║  │  A) COMPUTE MODULE:                                                 │  ║
 * ║  │     ─────────────────                                               │  ║
-* ║  │     onContactChanged("in") → _buffer.push(sample)                   │  
+* ║  │     onContactChanged("in") → _buffer.push(sample)                   │  ║
 * ║  │                              _count++                               │  ║
 * ║  │                              if (_count >= _size) → flush()         │  ║
 * ║  │                                                                     │  ║
 * ║  │     flush() {                                                       │  ║
-*   │       1. setValueSilent(buffer)  ← Batch write                      │  ║
-*   │       2. setValueSilent(changed=true)                               │  ║
+* ║  │       1. setValueSilent(buffer)  ← Batch write                      │  ║
+* ║  │       2. setValueSilent(changed=true)                               │  ║
 * ║  │       3. setValueSilent(count=0)                                    │  ║
 * ║  │       4. propagateCurrentValue() × 3  ← Single propagation          │  ║
 * ║  │       5. Reset buffer                                               │  ║
 * ║  │     }                                                               │  ║
 * ║  │                                                                     │  ║
-*   │     update(dt) → manage "changed" pulse timer                       │  ║
+* ║  │     update(dt) → manage "changed" pulse timer                       │  ║
 * ║  │                                                                     │  ║
 * ║  │  B) DATABANK:                                                       │  ║
 * ║  │     ─────────────                                                   │  ║
-*   │     _buffer: Array<Float>  - Accumulator (Zero-GC, pre-allocated)   │  ║
+* ║  │     _buffer: Array<Float>  - Accumulator (Zero-GC, pre-allocated)   │  ║
 * ║  │     _count: Int            - Current fill level                     │  ║
 * ║  │     _size: Int             - Target buffer size (default: 512)      │  ║
 * ║  │     _pulseTimer: Float     - Timer for "changed" pulse reset        │  ║
@@ -51,7 +51,7 @@ import system.managers.DriverManager;
 * ║  │     "size" - Int    - Buffer size (1..8192)                         │  ║
 * ║  │                                                                     │  ║
 * ║  │  D) OUTPUTS:                                                        │  ║
-* ║  │     ───────                                                        │  ║
+* ║  │     ───────                                                         │  ║
 * ║  │     "buffer"  - Array<Float>  - Full buffer (Zero-GC reference)     │  ║
 * ║  │     "changed" - Bool          - Pulse when buffer ready (50ms)      │  ║
 * ║  │     "count"   - Int           - Current fill level                  │  ║
@@ -61,11 +61,11 @@ import system.managers.DriverManager;
 * ║  │     BufferingWidget (optional) - shows fill level                   │  ║
 * ║  └─────────────────────────────────────────────────────────────────────┘  ║
 * ║                                                                           ║
-* ═══════════════════════════════════════════════════════════════════════════╣
+* ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                     BATCH MODE PATTERN                                    ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
-*   ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
 * ║  │  flush() {                                                          │  ║
 * ║  │                                                                     │  ║
 * ║  │    // 1. Silent writes — no propagation triggered                   │  ║
@@ -89,22 +89,22 @@ import system.managers.DriverManager;
 * ║  Problem: Creating new Array<Float>() on every flush() causes GC spikes.  ║
 * ║                                                                           ║
 * ║  Solution: Pre-allocate buffer in init() and reuse it.                    ║
-*  On flush(), we pass the SAME array reference to downstream atoms.          ║
-*  They must copy it if they need to store it long-term.                      ║
+* ║ On flush(), we pass the SAME array reference to downstream atoms.         ║
+* ║ They must copy it if they need to store it long-term.                     ║
 * ║                                                                           ║
-*   Trade-off:                                                               ║
-*  - Pro: Zero allocations during runtime                                     ║
-*  - Con: Downstream atoms see the same array object (must copy if needed)    ║
+* ║  Trade-off:                                                               ║
+* ║ - Pro: Zero allocations during runtime                                    ║
+* ║ - Con: Downstream atoms see the same array object (must copy if needed)   ║
 * ║                                                                           ║
-* ═══════════════════════════════════════════════════════════════════════════╣
+* ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                    APPLICATION                                            ║
-* ╠═══════════════════════════════════════════════════════════════════════════
+* ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  • Audio sample accumulation (512 frames for FFT)                         ║
 * ║  • Sensor data batching                                                   ║
-*  • Network packet assembly                                                  ║
-*  • Any scenario where you need to collect N samples before processing       ║
-* ║                                                                           
+* ║  • Network packet assembly                                                ║
+* ║  • Any scenario where you need to collect N samples before processing     ║
+* ║                                                                           ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
 */
 class BufferingAtom extends Atom implements system.managers.Driver

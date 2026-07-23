@@ -1,32 +1,32 @@
 package ui.contextmenu;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     MENU BOUNDS CALCULATOR                                ║
  * ║          (Smart positioning to keep menu within stage bounds)             ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
- *   Calculates menu position so it stays fully visible on stage.             ║
- *  Handles edge cases:                                                        ║
- *    - Menu would overflow right edge → anchor to left of cursor              ║
- *    - Menu would overflow bottom edge → anchor to top of cursor              ║
- *    - Menu is too big for stage → shrink to fit with max dimensions          ║
+ * ║  Calculates menu position so it stays fully visible on stage.             ║
+ * ║  Handles edge cases:                                                      ║
+ * ║  - Menu would overflow right edge → anchor to left of cursor              ║
+ * ║  - Menu would overflow bottom edge → anchor to top of cursor              ║
+ * ║  - Menu is too big for stage → shrink to fit with max dimensions          ║
  * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  MenuBoundsCalculator (Static)                                      │  ║
  * ║  │                                                                     │  ║
  * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
- *   │  │  Methods:                                                     │  │  ║
+ * ║  │  │  Methods:                                                     │  │  ║
  * ║  │  │  - clamp() → {x, y, width, height}                            │  │  ║
  * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
- *   Algorithm:                                                               ║
+ * ║  Algorithm:                                                               ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  1. Calculate requested menu dimensions                             │  ║
- *   │  2. Check horizontal overflow:                                      │  ║
- *   │     - If x + width > stageWidth - margin → x = stageWidth - width   │  ║
+ * ║  │  2. Check horizontal overflow:                                      │  ║
+ * ║  │     - If x + width > stageWidth - margin → x = stageWidth - width   │  ║
  * ║  │  3. Check vertical overflow:                                        │  ║
  * ║  │     - If y + height > stageHeight - margin → y = stageHeight - h    │  ║
  * ║  │  4. Clamp to minimum margins on all sides                           │  ║

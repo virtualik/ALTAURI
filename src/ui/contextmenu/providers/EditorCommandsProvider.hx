@@ -5,35 +5,35 @@ import ui.contextmenu.data.MenuEntryProvider;
 import ui.contextmenu.data.MenuCategory;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     EDITOR COMMANDS PROVIDER                              ║
  * ║          (Provides editor commands for context menu)                      ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Provides standard editor commands:                                       ║
- *    - Delete Selected (nodes + wires)                                        ║
- *    - Delete Selected Atoms                                                  ║
- *    - Delete Selected Wires                                                  ║
- *    - Group Selected Atoms                                                   ║
- *    - Add Input Port                                                         ║
- *    - Add Output Port                                                        ║
- * ║                                                                           
+ * ║  - Delete Selected (nodes + wires)                                        ║
+ * ║  - Delete Selected Atoms                                                  ║
+ * ║  - Delete Selected Wires                                                  ║
+ * ║  - Group Selected Atoms                                                   ║
+ * ║  - Add Input Port                                                         ║
+ * ║  - Add Output Port                                                        ║
+ * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  EditorCommandsProvider (implements MenuEntryProvider)              │  ║
- *   │                                                                     │  ║
- *   │  Methods:                                                           │  
+ * ║  │                                                                     │  ║
+ * ║  │  Methods:                                                           │  ║
  * ║  │  - getEntries() → Array<MenuEntry>                                  │  ║
  * ║  │  - getCategoryId() → String ("editor")                              │  ║
  * ║  │  - supportsSearch() → Bool (true)                                   │  ║
  * ║  │  - filter(query) → Array<MenuEntry>                                 │  ║
- * ║  ─────────────────────────────────────────────────────────────────────  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
  * ║  Usage:                                                                   ║
- *   ───────                                                                  ║
+ * ║  ───────                                                                  ║
  * ║  var provider = new EditorCommandsProvider(nodeCount, wireCount,          ║
- *                                           allowAssembly);                  ║
- *   var entries = provider.getEntries();                                     ║
+ * ║                                         allowAssembly);                   ║
+ * ║ var entries = provider.getEntries();                                      ║
  * ║                                                                           ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */

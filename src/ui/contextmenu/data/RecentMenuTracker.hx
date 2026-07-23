@@ -5,23 +5,23 @@ import core.logic.Impulse;
 import core.logic.EventType;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     RECENT MENU TRACKER                                   ║
  * ║          (Tracks last N menu actions for Recent section)                  ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
- *   Singleton that tracks the last N menu actions and exposes them           ║
- *  as MenuEntry instances for the "Recent" category in the sidebar.           ║
+ * ║  Singleton that tracks the last N menu actions and exposes them           ║
+ * ║  as MenuEntry instances for the "Recent" category in the sidebar.         ║
  * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  RecentMenuTracker (Singleton)                                      │  ║
  * ║  │                                                                     │  ║
- * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  
+ * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
  * ║  │  │  Fields:                                                      │  │  ║
  * ║  │  │  - _history: Array<MenuEntry>  → Last N entries (FIFO)        │  │  ║
  * ║  │  │  - _maxHistory: Int          → Maximum entries to track (5)   │  │  ║
- * ║  │  │                                                             │  │  ║
+ * ║  │  │                                                               │  │  ║
  * ║  │  │  Methods:                                                     │  │  ║
  * ║  │  │  - record(entry: MenuEntry)  → Add to history                 │  │  ║
  * ║  │  │  - getRecent() → Array<MenuEntry>  → Get last N entries       │  │  ║

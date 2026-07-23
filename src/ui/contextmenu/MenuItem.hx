@@ -1,13 +1,16 @@
 package ui.contextmenu;
 
 import openfl.display.Sprite;
+import openfl.display.Bitmap;
+import openfl.display.BitmapData;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
 import openfl.events.MouseEvent;
 import ui.contextmenu.data.MenuEntry;
+import ui.contextmenu.data.MenuCategory;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     MENU ITEM                                             ║
  * ║          (Single clickable entry in content panel)                        ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
@@ -40,50 +43,38 @@ import ui.contextmenu.data.MenuEntry;
  * ║                                                                           ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
+/**
+ * MENU ITEM v2.0 (PNG Icon Support + Fallback)
+ * Single clickable entry in content panel.
+ * 
+ * v2.0 Changes:
+ * - Replaced text-based icons with PNG loading from assets.
+ * - Added programmatic fallback (colored square + first letter) if PNG is missing.
+ * - Supports 32x32 icons natively.
+ */
 class MenuItem extends Sprite
 {
-    /** Entry data model. */
     public var entry:MenuEntry;
-    
-    /** Callback when item is clicked. */
     public var onClick:MenuEntry -> Void;
-    
-    /** Display mode. */
     public var displayMode:DisplayMode;
     
-    /** Background sprite. */
     private var _bg:Sprite;
-    
-    /** Icon placeholder (text-based for now). */
-    private var _iconField:TextField;
-    
-    /** Label text field. */
+    private var _iconContainer:Sprite; // Holds either Bitmap or fallback graphics
     private var _labelField:TextField;
-    
-    /** Shortcut text field (list mode only). */
     private var _shortcutField:TextField;
     
-    /** Dimensions. */
     private static inline var LIST_WIDTH:Float = 150.0;
     private static inline var LIST_HEIGHT:Float = 30.0;
     private static inline var GRID_WIDTH:Float = 100.0;
     private static inline var GRID_HEIGHT:Float = 80.0;
     private static inline var ICON_SIZE:Float = 32.0;
     
-    /** Colors. */
     private static inline var COLOR_NORMAL_BG:Int = 0x222233;
     private static inline var COLOR_HOVER_BG:Int = 0x334455;
     private static inline var COLOR_NORMAL_TEXT:Int = 0xFFFFFF;
     private static inline var COLOR_HOVER_TEXT:Int = 0x00AAFF;
     private static inline var COLOR_SHORTCUT:Int = 0x888888;
-    private static inline var COLOR_ICON:Int = 0x00AAFF;
     
-    /**
-     * Create a new menu item.
-     * 
-     * @param entry Entry data model
-     * @param mode Display mode (LIST or GRID)
-     */
     public function new(entry:MenuEntry, mode:DisplayMode = DisplayMode.LIST)
     {
         super();
@@ -92,22 +83,13 @@ class MenuItem extends Sprite
         buildUI();
     }
     
-    /**
-     * Build the visual UI elements based on display mode.
-     */
     private function buildUI():Void
     {
         _bg = new Sprite();
         addChild(_bg);
         
-        _iconField = new TextField();
-        _iconField.defaultTextFormat = new TextFormat("_sans", 16, COLOR_ICON);
-        _iconField.text = getIconChar();
-        _iconField.width = ICON_SIZE;
-        _iconField.height = ICON_SIZE;
-        _iconField.selectable = false;
-        _iconField.mouseEnabled = false;
-        addChild(_iconField);
+        _iconContainer = new Sprite();
+        addChild(_iconContainer);
         
         _labelField = new TextField();
         _labelField.defaultTextFormat = new TextFormat("_sans", 12, COLOR_NORMAL_TEXT);
@@ -126,7 +108,6 @@ class MenuItem extends Sprite
             _shortcutField.selectable = false;
             _shortcutField.mouseEnabled = false;
             addChild(_shortcutField);
-            
             layoutList();
         }
         else
@@ -144,36 +125,93 @@ class MenuItem extends Sprite
     }
     
     /**
-     * Get icon character based on entry type.
-     * TODO: Replace with PNG icons from assets/icons/
+     * Attempts to load PNG. If fails, draws a fallback colored square.
      */
-    private function getIconChar():String
+    private function loadIcon():Void
     {
-        if (entry.categoryId == "editor")
+        _iconContainer.graphics.clear();
+        while (_iconContainer.numChildren > 0) _iconContainer.removeChildAt(0);
+        
+        // Only atoms and assemblies have icons in assets
+        if (entry.categoryId != MenuCategory.ATOMS && entry.categoryId != MenuCategory.ASSEMBLIES)
         {
-            switch (entry.actionId)
-            {
-                case "DELETE_ALL_SELECTED", "DELETE_SELECTED_ATOMS", "DELETE_WIRES": return "🗑";
-                case "GROUP_ATOMS": return "📦";
-                case "ADD_PORT": return "➕";
-                case "REMOVE_PORT": return "➖";
-                default: return "⚙";
+            drawFallbackIcon();
+            return;
+        }
+        
+        var path = "";
+        if (entry.categoryId == MenuCategory.ATOMS) {
+            path = "icons/atoms/" + entry.icon + ".png";
+        } else if (entry.categoryId == MenuCategory.ASSEMBLIES) {
+            // If it's the default placeholder
+            if (entry.icon == "default_assembly") {
+                path = "icons/assemblies/default.png";
+            } else {
+                path = "icons/assemblies/" + entry.icon + ".png";
             }
         }
-        else if (entry.categoryId == "atoms" || entry.categoryId == "assemblies")
-        {
-            return "";
+        
+        var bmpData:BitmapData = null;
+        try {
+            bmpData = openfl.Assets.getBitmapData(path);
+        } catch (e:Dynamic) {
+            // Asset not found
         }
-        else if (entry.categoryId == "recent")
+        
+        if (bmpData != null)
         {
-            return "🕐";
+            var bmp = new Bitmap(bmpData);
+            // Center the 32x32 icon within the container
+            bmp.x = (ICON_SIZE - bmpData.width) / 2;
+            bmp.y = (ICON_SIZE - bmpData.height) / 2;
+            _iconContainer.addChild(bmp);
         }
-        return "•";
+        else
+        {
+            // Fallback if PNG is missing
+            drawFallbackIcon();
+        }
     }
     
     /**
-     * Layout elements for list mode.
+     * Draws a colored square with the first letter of the name.
+     * Used when PNG is missing or for Editor commands.
      */
+    private function drawFallbackIcon():Void
+    {
+        // Generate a deterministic color based on the name
+        var color = getDeterministicColor(entry.displayName);
+        
+        _iconContainer.graphics.beginFill(color);
+        _iconContainer.graphics.drawRoundRect(0, 0, ICON_SIZE, ICON_SIZE, 6, 6);
+        _iconContainer.graphics.endFill();
+        
+        // Draw first letter
+        var letter = entry.displayName.length > 0 ? entry.displayName.charAt(0).toUpperCase() : "?";
+        var tf = new TextField();
+        tf.defaultTextFormat = new TextFormat("_sans", 16, 0xFFFFFF, true, null, null, null, null, "center");
+        tf.text = letter;
+        tf.width = ICON_SIZE;
+        tf.height = ICON_SIZE;
+        tf.y = 2; // slight visual adjustment
+        tf.selectable = false;
+        tf.mouseEnabled = false;
+        _iconContainer.addChild(tf);
+    }
+    
+    private function getDeterministicColor(str:String):Int
+    {
+        var hash = 0;
+        for (i in 0...str.length) {
+            hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        // Map hash to a nice looking color (avoiding too dark/light)
+        var r = (hash & 0xFF) % 100 + 100; // 100-200
+        var g = ((hash >> 8) & 0xFF) % 100 + 100;
+        var b = ((hash >> 16) & 0xFF) % 100 + 150; // slightly more blue
+        return (r << 16) | (g << 8) | b;
+    }
+    
     private function layoutList():Void
     {
         _bg.graphics.clear();
@@ -181,21 +219,20 @@ class MenuItem extends Sprite
         _bg.graphics.drawRect(0, 0, LIST_WIDTH, LIST_HEIGHT);
         _bg.graphics.endFill();
         
-        _iconField.x = 5;
-        _iconField.y = (LIST_HEIGHT - ICON_SIZE) / 2;
+        _iconContainer.x = 5;
+        _iconContainer.y = (LIST_HEIGHT - ICON_SIZE) / 2;
         
-        _labelField.x = 40;
+        _labelField.x = 45;
         _labelField.y = 0;
-        _labelField.width = LIST_WIDTH - 100;
+        _labelField.width = LIST_WIDTH - 105;
         _labelField.height = LIST_HEIGHT;
         
         _shortcutField.x = LIST_WIDTH - 55;
         _shortcutField.y = 0;
+        
+        loadIcon();
     }
     
-    /**
-     * Layout elements for grid mode.
-     */
     private function layoutGrid():Void
     {
         _bg.graphics.clear();
@@ -203,8 +240,8 @@ class MenuItem extends Sprite
         _bg.graphics.drawRoundRect(0, 0, GRID_WIDTH, GRID_HEIGHT, 6, 6);
         _bg.graphics.endFill();
         
-        _iconField.x = (GRID_WIDTH - ICON_SIZE) / 2;
-        _iconField.y = 10;
+        _iconContainer.x = (GRID_WIDTH - ICON_SIZE) / 2;
+        _iconContainer.y = 10;
         
         _labelField.x = 5;
         _labelField.y = ICON_SIZE + 15;
@@ -214,11 +251,10 @@ class MenuItem extends Sprite
         var fmt = new TextFormat("_sans", 10, COLOR_NORMAL_TEXT, false, null, null, null, null, "center");
         _labelField.defaultTextFormat = fmt;
         _labelField.setTextFormat(fmt);
+        
+        loadIcon();
     }
     
-    /**
-     * Draw normal state.
-     */
     private function drawNormal():Void
     {
         if (displayMode == DisplayMode.LIST)
@@ -238,9 +274,6 @@ class MenuItem extends Sprite
         _labelField.textColor = COLOR_NORMAL_TEXT;
     }
     
-    /**
-     * Draw hover state.
-     */
     private function drawHover():Void
     {
         if (displayMode == DisplayMode.LIST)
@@ -260,46 +293,15 @@ class MenuItem extends Sprite
         _labelField.textColor = COLOR_HOVER_TEXT;
     }
     
-    /**
-     * Mouse over handler.
-     */
-    private function onMouseOver(e:MouseEvent):Void
-    {
-        drawHover();
-    }
+    private function onMouseOver(e:MouseEvent):Void { drawHover(); }
+    private function onMouseOut(e:MouseEvent):Void { drawNormal(); }
     
-    /**
-     * Mouse out handler.
-     */
-    private function onMouseOut(e:MouseEvent):Void
-    {
-        drawNormal();
-    }
-    
-    /**
-     * Click handler.
-     */
     private function onClickHandler(e:MouseEvent):Void
     {
-        if (onClick != null)
-        {
-            onClick(entry);
-        }
+        if (onClick != null) onClick(entry);
     }
     
-    /**
-     * Get item width based on display mode.
-     */
-    public function getItemWidth():Float
-    {
-        return displayMode == DisplayMode.LIST ? LIST_WIDTH : GRID_WIDTH;
-    }
-    
-    /**
-     * Get item height based on display mode.
-     */
-    public function getItemHeight():Float
-    {
-        return displayMode == DisplayMode.LIST ? LIST_HEIGHT : GRID_HEIGHT;
-    }
+    public function getItemWidth():Float { return displayMode == DisplayMode.LIST ? LIST_WIDTH : GRID_WIDTH; }
+    public function getItemHeight():Float { return displayMode == DisplayMode.LIST ? LIST_HEIGHT : GRID_HEIGHT; }
 }
+

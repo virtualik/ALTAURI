@@ -1,19 +1,19 @@
 package ui.contextmenu.data;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     MENU CATEGORY                                         ║
  * ║          (Data model for sidebar category item)                           ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Represents a single category in the context menu sidebar.                ║
- *  Categories group menu entries by purpose:                                  ║
- *    - Editor commands (Cut/Copy/Paste/Undo/Redo)                             ║
- *    - Atom library (Button, LED, Toggle, etc.)                               ║
- *    - Assembly library (user-created custom assemblies)                      ║
- *    - Recent (last 5 used actions)                                           ║
+ * ║  Categories group menu entries by purpose:                                ║
+ * ║  - Editor commands (Cut/Copy/Paste/Undo/Redo)                             ║
+ * ║  - Atom library (Button, LED, Toggle, etc.)                               ║
+ * ║  - Assembly library (user-created custom assemblies)                      ║
+ * ║  - Recent (last 5 used actions)                                           ║
  * ║                                                                           ║
- *   Architecture:                                                            ║
+ * ║ Architecture:                                                             ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  MenuCategory                                                       │  ║
  * ║  │                                                                     │  ║

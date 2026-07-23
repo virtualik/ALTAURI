@@ -5,29 +5,29 @@ import ui.contextmenu.data.MenuEntry;
 import ui.contextmenu.DisplayMode;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     MENU ITEM GRID                                        ║
  * ║          (Grid layout for atom/assembly entries)                          ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
- *                                                                            ║
+ * ║                                                                           ║
  * ║  Grid layout container for MenuItem instances in GRID mode.               ║
- *  Arranges items in N columns with automatic row wrapping.                   ║
+ * ║  Arranges items in N columns with automatic row wrapping.                 ║
  * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  MenuItemGrid (Sprite)                                              │  ║
  * ║  │                                                                     │  ║
- * ║  │  ┌────────┐ ┌────────┐ ┌────────┐                                  │  ║
- * ║  │  │ [Icon] │ │ [Icon] │ │ [Icon] │  ← 3 columns                      │  
- * ║  │  │ Label  │ │ Label  │ │ Label  │                                  │  ║
- * ║  │  ────────┘ └────────┘ └────────┘                                  │  ║
- * ║  │  ┌────────┐ ┌──────── ┌────────┐                                  │  ║
- * ║  │  │ [Icon] │ │ [Icon] │ │ [Icon] │                                  │  ║
- * ║  │  │ Label  │ │ Label  │ │ Label  │                                  │  ║
- * ║  │  ────────┘ └────────┘ └────────┘                                  │  ║
+ * ║  │  ┌────────┐ ┌────────┐ ┌────────┐                                   │  ║
+ * ║  │  │ [Icon] │ │ [Icon] │ │ [Icon] │  ← 3 columns                      │  ║
+ * ║  │  │ Label  │ │ Label  │ │ Label  │                                   │  ║
+ * ║  │  └────────┘ └────────┘ └────────┘                                   │  ║
+ * ║  │  ┌────────┐ ┌────────┐ ┌────────┐                                   │  ║
+ * ║  │  │ [Icon] │ │ [Icon] │ │ [Icon] │                                   │  ║
+ * ║  │  │ Label  │ │ Label  │ │ Label  │                                   │  ║
+ * ║  │  └────────┘ └────────┘ └────────┘                                   │  ║
  * ║  │                                                                     │  ║
- *   │  Columns: 3 (configurable)                                          │  ║
- *   │  Item size: 100×80px                                                │  
+ * ║  │  Columns: 3 (configurable)                                          │  ║
+ * ║  │  Item size: 100×80px                                                │  ║
  * ║  │  Spacing: 5px                                                       │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
@@ -54,13 +54,13 @@ class MenuItemGrid extends Sprite
     /**
      * Create a new menu item grid.
      * 
-     * @param columns Number of columns (default: 3)
+     * @param columns Number of columns (default: 4)
      */
-    public function new(?columns:Int = 3)
+    public function new(?columns:Int = 4)
     {
         super();
         _items = [];
-        _columns = columns != null ? columns : 3;
+        _columns = columns != null ? columns : 4;
     }
     
     /**

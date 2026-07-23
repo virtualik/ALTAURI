@@ -16042,7 +16042,7 @@ class ECS {
 
 ================================================================================
 // FILE: editor\ContextMenuManager.hx
-// Lines: 476 | Chars: 17693
+// Lines: 500 | Chars: 15942
 ================================================================================
 
 package editor;
@@ -16070,39 +16070,39 @@ import ui.contextmenu.providers.AssemblyLibraryProvider;
 import ui.SettingsPanel;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     CONTEXT MENU MANAGER v2.0                             ║
  * ║          (New generation context menu with categories)                    ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Responsible for creating and handling editor context menus.              ║
- *  Listens to impulses from NodeEditor and manages the menu UI.               ║
+ * ║Listens to impulses from NodeEditor and manages the menu UI.               ║
  * ║                                                                           ║
- *   Architecture:                                                            ║
+ * ║ Architecture:                                                             ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  ContextMenuManager                                                 │  ║
  * ║  │                                                                     │  ║
  * ║  │  Event Subscriptions:                                               │  ║
  * ║  │  - CONTEXT_MENU_ACTION   → onMenuAction() (execute commands)        │  ║
  * ║  │  - CLOSE_CONTEXT_MENU    → onCloseContextMenu() (hide menu)         │  ║
- *   │  - NODE_RIGHT_CLICKED    → onNodeRightClick() (node menu)           │  ║
+ * ║  │  - NODE_RIGHT_CLICKED    → onNodeRightClick() (node menu)           │  ║
  * ║  │  - WIRE_RIGHT_CLICKED    → onWireRightClick() (wire menu)           │  ║
  * ║  │  - PORT_RIGHT_CLICKED    → onPortRightClick() (port menu)           │  ║
  * ║  │  - CANVAS_RIGHT_CLICKED  → onCanvasRightClick() (atom menu)         │  ║
- * ║  │                                                                     │  
+ * ║  │                                                                     │  ║
  * ║  │  Menu Actions:                                                      │  ║
  * ║  │  - ADD_ATOM             → NodeEditor.createAtom()                   │  ║
- * ║  │  - DELETE_ALL_SELECTED  → MacroCommand[DeleteAtom+DeleteWires]      │  
+ * ║  │  - DELETE_ALL_SELECTED  → MacroCommand[DeleteAtom+DeleteWires]      │  ║
  * ║  │  - DELETE_SELECTED_ATOMS→ NodeEditor.deleteSelectedNodes()          │  ║
  * ║  │  - DELETE_WIRES         → DeleteWiresCommand                        │  ║
  * ║  │  - GROUP_ATOMS          → GroupAtomsCommand (via UndoManager)       │  ║
  * ║  │  - ADD_PORT             → AddPortCommand                            │  ║
- * ║  │  - REMOVE_PORT          → RemovePortCommand                         │  
+ * ║  │  - REMOVE_PORT          → RemovePortCommand                         │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
- *   v2.0 Changes:                                                            ║
+ * ║ v2.0 Changes:                                                             ║
  * ║  - Uses new ContextMenu v2.0 with category sidebar + content panel        ║
- *   - Providers: EditorCommandsProvider, AtomLibraryProvider,                ║
+ * ║ - Providers: EditorCommandsProvider, AtomLibraryProvider,                 ║
  * ║    AssemblyLibraryProvider                                                ║
  * ║  - Recent section via RecentMenuTracker                                   ║
  * ║  - Smart positioning via MenuBoundsCalculator                             ║
@@ -16111,415 +16111,439 @@ import ui.SettingsPanel;
  */
 class ContextMenuManager
 {
-    /** The new context menu instance. */
-    private var _menu:ContextMenu;
-    
-    /** Current editor reference. */
-    private var _editor:NodeEditor;
-    
-    /** Current assembly reference. */
-    private var _assembly:Assembly;
-    
-    /** Reference to settings (needed for allowAssembly check). */
-    private var _settingsPanel:SettingsPanel;
-    
-    /** Temporary state for passing data to action. */
-    private var _contextTargetId:String = null;
-    
-    /** Flag to protect against repeated dispose. */
-    private var _isDisposed:Bool = false;
-    
-    /** Global name uniqueness checker for grouping operations. */
-    private var _isNameTakenGlobally:(String, ?String) -> Bool;
-    
-    /**
-     * Create a new context menu manager.
-     * 
-     * @param settingsPanel Settings panel reference
-     */
-    public function new(settingsPanel:SettingsPanel)
-    {
-        _settingsPanel = settingsPanel;
-        _menu = new ContextMenu();
-        
-        // Subscribe to all required impulses
-        Impulsys.subscribeToImpulse(EventType.CONTEXT_MENU_ACTION, onMenuAction);
-        Impulsys.subscribeToImpulse(EventType.CLOSE_CONTEXT_MENU, onCloseContextMenu);
-        Impulsys.subscribeToImpulse(EventType.NODE_RIGHT_CLICKED, onNodeRightClick);
-        Impulsys.subscribeToImpulse(EventType.WIRE_RIGHT_CLICKED, onWireRightClick);
-        Impulsys.subscribeToImpulse(EventType.PORT_RIGHT_CLICKED, onPortRightClick);
-        Impulsys.subscribeToImpulse(EventType.CANVAS_RIGHT_CLICKED, onCanvasRightClick);
-    }
-    
-    /**
-     * Update context when switching editor/assembly.
-     * 
-     * @param editor Current NodeEditor instance
-     * @param assembly Current Assembly instance
-     * @param isNameTakenGlobally Callback to check name uniqueness globally
-     */
-    public function setContext(
-        editor:NodeEditor, 
-        assembly:Assembly, 
-        ?isNameTakenGlobally:(String, ?String) -> Bool
-    ):Void
-    {
-        _editor = editor;
-        _assembly = assembly;
-        _isNameTakenGlobally = isNameTakenGlobally;
-    }
-    
-    /**
-     * Returns the visual menu component for adding to the scene.
-     */
-    public function getView():ContextMenu
-    {
-        return _menu;
-    }
-    
-    // ========================================================================
-    // DISPOSE
-    // ========================================================================
-    /**
-     * Properly dispose the manager.
-     * Unsubscribes from all Impulsys events to prevent memory leaks.
-     */
-    public function dispose():Void
-    {
-        if (_isDisposed) return;
-        _isDisposed = true;
-        
-        // Unsubscribe from all impulses
-        Impulsys.removeImpulse(EventType.CONTEXT_MENU_ACTION, onMenuAction);
-        Impulsys.removeImpulse(EventType.CLOSE_CONTEXT_MENU, onCloseContextMenu);
-        Impulsys.removeImpulse(EventType.NODE_RIGHT_CLICKED, onNodeRightClick);
-        Impulsys.removeImpulse(EventType.WIRE_RIGHT_CLICKED, onWireRightClick);
-        Impulsys.removeImpulse(EventType.PORT_RIGHT_CLICKED, onPortRightClick);
-        Impulsys.removeImpulse(EventType.CANVAS_RIGHT_CLICKED, onCanvasRightClick);
-        
-        // Clear references
-        if (_menu != null)
-        {
-            _menu.hide();
-            _menu = null;
-        }
-        _editor = null;
-        _assembly = null;
-        _settingsPanel = null;
-        _contextTargetId = null;
-        _isNameTakenGlobally = null;
-    }
-    
-    // ========================================================================
-    // HANDLERS: Triggered by Impulsys
-    // ========================================================================
-    
-    /**
-     * Handle canvas right-click (add atom menu).
-     */
-    private function onCanvasRightClick(impulse:Impulse):Void
-    {
-        if (_isDisposed) return;
-        
-        resetMenu();
-        buildAtomMenu(impulse.data.x, impulse.data.y);
-        _menu.show(impulse.data.x, impulse.data.y);
-    }
-    
-    /**
-     * Handle node right-click (node context menu).
-     */
-    private function onNodeRightClick(impulse:Impulse):Void
-    {
-        if (_isDisposed) return;
-        if (impulse == null || impulse.data == null) return;
-        
-        var view:NodeView = impulse.data.view;
-        _contextTargetId = impulse.data.id;
-        
-        // Selection logic on right-click
-        if (!_editor.isSelected(_contextTargetId))
-        {
-            // Node not selected: reset all and select only this one
-            _editor.deselectAll();
-            _editor.selectNode(_contextTargetId, view);
-        }
-        else
-        {
-            // Node already selected: keep node selection, clear wires
-            _editor.clearWireSelection();
-        }
-        
-        resetMenu();
-        
-        var nodeCount = _editor.getSelectedNodeCount();
-        var wireCount = _editor.getSelectedWireIds().length;
-        
-        // Build menu data
-        var categories = MenuCategory.getBuiltinCategories();
-        var entriesByCategory = new Map<String, Array<MenuEntry>>();
-        
-        // Editor commands
-        var editorProvider = new EditorCommandsProvider(
-            nodeCount, 
-            wireCount, 
-            _settingsPanel.allowAssembly
-        );
-        entriesByCategory.set(MenuCategory.EDITOR, editorProvider.getEntries());
-        
-        // Atom library
-        var currentBpId = (_assembly != null && _assembly.blueprint != null) 
-            ? _assembly.blueprint.id 
-            : null;
-        var atomProvider = new AtomLibraryProvider(currentBpId);
-        entriesByCategory.set(MenuCategory.ATOMS, atomProvider.getEntries());
-        
-        // Assembly library
-        var assemblyProvider = new AssemblyLibraryProvider(currentBpId);
-        entriesByCategory.set(MenuCategory.ASSEMBLIES, assemblyProvider.getEntries());
-        
-        // Set menu data
-        _menu.setData(categories, entriesByCategory);
-        _menu.show(impulse.data.x, impulse.data.y);
-    }
-    
-    /**
-     * Handle wire right-click (wire context menu).
-     */
-    private function onWireRightClick(impulse:Impulse):Void
-    {
-        if (_isDisposed) return;
-        if (impulse == null || impulse.data == null) return;
-        
-        resetMenu();
-        
-        var wireCount:Int = Std.int(impulse.data.ids.length);
-        var nodeCount = _editor.getSelectedNodeCount();
-        
-        var categories = MenuCategory.getBuiltinCategories();
-        var entriesByCategory = new Map<String, Array<MenuEntry>>();
-        
-        // Editor commands
-        var editorProvider = new EditorCommandsProvider(
-            nodeCount, 
-            wireCount, 
-            _settingsPanel.allowAssembly
-        );
-        entriesByCategory.set(MenuCategory.EDITOR, editorProvider.getEntries());
-        
-        _menu.setData(categories, entriesByCategory);
-        _menu.show(impulse.data.x, impulse.data.y);
-    }
-    
-    /**
-     * Handle port right-click (port context menu).
-     */
-    private function onPortRightClick(impulse:Impulse):Void
-    {
-        if (_isDisposed) return;
-        if (impulse == null || impulse.data == null) return;
-        
-        resetMenu();
-        
-        var categories = MenuCategory.getBuiltinCategories();
-        var entriesByCategory = new Map<String, Array<MenuEntry>>();
-        
-        // Remove port command
-        var removeEntry = MenuEntry.createCommand(
-            "REMOVE_PORT",
-            'Delete Port "${impulse.data.portName}"',
-            { name: impulse.data.portName }
-        );
-        entriesByCategory.set(MenuCategory.EDITOR, [removeEntry]);
-        
-        _menu.setData(categories, entriesByCategory);
-        _menu.show(impulse.data.x, impulse.data.y);
-    }
-    
-    // ========================================================================
-    // ACTIONS: Menu Item Clicked
-    // ========================================================================
-    
-    /**
-     * Handle menu action (item clicked).
-     */
-    private function onMenuAction(impulse:Impulse):Void
-    {
-        if (_isDisposed) return;
-        _menu.hide();
-        
-        if (impulse == null || impulse.data == null || impulse.data.action == null) return;
-        
-        var action:String = Std.string(impulse.data.action);
-        var data = impulse.data.data;
-        var x = impulse.data.x;
-        var y = impulse.data.y;
-        
-        // Track recent action
-        var recentEntry = new MenuEntry(
-            "recent_" + action,
-            action,
-            "recent",
-            MenuCategory.RECENT,
-            action,
-            data
-        );
-        RecentMenuTracker.getInstance().record(recentEntry);
-        
-        switch (action)
-        {
-            case "DELETE_ALL_SELECTED":
-                var macrocom = new MacroCommand();
-                var nodeIds = _editor.getSelectedNodeIds();
-                for (id in nodeIds) 
-                {
-                    macrocom.addCommand(new DeleteAtomCommand(
-                        _assembly.blueprint, _assembly, id
-                    ));
-                }
-                var wireIds = _editor.getSelectedWireIds();
-                if (wireIds.length > 0) 
-                {
-                    macrocom.addCommand(new DeleteWiresCommand(
-                        _assembly.blueprint, _assembly, wireIds
-                    ));
-                }
-                UndoManager.getInstance().executeAndStore(macrocom);
-                _editor.deselectAll();
-                return;
-                
-            case "DELETE_SELECTED_ATOMS":
-                _editor.deleteSelectedNodes();
-                _contextTargetId = null;
-                return;
-                
-            case "DELETE_ATOM":
-                if (_editor.getSelectedNodeCount() > 0)
-                {
-                    _editor.deleteSelectedNodes();
-                }
-                _contextTargetId = null;
-                return;
-                
-            case "DELETE_WIRES":
-                var cmd = new DeleteWiresCommand(
-                    _assembly.blueprint, _assembly, data.ids
-                );
-                UndoManager.getInstance().executeAndStore(cmd);
-                return;
-                
-            case "GROUP_ATOMS":
-                if (_settingsPanel.allowAssembly) groupSelectedToAssembly();
-                return;
-                
-            case "ADD_PORT":
-                if (data != null && data.type != null)
-                {
-                    var cmd = new AddPortCommand(_assembly, data.type);
-                    UndoManager.getInstance().executeAndStore(cmd);
-                }
-                return;
-                
-            case "REMOVE_PORT":
-                if (data != null && data.name != null)
-                {
-                    var cmd = new RemovePortCommand(_assembly, data.name);
-                    UndoManager.getInstance().executeAndStore(cmd);
-                }
-                return;
-        }
-        
-        // Adding an atom (Action: "ADD_ATOM")
-        if (action == "ADD_ATOM")
-        {
-            if (data != null && data.typeId != null)
-            {
-                _editor.createAtom(data.typeId, x, y);
-            }
-        }
-    }
-    
-    /**
-     * Handle close context menu request.
-     */
-    private function onCloseContextMenu(i:Impulse):Void
-    {
-        if (_isDisposed) return;
-        _menu.hide();
-    }
-    
-    // ========================================================================
-    // BUILDERS
-    // ========================================================================
-    
-    /**
-     * Reset menu state.
-     */
-    private function resetMenu():Void
-    {
-        _menu.hide();
-        _menu.clear();
-    }
-    
-    /**
-     * Build atom menu (canvas right-click).
-     * 
-     * @param x Mouse X position
-     * @param y Mouse Y position
-     */
-    private function buildAtomMenu(x:Float, y:Float):Void
-    {
-        var categories = MenuCategory.getBuiltinCategories();
-        var entriesByCategory = new Map<String, Array<MenuEntry>>();
-        
-        // Atom library
-        var currentBpId = (_assembly != null && _assembly.blueprint != null) 
-            ? _assembly.blueprint.id 
-            : null;
-        var atomProvider = new AtomLibraryProvider(currentBpId);
-        entriesByCategory.set(MenuCategory.ATOMS, atomProvider.getEntries());
-        
-        // Assembly library
-        var assemblyProvider = new AssemblyLibraryProvider(currentBpId);
-        entriesByCategory.set(MenuCategory.ASSEMBLIES, assemblyProvider.getEntries());
-        
-        // Editor commands (port options)
-        var editorEntries = [
-            MenuEntry.createCommand(
-                "ADD_PORT",
-                "Add Input Port",
-                { type: core.types.ContactType.INPUT }
-            ),
-            MenuEntry.createCommand(
-                "ADD_PORT",
-                "Add Output Port",
-                { type: core.types.ContactType.OUTPUT }
-            )
-        ];
-        entriesByCategory.set(MenuCategory.EDITOR, editorEntries);
-        
-        _menu.setData(categories, entriesByCategory);
-    }
-    
-    /**
-     * Group selected atoms into a new Assembly.
-     * 
-     * Uses UndoManager.executeAndStore() to activate Topology Guard.
-     */
-    private function groupSelectedToAssembly():Void
-    {
-        var selectedIds = _editor.getSelectedNodeIds();
-        if (selectedIds.length < 1) return;
-        
-        var cmd = new GroupAtomsCommand(
-            _assembly.blueprint, 
-            _assembly, 
-            selectedIds, 
-            _isNameTakenGlobally
-        );
-        UndoManager.getInstance().executeAndStore(cmd);
-        _editor.deselectAll();
-    }
+	/** The new context menu instance. */
+	private var _menu:ContextMenu;
+
+	/** Current editor reference. */
+	private var _editor:NodeEditor;
+
+	/** Current assembly reference. */
+	private var _assembly:Assembly;
+
+	/** Reference to settings (needed for allowAssembly check). */
+	private var _settingsPanel:SettingsPanel;
+
+	/** Temporary state for passing data to action. */
+	private var _contextTargetId:String = null;
+
+	/** Flag to protect against repeated dispose. */
+	private var _isDisposed:Bool = false;
+
+	/** Global name uniqueness checker for grouping operations. */
+	private var _isNameTakenGlobally:(String, ?String) -> Bool;
+
+	/**
+	 * Create a new context menu manager.
+	 *
+	 * @param settingsPanel Settings panel reference
+	 */
+	public function new(settingsPanel:SettingsPanel)
+	{
+		_settingsPanel = settingsPanel;
+		_menu = new ContextMenu();
+
+		// Subscribe to all required impulses
+		Impulsys.subscribeToImpulse(EventType.CONTEXT_MENU_ACTION, onMenuAction);
+		Impulsys.subscribeToImpulse(EventType.CLOSE_CONTEXT_MENU, onCloseContextMenu);
+		Impulsys.subscribeToImpulse(EventType.NODE_RIGHT_CLICKED, onNodeRightClick);
+		Impulsys.subscribeToImpulse(EventType.WIRE_RIGHT_CLICKED, onWireRightClick);
+		Impulsys.subscribeToImpulse(EventType.PORT_RIGHT_CLICKED, onPortRightClick);
+		Impulsys.subscribeToImpulse(EventType.CANVAS_RIGHT_CLICKED, onCanvasRightClick);
+	}
+
+	/**
+	 * Update context when switching editor/assembly.
+	 *
+	 * @param editor Current NodeEditor instance
+	 * @param assembly Current Assembly instance
+	 * @param isNameTakenGlobally Callback to check name uniqueness globally
+	 */
+	public function setContext(
+		editor:NodeEditor,
+		assembly:Assembly,
+		?isNameTakenGlobally:(String, ?String) -> Bool
+	):Void
+	{
+		_editor = editor;
+		_assembly = assembly;
+		_isNameTakenGlobally = isNameTakenGlobally;
+	}
+
+	/**
+	 * Returns the visual menu component for adding to the scene.
+	 */
+	public function getView():ContextMenu
+	{
+		return _menu;
+	}
+
+	// ========================================================================
+	// DISPOSE
+	// ========================================================================
+	/**
+	 * Properly dispose the manager.
+	 * Unsubscribes from all Impulsys events to prevent memory leaks.
+	 */
+	public function dispose():Void
+	{
+		if (_isDisposed) return;
+		_isDisposed = true;
+
+		// Unsubscribe from all impulses
+		Impulsys.removeImpulse(EventType.CONTEXT_MENU_ACTION, onMenuAction);
+		Impulsys.removeImpulse(EventType.CLOSE_CONTEXT_MENU, onCloseContextMenu);
+		Impulsys.removeImpulse(EventType.NODE_RIGHT_CLICKED, onNodeRightClick);
+		Impulsys.removeImpulse(EventType.WIRE_RIGHT_CLICKED, onWireRightClick);
+		Impulsys.removeImpulse(EventType.PORT_RIGHT_CLICKED, onPortRightClick);
+		Impulsys.removeImpulse(EventType.CANVAS_RIGHT_CLICKED, onCanvasRightClick);
+
+		// Clear references
+		if (_menu != null)
+		{
+			_menu.hide();
+			_menu = null;
+		}
+		_editor = null;
+		_assembly = null;
+		_settingsPanel = null;
+		_contextTargetId = null;
+		_isNameTakenGlobally = null;
+	}
+
+	// ========================================================================
+	// HANDLERS: Triggered by Impulsys
+	// ========================================================================
+
+	/**
+	 * Handle canvas right-click (add atom menu).
+	 * Opens menu with ATOMS category selected by default.
+	 */
+	private function onCanvasRightClick(impulse:Impulse):Void
+	{
+		if (_isDisposed) return;
+		resetMenu();
+		// Set preferred category BEFORE setData so it's applied during menu build
+		_menu.setPreferredCategory(MenuCategory.ATOMS);
+		buildAtomMenu(impulse.data.x, impulse.data.y);
+		applySidebarPosition();
+		_menu.show(impulse.data.x, impulse.data.y);
+	}
+
+	/**
+	 * Handle node right-click (node context menu).
+	 */
+	private function onNodeRightClick(impulse:Impulse):Void
+	{
+		if (_isDisposed) return;
+		if (impulse == null || impulse.data == null) return;
+
+		var view:NodeView = impulse.data.view;
+		_contextTargetId = impulse.data.id;
+
+		// Selection logic on right-click
+		if (!_editor.isSelected(_contextTargetId))
+		{
+			// Node not selected: reset all and select only this one
+			_editor.deselectAll();
+			_editor.selectNode(_contextTargetId, view);
+		}
+		else
+		{
+			// Node already selected: keep node selection, clear wires
+			_editor.clearWireSelection();
+		}
+
+		resetMenu();
+
+		var nodeCount = _editor.getSelectedNodeCount();
+		var wireCount = _editor.getSelectedWireIds().length;
+
+		// Build menu data
+		var categories = MenuCategory.getBuiltinCategories();
+		var entriesByCategory = new Map<String, Array<MenuEntry>>();
+
+		// Editor commands
+		var editorProvider = new EditorCommandsProvider(
+			nodeCount,
+			wireCount,
+			_settingsPanel.allowAssembly
+		);
+		entriesByCategory.set(MenuCategory.EDITOR, editorProvider.getEntries());
+
+		// Atom library
+		var currentBpId = (_assembly != null && _assembly.blueprint != null)
+		? _assembly.blueprint.id
+		: null;
+		var atomProvider = new AtomLibraryProvider(currentBpId);
+		entriesByCategory.set(MenuCategory.ATOMS, atomProvider.getEntries());
+
+		// Assembly library
+		var assemblyProvider = new AssemblyLibraryProvider(currentBpId);
+		entriesByCategory.set(MenuCategory.ASSEMBLIES, assemblyProvider.getEntries());
+
+		// Set preferred category BEFORE setData so it's applied during menu build
+		_menu.setPreferredCategory(MenuCategory.EDITOR);
+		// Set menu data
+		_menu.setData(categories, entriesByCategory);
+		applySidebarPosition();
+		_menu.show(impulse.data.x, impulse.data.y);
+	}
+
+	/**
+	 * Handle wire right-click (wire context menu).
+	 */
+	private function onWireRightClick(impulse:Impulse):Void
+	{
+		if (_isDisposed) return;
+		if (impulse == null || impulse.data == null) return;
+
+		resetMenu();
+
+		var wireCount:Int = Std.int(impulse.data.ids.length);
+		var nodeCount = _editor.getSelectedNodeCount();
+
+		var categories = MenuCategory.getBuiltinCategories();
+		var entriesByCategory = new Map<String, Array<MenuEntry>>();
+
+		// Editor commands
+		var editorProvider = new EditorCommandsProvider(
+			nodeCount,
+			wireCount,
+			_settingsPanel.allowAssembly
+		);
+		entriesByCategory.set(MenuCategory.EDITOR, editorProvider.getEntries());
+
+		// Set preferred category BEFORE setData so it's applied during menu build
+		_menu.setPreferredCategory(MenuCategory.EDITOR);
+		_menu.setData(categories, entriesByCategory);
+		applySidebarPosition();
+		_menu.show(impulse.data.x, impulse.data.y);
+	}
+
+	/**
+	 * Handle port right-click (port context menu).
+	 */
+	private function onPortRightClick(impulse:Impulse):Void
+	{
+		if (_isDisposed) return;
+		if (impulse == null || impulse.data == null) return;
+
+		resetMenu();
+
+		var categories = MenuCategory.getBuiltinCategories();
+		var entriesByCategory = new Map<String, Array<MenuEntry>>();
+
+		// Remove port command
+		var removeEntry = MenuEntry.createCommand(
+			"REMOVE_PORT",
+			'Delete Port "${impulse.data.portName}"',
+		{ name: impulse.data.portName }
+		);
+		entriesByCategory.set(MenuCategory.EDITOR, [removeEntry]);
+
+		// Set preferred category BEFORE setData so it's applied during menu build
+		_menu.setPreferredCategory(MenuCategory.EDITOR);
+		_menu.setData(categories, entriesByCategory);
+		applySidebarPosition();
+		_menu.show(impulse.data.x, impulse.data.y);
+	}
+
+	// ========================================================================
+	// ACTIONS: Menu Item Clicked
+	// ========================================================================
+
+	/**
+	 * Handle menu action (item clicked).
+	 */
+	private function onMenuAction(impulse:Impulse):Void
+	{
+		if (_isDisposed) return;
+		_menu.hide();
+
+		if (impulse == null || impulse.data == null || impulse.data.action == null) return;
+
+		var action:String = Std.string(impulse.data.action);
+		var data = impulse.data.data;
+		var x = impulse.data.x;
+		var y = impulse.data.y;
+
+		// Track recent action
+		var recentEntry = new MenuEntry(
+			"recent_" + action,
+			action,
+			"recent",
+			MenuCategory.RECENT,
+			action,
+			data
+		);
+		RecentMenuTracker.getInstance().record(recentEntry);
+
+		switch (action)
+		{
+			case "DELETE_ALL_SELECTED":
+				var macrocom = new MacroCommand();
+				var nodeIds = _editor.getSelectedNodeIds();
+				for (id in nodeIds)
+				{
+					macrocom.addCommand(new DeleteAtomCommand(
+						_assembly.blueprint, _assembly, id
+					));
+				}
+				var wireIds = _editor.getSelectedWireIds();
+				if (wireIds.length > 0)
+				{
+					macrocom.addCommand(new DeleteWiresCommand(
+											_assembly.blueprint, _assembly, wireIds
+										));
+				}
+				UndoManager.getInstance().executeAndStore(macrocom);
+				_editor.deselectAll();
+				return;
+
+			case "DELETE_SELECTED_ATOMS":
+				_editor.deleteSelectedNodes();
+				_contextTargetId = null;
+				return;
+
+			case "DELETE_ATOM":
+				if (_editor.getSelectedNodeCount() > 0)
+				{
+					_editor.deleteSelectedNodes();
+				}
+				_contextTargetId = null;
+				return;
+
+			case "DELETE_WIRES":
+				var cmd = new DeleteWiresCommand(
+					_assembly.blueprint, _assembly, data.ids
+				);
+				UndoManager.getInstance().executeAndStore(cmd);
+				return;
+
+			case "GROUP_ATOMS":
+				if (_settingsPanel.allowAssembly) groupSelectedToAssembly();
+				return;
+
+			case "ADD_PORT":
+				if (data != null && data.type != null)
+				{
+					var cmd = new AddPortCommand(_assembly, data.type);
+					UndoManager.getInstance().executeAndStore(cmd);
+				}
+				return;
+
+			case "REMOVE_PORT":
+				if (data != null && data.name != null)
+				{
+					var cmd = new RemovePortCommand(_assembly, data.name);
+					UndoManager.getInstance().executeAndStore(cmd);
+				}
+				return;
+		}
+
+		// Adding an atom (Action: "ADD_ATOM")
+		if (action == "ADD_ATOM")
+		{
+			if (data != null && data.typeId != null)
+			{
+				_editor.createAtom(data.typeId, x, y);
+			}
+		}
+	}
+
+	/**
+	 * Handle close context menu request.
+	 */
+	private function onCloseContextMenu(i:Impulse):Void
+	{
+		if (_isDisposed) return;
+		_menu.hide();
+	}
+
+	// ========================================================================
+	// BUILDERS
+	// ========================================================================
+
+	/**
+	 * Reset menu state.
+	 */
+	private function resetMenu():Void
+	{
+		_menu.hide();
+		_menu.clear();
+	}
+
+	/**
+	 * Build atom menu (canvas right-click).
+	 *
+	 * @param x Mouse X position
+	 * @param y Mouse Y position
+	 */
+	private function buildAtomMenu(x:Float, y:Float):Void
+	{
+		var categories = MenuCategory.getBuiltinCategories();
+		var entriesByCategory = new Map<String, Array<MenuEntry>>();
+
+		// Atom library
+		var currentBpId = (_assembly != null && _assembly.blueprint != null)
+		? _assembly.blueprint.id
+		: null;
+		var atomProvider = new AtomLibraryProvider(currentBpId);
+		entriesByCategory.set(MenuCategory.ATOMS, atomProvider.getEntries());
+
+		// Assembly library
+		var assemblyProvider = new AssemblyLibraryProvider(currentBpId);
+		entriesByCategory.set(MenuCategory.ASSEMBLIES, assemblyProvider.getEntries());
+
+		// Editor commands (port options)
+		var editorEntries = [
+			MenuEntry.createCommand(
+				"ADD_PORT",
+				"Add Input Port",
+		{ type: core.types.ContactType.INPUT }
+			),
+		MenuEntry.createCommand(
+			"ADD_PORT",
+			"Add Output Port",
+		{ type: core.types.ContactType.OUTPUT }
+		)
+		];
+		entriesByCategory.set(MenuCategory.EDITOR, editorEntries);
+
+		_menu.setData(categories, entriesByCategory);
+	}
+
+	/**
+	 * Group selected atoms into a new Assembly.
+	 *
+	 * Uses UndoManager.executeAndStore() to activate Topology Guard.
+	 */
+	private function groupSelectedToAssembly():Void
+	{
+		var selectedIds = _editor.getSelectedNodeIds();
+		if (selectedIds.length < 1) return;
+
+		var cmd = new GroupAtomsCommand(
+			_assembly.blueprint,
+			_assembly,
+			selectedIds,
+			_isNameTakenGlobally
+		);
+		UndoManager.getInstance().executeAndStore(cmd);
+		_editor.deselectAll();
+	}
+
+	/**
+	* Apply sidebar position from settings to menu.
+	* Called before showing menu.
+	*/
+	private function applySidebarPosition():Void
+	{
+		if (_menu != null && _settingsPanel != null)
+		{
+			_menu.setSidebarPosition(_settingsPanel.contextMenuSidebarPosition);
+		}
+	}
 }
 
 ================================================================================
@@ -18540,7 +18564,7 @@ class GroupSelectionManager
 
 ================================================================================
 // FILE: editor\NodeEditor.hx
-// Lines: 1413 | Chars: 47311
+// Lines: 1413 | Chars: 47309
 ================================================================================
 
 package editor;
@@ -19551,7 +19575,7 @@ class NodeEditor extends Sprite
 	private function onMouseWheel(e:MouseEvent):Void
 	{
 		_viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
-		//_wireRenderer.rebuildAll();
+		_wireRenderer.rebuildAll();
 		updateVisibility();
 	}
 
@@ -22511,7 +22535,7 @@ class ViewportManager
 
 ================================================================================
 // FILE: editor\WireRenderer.hx
-// Lines: 905 | Chars: 36505
+// Lines: 905 | Chars: 36507
 ================================================================================
 
 //================================================================================
@@ -22603,7 +22627,7 @@ import ui.WireType.WireType as WireTypeEnum;
 *
 * ┌─────────────────────────────────────────────────────────────────────────┐
 * │  PROBLEM:                                                               │
-* │  When a port is removed from an assembly (via RemovePortCommand or     │
+* │  When a port is removed from an assembly (via RemovePortCommand or      │
 * │  context menu), connections referencing that port remain in             │
 * │  blueprint.internalConnections. WireRenderer continued to create        │
 * │  sprites for these "ghost" connections, but getWirePoint() returned     │
@@ -22611,7 +22635,7 @@ import ui.WireType.WireType as WireTypeEnum;
 * │                                                                         │
 * │  SOLUTION:                                                              │
 * │  In rebuildAll(), after detecting that a connection has missing         │
-* │  endpoint(s), the wire sprite is removed from both the map and the     │
+* │  endpoint(s), the wire sprite is removed from both the map and the      │
 * │  display list. This prevents accumulation of "zombie" wire sprites.     │
 * │                                                                         │
 * │  Flow:                                                                  │
@@ -29935,7 +29959,7 @@ class WEBSocketAtom extends Atom implements system.managers.Driver
 
 ================================================================================
 // FILE: library\electro\BufferingAtom.hx
-// Lines: 457 | Chars: 16645
+// Lines: 457 | Chars: 16659
 ================================================================================
 
 package library.electro;
@@ -29950,37 +29974,37 @@ import system.managers.DriverManager;
 * ╔═══════════════════════════════════════════════════════════════════════════╗
 * ║                     BUFFERING ATOM v1.0                                   ║
 * ║                     (Batch Mode + Zero-GC)                                ║
-* ╠═══════════════════════════════════════════════════════════════════════════
+* ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  Accumulates incoming samples into a fixed-size buffer.                   ║
-*  When buffer is full, emits it on "buffer" output with "changed" pulse.     ║
+* ║  When buffer is full, emits it on "buffer" output with "changed" pulse.   ║
 * ║                                                                           ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                        ARCHITECTURE                                       ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
-* ║  │                     BufferingAtom                                   │  
+* ║  │                     BufferingAtom                                   │  ║
 * ║  │                                                                     │  ║
 * ║  │  A) COMPUTE MODULE:                                                 │  ║
 * ║  │     ─────────────────                                               │  ║
-* ║  │     onContactChanged("in") → _buffer.push(sample)                   │  
+* ║  │     onContactChanged("in") → _buffer.push(sample)                   │  ║
 * ║  │                              _count++                               │  ║
 * ║  │                              if (_count >= _size) → flush()         │  ║
 * ║  │                                                                     │  ║
 * ║  │     flush() {                                                       │  ║
-*   │       1. setValueSilent(buffer)  ← Batch write                      │  ║
-*   │       2. setValueSilent(changed=true)                               │  ║
+* ║  │       1. setValueSilent(buffer)  ← Batch write                      │  ║
+* ║  │       2. setValueSilent(changed=true)                               │  ║
 * ║  │       3. setValueSilent(count=0)                                    │  ║
 * ║  │       4. propagateCurrentValue() × 3  ← Single propagation          │  ║
 * ║  │       5. Reset buffer                                               │  ║
 * ║  │     }                                                               │  ║
 * ║  │                                                                     │  ║
-*   │     update(dt) → manage "changed" pulse timer                       │  ║
+* ║  │     update(dt) → manage "changed" pulse timer                       │  ║
 * ║  │                                                                     │  ║
 * ║  │  B) DATABANK:                                                       │  ║
 * ║  │     ─────────────                                                   │  ║
-*   │     _buffer: Array<Float>  - Accumulator (Zero-GC, pre-allocated)   │  ║
+* ║  │     _buffer: Array<Float>  - Accumulator (Zero-GC, pre-allocated)   │  ║
 * ║  │     _count: Int            - Current fill level                     │  ║
 * ║  │     _size: Int             - Target buffer size (default: 512)      │  ║
 * ║  │     _pulseTimer: Float     - Timer for "changed" pulse reset        │  ║
@@ -29991,7 +30015,7 @@ import system.managers.DriverManager;
 * ║  │     "size" - Int    - Buffer size (1..8192)                         │  ║
 * ║  │                                                                     │  ║
 * ║  │  D) OUTPUTS:                                                        │  ║
-* ║  │     ───────                                                        │  ║
+* ║  │     ───────                                                         │  ║
 * ║  │     "buffer"  - Array<Float>  - Full buffer (Zero-GC reference)     │  ║
 * ║  │     "changed" - Bool          - Pulse when buffer ready (50ms)      │  ║
 * ║  │     "count"   - Int           - Current fill level                  │  ║
@@ -30001,11 +30025,11 @@ import system.managers.DriverManager;
 * ║  │     BufferingWidget (optional) - shows fill level                   │  ║
 * ║  └─────────────────────────────────────────────────────────────────────┘  ║
 * ║                                                                           ║
-* ═══════════════════════════════════════════════════════════════════════════╣
+* ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                     BATCH MODE PATTERN                                    ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
-*   ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
 * ║  │  flush() {                                                          │  ║
 * ║  │                                                                     │  ║
 * ║  │    // 1. Silent writes — no propagation triggered                   │  ║
@@ -30029,22 +30053,22 @@ import system.managers.DriverManager;
 * ║  Problem: Creating new Array<Float>() on every flush() causes GC spikes.  ║
 * ║                                                                           ║
 * ║  Solution: Pre-allocate buffer in init() and reuse it.                    ║
-*  On flush(), we pass the SAME array reference to downstream atoms.          ║
-*  They must copy it if they need to store it long-term.                      ║
+* ║ On flush(), we pass the SAME array reference to downstream atoms.         ║
+* ║ They must copy it if they need to store it long-term.                     ║
 * ║                                                                           ║
-*   Trade-off:                                                               ║
-*  - Pro: Zero allocations during runtime                                     ║
-*  - Con: Downstream atoms see the same array object (must copy if needed)    ║
+* ║  Trade-off:                                                               ║
+* ║ - Pro: Zero allocations during runtime                                    ║
+* ║ - Con: Downstream atoms see the same array object (must copy if needed)   ║
 * ║                                                                           ║
-* ═══════════════════════════════════════════════════════════════════════════╣
+* ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                    APPLICATION                                            ║
-* ╠═══════════════════════════════════════════════════════════════════════════
+* ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  • Audio sample accumulation (512 frames for FFT)                         ║
 * ║  • Sensor data batching                                                   ║
-*  • Network packet assembly                                                  ║
-*  • Any scenario where you need to collect N samples before processing       ║
-* ║                                                                           
+* ║  • Network packet assembly                                                ║
+* ║  • Any scenario where you need to collect N samples before processing     ║
+* ║                                                                           ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
 */
 class BufferingAtom extends Atom implements system.managers.Driver
@@ -39391,7 +39415,7 @@ class ButtonComponent extends Sprite {
 
 ================================================================================
 // FILE: ui\contextmenu\CategoryItem.hx
-// Lines: 213 | Chars: 6815
+// Lines: 213 | Chars: 6828
 ================================================================================
 
 package ui.contextmenu;
@@ -39403,32 +39427,32 @@ import openfl.events.MouseEvent;
 import ui.contextmenu.data.MenuCategory;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     CATEGORY ITEM                                         ║
  * ║          (Single category button in sidebar)                              ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
- *   Visual representation of a MenuCategory in the sidebar.                  ║
- *  Displays icon + label, highlights when selected.                           ║
+ * ║  Visual representation of a MenuCategory in the sidebar.                  ║
+ * ║  Displays icon + label, highlights when selected.                         ║
  * ║                                                                           ║
  * ║  Architecture:                                                            ║
- * ║  ─────────────────────────────────────────────────────────────────────┐  ║
- *   │  CategoryItem (Sprite)                                              │  ║
- * ║  │                                                                     │  ║
- * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
- *   │  │  Visual:                                                      │  │  ║
- *   │  │  ┌─────────────────────────────────────────────────────────┐  │  │  ║
- * ║  │  │  │  [Icon] Category Name                                    │  │  │  ║
- *   │  │  │  ← 150px wide, 40px tall                                │  │  │  ║
- * ║  │  │  └─────────────────────────────────────────────────────────┘  │  │  ║
- * ║  │  │                                                             │  │  ║
- *   │  │  States:                                                      │  │  ║
- * ║  │  │  - Normal: bg=0x2a2a3a, text=0xAAAAAA                        │  │  ║
- * ║  │  │  - Hover: bg=0x3a3a4a, text=0xFFFFFF                         │  │  ║
- * ║  │  │  - Selected: bg=0x00AAFF, text=0xFFFFFF, left border accent  │  │  ║
- * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
- * ║  ─────────────────────────────────────────────────────────────────────┘  ║
- * ║                                                                           
+ * ║ ┌─────────────────────────────────────────────────────────────────────┐   ║
+ * ║ │  CategoryItem (Sprite)                                              │   ║
+ * ║ │                                                                     │   ║
+ * ║ │  ┌───────────────────────────────────────────────────────────────┐  │   ║
+ * ║ │  │  Visual:                                                      │  │   ║
+ * ║ │  │  ┌─────────────────────────────────────────────────────────┐  │  │   ║
+ * ║ │  │  │  [Icon] Category Name                                   │  │  │   ║
+ * ║ │  │  │  ← 150px wide, 40px tall                                │  │  │   ║
+ * ║ │  │  └─────────────────────────────────────────────────────────┘  │  │   ║
+ * ║ │  │                                                               │  │   ║
+ * ║ │  │  States:                                                      │  │   ║
+ * ║ │  │  - Normal: bg=0x2a2a3a, text=0xAAAAAA                         │  │   ║
+ * ║ │  │  - Hover: bg=0x3a3a4a, text=0xFFFFFF                          │  │   ║
+ * ║ │  │  - Selected: bg=0x00AAFF, text=0xFFFFFF, left border accent   │  │   ║
+ * ║ │  └───────────────────────────────────────────────────────────────┘  │   ║
+ * ║ └─────────────────────────────────────────────────────────────────────┘   ║
+ * ║                                                                           ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 class CategoryItem extends Sprite
@@ -39610,7 +39634,7 @@ class CategoryItem extends Sprite
 
 ================================================================================
 // FILE: ui\contextmenu\CategorySidebar.hx
-// Lines: 150 | Chars: 5197
+// Lines: 224 | Chars: 6402
 ================================================================================
 
 package ui.contextmenu;
@@ -39619,230 +39643,300 @@ import openfl.display.Sprite;
 import ui.contextmenu.data.MenuCategory;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     CATEGORY SIDEBAR                                      ║
  * ║          (Left panel with category buttons)                               ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Left panel of the context menu containing category buttons.              ║
- *  Categories are displayed vertically in order.                              ║
+ * ║Categories are displayed vertically in order.                              ║
  * ║                                                                           ║
  * ║  Architecture:                                                            ║
- * ║  ─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  CategorySidebar (Sprite)                                           │  ║
  * ║  │                                                                     │  ║
  * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
  * ║  │  │  Visual:                                                      │  │  ║
  * ║  │  │  ┌─────────────────────────────────────────────────────────┐  │  │  ║
  * ║  │  │  │  [Recent]                                               │  │  │  ║
- *   │  │  │  [Editor]  ← Selected (blue bg + green accent)          │  │  │  ║
- * ║  │  │  │  [Atoms]                                                │  │  │  
+ * ║  │  │  │  [Editor]  ← Selected (blue bg + green accent)          │  │  │  ║
+ * ║  │  │  │  [Atoms]                                                │  │  │  ║
  * ║  │  │  │  [Assemblies]                                           │  │  │  ║
  * ║  │  │  └─────────────────────────────────────────────────────────┘  │  │  ║
- * ║  │  │                                                             │  │  ║
- * ║  │  │  Width: 150px (fixed)                                       │  │  ║
- * ║  │  │  Height: Auto (based on category count × 40px)              │  │  
+ * ║  │  │                                                               │  │  ║
+ * ║  │  │  Width: 150px (fixed)                                         │  │  ║
+ * ║  │  │  Height: Auto (based on category count × 40px)                │  │  ║
  * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
- * ║  ─────────────────────────────────────────────────────────────────────┘  ║
- * ║                                                                           
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 class CategorySidebar extends Sprite
 {
-    /** Callback when a category is selected. */
-    public var onCategorySelected:MenuCategory -> Void;
-    
-    /** Array of category items. */
-    private var _items:Array<CategoryItem>;
-    
-    /** Currently selected category. */
-    private var _selectedCategory:MenuCategory;
-    
-    /** Fixed width. */
-    private static inline var SIDEBAR_WIDTH:Float = 150.0;
-    
-    /**
-     * Create a new category sidebar.
-     * 
-     * @param categories Array of categories to display
-     */
-    public function new(categories:Array<MenuCategory>)
-    {
-        super();
-        _items = [];
-        buildUI(categories);
-    }
-    
-    /**
-     * Build the sidebar UI with category buttons.
-     * 
-     * @param categories Array of categories to display
-     */
-    private function buildUI(categories:Array<MenuCategory>):Void
-    {
-        // Sort categories by order field
-        categories.sort(function(a, b) return a.order - b.order);
-        
-        var yPos:Float = 0;
-        for (category in categories)
-        {
-            var item = new CategoryItem(category);
-            item.y = yPos;
-            item.onClick = onCategoryClick;
-            addChild(item);
-            _items.push(item);
-            yPos += item.getItemHeight();
-        }
-        
-        // Draw background
-        graphics.beginFill(0x1a1a24);
-        graphics.drawRect(0, 0, SIDEBAR_WIDTH, yPos);
-        graphics.endFill();
-        
-        // Right border line
-        graphics.lineStyle(1, 0x333344);
-        graphics.moveTo(SIDEBAR_WIDTH, 0);
-        graphics.lineTo(SIDEBAR_WIDTH, yPos);
-    }
-    
-    /**
-     * Handle category click.
-     * 
-     * @param category Clicked category
-     */
-    private function onCategoryClick(category:MenuCategory):Void
-    {
-        // Deselect previous
-        if (_selectedCategory != null)
-        {
-            for (item in _items)
-            {
-                if (item.category.id == _selectedCategory.id)
-                {
-                    item.setSelected(false);
-                    break;
-                }
-            }
-        }
-        
-        // Select new
-        _selectedCategory = category;
-        for (item in _items)
-        {
-            if (item.category.id == category.id)
-            {
-                item.setSelected(true);
-                break;
-            }
-        }
-        
-        // Notify
-        if (onCategorySelected != null)
-        {
-            onCategorySelected(category);
-        }
-    }
-    
-    /**
-     * Get sidebar width.
-     */
-    public function getSidebarWidth():Float { return SIDEBAR_WIDTH; }
-    
-    /**
-     * Get sidebar height.
-     */
-    public function getSidebarHeight():Float { return height; }
-    
-    /**
-     * Cleanup.
-     */
-    public function dispose():Void
-    {
-        _items = [];
-        _selectedCategory = null;
-        onCategorySelected = null;
-    }
+	/** Callback when a category is selected. */
+	public var onCategorySelected:MenuCategory -> Void;
+
+	/** Array of category items. */
+	private var _items:Array<CategoryItem>;
+
+	/** Currently selected category. */
+	private var _selectedCategory:MenuCategory;
+
+	/** Fixed width. */
+	private static inline var SIDEBAR_WIDTH:Float = 150.0;
+
+	/**
+	 * Create a new category sidebar.
+	 *
+	 * @param categories Array of categories to display
+	 */
+	public function new(categories:Array<MenuCategory>)
+	{
+		super();
+		_items = [];
+		buildUI(categories);
+	}
+
+	/**
+	 * Build the sidebar UI with category buttons.
+	 *
+	 * @param categories Array of categories to display
+	 */
+	private function buildUI(categories:Array<MenuCategory>):Void
+	{
+		// Sort categories by order field
+		categories.sort(function(a, b) return a.order - b.order);
+
+		var yPos:Float = 0;
+		for (category in categories)
+		{
+			var item = new CategoryItem(category);
+			item.y = yPos;
+			item.onClick = onCategoryClick;
+			addChild(item);
+			_items.push(item);
+			yPos += item.getItemHeight();
+		}
+
+		// Draw background
+		graphics.beginFill(0x1a1a24);
+		graphics.drawRect(0, 0, SIDEBAR_WIDTH, yPos);
+		graphics.endFill();
+
+		// Border line position depends on sidebar position
+		// Will be set by setBorderSide() after buildUI()
+		_totalHeight = yPos;
+		drawBorder(_borderSide);
+	}
+
+	/** Current border side. */
+	private var _borderSide:SidebarPosition = SidebarPosition.LEFT;
+
+	/** Total height of sidebar content. */
+	private var _totalHeight:Float = 0;
+
+	/**
+	 * Set which side the border line should appear on.
+	 * Called by ContextMenu when sidebar position changes.
+	 *
+	 * @param side Which side the border should be on
+	 */
+	public function setBorderSide(side:SidebarPosition):Void
+	{
+		_borderSide = side;
+		if (_totalHeight > 0)
+		{
+			drawBorder(side);
+		}
+	}
+
+	/**
+	 * Draw border line on specified side.
+	 *
+	 * @param side Which side to draw border on
+	 */
+	private function drawBorder(side:SidebarPosition):Void
+	{
+		// Clear only the border line (redraw background first)
+		graphics.beginFill(0x1a1a24);
+		graphics.drawRect(0, 0, SIDEBAR_WIDTH, _totalHeight);
+		graphics.endFill();
+
+		// Draw border line
+		graphics.lineStyle(1, 0x333344);
+		switch (side)
+		{
+			case SidebarPosition.LEFT:
+				// Border on right side (sidebar is on left, content on right)
+				graphics.moveTo(SIDEBAR_WIDTH, 0);
+				graphics.lineTo(SIDEBAR_WIDTH, _totalHeight);
+			case SidebarPosition.RIGHT:
+				// Border on left side (content is on left, sidebar on right)
+				graphics.moveTo(0, 0);
+				graphics.lineTo(0, _totalHeight);
+		}
+	}
+
+	/**
+	 * Handle category click.
+	 *
+	 * @param category Clicked category
+	 */
+	private function onCategoryClick(category:MenuCategory):Void
+	{
+		// Deselect previous
+		if (_selectedCategory != null)
+		{
+			for (item in _items)
+			{
+				if (item.category.id == _selectedCategory.id)
+				{
+					item.setSelected(false);
+					break;
+				}
+			}
+		}
+
+		// Select new
+		_selectedCategory = category;
+		for (item in _items)
+		{
+			if (item.category.id == category.id)
+			{
+				item.setSelected(true);
+				break;
+			}
+		}
+
+		// Notify
+		if (onCategorySelected != null)
+		{
+			onCategorySelected(category);
+		}
+	}
+
+	/**
+	 * Programmatically select a category by ID (without triggering callback).
+	 * Used to highlight the preferred category when menu opens.
+	 *
+	 * @param categoryId Category ID to highlight
+	 */
+	public function highlightCategory(categoryId:String):Void
+	{
+		// Deselect all first
+		for (item in _items)
+		{
+			item.setSelected(false);
+		}
+
+		// Highlight the requested category
+		for (item in _items)
+		{
+			if (item.category.id == categoryId)
+			{
+				item.setSelected(true);
+				_selectedCategory = item.category;
+				break;
+			}
+		}
+	}
+
+	/**
+	 * Get sidebar width.
+	 */
+	public function getSidebarWidth():Float { return SIDEBAR_WIDTH; }
+
+	/**
+	 * Get sidebar height.
+	 */
+	public function getSidebarHeight():Float { return height; }
+
+	/**
+	 * Cleanup.
+	 */
+	public function dispose():Void
+	{
+		_items = [];
+		_selectedCategory = null;
+		onCategorySelected = null;
+	}
 }
 
 ================================================================================
 // FILE: ui\contextmenu\ContentPanel.hx
-// Lines: 270 | Chars: 8830
+// Lines: 294 | Chars: 10615
 ================================================================================
 
 package ui.contextmenu;
 
 import openfl.display.Sprite;
+import openfl.events.MouseEvent;
+import openfl.geom.Rectangle;
 import ui.contextmenu.data.MenuCategory;
 import ui.contextmenu.data.MenuEntry;
 import ui.contextmenu.data.RecentMenuTracker;
-import ui.contextmenu.DisplayMode;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     CONTENT PANEL                                         ║
  * ║          (Right panel with entries based on selected category)            ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Right panel of the context menu. Displays entries based on the           ║
- *  currently selected category:                                               ║
- *    - Recent: RecentSection with last 5 actions                              ║
- *    - Editor: List of editor commands (Cut/Copy/Paste/Undo/Redo/etc.)        
- *    - Atoms: Grid of atom types from AtomRegistry                            ║
- *    - Assemblies: Grid of user-created assemblies                            ║
+ * ║  currently selected category:                                             ║
+ * ║  - Recent: RecentSection with last 5 actions                              ║
+ * ║  - Editor: List of editor commands (Cut/Copy/Paste/Undo/Redo/etc.)        ║
+ * ║  - Atoms: Grid of atom types from AtomRegistry                            ║
+ * ║  - Assemblies: Grid of user-created assemblies                            ║
  * ║                                                                           ║
- *   Architecture:                                                            ║
+ * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  ContentPanel (Sprite)                                              │  ║
  * ║  │                                                                     │  ║
- * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  
+ * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
  * ║  │  │  [SearchBar]                                                  │  │  ║
- * ║  │  ├───────────────────────────────────────────────────────────────┤  │  
+ * ║  │  ├───────────────────────────────────────────────────────────────┤  │  ║
  * ║  │  │  [RecentSection] (if Recent category)                         │  │  ║
  * ║  │  ├───────────────────────────────────────────────────────────────┤  │  ║
  * ║  │  │  [MenuItemGrid or List]                                       │  │  ║
- * ║  │  │  ┌────┐ ┌────┐ ┌────┐                                        │  │  ║
- * ║  │  │  │Btn │ │LED │ │Tog │  3 columns                             │  │  ║
- * ║  │  │  └────┘ └──── └────┘                                        │  │  ║
+ * ║  │  │  ┌────┐ ┌────┐ ┌────┐                                         │  │  ║
+ * ║  │  │  │Btn │ │LED │ │Tog │  3 columns                              │  │  ║
+ * ║  │  │  └────┘ └────┘ └────┘                                         │  │  ║
  * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
  * ║  │                                                                     │  ║
  * ║  │  Width: 450px (fixed)                                               │  ║
  * ║  │  Height: Auto (based on content)                                    │  ║
- * ║  ─────────────────────────────────────────────────────────────────────┘  ║
- * ║                                                                           
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 class ContentPanel extends Sprite
 {
-    /** Callback when an entry is clicked. */
     public var onEntryClick:MenuEntry -> Void;
     
-    /** Search bar. */
     private var _searchBar:SearchBar;
-    
-    /** Recent section (shown only for Recent category). */
     private var _recentSection:RecentSection;
     
-    /** Grid for atoms/assemblies. */
-    private var _grid:MenuItemGrid;
+    // NEW: Dedicated container for scrollable content
+    private var _scrollContainer:Sprite;
     
-    /** List container for editor commands. */
+    private var _grid:MenuItemGrid;
     private var _listContainer:Sprite;
     
-    /** Current category. */
     private var _currentCategory:MenuCategory;
-    
-    /** Current entries. */
     private var _currentEntries:Array<MenuEntry>;
     
-    /** Dimensions. */
+    // Scroll state
+    private var _scrollY:Float = 0;
+    private var _maxScrollY:Float = 0;
+    private var _scrollStep:Float = 20.0;
+    
     private static inline var PANEL_WIDTH:Float = 450.0;
     private static inline var SEARCH_HEIGHT:Float = 35.0;
     private static inline var RECENT_HEIGHT:Float = 60.0;
     private static inline var PADDING:Float = 10.0;
+    private static inline var MAX_CONTENT_HEIGHT:Float = 400.0;
     
-    /**
-     * Create a new content panel.
-     */
     public function new()
     {
         super();
@@ -39850,24 +39944,26 @@ class ContentPanel extends Sprite
         buildUI();
     }
     
-    /**
-     * Build the panel UI.
-     */
     private function buildUI():Void
     {
-        // Background
+        // 1. Background (covers entire panel)
         graphics.beginFill(0x1a1a24);
-        graphics.drawRect(0, 0, PANEL_WIDTH, 400);
+        graphics.drawRect(0, 0, PANEL_WIDTH, MAX_CONTENT_HEIGHT);
         graphics.endFill();
         
-        // Search bar
+        // Enable mouse interaction to block events from passing through to Editor
+        mouseEnabled = true;
+        mouseChildren = true;
+        addEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
+        
+        // 2. Search bar (Fixed at top, NEVER scrolls)
         _searchBar = new SearchBar(PANEL_WIDTH - PADDING * 2);
         _searchBar.x = PADDING;
         _searchBar.y = PADDING;
         _searchBar.onSearch = onSearch;
         addChild(_searchBar);
         
-        // Recent section (hidden by default)
+        // 3. Recent section (Fixed below search, NEVER scrolls)
         _recentSection = new RecentSection(PANEL_WIDTH - PADDING * 2);
         _recentSection.x = PADDING;
         _recentSection.y = PADDING + SEARCH_HEIGHT + PADDING;
@@ -39875,52 +39971,51 @@ class ContentPanel extends Sprite
         _recentSection.visible = false;
         addChild(_recentSection);
         
-        // Grid
-        _grid = new MenuItemGrid(3);
-        _grid.x = PADDING;
-        _grid.onItemClick = onEntryClicked;
-        addChild(_grid);
+        // 4. Scroll Container (Holds ONLY the grid/list)
+        _scrollContainer = new Sprite();
+        _scrollContainer.x = PADDING;
+        // Initial Y will be set in updateContent based on Recent visibility
+        _scrollContainer.y = PADDING + SEARCH_HEIGHT + PADDING;
+        addChild(_scrollContainer);
         
-        // List container
+        // 5. Grid (4 columns) and List are children of _scrollContainer
+        _grid = new MenuItemGrid(4);
+        _grid.x = 0; // Relative to scroll container
+        _grid.y = 0;
+        _grid.onItemClick = onEntryClicked;
+        _scrollContainer.addChild(_grid);
+        
         _listContainer = new Sprite();
-        _listContainer.x = PADDING;
-        addChild(_listContainer);
+        _listContainer.x = 0; // Relative to scroll container
+        _listContainer.y = 0;
+        _scrollContainer.addChild(_listContainer);
     }
-    
-    /**
-     * Update panel content based on category and entries.
-     * 
-     * @param category Selected category
-     * @param entries Entries to display
-     */
+
     public function updateContent(category:MenuCategory, entries:Array<MenuEntry>):Void
     {
         _currentCategory = category;
         _currentEntries = entries;
+        _scrollY = 0; // Reset scroll on category change
         
-        // Clear existing content
         _grid.clear();
         while (_listContainer.numChildren > 0)
         {
             _listContainer.removeChildAt(0);
         }
         
-        // Show/hide recent section
+        // Adjust scroll container Y based on Recent section visibility
         if (category.id == MenuCategory.RECENT)
         {
             _recentSection.visible = true;
             _recentSection.refresh();
-            _grid.y = PADDING + SEARCH_HEIGHT + PADDING + RECENT_HEIGHT + PADDING;
-            _listContainer.y = _grid.y;
+            _scrollContainer.y = PADDING + SEARCH_HEIGHT + PADDING + RECENT_HEIGHT + PADDING;
         }
         else
         {
             _recentSection.visible = false;
-            _grid.y = PADDING + SEARCH_HEIGHT + PADDING;
-            _listContainer.y = _grid.y;
+            _scrollContainer.y = PADDING + SEARCH_HEIGHT + PADDING;
         }
         
-        // Display entries based on category
         if (category.id == MenuCategory.EDITOR)
         {
             displayAsList(entries);
@@ -39929,11 +40024,11 @@ class ContentPanel extends Sprite
         {
             displayAsGrid(entries);
         }
+        
+        updateScrollBounds();
+        applyScroll();
     }
     
-    /**
-     * Display entries as a list (for Editor commands).
-     */
     private function displayAsList(entries:Array<MenuEntry>):Void
     {
         _grid.visible = false;
@@ -39950,9 +40045,6 @@ class ContentPanel extends Sprite
         }
     }
     
-    /**
-     * Display entries as a grid (for Atoms/Assemblies).
-     */
     private function displayAsGrid(entries:Array<MenuEntry>):Void
     {
         _grid.visible = true;
@@ -39960,9 +40052,6 @@ class ContentPanel extends Sprite
         _grid.setEntries(entries);
     }
     
-    /**
-     * Handle search text change.
-     */
     private function onSearch(query:String):Void
     {
         if (query == null || query.length == 0)
@@ -39989,11 +40078,11 @@ class ContentPanel extends Sprite
         {
             displayAsGrid(filtered);
         }
+        
+        updateScrollBounds();
+        applyScroll();
     }
     
-    /**
-     * Handle entry click.
-     */
     private function onEntryClicked(entry:MenuEntry):Void
     {
         if (onEntryClick != null)
@@ -40002,37 +40091,70 @@ class ContentPanel extends Sprite
         }
     }
     
-    /**
-     * Get panel width.
-     */
-    public function getPanelWidth():Float { return PANEL_WIDTH; }
+    // ========================================================================
+    // SCROLL LOGIC
+    // ========================================================================
     
-    /**
-     * Get panel height (approximate).
-     */
-    public function getPanelHeight():Float
+    private function updateScrollBounds():Void
     {
-        var height = PADDING + SEARCH_HEIGHT + PADDING;
-        if (_currentCategory != null && _currentCategory.id == MenuCategory.RECENT)
-        {
-            height += RECENT_HEIGHT + PADDING;
-        }
+        var contentHeight:Float = 0;
         if (_grid.visible)
         {
-            height += _grid.getGridHeight();
+            contentHeight = _grid.getGridHeight();
         }
         else if (_listContainer.visible)
         {
-            height += _listContainer.height;
+            contentHeight = _listContainer.height;
         }
-        return height;
+        
+        // Visible height is the total panel height minus the Y offset of the scroll container
+        var visibleHeight:Float = MAX_CONTENT_HEIGHT - _scrollContainer.y;
+        
+        _maxScrollY = Math.max(0, contentHeight - visibleHeight);
     }
     
-    /**
-     * Dispose panel.
-     */
+    private function applyScroll():Void
+    {
+        // Clamp scroll value
+        if (_scrollY < 0) _scrollY = 0;
+        if (_scrollY > _maxScrollY) _scrollY = _maxScrollY;
+        
+        // Move content UP by scrollY (negative offset)
+        var scrollOffset = -_scrollY;
+        _grid.y = scrollOffset;
+        _listContainer.y = scrollOffset;
+        
+        // Apply scrollRect ONLY to the scroll container.
+        // This guarantees that content moving up (negative Y) is clipped 
+        // exactly at the top edge of the container, which sits right below the Search Bar.
+        var visibleHeight:Float = MAX_CONTENT_HEIGHT - _scrollContainer.y;
+        _scrollContainer.scrollRect = new Rectangle(
+            0, 
+            0, 
+            PANEL_WIDTH - (PADDING * 2), 
+            visibleHeight
+        );
+    }
+    
+    private function onMouseWheel(e:MouseEvent):Void
+    {
+        // Stop propagation to prevent Editor from receiving the event
+        e.stopPropagation();
+        
+        _scrollY -= e.delta * _scrollStep;
+        applyScroll();
+    }
+    
+    public function getPanelWidth():Float { return PANEL_WIDTH; }
+    
+    public function getPanelHeight():Float
+    {
+        return MAX_CONTENT_HEIGHT;
+    }
+    
     public function dispose():Void
     {
+        removeEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
         _searchBar.dispose();
         _recentSection.dispose();
         _grid.dispose();
@@ -40042,7 +40164,7 @@ class ContentPanel extends Sprite
 
 ================================================================================
 // FILE: ui\contextmenu\ContextMenu.hx
-// Lines: 271 | Chars: 9151
+// Lines: 388 | Chars: 10963
 ================================================================================
 
 package ui.contextmenu;
@@ -40053,291 +40175,408 @@ import ui.contextmenu.data.MenuCategory;
 import ui.contextmenu.data.MenuEntry;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     CONTEXT MENU v2.0                                     ║
  * ║          (Two-panel context menu with categories and content)             ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Main context menu container. Combines CategorySidebar (left) and         ║
- *  ContentPanel (right) into a unified two-panel menu.                        ║
+ * ║  ContentPanel (right) into a unified two-panel menu.                      ║
  * ║                                                                           ║
- *   Architecture:                                                            ║
+ * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  ContextMenu (Sprite)                                               │  ║
  * ║  │                                                                     │  ║
  * ║  │  ┌────────────┬──────────────────────────────────────────────────┐  │  ║
  * ║  │  │ Category   │  [SearchBar]                                     │  │  ║
- *   │  │ Sidebar    ├──────────────────────────────────────────────────┤  │  ║
+ * ║  │  │ Sidebar    ├──────────────────────────────────────────────────┤  │  ║
  * ║  │  │            │  [RecentSection] (if Recent)                     │  │  ║
- * ║  │  │ ► Editor   ├──────────────────────────────────────────────────  │  ║
- * ║  │  │   Atoms    │  [ContentPanel]                                  │  │  
- * ║  │  │   Assembl. │    ┌────┐ ┌────┐ ┌────┐                         │  │  ║
- * ║  │  │            │    │Btn │ │LED │ │Tog │  3 columns              │  │  ║
- * ║  │  │            │    └────┘ ────┘ └────┘                         │  │  ║
+ * ║  │  │ ► Editor   ├──────────────────────────────────────────────────┤  │  ║
+ * ║  │  │   Atoms    │  [ContentPanel]                                  │  │  ║
+ * ║  │  │   Assembl. │    ┌────┐ ┌────┐ ┌────┐                          │  │  ║
+ * ║  │  │            │    │Btn │ │LED │ │Tog │  3 columns               │  │  ║
+ * ║  │  │            │    └────┘ └────┘ └────┘                          │  │  ║
  * ║  │  └────────────┴──────────────────────────────────────────────────┘  │  ║
- *   │                                                                     │  ║
+ * ║  │                                                                     │  ║
  * ║  │  Sidebar width: 150px                                               │  ║
- *   │  Content width: 450px                                               │  ║
+ * ║  │  Content width: 450px                                               │  ║
  * ║  │  Total width: 600px                                                 │  ║
- *   │  Height: Auto (based on content)                                    │  ║
+ * ║  │  Height: Auto (based on content)                                    │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
  * ║  Behavior:                                                                ║
- *     - show(x, y): Position menu with smart bounds checking                 ║
- *     - hide(): Hide menu and remove stage listener                          ║
+ * ║   - show(x, y): Position menu with smart bounds checking                  ║
+ * ║   - hide(): Hide menu and remove stage listener                           ║
  * ║    - Click outside: Auto-hide                                             ║
  * ║    - Category selection: Updates content panel                            ║
  * ║    - Entry click: Emits CONTEXT_MENU_ACTION via Impulsys                  ║
  * ║                                                                           ║
- * ═══════════════════════════════════════════════════════════════════════════╝
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 class ContextMenu extends Sprite
 {
-    /** Sidebar with categories. */
-    private var _sidebar:CategorySidebar;
-    
-    /** Content panel with entries. */
-    private var _contentPanel:ContentPanel;
-    
-    /** Current categories. */
-    private var _categories:Array<MenuCategory>;
-    
-    /** Current entries per category. */
-    private var _entriesByCategory:Map<String, Array<MenuEntry>>;
-    
-    /** Currently selected category. */
-    private var _selectedCategory:MenuCategory;
-    
-    /** Spawn position. */
-    private var _spawnX:Float = 0;
-    private var _spawnY:Float = 0;
-    
-    /** Dimensions. */
-    private static inline var SIDEBAR_WIDTH:Float = 150.0;
-    private static inline var CONTENT_WIDTH:Float = 450.0;
-    private static inline var TOTAL_WIDTH:Float = SIDEBAR_WIDTH + CONTENT_WIDTH;
-    private static inline var MIN_HEIGHT:Float = 200.0;
-    private static inline var MAX_HEIGHT:Float = 500.0;
-    
-    /**
-     * Create a new context menu.
-     */
-    public function new()
-    {
-        super();
-        _entriesByCategory = new Map();
-        buildUI();
-    }
-    
-    /**
-     * Build the menu UI.
-     */
-    private function buildUI():Void
-    {
-        // Background
-        graphics.lineStyle(1, 0x444455);
-        graphics.beginFill(0x1a1a24);
-        graphics.drawRoundRect(0, 0, TOTAL_WIDTH, MIN_HEIGHT, 8, 8);
-        graphics.endFill();
-        
-        // Sidebar
-        _sidebar = new CategorySidebar([]);
-        _sidebar.x = 0;
-        _sidebar.y = 0;
-        _sidebar.onCategorySelected = onCategorySelected;
-        addChild(_sidebar);
-        
-        // Content panel
-        _contentPanel = new ContentPanel();
-        _contentPanel.x = SIDEBAR_WIDTH;
-        _contentPanel.y = 0;
-        _contentPanel.onEntryClick = onEntryClicked;
-        addChild(_contentPanel);
-    }
-    
-    /**
-     * Set categories and entries for the menu.
-     * 
-     * @param categories Array of categories to display in sidebar
-     * @param entriesByCategory Map of category ID to entries
-     */
-    public function setData(categories:Array<MenuCategory>, entriesByCategory:Map<String, Array<MenuEntry>>):Void
-    {
-        _categories = categories;
-        _entriesByCategory = entriesByCategory;
-        
-        // Rebuild sidebar
-        while (_sidebar.numChildren > 0)
-        {
-            _sidebar.removeChildAt(0);
-        }
-        _sidebar = new CategorySidebar(categories);
-        _sidebar.x = 0;
-        _sidebar.y = 0;
-        _sidebar.onCategorySelected = onCategorySelected;
-        addChild(_sidebar);
-        
-        // Select first category by default
-        if (categories.length > 0)
-        {
-            selectCategory(categories[0]);
-        }
-    }
-    
-    /**
-     * Select a category and update content panel.
-     */
-    private function selectCategory(category:MenuCategory):Void
-    {
-        _selectedCategory = category;
-        var entries = _entriesByCategory.get(category.id);
-        if (entries == null) entries = [];
-        _contentPanel.updateContent(category, entries);
-        
-        // Resize menu to fit content
-        resizeToFitContent();
-    }
-    
-    /**
-     * Handle category selection from sidebar.
-     */
-    private function onCategorySelected(category:MenuCategory):Void
-    {
-        selectCategory(category);
-    }
-    
-    /**
-     * Handle entry click from content panel.
-     */
-    private function onEntryClicked(entry:MenuEntry):Void
-    {
-        // Emit action via Impulsys
-        core.logic.Impulsys.quickEmit(core.logic.EventType.CONTEXT_MENU_ACTION, {
-            action: entry.actionId,
-            data: entry.data,
-            x: _spawnX,
-            y: _spawnY
-        });
-        
-        hide();
-    }
-    
-    /**
-     * Resize menu to fit content.
-     */
-    private function resizeToFitContent():Void
-    {
-        var contentHeight = _contentPanel.getPanelHeight();
-        var totalHeight = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, contentHeight));
-        
-        graphics.clear();
-        graphics.lineStyle(1, 0x444455);
-        graphics.beginFill(0x1a1a24);
-        graphics.drawRoundRect(0, 0, TOTAL_WIDTH, totalHeight, 8, 8);
-        graphics.endFill();
-    }
-    
-    /**
-     * Show menu at specified position with smart bounds checking.
-     * 
-     * @param x Requested X position
-     * @param y Requested Y position
-     */
-    public function show(x:Float, y:Float):Void
-    {
-        _spawnX = x;
-        _spawnY = y;
-        
-        // Smart positioning
-        var stageW = stage != null ? stage.stageWidth : 1920;
-        var stageH = stage != null ? stage.stageHeight : 1080;
-        var bounds = MenuBoundsCalculator.clamp(x, y, TOTAL_WIDTH, height, stageW, stageH);
-        
-        this.x = bounds.x;
-        this.y = bounds.y;
-        visible = true;
-        
-        if (stage != null)
-        {
-            stage.addEventListener(MouseEvent.MOUSE_DOWN, onStageClick);
-        }
-    }
-    
-    /**
-     * Hide menu.
-     */
-    public function hide():Void
-    {
-        visible = false;
-        if (stage != null)
-        {
-            stage.removeEventListener(MouseEvent.MOUSE_DOWN, onStageClick);
-        }
-    }
-    
-    /**
-     * Handle stage click (close menu if clicked outside).
-     */
-    private function onStageClick(e:MouseEvent):Void
-    {
-        if (!this.hitTestPoint(e.stageX, e.stageY))
-        {
-            hide();
-        }
-    }
-    
-    /**
-     * Get spawn position.
-     */
-    public function getSpawnPosition():{x:Float, y:Float}
-    {
-        return { x: _spawnX, y: _spawnY };
-    }
-    
-    /**
-     * Clear all data.
-     */
-    public function clear():Void
-    {
-        _categories = [];
-        _entriesByCategory = new Map();
-        _selectedCategory = null;
-    }
-    
-    /**
-     * Dispose menu.
-     */
-    public function dispose():Void
-    {
-        hide();
-        _sidebar.dispose();
-        _contentPanel.dispose();
-        _categories = null;
-        _entriesByCategory = null;
-    }
+	/** Sidebar with categories. */
+	private var _sidebar:CategorySidebar;
+
+	/** Content panel with entries. */
+	private var _contentPanel:ContentPanel;
+
+	/** Current categories. */
+	private var _categories:Array<MenuCategory>;
+
+	/** Current entries per category. */
+	private var _entriesByCategory:Map<String, Array<MenuEntry>>;
+
+	/** Currently selected category. */
+	private var _selectedCategory:MenuCategory;
+
+	/** Spawn position. */
+	private var _spawnX:Float = 0;
+	private var _spawnY:Float = 0;
+
+	/** Dimensions. */
+	private static inline var SIDEBAR_WIDTH:Float = 150.0;
+	private static inline var CONTENT_WIDTH:Float = 450.0;
+	private static inline var TOTAL_WIDTH:Float = SIDEBAR_WIDTH + CONTENT_WIDTH;
+	private static inline var MIN_HEIGHT:Float = 200.0;
+	private static inline var MAX_HEIGHT:Float = 500.0;
+
+	/** Current sidebar position. */
+	private var _sidebarPosition:SidebarPosition = SidebarPosition.LEFT;
+
+	/**
+	 * Preferred category to select when menu opens.
+	 * Set via setPreferredCategory() before show().
+	 * If null or category not found, first category is selected.
+	 */
+	private var _preferredCategoryId:String = null;
+
+	/**
+	 * Create a new context menu.
+	 */
+	public function new()
+	{
+		super();
+		_entriesByCategory = new Map();
+		buildUI();
+
+		// Menu must be hidden by default.
+		// Without this, the empty menu rectangle (600×200) is visible
+		// immediately after Main.hx adds it to _uiLayer.
+		visible = false;
+	}
+
+	/**
+	* Build the menu UI.
+	*/
+	private function buildUI():Void
+	{
+		// Background
+		graphics.lineStyle(1, 0x444455);
+		graphics.beginFill(0x1a1a24);
+		graphics.drawRoundRect(0, 0, TOTAL_WIDTH, MIN_HEIGHT, 8, 8);
+		graphics.endFill();
+		
+		// Sidebar
+		_sidebar = new CategorySidebar([]);
+		_sidebar.x = 0;
+		_sidebar.y = 0;
+		_sidebar.onCategorySelected = onCategorySelected;
+		addChild(_sidebar);
+		
+		// Content panel
+		_contentPanel = new ContentPanel();
+		_contentPanel.x = SIDEBAR_WIDTH;
+		_contentPanel.y = 0;
+		_contentPanel.onEntryClick = onEntryClicked;
+		addChild(_contentPanel);
+		
+		// Set initial border side
+		_sidebar.setBorderSide(_sidebarPosition);
+		
+		// Enable mouse interaction to block events from passing through
+		mouseEnabled = true;
+		mouseChildren = true;
+	}
+
+	/**
+	 * Set categories and entries for the menu.
+	 *
+	 * @param categories Array of categories to display in sidebar
+	 * @param entriesByCategory Map of category ID to entries
+	 */
+	public function setData(categories:Array<MenuCategory>, entriesByCategory:Map<String, Array<MenuEntry>>):Void
+	{
+		_categories = categories;
+		_entriesByCategory = entriesByCategory;
+
+		// Rebuild sidebar
+		while (_sidebar.numChildren > 0)
+		{
+			_sidebar.removeChildAt(0);
+		}
+		_sidebar = new CategorySidebar(categories);
+		_sidebar.x = 0;
+		_sidebar.y = 0;
+		_sidebar.onCategorySelected = onCategorySelected;
+		addChild(_sidebar);
+
+		// Select category: preferred first, then fallback to first available
+		if (categories.length > 0)
+		{
+			var selected:MenuCategory = null;
+
+			// Try preferred category
+			if (_preferredCategoryId != null)
+			{
+				for (cat in categories)
+				{
+					if (cat.id == _preferredCategoryId)
+					{
+						selected = cat;
+						break;
+					}
+				}
+			}
+
+			// Fallback to first category
+			if (selected == null)
+			{
+				selected = categories[0];
+			}
+
+			selectCategory(selected);
+		}
+
+		// === NEW: Highlight the selected category in sidebar ===
+		if (_selectedCategory != null)
+		{
+			_sidebar.highlightCategory(_selectedCategory.id);
+		}
+
+		// Reset preferred after selection (one-shot)
+		_preferredCategoryId = null;
+	}
+
+	/**
+	 * Select a category and update content panel.
+	 */
+	private function selectCategory(category:MenuCategory):Void
+	{
+		_selectedCategory = category;
+		var entries = _entriesByCategory.get(category.id);
+		if (entries == null) entries = [];
+		_contentPanel.updateContent(category, entries);
+
+		// Resize menu to fit content
+		resizeToFitContent();
+	}
+
+	/**
+	 * Handle category selection from sidebar.
+	 */
+	private function onCategorySelected(category:MenuCategory):Void
+	{
+		selectCategory(category);
+	}
+
+	/**
+	 * Handle entry click from content panel.
+	 */
+	private function onEntryClicked(entry:MenuEntry):Void
+	{
+		// Emit action via Impulsys
+		core.logic.Impulsys.quickEmit(core.logic.EventType.CONTEXT_MENU_ACTION, {
+			action: entry.actionId,
+			data: entry.data,
+			x: _spawnX,
+			y: _spawnY
+		});
+
+		hide();
+	}
+
+	/**
+	 * Resize menu to fit content.
+	 */
+	private function resizeToFitContent():Void
+	{
+		var contentHeight = _contentPanel.getPanelHeight();
+		var totalHeight = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, contentHeight));
+
+		graphics.clear();
+		graphics.lineStyle(1, 0x444455);
+		graphics.beginFill(0x1a1a24);
+		graphics.drawRoundRect(0, 0, TOTAL_WIDTH, totalHeight, 8, 8);
+		graphics.endFill();
+	}
+
+	/**
+	 * Show menu at specified position with smart bounds checking.
+	 *
+	 * @param x Requested X position
+	 * @param y Requested Y position
+	 */
+	public function show(x:Float, y:Float):Void
+	{
+		_spawnX = x;
+		_spawnY = y;
+
+		// Smart positioning
+		var stageW = stage != null ? stage.stageWidth : 1920;
+		var stageH = stage != null ? stage.stageHeight : 1080;
+		var bounds = MenuBoundsCalculator.clamp(x, y, TOTAL_WIDTH, height, stageW, stageH);
+
+		this.x = bounds.x;
+		this.y = bounds.y;
+		visible = true;
+
+		if (stage != null)
+		{
+			stage.addEventListener(MouseEvent.MOUSE_DOWN, onStageClick);
+		}
+	}
+
+	/**
+	 * Hide menu.
+	 */
+	public function hide():Void
+	{
+		visible = false;
+		if (stage != null)
+		{
+			stage.removeEventListener(MouseEvent.MOUSE_DOWN, onStageClick);
+		}
+	}
+
+	/**
+	 * Handle stage click (close menu if clicked outside).
+	 */
+	private function onStageClick(e:MouseEvent):Void
+	{
+		if (!this.hitTestPoint(e.stageX, e.stageY))
+		{
+			hide();
+		}
+	}
+
+	/**
+	* Set sidebar position (Left or Right).
+	* Triggers UI rebuild.
+	*
+	* @param position New sidebar position
+	*/
+	public function setSidebarPosition(position:SidebarPosition):Void
+	{
+		if (_sidebarPosition == position) return;
+		_sidebarPosition = position;
+		rebuildLayout();
+	}
+
+	/**
+	 * Get current sidebar position.
+	 *
+	 * @return Current sidebar position
+	 */
+	public function getSidebarPosition():SidebarPosition
+	{
+		return _sidebarPosition;
+	}
+
+	/**
+	 * Set the category that should be selected when menu opens.
+	 * Call this before show() to control which tab is active.
+	 *
+	 * @param categoryId Category ID (e.g., MenuCategory.EDITOR, MenuCategory.ATOMS)
+	 */
+	public function setPreferredCategory(categoryId:String):Void
+	{
+		_preferredCategoryId = categoryId;
+	}
+
+	/**
+	 * Rebuild layout based on current sidebar position.
+	 * Called when sidebar position changes.
+	 */
+	private function rebuildLayout():Void
+	{
+		if (_sidebar == null || _contentPanel == null) return;
+
+		switch (_sidebarPosition)
+		{
+			case SidebarPosition.LEFT:
+				// Sidebar on left, content on right
+				_sidebar.x = 0;
+				_sidebar.y = 0;
+				_contentPanel.x = SIDEBAR_WIDTH;
+				_contentPanel.y = 0;
+				_sidebar.setBorderSide(SidebarPosition.LEFT);
+
+			case SidebarPosition.RIGHT:
+				// Content on left, sidebar on right
+				_contentPanel.x = 0;
+				_contentPanel.y = 0;
+				_sidebar.x = CONTENT_WIDTH;
+				_sidebar.y = 0;
+				_sidebar.setBorderSide(SidebarPosition.RIGHT);
+		}
+
+		// Redraw background
+		resizeToFitContent();
+	}
+
+	/**
+	 * Get spawn position.
+	 */
+	public function getSpawnPosition(): {x:Float, y:Float}
+	{
+		return { x: _spawnX, y: _spawnY };
+	}
+
+	/**
+	 * Clear all data.
+	 */
+	public function clear():Void
+	{
+		_categories = [];
+		_entriesByCategory = new Map();
+		_selectedCategory = null;
+	}
+
+	/**
+	 * Dispose menu.
+	 */
+	public function dispose():Void
+	{
+		hide();
+		_sidebar.dispose();
+		_contentPanel.dispose();
+		_categories = null;
+		_entriesByCategory = null;
+	}
 }
 
 ================================================================================
 // FILE: ui\contextmenu\data\MenuCategory.hx
-// Lines: 92 | Chars: 4537
+// Lines: 92 | Chars: 4538
 ================================================================================
 
 package ui.contextmenu.data;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     MENU CATEGORY                                         ║
  * ║          (Data model for sidebar category item)                           ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Represents a single category in the context menu sidebar.                ║
- *  Categories group menu entries by purpose:                                  ║
- *    - Editor commands (Cut/Copy/Paste/Undo/Redo)                             ║
- *    - Atom library (Button, LED, Toggle, etc.)                               ║
- *    - Assembly library (user-created custom assemblies)                      ║
- *    - Recent (last 5 used actions)                                           ║
+ * ║  Categories group menu entries by purpose:                                ║
+ * ║  - Editor commands (Cut/Copy/Paste/Undo/Redo)                             ║
+ * ║  - Atom library (Button, LED, Toggle, etc.)                               ║
+ * ║  - Assembly library (user-created custom assemblies)                      ║
+ * ║  - Recent (last 5 used actions)                                           ║
  * ║                                                                           ║
- *   Architecture:                                                            ║
+ * ║ Architecture:                                                             ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  MenuCategory                                                       │  ║
  * ║  │                                                                     │  ║
@@ -40417,29 +40656,29 @@ class MenuCategory
 
 ================================================================================
 // FILE: ui\contextmenu\data\MenuEntry.hx
-// Lines: 143 | Chars: 5539
+// Lines: 147 | Chars: 5407
 ================================================================================
 
 package ui.contextmenu.data;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     MENU ENTRY                                            ║
  * ║          (Data model for a single menu item)                              ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
- *   Represents a single actionable item in the context menu content panel.   ║
- *  Entries can be:                                                            ║
- *    - Commands (Cut, Copy, Paste, Undo, Redo)                                ║
- *    - Atom types (Button, LED, Toggle, SignalGenerator)                      ║
- *    - Assembly types (user-created custom assemblies)                        ║
+ * ║  Represents a single actionable item in the context menu content panel.   ║
+ * ║  Entries can be:                                                          ║
+ * ║  - Commands (Cut, Copy, Paste, Undo, Redo)                                ║
+ * ║  - Atom types (Button, LED, Toggle, SignalGenerator)                      ║
+ * ║  - Assembly types (user-created custom assemblies)                        ║
  * ║                                                                           ║
  * ║  Architecture:                                                            ║
- * ║  ─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  MenuEntry                                                          │  ║
  * ║  │                                                                     │  ║
  * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
- *   │  │  Fields:                                                      │  │  ║
+ * ║  │  │  Fields:                                                      │  │  ║
  * ║  │  │  - id: String        → Unique identifier                      │  │  ║
  * ║  │  │  - displayName: String → Human-readable label                 │  │  ║
  * ║  │  │  - icon: String      → Icon identifier (maps to assets)       │  │  ║
@@ -40447,142 +40686,146 @@ package ui.contextmenu.data;
  * ║  │  │  - actionId: String    → Action identifier for Impulsys       │  │  ║
  * ║  │  │  - data: Dynamic     → Optional payload for action            │  │  ║
  * ║  │  │  - shortcut: String  → Keyboard shortcut hint (future)        │  │  ║
- * ║  │  └───────────────────────────────────────────────────────────────┘  │  
+ * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
- * ═══════════════════════════════════════════════════════════════════════════╝
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 class MenuEntry
 {
-    /** Unique entry identifier. */
-    public var id:String;
-    
-    /** Human-readable display name. */
-    public var displayName:String;
-    
-    /** Icon identifier (maps to assets/icons/). */
-    public var icon:String;
-    
-    /** Parent category ID (links to MenuCategory.id). */
-    public var categoryId:String;
-    
-    /** Action identifier for Impulsys event payload. */
-    public var actionId:String;
-    
-    /** Optional data payload passed with action. */
-    public var data:Dynamic;
-    
-    /** Keyboard shortcut hint (reserved for future hotkey service). */
-    public var shortcut:String;
-    
-    /**
-     * Create a new menu entry.
-     * 
-     * @param id          Unique identifier
-     * @param displayName Human-readable label
-     * @param icon        Icon identifier
-     * @param categoryId  Parent category ID
-     * @param actionId    Action identifier for Impulsys
-     * @param data        Optional payload
-     * @param shortcut    Keyboard shortcut hint (optional)
-     */
-    public function new(
-        id:String,
-        displayName:String,
-        ?icon:String = null,
-        ?categoryId:String = null,
-        ?actionId:String = null,
-        ?data:Dynamic = null,
-        ?shortcut:String = null
-    )
-    {
-        this.id = id;
-        this.displayName = displayName;
-        this.icon = (icon != null) ? icon : id;
-        this.categoryId = categoryId;
-        this.actionId = (actionId != null) ? actionId : id;
-        this.data = data;
-        this.shortcut = shortcut;
-    }
-    
-    /**
-     * Factory: Create an editor command entry.
-     * 
-     * @param actionId Command action ID (e.g., "DELETE_ALL_SELECTED")
-     * @param displayName Human-readable label
-     * @param data Optional command payload
-     * @return MenuEntry configured for editor command
-     */
-    public static function createCommand(actionId:String, displayName:String, ?data:Dynamic):MenuEntry
-    {
-        return new MenuEntry(
-            "cmd_" + actionId,
-            displayName,
-            "command",
-            MenuCategory.EDITOR,
-            actionId,
-            data
-        );
-    }
-    
-    /**
-     * Factory: Create an atom library entry.
-     * 
-     * @param typeId Atom type ID from AtomRegistry
-     * @param displayName Human-readable atom name
-     * @return MenuEntry configured for atom creation
-     */
-    public static function createAtom(typeId:String, displayName:String):MenuEntry
-    {
-        return new MenuEntry(
-            "atom_" + typeId,
-            displayName,
-            typeId,
-            MenuCategory.ATOMS,
-            "ADD_ATOM",
-            { typeId: typeId }
-        );
-    }
-    
-    /**
-     * Factory: Create an assembly library entry.
-     * 
-     * @param typeId Assembly type ID from AtomRegistry
-     * @param displayName Human-readable assembly name
-     * @return MenuEntry configured for assembly creation
-     */
-    public static function createAssembly(typeId:String, displayName:String):MenuEntry
-    {
-        return new MenuEntry(
-            "asm_" + typeId,
-            displayName,
-            "assembly",
-            MenuCategory.ASSEMBLIES,
-            "ADD_ATOM",
-            { typeId: typeId }
-        );
-    }
+	/** Unique entry identifier. */
+	public var id:String;
+
+	/** Human-readable display name. */
+	public var displayName:String;
+
+	/** Icon identifier (maps to assets/icons/). */
+	public var icon:String;
+
+	/** Parent category ID (links to MenuCategory.id). */
+	public var categoryId:String;
+
+	/** Action identifier for Impulsys event payload. */
+	public var actionId:String;
+
+	/** Optional data payload passed with action. */
+	public var data:Dynamic;
+
+	/** Keyboard shortcut hint (reserved for future hotkey service). */
+	public var shortcut:String;
+
+	/**
+	 * Create a new menu entry.
+	 *
+	 * @param id          Unique identifier
+	 * @param displayName Human-readable label
+	 * @param icon        Icon identifier
+	 * @param categoryId  Parent category ID
+	 * @param actionId    Action identifier for Impulsys
+	 * @param data        Optional payload
+	 * @param shortcut    Keyboard shortcut hint (optional)
+	 */
+	public function new(
+		id:String,
+		displayName:String,
+		?icon:String = null,
+		?categoryId:String = null,
+		?actionId:String = null,
+		?data:Dynamic = null,
+		?shortcut:String = null
+	)
+	{
+		this.id = id;
+		this.displayName = displayName;
+		this.icon = (icon != null) ? icon : id;
+		this.categoryId = categoryId;
+		this.actionId = (actionId != null) ? actionId : id;
+		this.data = data;
+		this.shortcut = shortcut;
+	}
+
+	/**
+	 * Factory: Create an editor command entry.
+	 *
+	 * @param actionId Command action ID (e.g., "DELETE_ALL_SELECTED")
+	 * @param displayName Human-readable label
+	 * @param data Optional command payload
+	 * @return MenuEntry configured for editor command
+	 */
+	public static function createCommand(actionId:String, displayName:String, ?data:Dynamic):MenuEntry
+	{
+		return new MenuEntry(
+			"cmd_" + actionId,
+			displayName,
+			"command",
+			MenuCategory.EDITOR,
+			actionId,
+			data
+		);
+	}
+
+	/**
+	 * Factory: Create an atom library entry.
+	 *
+	 * @param typeId Atom type ID from AtomRegistry
+	 * @param displayName Human-readable atom name
+	 * @param iconId Explicit icon ID (e.g. from Blueprint.iconId). Falls back to typeId if null.
+	 * @return MenuEntry configured for atom creation
+	 */
+	public static function createAtom(typeId:String, displayName:String, ?iconId:String = null):MenuEntry
+	{
+		var finalIcon = (iconId != null && iconId != "") ? iconId : typeId;
+		return new MenuEntry(
+			"atom_" + typeId,
+			displayName,
+			finalIcon,
+			MenuCategory.ATOMS,
+			"ADD_ATOM",
+		{ typeId: typeId }
+		);
+	}
+
+	/**
+	 * Factory: Create an assembly library entry.
+	 *
+	 * @param typeId Assembly type ID from AtomRegistry
+	 * @param displayName Human-readable assembly name
+	 * @param iconId Explicit icon ID. Defaults to "default_assembly" if null.
+	 * @return MenuEntry configured for assembly creation
+	 */
+	public static function createAssembly(typeId:String, displayName:String, ?iconId:String = null):MenuEntry
+	{
+		var finalIcon = (iconId != null && iconId != "") ? iconId : "default_assembly";
+		return new MenuEntry(
+			"asm_" + typeId,
+			displayName,
+			finalIcon,
+			MenuCategory.ASSEMBLIES,
+			"ADD_ATOM",
+		{ typeId: typeId }
+		);
+	}
 }
 
 ================================================================================
 // FILE: ui\contextmenu\data\MenuEntryProvider.hx
-// Lines: 60 | Chars: 2848
+// Lines: 60 | Chars: 2852
 ================================================================================
 
 package ui.contextmenu.data;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     MENU ENTRY PROVIDER                                   ║
  * ║          (Interface for menu content providers)                           ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
- *   Interface for classes that supply menu entries to the context menu.      ║
- *  Different providers handle different content sources:                      ║
- *    - EditorCommandsProvider: Cut/Copy/Paste/Undo/Redo commands              ║
- *    - AtomLibraryProvider: Built-in atoms from AtomRegistry                  ║
- *    - AssemblyLibraryProvider: User-created assemblies                       ║
- * ║                                                                           
+ * ║ Interface for classes that supply menu entries to the context menu.       ║
+ * ║ Different providers handle different content sources:                     ║
+ * ║  - EditorCommandsProvider: Cut/Copy/Paste/Undo/Redo commands              ║
+ * ║  - AtomLibraryProvider: Built-in atoms from AtomRegistry                  ║
+ * ║  - AssemblyLibraryProvider: User-created assemblies                       ║
+ * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  MenuEntryProvider (Interface)                                      │  ║
@@ -40594,8 +40837,8 @@ package ui.contextmenu.data;
  * ║  │  │  - supportsSearch() → Bool                                    │  │  ║
  * ║  │  │  - filter(query: String) → Array<MenuEntry>                   │  │  ║
  * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
- * ║  ─────────────────────────────────────────────────────────────────────┘  ║
- * ║                                                                           
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 interface MenuEntryProvider
@@ -40632,7 +40875,7 @@ interface MenuEntryProvider
 
 ================================================================================
 // FILE: ui\contextmenu\data\RecentMenuTracker.hx
-// Lines: 165 | Chars: 5708
+// Lines: 165 | Chars: 5712
 ================================================================================
 
 package ui.contextmenu.data;
@@ -40642,23 +40885,23 @@ import core.logic.Impulse;
 import core.logic.EventType;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     RECENT MENU TRACKER                                   ║
  * ║          (Tracks last N menu actions for Recent section)                  ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
- *   Singleton that tracks the last N menu actions and exposes them           ║
- *  as MenuEntry instances for the "Recent" category in the sidebar.           ║
+ * ║  Singleton that tracks the last N menu actions and exposes them           ║
+ * ║  as MenuEntry instances for the "Recent" category in the sidebar.         ║
  * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  RecentMenuTracker (Singleton)                                      │  ║
  * ║  │                                                                     │  ║
- * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  
+ * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
  * ║  │  │  Fields:                                                      │  │  ║
  * ║  │  │  - _history: Array<MenuEntry>  → Last N entries (FIFO)        │  │  ║
  * ║  │  │  - _maxHistory: Int          → Maximum entries to track (5)   │  │  ║
- * ║  │  │                                                             │  │  ║
+ * ║  │  │                                                               │  │  ║
  * ║  │  │  Methods:                                                     │  │  ║
  * ║  │  │  - record(entry: MenuEntry)  → Add to history                 │  │  ║
  * ║  │  │  - getRecent() → Array<MenuEntry>  → Get last N entries       │  │  ║
@@ -40802,39 +41045,75 @@ class RecentMenuTracker
 }
 
 ================================================================================
-// FILE: ui\contextmenu\MenuBoundsCalculator.hx
-// Lines: 163 | Chars: 7541
+// FILE: ui\contextmenu\DisplayMode.hx
+// Lines: 30 | Chars: 1685
 ================================================================================
 
 package ui.contextmenu;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║                     DISPLAY MODE                                          ║
+ * ║          (Enum for MenuItem visual representation)                        ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  Defines how a MenuItem is rendered in the content panel:                 ║
+ * ║  - LIST: Full-width row with icon + label + shortcut (for Editor commands)║
+ * ║  - GRID: Compact tile with icon + label (for Atoms/Assemblies)            ║
+ * ║                                                                           ║
+ * ║  Architecture:                                                            ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │  DisplayMode (Enum)                                                 │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  LIST  → 150px × 30px, horizontal layout                            │  ║
+ * ║  │  GRID  → 100px × 80px, tile layout                                  │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
+ */
+enum DisplayMode
+{
+    /** Full-width row: icon + label + shortcut. Used for Editor commands. */
+    LIST;
+    
+    /** Compact tile: icon + label. Used for Atoms/Assemblies grid. */
+    GRID;
+}
+
+================================================================================
+// FILE: ui\contextmenu\MenuBoundsCalculator.hx
+// Lines: 163 | Chars: 7546
+================================================================================
+
+package ui.contextmenu;
+
+/**
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     MENU BOUNDS CALCULATOR                                ║
  * ║          (Smart positioning to keep menu within stage bounds)             ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
- *   Calculates menu position so it stays fully visible on stage.             ║
- *  Handles edge cases:                                                        ║
- *    - Menu would overflow right edge → anchor to left of cursor              ║
- *    - Menu would overflow bottom edge → anchor to top of cursor              ║
- *    - Menu is too big for stage → shrink to fit with max dimensions          ║
+ * ║  Calculates menu position so it stays fully visible on stage.             ║
+ * ║  Handles edge cases:                                                      ║
+ * ║  - Menu would overflow right edge → anchor to left of cursor              ║
+ * ║  - Menu would overflow bottom edge → anchor to top of cursor              ║
+ * ║  - Menu is too big for stage → shrink to fit with max dimensions          ║
  * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  MenuBoundsCalculator (Static)                                      │  ║
  * ║  │                                                                     │  ║
  * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
- *   │  │  Methods:                                                     │  │  ║
+ * ║  │  │  Methods:                                                     │  │  ║
  * ║  │  │  - clamp() → {x, y, width, height}                            │  │  ║
  * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
- *   Algorithm:                                                               ║
+ * ║  Algorithm:                                                               ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  1. Calculate requested menu dimensions                             │  ║
- *   │  2. Check horizontal overflow:                                      │  ║
- *   │     - If x + width > stageWidth - margin → x = stageWidth - width   │  ║
+ * ║  │  2. Check horizontal overflow:                                      │  ║
+ * ║  │     - If x + width > stageWidth - margin → x = stageWidth - width   │  ║
  * ║  │  3. Check vertical overflow:                                        │  ║
  * ║  │     - If y + height > stageHeight - margin → y = stageHeight - h    │  ║
  * ║  │  4. Clamp to minimum margins on all sides                           │  ║
@@ -40972,95 +41251,86 @@ class MenuBoundsCalculator
 
 ================================================================================
 // FILE: ui\contextmenu\MenuItem.hx
-// Lines: 314 | Chars: 10460
+// Lines: 308 | Chars: 11770
 ================================================================================
 
 package ui.contextmenu;
 
 import openfl.display.Sprite;
+import openfl.display.Bitmap;
+import openfl.display.BitmapData;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
 import openfl.events.MouseEvent;
 import ui.contextmenu.data.MenuEntry;
+import ui.contextmenu.data.MenuCategory;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     MENU ITEM                                             ║
  * ║          (Single clickable entry in content panel)                        ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Visual representation of a MenuEntry in the content panel.               ║
- *  Supports two display modes:                                                ║
- *    - List mode (Editor commands): icon + label + shortcut, full width       ║
- *    - Grid mode (Atoms/Assemblies): icon + label, compact tile               ║
- * ║                                                                           
+ * ║  Supports two display modes:                                              ║
+ * ║  - List mode (Editor commands): icon + label + shortcut, full width       ║
+ * ║  - Grid mode (Atoms/Assemblies): icon + label, compact tile               ║
+ * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  MenuItem (Sprite)                                                  │  ║
  * ║  │                                                                     │  ║
- *   │  List mode (150px × 30px):                                          │  ║
+ * ║  │  List mode (150px × 30px):                                          │  ║
  * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
  * ║  │  │  [Icon] Label text                        [Shortcut]          │  │  ║
  * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
  * ║  │                                                                     │  ║
  * ║  │  Grid mode (100px × 80px):                                          │  ║
- *   │  ┌────────┐                                                         │  ║
- * ║  │  │ [Icon] │                                                         │  
- * ║  │  └────────                                                         │  ║
+ * ║  │  ┌────────┐                                                         │  ║
+ * ║  │  │ [Icon] │                                                         │  ║
+ * ║  │  └────────┘                                                         │  ║
  * ║  │   Label text                                                        │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
- * ║                                                                           
+ * ║                                                                           ║
  * ║  States:                                                                  ║
  * ║    - Normal: bg=0x222233, text=0xFFFFFF                                   ║
- *     - Hover: bg=0x334455, text=0x00AAFF                                    ║
- *     - Disabled: bg=0x1a1a24, text=0x555566                                 ║
+ * ║   - Hover: bg=0x334455, text=0x00AAFF                                     ║
+ * ║   - Disabled: bg=0x1a1a24, text=0x555566                                  ║
  * ║                                                                           ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
+/**
+ * MENU ITEM v2.0 (PNG Icon Support + Fallback)
+ * Single clickable entry in content panel.
+ * 
+ * v2.0 Changes:
+ * - Replaced text-based icons with PNG loading from assets.
+ * - Added programmatic fallback (colored square + first letter) if PNG is missing.
+ * - Supports 32x32 icons natively.
+ */
 class MenuItem extends Sprite
 {
-    /** Entry data model. */
     public var entry:MenuEntry;
-    
-    /** Callback when item is clicked. */
     public var onClick:MenuEntry -> Void;
-    
-    /** Display mode. */
     public var displayMode:DisplayMode;
     
-    /** Background sprite. */
     private var _bg:Sprite;
-    
-    /** Icon placeholder (text-based for now). */
-    private var _iconField:TextField;
-    
-    /** Label text field. */
+    private var _iconContainer:Sprite; // Holds either Bitmap or fallback graphics
     private var _labelField:TextField;
-    
-    /** Shortcut text field (list mode only). */
     private var _shortcutField:TextField;
     
-    /** Dimensions. */
     private static inline var LIST_WIDTH:Float = 150.0;
     private static inline var LIST_HEIGHT:Float = 30.0;
     private static inline var GRID_WIDTH:Float = 100.0;
     private static inline var GRID_HEIGHT:Float = 80.0;
     private static inline var ICON_SIZE:Float = 32.0;
     
-    /** Colors. */
     private static inline var COLOR_NORMAL_BG:Int = 0x222233;
     private static inline var COLOR_HOVER_BG:Int = 0x334455;
     private static inline var COLOR_NORMAL_TEXT:Int = 0xFFFFFF;
     private static inline var COLOR_HOVER_TEXT:Int = 0x00AAFF;
     private static inline var COLOR_SHORTCUT:Int = 0x888888;
-    private static inline var COLOR_ICON:Int = 0x00AAFF;
     
-    /**
-     * Create a new menu item.
-     * 
-     * @param entry Entry data model
-     * @param mode Display mode (LIST or GRID)
-     */
     public function new(entry:MenuEntry, mode:DisplayMode = DisplayMode.LIST)
     {
         super();
@@ -41069,22 +41339,13 @@ class MenuItem extends Sprite
         buildUI();
     }
     
-    /**
-     * Build the visual UI elements based on display mode.
-     */
     private function buildUI():Void
     {
         _bg = new Sprite();
         addChild(_bg);
         
-        _iconField = new TextField();
-        _iconField.defaultTextFormat = new TextFormat("_sans", 16, COLOR_ICON);
-        _iconField.text = getIconChar();
-        _iconField.width = ICON_SIZE;
-        _iconField.height = ICON_SIZE;
-        _iconField.selectable = false;
-        _iconField.mouseEnabled = false;
-        addChild(_iconField);
+        _iconContainer = new Sprite();
+        addChild(_iconContainer);
         
         _labelField = new TextField();
         _labelField.defaultTextFormat = new TextFormat("_sans", 12, COLOR_NORMAL_TEXT);
@@ -41103,7 +41364,6 @@ class MenuItem extends Sprite
             _shortcutField.selectable = false;
             _shortcutField.mouseEnabled = false;
             addChild(_shortcutField);
-            
             layoutList();
         }
         else
@@ -41121,36 +41381,93 @@ class MenuItem extends Sprite
     }
     
     /**
-     * Get icon character based on entry type.
-     * TODO: Replace with PNG icons from assets/icons/
+     * Attempts to load PNG. If fails, draws a fallback colored square.
      */
-    private function getIconChar():String
+    private function loadIcon():Void
     {
-        if (entry.categoryId == "editor")
+        _iconContainer.graphics.clear();
+        while (_iconContainer.numChildren > 0) _iconContainer.removeChildAt(0);
+        
+        // Only atoms and assemblies have icons in assets
+        if (entry.categoryId != MenuCategory.ATOMS && entry.categoryId != MenuCategory.ASSEMBLIES)
         {
-            switch (entry.actionId)
-            {
-                case "DELETE_ALL_SELECTED", "DELETE_SELECTED_ATOMS", "DELETE_WIRES": return "🗑";
-                case "GROUP_ATOMS": return "📦";
-                case "ADD_PORT": return "➕";
-                case "REMOVE_PORT": return "➖";
-                default: return "⚙";
+            drawFallbackIcon();
+            return;
+        }
+        
+        var path = "";
+        if (entry.categoryId == MenuCategory.ATOMS) {
+            path = "icons/atoms/" + entry.icon + ".png";
+        } else if (entry.categoryId == MenuCategory.ASSEMBLIES) {
+            // If it's the default placeholder
+            if (entry.icon == "default_assembly") {
+                path = "icons/assemblies/default.png";
+            } else {
+                path = "icons/assemblies/" + entry.icon + ".png";
             }
         }
-        else if (entry.categoryId == "atoms" || entry.categoryId == "assemblies")
-        {
-            return "";
+        
+        var bmpData:BitmapData = null;
+        try {
+            bmpData = openfl.Assets.getBitmapData(path);
+        } catch (e:Dynamic) {
+            // Asset not found
         }
-        else if (entry.categoryId == "recent")
+        
+        if (bmpData != null)
         {
-            return "🕐";
+            var bmp = new Bitmap(bmpData);
+            // Center the 32x32 icon within the container
+            bmp.x = (ICON_SIZE - bmpData.width) / 2;
+            bmp.y = (ICON_SIZE - bmpData.height) / 2;
+            _iconContainer.addChild(bmp);
         }
-        return "•";
+        else
+        {
+            // Fallback if PNG is missing
+            drawFallbackIcon();
+        }
     }
     
     /**
-     * Layout elements for list mode.
+     * Draws a colored square with the first letter of the name.
+     * Used when PNG is missing or for Editor commands.
      */
+    private function drawFallbackIcon():Void
+    {
+        // Generate a deterministic color based on the name
+        var color = getDeterministicColor(entry.displayName);
+        
+        _iconContainer.graphics.beginFill(color);
+        _iconContainer.graphics.drawRoundRect(0, 0, ICON_SIZE, ICON_SIZE, 6, 6);
+        _iconContainer.graphics.endFill();
+        
+        // Draw first letter
+        var letter = entry.displayName.length > 0 ? entry.displayName.charAt(0).toUpperCase() : "?";
+        var tf = new TextField();
+        tf.defaultTextFormat = new TextFormat("_sans", 16, 0xFFFFFF, true, null, null, null, null, "center");
+        tf.text = letter;
+        tf.width = ICON_SIZE;
+        tf.height = ICON_SIZE;
+        tf.y = 2; // slight visual adjustment
+        tf.selectable = false;
+        tf.mouseEnabled = false;
+        _iconContainer.addChild(tf);
+    }
+    
+    private function getDeterministicColor(str:String):Int
+    {
+        var hash = 0;
+        for (i in 0...str.length) {
+            hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        // Map hash to a nice looking color (avoiding too dark/light)
+        var r = (hash & 0xFF) % 100 + 100; // 100-200
+        var g = ((hash >> 8) & 0xFF) % 100 + 100;
+        var b = ((hash >> 16) & 0xFF) % 100 + 150; // slightly more blue
+        return (r << 16) | (g << 8) | b;
+    }
+    
     private function layoutList():Void
     {
         _bg.graphics.clear();
@@ -41158,21 +41475,20 @@ class MenuItem extends Sprite
         _bg.graphics.drawRect(0, 0, LIST_WIDTH, LIST_HEIGHT);
         _bg.graphics.endFill();
         
-        _iconField.x = 5;
-        _iconField.y = (LIST_HEIGHT - ICON_SIZE) / 2;
+        _iconContainer.x = 5;
+        _iconContainer.y = (LIST_HEIGHT - ICON_SIZE) / 2;
         
-        _labelField.x = 40;
+        _labelField.x = 45;
         _labelField.y = 0;
-        _labelField.width = LIST_WIDTH - 100;
+        _labelField.width = LIST_WIDTH - 105;
         _labelField.height = LIST_HEIGHT;
         
         _shortcutField.x = LIST_WIDTH - 55;
         _shortcutField.y = 0;
+        
+        loadIcon();
     }
     
-    /**
-     * Layout elements for grid mode.
-     */
     private function layoutGrid():Void
     {
         _bg.graphics.clear();
@@ -41180,8 +41496,8 @@ class MenuItem extends Sprite
         _bg.graphics.drawRoundRect(0, 0, GRID_WIDTH, GRID_HEIGHT, 6, 6);
         _bg.graphics.endFill();
         
-        _iconField.x = (GRID_WIDTH - ICON_SIZE) / 2;
-        _iconField.y = 10;
+        _iconContainer.x = (GRID_WIDTH - ICON_SIZE) / 2;
+        _iconContainer.y = 10;
         
         _labelField.x = 5;
         _labelField.y = ICON_SIZE + 15;
@@ -41191,11 +41507,10 @@ class MenuItem extends Sprite
         var fmt = new TextFormat("_sans", 10, COLOR_NORMAL_TEXT, false, null, null, null, null, "center");
         _labelField.defaultTextFormat = fmt;
         _labelField.setTextFormat(fmt);
+        
+        loadIcon();
     }
     
-    /**
-     * Draw normal state.
-     */
     private function drawNormal():Void
     {
         if (displayMode == DisplayMode.LIST)
@@ -41215,9 +41530,6 @@ class MenuItem extends Sprite
         _labelField.textColor = COLOR_NORMAL_TEXT;
     }
     
-    /**
-     * Draw hover state.
-     */
     private function drawHover():Void
     {
         if (displayMode == DisplayMode.LIST)
@@ -41237,93 +41549,55 @@ class MenuItem extends Sprite
         _labelField.textColor = COLOR_HOVER_TEXT;
     }
     
-    /**
-     * Mouse over handler.
-     */
-    private function onMouseOver(e:MouseEvent):Void
-    {
-        drawHover();
-    }
+    private function onMouseOver(e:MouseEvent):Void { drawHover(); }
+    private function onMouseOut(e:MouseEvent):Void { drawNormal(); }
     
-    /**
-     * Mouse out handler.
-     */
-    private function onMouseOut(e:MouseEvent):Void
-    {
-        drawNormal();
-    }
-    
-    /**
-     * Click handler.
-     */
     private function onClickHandler(e:MouseEvent):Void
     {
-        if (onClick != null)
-        {
-            onClick(entry);
-        }
+        if (onClick != null) onClick(entry);
     }
     
-    /**
-     * Get item width based on display mode.
-     */
-    public function getItemWidth():Float
-    {
-        return displayMode == DisplayMode.LIST ? LIST_WIDTH : GRID_WIDTH;
-    }
-    
-    /**
-     * Get item height based on display mode.
-     */
-    public function getItemHeight():Float
-    {
-        return displayMode == DisplayMode.LIST ? LIST_HEIGHT : GRID_HEIGHT;
-    }
+    public function getItemWidth():Float { return displayMode == DisplayMode.LIST ? LIST_WIDTH : GRID_WIDTH; }
+    public function getItemHeight():Float { return displayMode == DisplayMode.LIST ? LIST_HEIGHT : GRID_HEIGHT; }
 }
 
-/**
- * Display mode enum for MenuItem.
- */
-enum DisplayMode
-{
-    LIST;
-    GRID;
-}
+
 
 ================================================================================
 // FILE: ui\contextmenu\MenuItemGrid.hx
-// Lines: 151 | Chars: 4985
+// Lines: 152 | Chars: 5035
 ================================================================================
 
 package ui.contextmenu;
 
 import openfl.display.Sprite;
 import ui.contextmenu.data.MenuEntry;
+import ui.contextmenu.DisplayMode;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     MENU ITEM GRID                                        ║
  * ║          (Grid layout for atom/assembly entries)                          ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
- *                                                                            ║
+ * ║                                                                           ║
  * ║  Grid layout container for MenuItem instances in GRID mode.               ║
- *  Arranges items in N columns with automatic row wrapping.                   ║
+ * ║  Arranges items in N columns with automatic row wrapping.                 ║
  * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  MenuItemGrid (Sprite)                                              │  ║
  * ║  │                                                                     │  ║
- * ║  │  ┌────────┐ ┌────────┐ ┌────────┐                                  │  ║
- * ║  │  │ [Icon] │ │ [Icon] │ │ [Icon] │  ← 3 columns                      │  
- * ║  │  │ Label  │ │ Label  │ │ Label  │                                  │  ║
- * ║  │  ────────┘ └────────┘ └────────┘                                  │  ║
- * ║  │  ┌────────┐ ┌──────── ┌────────┐                                  │  ║
- * ║  │  │ [Icon] │ │ [Icon] │ │ [Icon] │                                  │  ║
- * ║  │  │ Label  │ │ Label  │ │ Label  │                                  │  ║
- * ║  │  ────────┘ └────────┘ └────────┘                                  │  ║
+ * ║  │  ┌────────┐ ┌────────┐ ┌────────┐                                   │  ║
+ * ║  │  │ [Icon] │ │ [Icon] │ │ [Icon] │  ← 3 columns                      │  ║
+ * ║  │  │ Label  │ │ Label  │ │ Label  │                                   │  ║
+ * ║  │  └────────┘ └────────┘ └────────┘                                   │  ║
+ * ║  │  ┌────────┐ ┌────────┐ ┌────────┐                                   │  ║
+ * ║  │  │ [Icon] │ │ [Icon] │ │ [Icon] │                                   │  ║
+ * ║  │  │ Label  │ │ Label  │ │ Label  │                                   │  ║
+ * ║  │  └────────┘ └────────┘ └────────┘                                   │  ║
  * ║  │                                                                     │  ║
- *   │  Columns: 3 (configurable)                                          │  ║
- *   │  Item size: 100×80px                                                │  
+ * ║  │  Columns: 3 (configurable)                                          │  ║
+ * ║  │  Item size: 100×80px                                                │  ║
  * ║  │  Spacing: 5px                                                       │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
@@ -41350,13 +41624,13 @@ class MenuItemGrid extends Sprite
     /**
      * Create a new menu item grid.
      * 
-     * @param columns Number of columns (default: 3)
+     * @param columns Number of columns (default: 4)
      */
-    public function new(?columns:Int = 3)
+    public function new(?columns:Int = 4)
     {
         super();
         _items = [];
-        _columns = columns != null ? columns : 3;
+        _columns = columns != null ? columns : 4;
     }
     
     /**
@@ -41449,7 +41723,7 @@ class MenuItemGrid extends Sprite
 
 ================================================================================
 // FILE: ui\contextmenu\providers\AssemblyLibraryProvider.hx
-// Lines: 119 | Chars: 4522
+// Lines: 117 | Chars: 4529
 ================================================================================
 
 package ui.contextmenu.providers;
@@ -41460,24 +41734,24 @@ import ui.contextmenu.data.MenuCategory;
 import library.AtomRegistry;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     ASSEMBLY LIBRARY PROVIDER                             ║
  * ║          (Provides user-created assemblies for context menu)              ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Provides user-created assemblies (non-native blueprints):                ║
- *    - Custom assemblies saved to library                                     ║
- *    - Excludes native atoms                                                  ║
- *    - Excludes current blueprint (prevent self-reference)                    ║
+ * ║  - Custom assemblies saved to library                                     ║
+ * ║  - Excludes native atoms                                                  ║
+ * ║  - Excludes current blueprint (prevent self-reference)                    ║
  * ║                                                                           ║
  * ║  Architecture:                                                            ║
- *   ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  AssemblyLibraryProvider (implements MenuEntryProvider)             │  ║
  * ║  │                                                                     │  ║
  * ║  │  Methods:                                                           │  ║
  * ║  │  - getEntries() → Array<MenuEntry>                                  │  ║
  * ║  │  - getCategoryId() → String ("assemblies")                          │  ║
- * ║  │  - supportsSearch() → Bool (true)                                   │  
+ * ║  │  - supportsSearch() → Bool (true)                                   │  ║
  * ║  │  - filter(query) → Array<MenuEntry>                                 │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
@@ -41516,16 +41790,14 @@ class AssemblyLibraryProvider implements MenuEntryProvider
         
         for (id in ids)
         {
-            // Skip current blueprint (prevent self-reference)
             if (id == _currentBpId) continue;
-            
             var bp = AtomRegistry.get(id);
             if (bp != null && !bp.isNative)
             {
-                entries.push(MenuEntry.createAssembly(id, bp.name));
+                // All custom assemblies use the default icon for now
+                entries.push(MenuEntry.createAssembly(id, bp.name, "default_assembly"));
             }
         }
-        
         return entries;
     }
     
@@ -41574,7 +41846,7 @@ class AssemblyLibraryProvider implements MenuEntryProvider
 
 ================================================================================
 // FILE: ui\contextmenu\providers\AtomLibraryProvider.hx
-// Lines: 119 | Chars: 4472
+// Lines: 120 | Chars: 4631
 ================================================================================
 
 package ui.contextmenu.providers;
@@ -41585,33 +41857,33 @@ import ui.contextmenu.data.MenuCategory;
 import library.AtomRegistry;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     ATOM LIBRARY PROVIDER                                 ║
  * ║          (Provides built-in atoms for context menu)                       ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Provides all registered atoms from AtomRegistry:                         ║
- *    - Native atoms (Button, LED, Toggle, etc.)                               ║
- *    - Active drivers (SignalGenerator, MiniAudioAtom, etc.)                  ║
- *    - Custom assemblies (user-created)                                       ║
+ * ║  - Native atoms (Button, LED, Toggle, etc.)                               ║
+ * ║  - Active drivers (SignalGenerator, MiniAudioAtom, etc.)                  ║
+ * ║  - Custom assemblies (user-created)                                       ║
  * ║                                                                           ║
- * ║  Architecture:                                                            
+ * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  AtomLibraryProvider (implements MenuEntryProvider)                 │  ║
- *   │                                                                     │  ║
- *   │  Methods:                                                           │  
+ * ║  │                                                                     │  ║
+ * ║  │  Methods:                                                           │  ║
  * ║  │  - getEntries() → Array<MenuEntry>                                  │  ║
  * ║  │  - getCategoryId() → String ("atoms")                               │  ║
  * ║  │  - supportsSearch() → Bool (true)                                   │  ║
  * ║  │  - filter(query) → Array<MenuEntry>                                 │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
- *   Usage:                                                                   ║
+ * ║  Usage:                                                                   ║
  * ║  ───────                                                                  ║
  * ║  var provider = new AtomLibraryProvider(currentBpId);                     ║
- *   var entries = provider.getEntries();                                     ║
+ * ║  var entries = provider.getEntries();                                     ║
  * ║                                                                           ║
- * ═══════════════════════════════════════════════════════════════════════════╝
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 class AtomLibraryProvider implements MenuEntryProvider
 {
@@ -41641,16 +41913,17 @@ class AtomLibraryProvider implements MenuEntryProvider
         
         for (id in ids)
         {
-            // Skip current blueprint (prevent self-reference)
             if (id == _currentBpId) continue;
-            
             var bp = AtomRegistry.get(id);
-            if (bp != null)
+            
+            // FIX: Only show native atoms
+            if (bp != null && bp.isNative)
             {
-                entries.push(MenuEntry.createAtom(id, bp.name));
+                // Use bp.iconId if available, otherwise fallback to id
+                var iconId = (bp.iconId != null && bp.iconId != "") ? bp.iconId : id;
+                entries.push(MenuEntry.createAtom(id, bp.name, iconId));
             }
         }
-        
         return entries;
     }
     
@@ -41699,7 +41972,7 @@ class AtomLibraryProvider implements MenuEntryProvider
 
 ================================================================================
 // FILE: ui\contextmenu\providers\EditorCommandsProvider.hx
-// Lines: 166 | Chars: 6155
+// Lines: 166 | Chars: 6164
 ================================================================================
 
 package ui.contextmenu.providers;
@@ -41709,35 +41982,35 @@ import ui.contextmenu.data.MenuEntryProvider;
 import ui.contextmenu.data.MenuCategory;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     EDITOR COMMANDS PROVIDER                              ║
  * ║          (Provides editor commands for context menu)                      ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Provides standard editor commands:                                       ║
- *    - Delete Selected (nodes + wires)                                        ║
- *    - Delete Selected Atoms                                                  ║
- *    - Delete Selected Wires                                                  ║
- *    - Group Selected Atoms                                                   ║
- *    - Add Input Port                                                         ║
- *    - Add Output Port                                                        ║
- * ║                                                                           
+ * ║  - Delete Selected (nodes + wires)                                        ║
+ * ║  - Delete Selected Atoms                                                  ║
+ * ║  - Delete Selected Wires                                                  ║
+ * ║  - Group Selected Atoms                                                   ║
+ * ║  - Add Input Port                                                         ║
+ * ║  - Add Output Port                                                        ║
+ * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  EditorCommandsProvider (implements MenuEntryProvider)              │  ║
- *   │                                                                     │  ║
- *   │  Methods:                                                           │  
+ * ║  │                                                                     │  ║
+ * ║  │  Methods:                                                           │  ║
  * ║  │  - getEntries() → Array<MenuEntry>                                  │  ║
  * ║  │  - getCategoryId() → String ("editor")                              │  ║
  * ║  │  - supportsSearch() → Bool (true)                                   │  ║
  * ║  │  - filter(query) → Array<MenuEntry>                                 │  ║
- * ║  ─────────────────────────────────────────────────────────────────────  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
  * ║  Usage:                                                                   ║
- *   ───────                                                                  ║
+ * ║  ───────                                                                  ║
  * ║  var provider = new EditorCommandsProvider(nodeCount, wireCount,          ║
- *                                           allowAssembly);                  ║
- *   var entries = provider.getEntries();                                     ║
+ * ║                                         allowAssembly);                   ║
+ * ║ var entries = provider.getEntries();                                      ║
  * ║                                                                           ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
@@ -41871,7 +42144,7 @@ class EditorCommandsProvider implements MenuEntryProvider
 
 ================================================================================
 // FILE: ui\contextmenu\RecentSection.hx
-// Lines: 175 | Chars: 5813
+// Lines: 175 | Chars: 5822
 ================================================================================
 
 package ui.contextmenu;
@@ -41883,30 +42156,30 @@ import ui.contextmenu.data.MenuEntry;
 import ui.contextmenu.data.RecentMenuTracker;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     RECENT SECTION                                        ║
  * ║          (Displays last N menu actions)                                   ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                           
+ * ║                                                                           ║
  * ║  Section at the top of the content panel showing the last 5 menu          ║
- *  actions for quick access.                                                  ║
+ * ║  actions for quick access.                                                ║
  * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  RecentSection (Sprite)                                             │  ║
  * ║  │                                                                     │  ║
- * ║  │  ───────────────────────────────────────────────────────────────  │  ║
+ * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
  * ║  │  │  Visual:                                                      │  │  ║
- * ║  │  │  ─────────────────────────────────────────────────────────┐  │  │  ║
+ * ║  │  │  ┌─────────────────────────────────────────────────────────┐  │  │  ║
  * ║  │  │  │  Recent:                                                │  │  │  ║
- * │  │  │  │  [Delete Selected] [Add Button] [Copy]                  │  │  │  ║
- * │  │  │  │  ← Horizontal list of recent entries, 25px tall each    │  │  │  ║
- * │  │  │  └─────────────────────────────────────────────────────────┘  │  │  ║
- * │  │  │                                                             │  │  ║
- * │  │  │  Data source: RecentMenuTracker.getInstance().getRecent()   │  │  ║
- * │  │  └───────────────────────────────────────────────────────────────┘  │  ║
- * │  └─────────────────────────────────────────────────────────────────────┘  ║
- *                                                                            ║
+ * ║  │  │  │  [Delete Selected] [Add Button] [Copy]                  │  │  │  ║
+ * ║  │  │  │  ← Horizontal list of recent entries, 25px tall each    │  │  │  ║
+ * ║  │  │  └─────────────────────────────────────────────────────────┘  │  │  ║
+ * ║  │  │                                                               │  │  ║
+ * ║  │  │  Data source: RecentMenuTracker.getInstance().getRecent()     │  │  ║
+ * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 class RecentSection extends Sprite
@@ -42052,7 +42325,7 @@ class RecentSection extends Sprite
 
 ================================================================================
 // FILE: ui\contextmenu\SearchBar.hx
-// Lines: 198 | Chars: 6640
+// Lines: 198 | Chars: 6649
 ================================================================================
 
 package ui.contextmenu;
@@ -42065,25 +42338,25 @@ import openfl.events.Event;
 import openfl.events.FocusEvent;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     SEARCH BAR                                            ║
  * ║          (Text input for filtering menu entries)                          ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Text input field at the top of the content panel for filtering           ║
- *  menu entries by name.                                                      ║
+ * ║  menu entries by name.                                                    ║
  * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  SearchBar (Sprite)                                                 │  ║
  * ║  │                                                                     │  ║
- * ║  │  ───────────────────────────────────────────────────────────────  │  ║
- *   │  │  Visual:                                                      │  │  ║
+ * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
+ * ║  │  │  Visual:                                                      │  │  ║
  * ║  │  │  ┌─────────────────────────────────────────────────────────┐  │  │  ║
- * ║  │  │  │  🔍 [Search entries...]                                 │  │  │  
- * ║  │  │  │  ← Full width of content panel, 35px tall               │  │  │  
- * ║  │  │  ─────────────────────────────────────────────────────────┘  │  │  ║
- * ║  │  │                                                             │  │  ║
+ * ║  │  │  │   [Search entries...]                                   │  │  │  ║
+ * ║  │  │  │   Full width of content panel, 35px tall                │  │  │  ║
+ * ║  │  │  └─────────────────────────────────────────────────────────┘  │  │  ║
+ * ║  │  │                                                               │  │  ║
  * ║  │  │  Events:                                                      │  │  ║
  * ║  │  │  - onSearch: String -> Void (fires on each keystroke)         │  │  ║
  * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
@@ -42252,6 +42525,49 @@ class SearchBar extends Sprite
         _input.removeEventListener(FocusEvent.FOCUS_OUT, onFocusOut);
         onSearch = null;
     }
+}
+
+================================================================================
+// FILE: ui\contextmenu\SidebarPosition.hx
+// Lines: 37 | Chars: 2185
+================================================================================
+
+package ui.contextmenu;
+
+/**
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║                     SIDEBAR POSITION                                      ║
+ * ║          (Enum for sidebar placement in context menu)                     ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║ Defines which side of the context menu the category sidebar appears on:   ║
+ * ║  - LEFT:  Sidebar on left, content panel on right (default)               ║
+ * ║  - RIGHT: Content panel on left, sidebar on right                         ║
+ * ║                                                                           ║
+ * ║ Architecture:                                                             ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │  LEFT Layout:                                                       │  ║
+ * ║  │  ┌────────────┬──────────────────────────────────────────────────┐  │  ║
+ * ║  │  │ Sidebar    │ Content Panel                                    │  │  ║
+ * ║  │  │ (150px)    │ (450px)                                          │  │  ║
+ * ║  │  └────────────┴──────────────────────────────────────────────────┘  │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  RIGHT Layout:                                                      │  ║
+ * ║  │  ┌──────────────────────────────────────────────────┬────────────┐  │  ║
+ * ║  │  │ Content Panel                                    │ Sidebar    │  │  ║
+ * ║  │  │ (450px)                                          │ (150px)    │  │  ║
+ * ║  │  └──────────────────────────────────────────────────┴────────────┘  │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
+ */
+enum SidebarPosition
+{
+    /** Sidebar on left side (default). */
+    LEFT;
+    
+    /** Sidebar on right side. */
+    RIGHT;
 }
 
 ================================================================================
@@ -45284,7 +45600,7 @@ class PropertiesWindow extends Sprite
 
 ================================================================================
 // FILE: ui\SettingsPanel.hx
-// Lines: 578 | Chars: 15817
+// Lines: 655 | Chars: 18003
 ================================================================================
 
 package ui;
@@ -45294,6 +45610,7 @@ import openfl.text.TextField;
 import openfl.text.TextFormat;
 import openfl.text.TextFormatAlign;
 import openfl.events.MouseEvent;
+import ui.contextmenu.SidebarPosition;
 
 /**
 * SETTINGS PANEL v1.5 (Modal Overlay & Live Stats)
@@ -45329,9 +45646,9 @@ import openfl.events.MouseEvent;
 *
 * v1.5 Changes:
 * - ADDED: Modal dimmer overlay (_dimmer) that covers the entire stage.
-*          Dims the background by 50% and blocks all mouse interactions 
+*          Dims the background by 50% and blocks all mouse interactions
 *          with the Editor underneath.
-* - FIXED: Statistics block now updates immediately when Wire Type or 
+* - FIXED: Statistics block now updates immediately when Wire Type or
 *          any other setting is changed (via Main.onSettingsChanged).
 *
 * v1.4 Changes:
@@ -45348,7 +45665,7 @@ class SettingsPanel extends Sprite
 	private var _closeBtn:Sprite;
 
 	// === v1.5: MODAL DIMMER ===
-	/** 
+	/**
 	* Full-screen overlay that dims the background and blocks mouse events.
 	* Drawn at index 0 so it sits behind the panel UI but in front of the Editor.
 	*/
@@ -45373,6 +45690,14 @@ class SettingsPanel extends Sprite
 	private var _allowAssembly:Bool = true;
 
 	/**
+	* Context menu sidebar position.
+	*/
+	public var contextMenuSidebarPosition(get, set):SidebarPosition;
+	private var _contextMenuSidebarPosition:SidebarPosition = SidebarPosition.LEFT;
+
+	private var _contextMenuRadioButtons:Array<RadioButton> = [];
+
+	/**
 	* Callback when settings change.
 	*/
 	public var onSettingsChanged:Void -> Void = null;
@@ -45380,6 +45705,21 @@ class SettingsPanel extends Sprite
 	private var _ecsCheckbox:Checkbox;
 	private var _assemblyCheckbox:Checkbox;
 	private var _wireButtons:Array<RadioButton> = [];
+
+	private function get_contextMenuSidebarPosition():SidebarPosition
+	{
+		return _contextMenuSidebarPosition;
+	}
+
+	private function set_contextMenuSidebarPosition(v:SidebarPosition):SidebarPosition
+	{
+		_contextMenuSidebarPosition = v;
+		for (r in _contextMenuRadioButtons)
+		{
+			r.checked = (r.userData == v);
+		}
+		return v;
+	}
 
 	public function new()
 	{
@@ -45574,7 +45914,47 @@ class SettingsPanel extends Sprite
 			addChild(optDesc);
 		}
 		yPos += 15;
+		yPos += 15;
 
+// Section: Context Menu
+		var contextMenuSection = new TextField();
+		contextMenuSection.defaultTextFormat = new TextFormat("_typewriter", 14, 0x00AAFF, true);
+		contextMenuSection.width = 380;
+		contextMenuSection.height = 25;
+		contextMenuSection.x = 15;
+		contextMenuSection.y = yPos;
+		contextMenuSection.text = "CONTEXT MENU";
+		contextMenuSection.selectable = false;
+		addChild(contextMenuSection);
+		yPos += 35;
+
+// Sidebar position options
+		var sidebarOptions = [
+		{ label: "Sidebar Left", position: SidebarPosition.LEFT, desc: "Categories on left side" },
+		{ label: "Sidebar Right", position: SidebarPosition.RIGHT, desc: "Categories on right side" }
+		];
+		for (opt in sidebarOptions)
+		{
+			var radio = new RadioButton(opt.label, _contextMenuSidebarPosition == opt.position);
+			radio.x = 20;
+			radio.y = yPos;
+			radio.userData = opt.position;
+			radio.onSelect = onContextMenuSidebarSelect;
+			addChild(radio);
+			_contextMenuRadioButtons.push(radio);
+			yPos += 30;
+
+			var optDesc = new TextField();
+			optDesc.defaultTextFormat = new TextFormat("_typewriter", 10, 0x666666);
+			optDesc.width = 360;
+			optDesc.height = 20;
+			optDesc.x = 45;
+			optDesc.y = yPos - 18;
+			optDesc.text = opt.desc;
+			optDesc.selectable = false;
+			addChild(optDesc);
+		}
+		yPos += 15;
 		// Section: Stats
 		var statsLabel = new TextField();
 		statsLabel.defaultTextFormat = new TextFormat("_typewriter", 14, 0x00AAFF, true);
@@ -45625,6 +46005,19 @@ class SettingsPanel extends Sprite
 	{
 		_wireType = radio.userData;
 		for (r in _wireButtons)
+		{
+			r.checked = (r == radio);
+		}
+		if (onSettingsChanged != null)
+		{
+			onSettingsChanged();
+		}
+	}
+
+	private function onContextMenuSidebarSelect(radio:RadioButton):Void
+	{
+		_contextMenuSidebarPosition = radio.userData;
+		for (r in _contextMenuRadioButtons)
 		{
 			r.checked = (r == radio);
 		}
@@ -45716,7 +46109,7 @@ class SettingsPanel extends Sprite
 
 		// === v1.5: Draw Modal Dimmer ===
 		// We draw the dimmer relative to the panel's local coordinates.
-		// Since the panel is offset by (x, y), we start drawing at (-x, -y) 
+		// Since the panel is offset by (x, y), we start drawing at (-x, -y)
 		// to ensure the dimmer perfectly covers the (0,0) to (stageW, stageH) area.
 		_dimmer.graphics.clear();
 		_dimmer.graphics.beginFill(0x000000, 0.5);

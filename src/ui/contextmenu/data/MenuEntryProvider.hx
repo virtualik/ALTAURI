@@ -1,17 +1,17 @@
 package ui.contextmenu.data;
 
 /**
- * ════════════════════════════════════════════════════════════════════════════╗
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                     MENU ENTRY PROVIDER                                   ║
  * ║          (Interface for menu content providers)                           ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
- *   Interface for classes that supply menu entries to the context menu.      ║
- *  Different providers handle different content sources:                      ║
- *    - EditorCommandsProvider: Cut/Copy/Paste/Undo/Redo commands              ║
- *    - AtomLibraryProvider: Built-in atoms from AtomRegistry                  ║
- *    - AssemblyLibraryProvider: User-created assemblies                       ║
- * ║                                                                           
+ * ║ Interface for classes that supply menu entries to the context menu.       ║
+ * ║ Different providers handle different content sources:                     ║
+ * ║  - EditorCommandsProvider: Cut/Copy/Paste/Undo/Redo commands              ║
+ * ║  - AtomLibraryProvider: Built-in atoms from AtomRegistry                  ║
+ * ║  - AssemblyLibraryProvider: User-created assemblies                       ║
+ * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  MenuEntryProvider (Interface)                                      │  ║
@@ -23,8 +23,8 @@ package ui.contextmenu.data;
  * ║  │  │  - supportsSearch() → Bool                                    │  │  ║
  * ║  │  │  - filter(query: String) → Array<MenuEntry>                   │  │  ║
  * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
- * ║  ─────────────────────────────────────────────────────────────────────┘  ║
- * ║                                                                           
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 interface MenuEntryProvider
