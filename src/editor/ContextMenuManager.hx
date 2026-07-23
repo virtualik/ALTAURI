@@ -66,36 +66,28 @@ class ContextMenuManager
 {
 	/** The new context menu instance. */
 	private var _menu:ContextMenu;
-
 	/** Current editor reference. */
 	private var _editor:NodeEditor;
-
 	/** Current assembly reference. */
 	private var _assembly:Assembly;
-
 	/** Reference to settings (needed for allowAssembly check). */
 	private var _settingsPanel:SettingsPanel;
-
 	/** Temporary state for passing data to action. */
 	private var _contextTargetId:String = null;
-
 	/** Flag to protect against repeated dispose. */
 	private var _isDisposed:Bool = false;
-
 	/** Global name uniqueness checker for grouping operations. */
 	private var _isNameTakenGlobally:(String, ?String) -> Bool;
-
 	/**
-	 * Create a new context menu manager.
-	 *
-	 * @param settingsPanel Settings panel reference
-	 */
+	* Create a new context menu manager.
+	*
+	* @param settingsPanel Settings panel reference
+	*/
 	public function new(settingsPanel:SettingsPanel)
 	{
 		_settingsPanel = settingsPanel;
 		_menu = new ContextMenu();
-
-		// Subscribe to all required impulses
+// Subscribe to all required impulses
 		Impulsys.subscribeToImpulse(EventType.CONTEXT_MENU_ACTION, onMenuAction);
 		Impulsys.subscribeToImpulse(EventType.CLOSE_CONTEXT_MENU, onCloseContextMenu);
 		Impulsys.subscribeToImpulse(EventType.NODE_RIGHT_CLICKED, onNodeRightClick);
@@ -103,14 +95,13 @@ class ContextMenuManager
 		Impulsys.subscribeToImpulse(EventType.PORT_RIGHT_CLICKED, onPortRightClick);
 		Impulsys.subscribeToImpulse(EventType.CANVAS_RIGHT_CLICKED, onCanvasRightClick);
 	}
-
 	/**
-	 * Update context when switching editor/assembly.
-	 *
-	 * @param editor Current NodeEditor instance
-	 * @param assembly Current Assembly instance
-	 * @param isNameTakenGlobally Callback to check name uniqueness globally
-	 */
+	* Update context when switching editor/assembly.
+	*
+	* @param editor Current NodeEditor instance
+	* @param assembly Current Assembly instance
+	* @param isNameTakenGlobally Callback to check name uniqueness globally
+	*/
 	public function setContext(
 		editor:NodeEditor,
 		assembly:Assembly,
@@ -121,36 +112,32 @@ class ContextMenuManager
 		_assembly = assembly;
 		_isNameTakenGlobally = isNameTakenGlobally;
 	}
-
 	/**
-	 * Returns the visual menu component for adding to the scene.
-	 */
+	* Returns the visual menu component for adding to the scene.
+	*/
 	public function getView():ContextMenu
 	{
 		return _menu;
 	}
-
-	// ========================================================================
-	// DISPOSE
-	// ========================================================================
+// ========================================================================
+// DISPOSE
+// ========================================================================
 	/**
-	 * Properly dispose the manager.
-	 * Unsubscribes from all Impulsys events to prevent memory leaks.
-	 */
+	* Properly dispose the manager.
+	* Unsubscribes from all Impulsys events to prevent memory leaks.
+	*/
 	public function dispose():Void
 	{
 		if (_isDisposed) return;
 		_isDisposed = true;
-
-		// Unsubscribe from all impulses
+// Unsubscribe from all impulses
 		Impulsys.removeImpulse(EventType.CONTEXT_MENU_ACTION, onMenuAction);
 		Impulsys.removeImpulse(EventType.CLOSE_CONTEXT_MENU, onCloseContextMenu);
 		Impulsys.removeImpulse(EventType.NODE_RIGHT_CLICKED, onNodeRightClick);
 		Impulsys.removeImpulse(EventType.WIRE_RIGHT_CLICKED, onWireRightClick);
 		Impulsys.removeImpulse(EventType.PORT_RIGHT_CLICKED, onPortRightClick);
 		Impulsys.removeImpulse(EventType.CANVAS_RIGHT_CLICKED, onCanvasRightClick);
-
-		// Clear references
+// Clear references
 		if (_menu != null)
 		{
 			_menu.hide();
@@ -162,165 +149,149 @@ class ContextMenuManager
 		_contextTargetId = null;
 		_isNameTakenGlobally = null;
 	}
-
-	// ========================================================================
-	// HANDLERS: Triggered by Impulsys
-	// ========================================================================
-
+// ========================================================================
+// HANDLERS: Triggered by Impulsys
+// ========================================================================
 	/**
-	 * Handle canvas right-click (add atom menu).
-	 * Opens menu with ATOMS category selected by default.
-	 */
+	* Handle canvas right-click (add atom menu).
+	* Opens menu with ATOMS category selected by default.
+	* Includes Add Input/Output Port commands.
+	*/
 	private function onCanvasRightClick(impulse:Impulse):Void
 	{
 		if (_isDisposed) return;
 		resetMenu();
-		// Set preferred category BEFORE setData so it's applied during menu build
+// Set preferred category BEFORE setData so it's applied during menu build
 		_menu.setPreferredCategory(MenuCategory.ATOMS);
 		buildAtomMenu(impulse.data.x, impulse.data.y);
 		applySidebarPosition();
 		_menu.show(impulse.data.x, impulse.data.y);
 	}
-
 	/**
-	 * Handle node right-click (node context menu).
-	 */
+	* Handle node right-click (node context menu).
+	* Shows Editor commands (Delete, Group) + library categories.
+	*/
 	private function onNodeRightClick(impulse:Impulse):Void
 	{
 		if (_isDisposed) return;
 		if (impulse == null || impulse.data == null) return;
-
 		var view:NodeView = impulse.data.view;
 		_contextTargetId = impulse.data.id;
-
-		// Selection logic on right-click
+// Selection logic on right-click
 		if (!_editor.isSelected(_contextTargetId))
 		{
-			// Node not selected: reset all and select only this one
+// Node not selected: reset all and select only this one
 			_editor.deselectAll();
 			_editor.selectNode(_contextTargetId, view);
 		}
 		else
 		{
-			// Node already selected: keep node selection, clear wires
+// Node already selected: keep node selection, clear wires
 			_editor.clearWireSelection();
 		}
-
 		resetMenu();
-
 		var nodeCount = _editor.getSelectedNodeCount();
 		var wireCount = _editor.getSelectedWireIds().length;
-
-		// Build menu data
+// Build menu data
 		var categories = MenuCategory.getBuiltinCategories();
 		var entriesByCategory = new Map<String, Array<MenuEntry>>();
-
-		// Editor commands
+// Editor commands (with Add Port for canvas context)
 		var editorProvider = new EditorCommandsProvider(
 			nodeCount,
 			wireCount,
-			_settingsPanel.allowAssembly
+			_settingsPanel.allowAssembly,
+			true  // includeAddPort = true for node context
 		);
 		entriesByCategory.set(MenuCategory.EDITOR, editorProvider.getEntries());
-
-		// Atom library
+// Recent (always included, even if empty)
+		entriesByCategory.set(MenuCategory.RECENT, RecentMenuTracker.getInstance().getRecent());
+// Atom library
 		var currentBpId = (_assembly != null && _assembly.blueprint != null)
 		? _assembly.blueprint.id
 		: null;
 		var atomProvider = new AtomLibraryProvider(currentBpId);
 		entriesByCategory.set(MenuCategory.ATOMS, atomProvider.getEntries());
-
-		// Assembly library
+// Assembly library
 		var assemblyProvider = new AssemblyLibraryProvider(currentBpId);
 		entriesByCategory.set(MenuCategory.ASSEMBLIES, assemblyProvider.getEntries());
-
-		// Set preferred category BEFORE setData so it's applied during menu build
+// Set preferred category BEFORE setData so it's applied during menu build
 		_menu.setPreferredCategory(MenuCategory.EDITOR);
-		// Set menu data
+// Set menu data
 		_menu.setData(categories, entriesByCategory);
 		applySidebarPosition();
 		_menu.show(impulse.data.x, impulse.data.y);
 	}
-
 	/**
-	 * Handle wire right-click (wire context menu).
-	 */
+	* Handle wire right-click (wire context menu).
+	* Shows only Delete Wire command (no Add Port).
+	*/
 	private function onWireRightClick(impulse:Impulse):Void
 	{
 		if (_isDisposed) return;
 		if (impulse == null || impulse.data == null) return;
-
 		resetMenu();
-
 		var wireCount:Int = Std.int(impulse.data.ids.length);
 		var nodeCount = _editor.getSelectedNodeCount();
-
 		var categories = MenuCategory.getBuiltinCategories();
 		var entriesByCategory = new Map<String, Array<MenuEntry>>();
-
-		// Editor commands
+// Editor commands (NO Add Port for wire context)
 		var editorProvider = new EditorCommandsProvider(
 			nodeCount,
 			wireCount,
-			_settingsPanel.allowAssembly
+			_settingsPanel.allowAssembly,
+			false  // includeAddPort = false for wire context
 		);
 		entriesByCategory.set(MenuCategory.EDITOR, editorProvider.getEntries());
-
-		// Set preferred category BEFORE setData so it's applied during menu build
+// Recent (always included, even if empty)
+		entriesByCategory.set(MenuCategory.RECENT, RecentMenuTracker.getInstance().getRecent());
+// Set preferred category BEFORE setData so it's applied during menu build
 		_menu.setPreferredCategory(MenuCategory.EDITOR);
 		_menu.setData(categories, entriesByCategory);
 		applySidebarPosition();
 		_menu.show(impulse.data.x, impulse.data.y);
 	}
-
 	/**
-	 * Handle port right-click (port context menu).
-	 */
+	* Handle port right-click (port context menu).
+	* Shows only Remove Port command (no Add Port).
+	*/
 	private function onPortRightClick(impulse:Impulse):Void
 	{
 		if (_isDisposed) return;
 		if (impulse == null || impulse.data == null) return;
-
 		resetMenu();
-
 		var categories = MenuCategory.getBuiltinCategories();
 		var entriesByCategory = new Map<String, Array<MenuEntry>>();
-
-		// Remove port command
+// Remove port command
 		var removeEntry = MenuEntry.createCommand(
 			"REMOVE_PORT",
 			'Delete Port "${impulse.data.portName}"',
 		{ name: impulse.data.portName }
 		);
 		entriesByCategory.set(MenuCategory.EDITOR, [removeEntry]);
-
-		// Set preferred category BEFORE setData so it's applied during menu build
+// Recent (always included, even if empty)
+		entriesByCategory.set(MenuCategory.RECENT, RecentMenuTracker.getInstance().getRecent());
+// Set preferred category BEFORE setData so it's applied during menu build
 		_menu.setPreferredCategory(MenuCategory.EDITOR);
 		_menu.setData(categories, entriesByCategory);
 		applySidebarPosition();
 		_menu.show(impulse.data.x, impulse.data.y);
 	}
-
-	// ========================================================================
-	// ACTIONS: Menu Item Clicked
-	// ========================================================================
-
+// ========================================================================
+// ACTIONS: Menu Item Clicked
+// ========================================================================
 	/**
-	 * Handle menu action (item clicked).
-	 */
+	* Handle menu action (item clicked).
+	*/
 	private function onMenuAction(impulse:Impulse):Void
 	{
 		if (_isDisposed) return;
 		_menu.hide();
-
 		if (impulse == null || impulse.data == null || impulse.data.action == null) return;
-
 		var action:String = Std.string(impulse.data.action);
 		var data = impulse.data.data;
 		var x = impulse.data.x;
 		var y = impulse.data.y;
-
-		// Track recent action
+// Track recent action
 		var recentEntry = new MenuEntry(
 			"recent_" + action,
 			action,
@@ -330,7 +301,6 @@ class ContextMenuManager
 			data
 		);
 		RecentMenuTracker.getInstance().record(recentEntry);
-
 		switch (action)
 		{
 			case "DELETE_ALL_SELECTED":
@@ -352,12 +322,10 @@ class ContextMenuManager
 				UndoManager.getInstance().executeAndStore(macrocom);
 				_editor.deselectAll();
 				return;
-
 			case "DELETE_SELECTED_ATOMS":
 				_editor.deleteSelectedNodes();
 				_contextTargetId = null;
 				return;
-
 			case "DELETE_ATOM":
 				if (_editor.getSelectedNodeCount() > 0)
 				{
@@ -365,18 +333,15 @@ class ContextMenuManager
 				}
 				_contextTargetId = null;
 				return;
-
 			case "DELETE_WIRES":
 				var cmd = new DeleteWiresCommand(
 					_assembly.blueprint, _assembly, data.ids
 				);
 				UndoManager.getInstance().executeAndStore(cmd);
 				return;
-
 			case "GROUP_ATOMS":
 				if (_settingsPanel.allowAssembly) groupSelectedToAssembly();
 				return;
-
 			case "ADD_PORT":
 				if (data != null && data.type != null)
 				{
@@ -384,7 +349,6 @@ class ContextMenuManager
 					UndoManager.getInstance().executeAndStore(cmd);
 				}
 				return;
-
 			case "REMOVE_PORT":
 				if (data != null && data.name != null)
 				{
@@ -393,8 +357,7 @@ class ContextMenuManager
 				}
 				return;
 		}
-
-		// Adding an atom (Action: "ADD_ATOM")
+// Adding an atom (Action: "ADD_ATOM")
 		if (action == "ADD_ATOM")
 		{
 			if (data != null && data.typeId != null)
@@ -403,52 +366,46 @@ class ContextMenuManager
 			}
 		}
 	}
-
 	/**
-	 * Handle close context menu request.
-	 */
+	* Handle close context menu request.
+	*/
 	private function onCloseContextMenu(i:Impulse):Void
 	{
 		if (_isDisposed) return;
 		_menu.hide();
 	}
-
-	// ========================================================================
-	// BUILDERS
-	// ========================================================================
-
+// ========================================================================
+// BUILDERS
+// ========================================================================
 	/**
-	 * Reset menu state.
-	 */
+	* Reset menu state.
+	*/
 	private function resetMenu():Void
 	{
 		_menu.hide();
 		_menu.clear();
 	}
-
 	/**
-	 * Build atom menu (canvas right-click).
-	 *
-	 * @param x Mouse X position
-	 * @param y Mouse Y position
-	 */
+	* Build atom menu (canvas right-click).
+	* Includes Add Input/Output Port commands.
+	*
+	* @param x Mouse X position
+	* @param y Mouse Y position
+	*/
 	private function buildAtomMenu(x:Float, y:Float):Void
 	{
 		var categories = MenuCategory.getBuiltinCategories();
 		var entriesByCategory = new Map<String, Array<MenuEntry>>();
-
-		// Atom library
+// Atom library
 		var currentBpId = (_assembly != null && _assembly.blueprint != null)
 		? _assembly.blueprint.id
 		: null;
 		var atomProvider = new AtomLibraryProvider(currentBpId);
 		entriesByCategory.set(MenuCategory.ATOMS, atomProvider.getEntries());
-
-		// Assembly library
+// Assembly library
 		var assemblyProvider = new AssemblyLibraryProvider(currentBpId);
 		entriesByCategory.set(MenuCategory.ASSEMBLIES, assemblyProvider.getEntries());
-
-		// Editor commands (port options)
+// Editor commands (with Add Port for canvas context)
 		var editorEntries = [
 			MenuEntry.createCommand(
 				"ADD_PORT",
@@ -462,20 +419,19 @@ class ContextMenuManager
 		)
 		];
 		entriesByCategory.set(MenuCategory.EDITOR, editorEntries);
-
+// Recent (always included, even if empty)
+		entriesByCategory.set(MenuCategory.RECENT, RecentMenuTracker.getInstance().getRecent());
 		_menu.setData(categories, entriesByCategory);
 	}
-
 	/**
-	 * Group selected atoms into a new Assembly.
-	 *
-	 * Uses UndoManager.executeAndStore() to activate Topology Guard.
-	 */
+	* Group selected atoms into a new Assembly.
+	*
+	* Uses UndoManager.executeAndStore() to activate Topology Guard.
+	*/
 	private function groupSelectedToAssembly():Void
 	{
 		var selectedIds = _editor.getSelectedNodeIds();
 		if (selectedIds.length < 1) return;
-
 		var cmd = new GroupAtomsCommand(
 			_assembly.blueprint,
 			_assembly,
@@ -485,7 +441,6 @@ class ContextMenuManager
 		UndoManager.getInstance().executeAndStore(cmd);
 		_editor.deselectAll();
 	}
-
 	/**
 	* Apply sidebar position from settings to menu.
 	* Called before showing menu.

@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "157";
+	app.meta.h["build"] = "158";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
@@ -4747,7 +4747,7 @@ ManifestResources.init = function(config) {
 		ManifestResources.rootPath = "./";
 	}
 	var bundle;
-	var data = "{\"name\":null,\"assets\":\"aoy4:pathy25:assets%2Ffixed_classes.hxy4:sizei103582y4:typey4:TEXTy2:idR1y7:preloadtgoR0y19:assets%2Fopenfl.svgR2i62864R3R4R5R7R6tgh\",\"rootPath\":null,\"version\":2,\"libraryArgs\":[],\"libraryType\":null}";
+	var data = "{\"name\":null,\"assets\":\"aoy4:pathy25:assets%2Ffixed_classes.hxy4:sizei103582y4:typey4:TEXTy2:idR1y7:preloadtgoR0y36:assets%2Ficons%2Fatoms%2Fcomport.pngR2i4680R3y5:IMAGER5R7R6tgoR0y19:assets%2Fopenfl.svgR2i62864R3R4R5R9R6tgh\",\"rootPath\":null,\"version\":2,\"libraryArgs\":[],\"libraryType\":null}";
 	var manifest = lime_utils_AssetManifest.parse(data,ManifestResources.rootPath);
 	var library = lime_utils_AssetLibrary.fromManifest(manifest);
 	lime_utils_Assets.registerLibrary("default",library);
@@ -12029,7 +12029,9 @@ editor_ContextMenuManager.prototype = {
 			return;
 		}
 		this.resetMenu();
+		this._menu.setPreferredCategory("atoms");
 		this.buildAtomMenu(impulse.data.x,impulse.data.y);
+		this.applySidebarPosition();
 		this._menu.show(impulse.data.x,impulse.data.y);
 	}
 	,onNodeRightClick: function(impulse) {
@@ -12052,9 +12054,11 @@ editor_ContextMenuManager.prototype = {
 		var wireCount = this._editor.getSelectedWireIds().length;
 		var categories = ui_contextmenu_data_MenuCategory.getBuiltinCategories();
 		var entriesByCategory = new haxe_ds_StringMap();
-		var editorProvider = new ui_contextmenu_providers_EditorCommandsProvider(nodeCount,wireCount,this._settingsPanel.get_allowAssembly());
+		var editorProvider = new ui_contextmenu_providers_EditorCommandsProvider(nodeCount,wireCount,this._settingsPanel.get_allowAssembly(),true);
 		var value = editorProvider.getEntries();
 		entriesByCategory.h["editor"] = value;
+		var value = ui_contextmenu_data_RecentMenuTracker.getInstance().getRecent();
+		entriesByCategory.h["recent"] = value;
 		var currentBpId = this._assembly != null && this._assembly.blueprint != null ? this._assembly.blueprint.id : null;
 		var atomProvider = new ui_contextmenu_providers_AtomLibraryProvider(currentBpId);
 		var value = atomProvider.getEntries();
@@ -12062,7 +12066,9 @@ editor_ContextMenuManager.prototype = {
 		var assemblyProvider = new ui_contextmenu_providers_AssemblyLibraryProvider(currentBpId);
 		var value = assemblyProvider.getEntries();
 		entriesByCategory.h["assemblies"] = value;
+		this._menu.setPreferredCategory("editor");
 		this._menu.setData(categories,entriesByCategory);
+		this.applySidebarPosition();
 		this._menu.show(impulse.data.x,impulse.data.y);
 	}
 	,onWireRightClick: function(impulse) {
@@ -12077,10 +12083,14 @@ editor_ContextMenuManager.prototype = {
 		var nodeCount = this._editor.getSelectedNodeCount();
 		var categories = ui_contextmenu_data_MenuCategory.getBuiltinCategories();
 		var entriesByCategory = new haxe_ds_StringMap();
-		var editorProvider = new ui_contextmenu_providers_EditorCommandsProvider(nodeCount,wireCount,this._settingsPanel.get_allowAssembly());
+		var editorProvider = new ui_contextmenu_providers_EditorCommandsProvider(nodeCount,wireCount,this._settingsPanel.get_allowAssembly(),false);
 		var value = editorProvider.getEntries();
 		entriesByCategory.h["editor"] = value;
+		var value = ui_contextmenu_data_RecentMenuTracker.getInstance().getRecent();
+		entriesByCategory.h["recent"] = value;
+		this._menu.setPreferredCategory("editor");
 		this._menu.setData(categories,entriesByCategory);
+		this.applySidebarPosition();
 		this._menu.show(impulse.data.x,impulse.data.y);
 	}
 	,onPortRightClick: function(impulse) {
@@ -12095,7 +12105,11 @@ editor_ContextMenuManager.prototype = {
 		var entriesByCategory = new haxe_ds_StringMap();
 		var removeEntry = ui_contextmenu_data_MenuEntry.createCommand("REMOVE_PORT","Delete Port \"" + Std.string(impulse.data.portName) + "\"",{ name : impulse.data.portName});
 		entriesByCategory.h["editor"] = [removeEntry];
+		var value = ui_contextmenu_data_RecentMenuTracker.getInstance().getRecent();
+		entriesByCategory.h["recent"] = value;
+		this._menu.setPreferredCategory("editor");
 		this._menu.setData(categories,entriesByCategory);
+		this.applySidebarPosition();
 		this._menu.show(impulse.data.x,impulse.data.y);
 	}
 	,onMenuAction: function(impulse) {
@@ -12189,6 +12203,8 @@ editor_ContextMenuManager.prototype = {
 		entriesByCategory.h["assemblies"] = value;
 		var editorEntries = [ui_contextmenu_data_MenuEntry.createCommand("ADD_PORT","Add Input Port",{ type : core_types_ContactType.INPUT}),ui_contextmenu_data_MenuEntry.createCommand("ADD_PORT","Add Output Port",{ type : core_types_ContactType.OUTPUT})];
 		entriesByCategory.h["editor"] = editorEntries;
+		var value = ui_contextmenu_data_RecentMenuTracker.getInstance().getRecent();
+		entriesByCategory.h["recent"] = value;
 		this._menu.setData(categories,entriesByCategory);
 	}
 	,groupSelectedToAssembly: function() {
@@ -12199,6 +12215,11 @@ editor_ContextMenuManager.prototype = {
 		var cmd = new system_commands_editor_GroupAtomsCommand(this._assembly.blueprint,this._assembly,selectedIds,this._isNameTakenGlobally);
 		system_managers_UndoManager.getInstance().executeAndStore(cmd);
 		this._editor.deselectAll();
+	}
+	,applySidebarPosition: function() {
+		if(this._menu != null && this._settingsPanel != null) {
+			this._menu.setSidebarPosition(this._settingsPanel.get_contextMenuSidebarPosition());
+		}
 	}
 	,__class__: editor_ContextMenuManager
 };
@@ -13546,6 +13567,7 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 	,onMouseWheel: function(e) {
 		this._viewport.handleZoom(e.delta,e.stageX,e.stageY,this);
 		this._wireRenderer.rebuildAll();
+		this.updateVisibility();
 	}
 	,updateVisibility: function() {
 		var now = new Date().getTime() / 1000;
@@ -38726,7 +38748,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 896689;
+	this.version = 286249;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
@@ -98070,6 +98092,8 @@ ui_PropertiesWindow.prototype = $extend(openfl_display_Sprite.prototype,{
 var ui_SettingsPanel = function() {
 	this._wireButtons = [];
 	this.onSettingsChanged = null;
+	this._contextMenuRadioButtons = [];
+	this._contextMenuSidebarPosition = ui_contextmenu_SidebarPosition.LEFT;
 	this._allowAssembly = true;
 	this._wireType = ui_WireType.BEZIER;
 	this._useEcsRender = true;
@@ -98086,7 +98110,21 @@ $hxClasses["ui.SettingsPanel"] = ui_SettingsPanel;
 ui_SettingsPanel.__name__ = "ui.SettingsPanel";
 ui_SettingsPanel.__super__ = openfl_display_Sprite;
 ui_SettingsPanel.prototype = $extend(openfl_display_Sprite.prototype,{
-	drawBackground: function() {
+	get_contextMenuSidebarPosition: function() {
+		return this._contextMenuSidebarPosition;
+	}
+	,set_contextMenuSidebarPosition: function(v) {
+		this._contextMenuSidebarPosition = v;
+		var _g = 0;
+		var _g1 = this._contextMenuRadioButtons;
+		while(_g < _g1.length) {
+			var r = _g1[_g];
+			++_g;
+			r.set_checked(r.userData == v);
+		}
+		return v;
+	}
+	,drawBackground: function() {
 		this._bg = new openfl_display_Sprite();
 		this._bg.get_graphics().beginFill(1710628,0.98);
 		this._bg.get_graphics().lineStyle(2,43775);
@@ -98218,6 +98256,41 @@ ui_SettingsPanel.prototype = $extend(openfl_display_Sprite.prototype,{
 			this.addChild(optDesc);
 		}
 		yPos += 15;
+		yPos += 15;
+		var contextMenuSection = new openfl_text_TextField();
+		contextMenuSection.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",14,43775,true));
+		contextMenuSection.set_width(380);
+		contextMenuSection.set_height(25);
+		contextMenuSection.set_x(15);
+		contextMenuSection.set_y(yPos);
+		contextMenuSection.set_text("CONTEXT MENU");
+		contextMenuSection.set_selectable(false);
+		this.addChild(contextMenuSection);
+		yPos += 35;
+		var sidebarOptions = [{ label : "Sidebar Left", position : ui_contextmenu_SidebarPosition.LEFT, desc : "Categories on left side"},{ label : "Sidebar Right", position : ui_contextmenu_SidebarPosition.RIGHT, desc : "Categories on right side"}];
+		var _g = 0;
+		while(_g < sidebarOptions.length) {
+			var opt = sidebarOptions[_g];
+			++_g;
+			var radio = new ui_RadioButton(opt.label,this._contextMenuSidebarPosition == opt.position);
+			radio.set_x(20);
+			radio.set_y(yPos);
+			radio.userData = opt.position;
+			radio.onSelect = $bind(this,this.onContextMenuSidebarSelect);
+			this.addChild(radio);
+			this._contextMenuRadioButtons.push(radio);
+			yPos += 30;
+			var optDesc = new openfl_text_TextField();
+			optDesc.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",10,6710886));
+			optDesc.set_width(360);
+			optDesc.set_height(20);
+			optDesc.set_x(45);
+			optDesc.set_y(yPos - 18);
+			optDesc.set_text(opt.desc);
+			optDesc.set_selectable(false);
+			this.addChild(optDesc);
+		}
+		yPos += 15;
 		var statsLabel = new openfl_text_TextField();
 		statsLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",14,43775,true));
 		statsLabel.set_width(380);
@@ -98255,6 +98328,19 @@ ui_SettingsPanel.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._wireType = radio.userData;
 		var _g = 0;
 		var _g1 = this._wireButtons;
+		while(_g < _g1.length) {
+			var r = _g1[_g];
+			++_g;
+			r.set_checked(r == radio);
+		}
+		if(this.onSettingsChanged != null) {
+			this.onSettingsChanged();
+		}
+	}
+	,onContextMenuSidebarSelect: function(radio) {
+		this._contextMenuSidebarPosition = radio.userData;
+		var _g = 0;
+		var _g1 = this._contextMenuRadioButtons;
 		while(_g < _g1.length) {
 			var r = _g1[_g];
 			++_g;
@@ -98326,7 +98412,7 @@ ui_SettingsPanel.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.set_visible(true);
 	}
 	,__class__: ui_SettingsPanel
-	,__properties__: $extend(openfl_display_Sprite.prototype.__properties__,{set_allowAssembly:"set_allowAssembly",get_allowAssembly:"get_allowAssembly",set_wireType:"set_wireType",get_wireType:"get_wireType",set_useEcsRender:"set_useEcsRender",get_useEcsRender:"get_useEcsRender"})
+	,__properties__: $extend(openfl_display_Sprite.prototype.__properties__,{set_contextMenuSidebarPosition:"set_contextMenuSidebarPosition",get_contextMenuSidebarPosition:"get_contextMenuSidebarPosition",set_allowAssembly:"set_allowAssembly",get_allowAssembly:"get_allowAssembly",set_wireType:"set_wireType",get_wireType:"get_wireType",set_useEcsRender:"set_useEcsRender",get_useEcsRender:"get_useEcsRender"})
 });
 var ui_Checkbox = function(labelText,initialValue) {
 	if(initialValue == null) {
@@ -98656,7 +98742,7 @@ ui_contextmenu_CategoryItem.prototype = $extend(openfl_display_Sprite.prototype,
 		this._label = new openfl_text_TextField();
 		this._label.set_defaultTextFormat(new openfl_text_TextFormat("_sans",13,11184810,true));
 		this._label.set_text(this.category.displayName);
-		this._label.set_width(130.);
+		this._label.set_width(80.);
 		this._label.set_height(40.0);
 		this._label.set_x(10);
 		this._label.set_y(0);
@@ -98680,8 +98766,8 @@ ui_contextmenu_CategoryItem.prototype = $extend(openfl_display_Sprite.prototype,
 	}
 	,drawNormal: function() {
 		this._bg.get_graphics().clear();
-		this._bg.get_graphics().beginFill(2763322);
-		this._bg.get_graphics().drawRect(0,0,150.0,40.0);
+		this._bg.get_graphics().beginFill(2763322,0.2);
+		this._bg.get_graphics().drawRect(0,0,100.0,40.0);
 		this._bg.get_graphics().endFill();
 		this._label.set_textColor(11184810);
 	}
@@ -98691,13 +98777,13 @@ ui_contextmenu_CategoryItem.prototype = $extend(openfl_display_Sprite.prototype,
 		}
 		this._bg.get_graphics().clear();
 		this._bg.get_graphics().beginFill(3816010);
-		this._bg.get_graphics().drawRect(0,0,150.0,40.0);
+		this._bg.get_graphics().drawRect(0,0,100.0,40.0);
 		this._bg.get_graphics().endFill();
 	}
 	,drawSelected: function() {
 		this._bg.get_graphics().clear();
-		this._bg.get_graphics().beginFill(43775);
-		this._bg.get_graphics().drawRect(0,0,150.0,40.0);
+		this._bg.get_graphics().beginFill(3618615,0.5);
+		this._bg.get_graphics().drawRect(0,0,100.0,40.0);
 		this._bg.get_graphics().endFill();
 		this._bg.get_graphics().beginFill(65416);
 		this._bg.get_graphics().drawRect(0,0,4,40.0);
@@ -98720,7 +98806,7 @@ ui_contextmenu_CategoryItem.prototype = $extend(openfl_display_Sprite.prototype,
 		}
 	}
 	,getItemWidth: function() {
-		return 150.0;
+		return 100.0;
 	}
 	,getItemHeight: function() {
 		return 40.0;
@@ -98728,6 +98814,8 @@ ui_contextmenu_CategoryItem.prototype = $extend(openfl_display_Sprite.prototype,
 	,__class__: ui_contextmenu_CategoryItem
 });
 var ui_contextmenu_CategorySidebar = function(categories) {
+	this._totalHeight = 0;
+	this._borderSide = ui_contextmenu_SidebarPosition.LEFT;
 	openfl_display_Sprite.call(this);
 	this._items = [];
 	this.buildUI(categories);
@@ -98753,11 +98841,32 @@ ui_contextmenu_CategorySidebar.prototype = $extend(openfl_display_Sprite.prototy
 			yPos += item.getItemHeight();
 		}
 		this.get_graphics().beginFill(1710628);
-		this.get_graphics().drawRect(0,0,150.0,yPos);
+		this.get_graphics().drawRect(0,0,100.0,yPos);
+		this.get_graphics().endFill();
+		this._totalHeight = yPos;
+		this.drawBorder(this._borderSide);
+	}
+	,setBorderSide: function(side) {
+		this._borderSide = side;
+		if(this._totalHeight > 0) {
+			this.drawBorder(side);
+		}
+	}
+	,drawBorder: function(side) {
+		this.get_graphics().beginFill(1710628);
+		this.get_graphics().drawRect(0,0,100.0,this._totalHeight);
 		this.get_graphics().endFill();
 		this.get_graphics().lineStyle(1,3355460);
-		this.get_graphics().moveTo(150.0,0);
-		this.get_graphics().lineTo(150.0,yPos);
+		switch(side._hx_index) {
+		case 0:
+			this.get_graphics().moveTo(100.0,0);
+			this.get_graphics().lineTo(100.0,this._totalHeight);
+			break;
+		case 1:
+			this.get_graphics().moveTo(0,0);
+			this.get_graphics().lineTo(0,this._totalHeight);
+			break;
+		}
 	}
 	,onCategoryClick: function(category) {
 		if(this._selectedCategory != null) {
@@ -98787,8 +98896,28 @@ ui_contextmenu_CategorySidebar.prototype = $extend(openfl_display_Sprite.prototy
 			this.onCategorySelected(category);
 		}
 	}
+	,highlightCategory: function(categoryId) {
+		var _g = 0;
+		var _g1 = this._items;
+		while(_g < _g1.length) {
+			var item = _g1[_g];
+			++_g;
+			item.setSelected(false);
+		}
+		var _g = 0;
+		var _g1 = this._items;
+		while(_g < _g1.length) {
+			var item = _g1[_g];
+			++_g;
+			if(item.category.id == categoryId) {
+				item.setSelected(true);
+				this._selectedCategory = item.category;
+				break;
+			}
+		}
+	}
 	,getSidebarWidth: function() {
-		return 150.0;
+		return 100.0;
 	}
 	,getSidebarHeight: function() {
 		return this.get_height();
@@ -98801,6 +98930,9 @@ ui_contextmenu_CategorySidebar.prototype = $extend(openfl_display_Sprite.prototy
 	,__class__: ui_contextmenu_CategorySidebar
 });
 var ui_contextmenu_ContentPanel = function() {
+	this._scrollStep = 20.0;
+	this._maxScrollY = 0;
+	this._scrollY = 0;
 	openfl_display_Sprite.call(this);
 	this._currentEntries = [];
 	this.buildUI();
@@ -98810,48 +98942,58 @@ ui_contextmenu_ContentPanel.__name__ = "ui.contextmenu.ContentPanel";
 ui_contextmenu_ContentPanel.__super__ = openfl_display_Sprite;
 ui_contextmenu_ContentPanel.prototype = $extend(openfl_display_Sprite.prototype,{
 	buildUI: function() {
-		this.get_graphics().beginFill(1710628);
-		this.get_graphics().drawRect(0,0,450.0,400);
+		this.get_graphics().beginFill(3618615,1.0);
+		this.get_graphics().drawRect(0,0,330.0,315.0);
 		this.get_graphics().endFill();
-		this._searchBar = new ui_contextmenu_SearchBar(430.);
+		this.mouseEnabled = true;
+		this.mouseChildren = true;
+		this.addEventListener("mouseWheel",$bind(this,this.onMouseWheel));
+		this._searchBar = new ui_contextmenu_SearchBar(310.);
 		this._searchBar.set_x(10.0);
 		this._searchBar.set_y(10.0);
 		this._searchBar.onSearch = $bind(this,this.onSearch);
 		this.addChild(this._searchBar);
-		this._recentSection = new ui_contextmenu_RecentSection(430.);
+		this._recentSection = new ui_contextmenu_RecentSection(310.);
 		this._recentSection.set_x(10.0);
 		this._recentSection.set_y(55.);
 		this._recentSection.onEntryClick = $bind(this,this.onEntryClicked);
 		this._recentSection.set_visible(false);
 		this.addChild(this._recentSection);
-		this._grid = new ui_contextmenu_MenuItemGrid(3);
-		this._grid.set_x(10.0);
+		this._scrollContainer = new openfl_display_Sprite();
+		this._scrollContainer.set_x(10.0);
+		this._scrollContainer.set_y(55.);
+		this.addChild(this._scrollContainer);
+		this._grid = new ui_contextmenu_MenuItemGrid(4);
+		this._grid.set_x(0);
+		this._grid.set_y(0);
 		this._grid.onItemClick = $bind(this,this.onEntryClicked);
-		this.addChild(this._grid);
+		this._scrollContainer.addChild(this._grid);
 		this._listContainer = new openfl_display_Sprite();
-		this._listContainer.set_x(10.0);
-		this.addChild(this._listContainer);
+		this._listContainer.set_x(0);
+		this._listContainer.set_y(0);
+		this._scrollContainer.addChild(this._listContainer);
 	}
 	,updateContent: function(category,entries) {
 		this._currentCategory = category;
 		this._currentEntries = entries;
+		this._scrollY = 0;
 		this._grid.clear();
 		while(this._listContainer.get_numChildren() > 0) this._listContainer.removeChildAt(0);
 		if(category.id == "recent") {
 			this._recentSection.set_visible(true);
 			this._recentSection.refresh();
-			this._grid.set_y(125.);
-			this._listContainer.set_y(this._grid.get_y());
+			this._scrollContainer.set_y(125.);
 		} else {
 			this._recentSection.set_visible(false);
-			this._grid.set_y(55.);
-			this._listContainer.set_y(this._grid.get_y());
+			this._scrollContainer.set_y(55.);
 		}
 		if(category.id == "editor") {
 			this.displayAsList(entries);
 		} else {
 			this.displayAsGrid(entries);
 		}
+		this.updateScrollBounds();
+		this.applyScroll();
 	}
 	,displayAsList: function(entries) {
 		this._grid.set_visible(false);
@@ -98894,28 +99036,63 @@ ui_contextmenu_ContentPanel.prototype = $extend(openfl_display_Sprite.prototype,
 		} else {
 			this.displayAsGrid(filtered);
 		}
+		this.updateScrollBounds();
+		this.applyScroll();
 	}
 	,onEntryClicked: function(entry) {
 		if(this.onEntryClick != null) {
 			this.onEntryClick(entry);
 		}
 	}
+	,updateScrollBounds: function() {
+		var contentHeight = 0;
+		if(this._grid.get_visible()) {
+			contentHeight = this._grid.getGridHeight();
+		} else if(this._listContainer.get_visible()) {
+			contentHeight = this._listContainer.get_height();
+		}
+		var visibleHeight = 315.0 - this._scrollContainer.get_y();
+		this._maxScrollY = Math.max(0,contentHeight - visibleHeight);
+	}
+	,applyScroll: function() {
+		if(this._scrollY < 0) {
+			this._scrollY = 0;
+		}
+		if(this._scrollY > this._maxScrollY) {
+			this._scrollY = this._maxScrollY;
+		}
+		var scrollOffset = -this._scrollY;
+		this._grid.set_y(scrollOffset);
+		this._listContainer.set_y(scrollOffset);
+		var visibleHeight = 315.0 - this._scrollContainer.get_y();
+		this._scrollContainer.set_scrollRect(new openfl_geom_Rectangle(0,0,310.,visibleHeight));
+	}
+	,onMouseWheel: function(e) {
+		e.stopPropagation();
+		this._scrollY -= e.delta * this._scrollStep;
+		this.applyScroll();
+	}
 	,getPanelWidth: function() {
-		return 450.0;
+		return 330.0;
+	}
+	,getContentHeight: function() {
+		var baseHeight = 55.;
+		if(this._currentCategory != null && this._currentCategory.id == "recent") {
+			baseHeight += 70.;
+		}
+		var contentHeight = 0;
+		if(this._grid.get_visible()) {
+			contentHeight = this._grid.getGridHeight();
+		} else if(this._listContainer.get_visible()) {
+			contentHeight = this._listContainer.get_height();
+		}
+		return baseHeight + contentHeight + 10.0;
 	}
 	,getPanelHeight: function() {
-		var height = 55.;
-		if(this._currentCategory != null && this._currentCategory.id == "recent") {
-			height += 70.;
-		}
-		if(this._grid.get_visible()) {
-			height += this._grid.getGridHeight();
-		} else if(this._listContainer.get_visible()) {
-			height += this._listContainer.get_height();
-		}
-		return height;
+		return 315.0;
 	}
 	,dispose: function() {
+		this.removeEventListener("mouseWheel",$bind(this,this.onMouseWheel));
 		this._searchBar.dispose();
 		this._recentSection.dispose();
 		this._grid.dispose();
@@ -98924,20 +99101,23 @@ ui_contextmenu_ContentPanel.prototype = $extend(openfl_display_Sprite.prototype,
 	,__class__: ui_contextmenu_ContentPanel
 });
 var ui_contextmenu_ContextMenu = function() {
+	this._preferredCategoryId = null;
+	this._sidebarPosition = ui_contextmenu_SidebarPosition.LEFT;
 	this._spawnY = 0;
 	this._spawnX = 0;
 	openfl_display_Sprite.call(this);
 	this._entriesByCategory = new haxe_ds_StringMap();
 	this.buildUI();
+	this.set_visible(false);
 };
 $hxClasses["ui.contextmenu.ContextMenu"] = ui_contextmenu_ContextMenu;
 ui_contextmenu_ContextMenu.__name__ = "ui.contextmenu.ContextMenu";
 ui_contextmenu_ContextMenu.__super__ = openfl_display_Sprite;
 ui_contextmenu_ContextMenu.prototype = $extend(openfl_display_Sprite.prototype,{
 	buildUI: function() {
-		this.get_graphics().lineStyle(1,4473941);
-		this.get_graphics().beginFill(1710628);
-		this.get_graphics().drawRoundRect(0,0,600.,200.0,8,8);
+		this.get_graphics().lineStyle(3,4473941);
+		this.get_graphics().beginFill(3618615,1.0);
+		this.get_graphics().drawRoundRect(100,100,435.,150.0,8,8);
 		this.get_graphics().endFill();
 		this._sidebar = new ui_contextmenu_CategorySidebar([]);
 		this._sidebar.set_x(0);
@@ -98945,10 +99125,13 @@ ui_contextmenu_ContextMenu.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._sidebar.onCategorySelected = $bind(this,this.onCategorySelected);
 		this.addChild(this._sidebar);
 		this._contentPanel = new ui_contextmenu_ContentPanel();
-		this._contentPanel.set_x(150.0);
+		this._contentPanel.set_x(100.0);
 		this._contentPanel.set_y(0);
 		this._contentPanel.onEntryClick = $bind(this,this.onEntryClicked);
 		this.addChild(this._contentPanel);
+		this._sidebar.setBorderSide(this._sidebarPosition);
+		this.mouseEnabled = true;
+		this.mouseChildren = true;
 	}
 	,setData: function(categories,entriesByCategory) {
 		this._categories = categories;
@@ -98960,8 +99143,27 @@ ui_contextmenu_ContextMenu.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._sidebar.onCategorySelected = $bind(this,this.onCategorySelected);
 		this.addChild(this._sidebar);
 		if(categories.length > 0) {
-			this.selectCategory(categories[0]);
+			var selected = null;
+			if(this._preferredCategoryId != null) {
+				var _g = 0;
+				while(_g < categories.length) {
+					var cat = categories[_g];
+					++_g;
+					if(cat.id == this._preferredCategoryId) {
+						selected = cat;
+						break;
+					}
+				}
+			}
+			if(selected == null) {
+				selected = categories[0];
+			}
+			this.selectCategory(selected);
 		}
+		if(this._selectedCategory != null) {
+			this._sidebar.highlightCategory(this._selectedCategory.id);
+		}
+		this._preferredCategoryId = null;
 	}
 	,selectCategory: function(category) {
 		this._selectedCategory = category;
@@ -98980,12 +99182,12 @@ ui_contextmenu_ContextMenu.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.hide();
 	}
 	,resizeToFitContent: function() {
-		var contentHeight = this._contentPanel.getPanelHeight();
-		var totalHeight = Math.max(200.0,Math.min(500.0,contentHeight));
+		var contentHeight = this._contentPanel.getContentHeight();
+		var totalHeight = Math.max(150.0,Math.min(320.0,contentHeight));
 		this.get_graphics().clear();
 		this.get_graphics().lineStyle(1,4473941);
 		this.get_graphics().beginFill(1710628);
-		this.get_graphics().drawRoundRect(0,0,600.,totalHeight,8,8);
+		this.get_graphics().drawRoundRect(-5,-5,440.,totalHeight + 5,8,8);
 		this.get_graphics().endFill();
 	}
 	,show: function(x,y) {
@@ -98993,7 +99195,7 @@ ui_contextmenu_ContextMenu.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._spawnY = y;
 		var stageW = this.stage != null ? this.stage.stageWidth : 1920;
 		var stageH = this.stage != null ? this.stage.stageHeight : 1080;
-		var bounds = ui_contextmenu_MenuBoundsCalculator.clamp(x,y,600.,this.get_height(),stageW,stageH);
+		var bounds = ui_contextmenu_MenuBoundsCalculator.clamp(x,y,435.,this.get_height(),stageW,stageH);
 		this.set_x(bounds.x);
 		this.set_y(bounds.y);
 		this.set_visible(true);
@@ -99011,6 +99213,41 @@ ui_contextmenu_ContextMenu.prototype = $extend(openfl_display_Sprite.prototype,{
 		if(!this.hitTestPoint(e.stageX,e.stageY)) {
 			this.hide();
 		}
+	}
+	,setSidebarPosition: function(position) {
+		if(this._sidebarPosition == position) {
+			return;
+		}
+		this._sidebarPosition = position;
+		this.rebuildLayout();
+	}
+	,getSidebarPosition: function() {
+		return this._sidebarPosition;
+	}
+	,setPreferredCategory: function(categoryId) {
+		this._preferredCategoryId = categoryId;
+	}
+	,rebuildLayout: function() {
+		if(this._sidebar == null || this._contentPanel == null) {
+			return;
+		}
+		switch(this._sidebarPosition._hx_index) {
+		case 0:
+			this._sidebar.set_x(0);
+			this._sidebar.set_y(0);
+			this._contentPanel.set_x(100.0);
+			this._contentPanel.set_y(0);
+			this._sidebar.setBorderSide(ui_contextmenu_SidebarPosition.LEFT);
+			break;
+		case 1:
+			this._contentPanel.set_x(0);
+			this._contentPanel.set_y(0);
+			this._sidebar.set_x(335.0);
+			this._sidebar.set_y(0);
+			this._sidebar.setBorderSide(ui_contextmenu_SidebarPosition.RIGHT);
+			break;
+		}
+		this.resizeToFitContent();
 	}
 	,getSpawnPosition: function() {
 		return { x : this._spawnX, y : this._spawnY};
@@ -99095,14 +99332,8 @@ ui_contextmenu_MenuItem.prototype = $extend(openfl_display_Sprite.prototype,{
 	buildUI: function() {
 		this._bg = new openfl_display_Sprite();
 		this.addChild(this._bg);
-		this._iconField = new openfl_text_TextField();
-		this._iconField.set_defaultTextFormat(new openfl_text_TextFormat("_sans",16,43775));
-		this._iconField.set_text(this.getIconChar());
-		this._iconField.set_width(32.0);
-		this._iconField.set_height(32.0);
-		this._iconField.set_selectable(false);
-		this._iconField.mouseEnabled = false;
-		this.addChild(this._iconField);
+		this._iconContainer = new openfl_display_Sprite();
+		this.addChild(this._iconContainer);
 		this._labelField = new openfl_text_TextField();
 		this._labelField.set_defaultTextFormat(new openfl_text_TextFormat("_sans",12,16777215));
 		this._labelField.set_text(this.entry.displayName);
@@ -99129,55 +99360,98 @@ ui_contextmenu_MenuItem.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.addEventListener("mouseOut",$bind(this,this.onMouseOut));
 		this.addEventListener("click",$bind(this,this.onClickHandler));
 	}
-	,getIconChar: function() {
-		if(this.entry.categoryId == "editor") {
-			switch(this.entry.actionId) {
-			case "ADD_PORT":
-				return "➕";
-			case "DELETE_ALL_SELECTED":case "DELETE_SELECTED_ATOMS":case "DELETE_WIRES":
-				return "🗑";
-			case "GROUP_ATOMS":
-				return "📦";
-			case "REMOVE_PORT":
-				return "➖";
-			default:
-				return "⚙";
-			}
-		} else if(this.entry.categoryId == "atoms" || this.entry.categoryId == "assemblies") {
-			return "";
-		} else if(this.entry.categoryId == "recent") {
-			return "🕐";
+	,loadIcon: function() {
+		this._iconContainer.get_graphics().clear();
+		while(this._iconContainer.get_numChildren() > 0) this._iconContainer.removeChildAt(0);
+		if(this.entry.categoryId != "atoms" && this.entry.categoryId != "assemblies") {
+			this.drawFallbackIcon();
+			return;
 		}
-		return "•";
+		var path = "";
+		if(this.entry.categoryId == "atoms") {
+			path = "assets/icons/atoms/" + this.entry.icon + ".png";
+		} else if(this.entry.categoryId == "assemblies") {
+			if(this.entry.icon == "default_assembly") {
+				path = "assets/icons/assemblies/default.png";
+			} else {
+				path = "assets/icons/assemblies/" + this.entry.icon + ".png";
+			}
+		}
+		var bmpData = null;
+		try {
+			bmpData = openfl_utils_Assets.getBitmapData(path);
+		} catch( _g ) {
+			haxe_NativeStackTrace.lastError = _g;
+			haxe_Log.trace("Asset not found",{ fileName : "src/ui/contextmenu/MenuItem.hx", lineNumber : 159, className : "ui.contextmenu.MenuItem", methodName : "loadIcon"});
+		}
+		if(bmpData != null) {
+			var bmp = new openfl_display_Bitmap(bmpData);
+			bmp.set_x((32.0 - bmpData.width) / 2);
+			bmp.set_y((32.0 - bmpData.height) / 2);
+			this._iconContainer.addChild(bmp);
+		} else {
+			this.drawFallbackIcon();
+		}
+	}
+	,drawFallbackIcon: function() {
+		var color = this.getDeterministicColor(this.entry.displayName);
+		this._iconContainer.get_graphics().beginFill(color);
+		this._iconContainer.get_graphics().drawRoundRect(0,0,32.0,32.0,6,6);
+		this._iconContainer.get_graphics().endFill();
+		var letter = this.entry.displayName.length > 0 ? this.entry.displayName.charAt(0).toUpperCase() : "?";
+		var tf = new openfl_text_TextField();
+		tf.set_defaultTextFormat(new openfl_text_TextFormat("_sans",16,16777215,true,null,null,null,null,openfl_text_TextFormatAlign.fromString("center")));
+		tf.set_text(letter);
+		tf.set_width(32.0);
+		tf.set_height(32.0);
+		tf.set_y(2);
+		tf.set_selectable(false);
+		tf.mouseEnabled = false;
+		this._iconContainer.addChild(tf);
+	}
+	,getDeterministicColor: function(str) {
+		var hash = 0;
+		var _g = 0;
+		var _g1 = str.length;
+		while(_g < _g1) {
+			var i = _g++;
+			hash = HxOverrides.cca(str,i) + ((hash << 5) - hash);
+		}
+		var r = (hash & 255) % 100 + 100;
+		var g = (hash >> 8 & 255) % 100 + 100;
+		var b = (hash >> 16 & 255) % 100 + 150;
+		return r << 16 | g << 8 | b;
 	}
 	,layoutList: function() {
 		this._bg.get_graphics().clear();
 		this._bg.get_graphics().beginFill(2236979);
 		this._bg.get_graphics().drawRect(0,0,150.0,30.0);
 		this._bg.get_graphics().endFill();
-		this._iconField.set_x(5);
-		this._iconField.set_y(-1.);
+		this._iconContainer.set_x(6);
+		this._iconContainer.set_y(-1.);
 		this._labelField.set_x(40);
-		this._labelField.set_y(0);
-		this._labelField.set_width(50.);
+		this._labelField.set_y(5);
+		this._labelField.set_width(145.);
 		this._labelField.set_height(30.0);
 		this._shortcutField.set_x(95.);
 		this._shortcutField.set_y(0);
+		this.loadIcon();
 	}
 	,layoutGrid: function() {
 		this._bg.get_graphics().clear();
 		this._bg.get_graphics().beginFill(2236979);
-		this._bg.get_graphics().drawRoundRect(0,0,100.0,80.0,6,6);
+		this._bg.get_graphics().drawRoundRect(0,0,77.0,60.0,6,6);
 		this._bg.get_graphics().endFill();
-		this._iconField.set_x(34.);
-		this._iconField.set_y(10);
+		this._iconContainer.set_x(22.5);
+		this._iconContainer.set_y(10);
 		this._labelField.set_x(5);
-		this._labelField.set_y(47.);
-		this._labelField.set_width(90.);
+		this._labelField.set_y(42.);
+		this._labelField.set_width(67.);
 		this._labelField.set_height(30);
 		var fmt = new openfl_text_TextFormat("_sans",10,16777215,false,null,null,null,null,openfl_text_TextFormatAlign.fromString("center"));
 		this._labelField.set_defaultTextFormat(fmt);
 		this._labelField.setTextFormat(fmt);
+		this.loadIcon();
 	}
 	,drawNormal: function() {
 		if(this.displayMode == ui_contextmenu_DisplayMode.LIST) {
@@ -99188,7 +99462,7 @@ ui_contextmenu_MenuItem.prototype = $extend(openfl_display_Sprite.prototype,{
 		} else {
 			this._bg.get_graphics().clear();
 			this._bg.get_graphics().beginFill(2236979);
-			this._bg.get_graphics().drawRoundRect(0,0,100.0,80.0,6,6);
+			this._bg.get_graphics().drawRoundRect(0,0,77.0,60.0,6,6);
 			this._bg.get_graphics().endFill();
 		}
 		this._labelField.set_textColor(16777215);
@@ -99202,7 +99476,7 @@ ui_contextmenu_MenuItem.prototype = $extend(openfl_display_Sprite.prototype,{
 		} else {
 			this._bg.get_graphics().clear();
 			this._bg.get_graphics().beginFill(3359829);
-			this._bg.get_graphics().drawRoundRect(0,0,100.0,80.0,6,6);
+			this._bg.get_graphics().drawRoundRect(0,0,77.0,60.0,6,6);
 			this._bg.get_graphics().endFill();
 		}
 		this._labelField.set_textColor(43775);
@@ -99222,25 +99496,25 @@ ui_contextmenu_MenuItem.prototype = $extend(openfl_display_Sprite.prototype,{
 		if(this.displayMode == ui_contextmenu_DisplayMode.LIST) {
 			return 150.0;
 		} else {
-			return 100.0;
+			return 77.0;
 		}
 	}
 	,getItemHeight: function() {
 		if(this.displayMode == ui_contextmenu_DisplayMode.LIST) {
 			return 30.0;
 		} else {
-			return 80.0;
+			return 60.0;
 		}
 	}
 	,__class__: ui_contextmenu_MenuItem
 });
 var ui_contextmenu_MenuItemGrid = function(columns) {
 	if(columns == null) {
-		columns = 3;
+		columns = 4;
 	}
 	openfl_display_Sprite.call(this);
 	this._items = [];
-	this._columns = columns != null ? columns : 3;
+	this._columns = columns != null ? columns : 4;
 };
 $hxClasses["ui.contextmenu.MenuItemGrid"] = ui_contextmenu_MenuItemGrid;
 ui_contextmenu_MenuItemGrid.__name__ = "ui.contextmenu.MenuItemGrid";
@@ -99265,9 +99539,9 @@ ui_contextmenu_MenuItemGrid.prototype = $extend(openfl_display_Sprite.prototype,
 			if(colIndex >= this._columns) {
 				colIndex = 0;
 				xPos = 0;
-				yPos += 85.;
+				yPos += 63.;
 			} else {
-				xPos += 105.;
+				xPos += 80.;
 			}
 		}
 	}
@@ -99293,11 +99567,11 @@ ui_contextmenu_MenuItemGrid.prototype = $extend(openfl_display_Sprite.prototype,
 			return 0;
 		}
 		var rows = Math.ceil(this._items.length / this._columns);
-		return rows * 80.0 + (rows - 1) * 5.0;
+		return rows * 60.0 + (rows - 1) * 3.0;
 	}
 	,getGridWidth: function() {
 		var cols = Math.min(this._items.length,this._columns);
-		return cols * 100.0 + (cols - 1) * 5.0;
+		return cols * 77.0 + (cols - 1) * 3.0;
 	}
 	,dispose: function() {
 		this.clear();
@@ -99435,7 +99709,7 @@ ui_contextmenu_SearchBar.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.addChild(this._input);
 		var placeholder = new openfl_text_TextField();
 		placeholder.set_defaultTextFormat(new openfl_text_TextFormat("_sans",13,6710886));
-		placeholder.set_text("Search entries...");
+		placeholder.set_text("Search... (e.g., 'button', 'audio')");
 		placeholder.set_width(width - 40);
 		placeholder.set_height(25.);
 		placeholder.set_x(35);
@@ -99495,6 +99769,11 @@ ui_contextmenu_SearchBar.prototype = $extend(openfl_display_Sprite.prototype,{
 	}
 	,__class__: ui_contextmenu_SearchBar
 });
+var ui_contextmenu_SidebarPosition = $hxEnums["ui.contextmenu.SidebarPosition"] = { __ename__:"ui.contextmenu.SidebarPosition",__constructs__:null
+	,LEFT: {_hx_name:"LEFT",_hx_index:0,__enum__:"ui.contextmenu.SidebarPosition",toString:$estr}
+	,RIGHT: {_hx_name:"RIGHT",_hx_index:1,__enum__:"ui.contextmenu.SidebarPosition",toString:$estr}
+};
+ui_contextmenu_SidebarPosition.__constructs__ = [ui_contextmenu_SidebarPosition.LEFT,ui_contextmenu_SidebarPosition.RIGHT];
 var ui_contextmenu_data_MenuCategory = function(id,displayName,icon,order) {
 	if(order == null) {
 		order = 0;
@@ -99526,11 +99805,13 @@ ui_contextmenu_data_MenuEntry.__name__ = "ui.contextmenu.data.MenuEntry";
 ui_contextmenu_data_MenuEntry.createCommand = function(actionId,displayName,data) {
 	return new ui_contextmenu_data_MenuEntry("cmd_" + actionId,displayName,"command","editor",actionId,data);
 };
-ui_contextmenu_data_MenuEntry.createAtom = function(typeId,displayName) {
-	return new ui_contextmenu_data_MenuEntry("atom_" + typeId,displayName,typeId,"atoms","ADD_ATOM",{ typeId : typeId});
+ui_contextmenu_data_MenuEntry.createAtom = function(typeId,displayName,iconId) {
+	var finalIcon = iconId != null && iconId != "" ? iconId : typeId;
+	return new ui_contextmenu_data_MenuEntry("atom_" + typeId,displayName,finalIcon,"atoms","ADD_ATOM",{ typeId : typeId});
 };
-ui_contextmenu_data_MenuEntry.createAssembly = function(typeId,displayName) {
-	return new ui_contextmenu_data_MenuEntry("asm_" + typeId,displayName,"assembly","assemblies","ADD_ATOM",{ typeId : typeId});
+ui_contextmenu_data_MenuEntry.createAssembly = function(typeId,displayName,iconId) {
+	var finalIcon = iconId != null && iconId != "" ? iconId : "default_assembly";
+	return new ui_contextmenu_data_MenuEntry("asm_" + typeId,displayName,finalIcon,"assemblies","ADD_ATOM",{ typeId : typeId});
 };
 ui_contextmenu_data_MenuEntry.prototype = {
 	__class__: ui_contextmenu_data_MenuEntry
@@ -99620,7 +99901,7 @@ ui_contextmenu_providers_AssemblyLibraryProvider.prototype = {
 			}
 			var bp = library_AtomRegistry.get(id);
 			if(bp != null && !bp.isNative) {
-				entries.push(ui_contextmenu_data_MenuEntry.createAssembly(id,bp.name));
+				entries.push(ui_contextmenu_data_MenuEntry.createAssembly(id,bp.name,"default_assembly"));
 			}
 		}
 		return entries;
@@ -99668,8 +99949,9 @@ ui_contextmenu_providers_AtomLibraryProvider.prototype = {
 				continue;
 			}
 			var bp = library_AtomRegistry.get(id);
-			if(bp != null) {
-				entries.push(ui_contextmenu_data_MenuEntry.createAtom(id,bp.name));
+			if(bp != null && bp.isNative) {
+				var iconId = bp.iconId != null && bp.iconId != "" ? bp.iconId : id;
+				entries.push(ui_contextmenu_data_MenuEntry.createAtom(id,bp.name,iconId));
 			}
 		}
 		return entries;
@@ -99696,10 +99978,14 @@ ui_contextmenu_providers_AtomLibraryProvider.prototype = {
 	}
 	,__class__: ui_contextmenu_providers_AtomLibraryProvider
 };
-var ui_contextmenu_providers_EditorCommandsProvider = function(nodeCount,wireCount,allowAssembly) {
+var ui_contextmenu_providers_EditorCommandsProvider = function(nodeCount,wireCount,allowAssembly,includeAddPort) {
+	if(includeAddPort == null) {
+		includeAddPort = true;
+	}
 	this._nodeCount = nodeCount;
 	this._wireCount = wireCount;
 	this._allowAssembly = allowAssembly;
+	this._includeAddPort = includeAddPort;
 };
 $hxClasses["ui.contextmenu.providers.EditorCommandsProvider"] = ui_contextmenu_providers_EditorCommandsProvider;
 ui_contextmenu_providers_EditorCommandsProvider.__name__ = "ui.contextmenu.providers.EditorCommandsProvider";
@@ -99707,25 +99993,25 @@ ui_contextmenu_providers_EditorCommandsProvider.__interfaces__ = [ui_contextmenu
 ui_contextmenu_providers_EditorCommandsProvider.prototype = {
 	getEntries: function() {
 		var entries = [];
-		if(this._wireCount > 0) {
-			entries.push(ui_contextmenu_data_MenuEntry.createCommand("DELETE_ALL_SELECTED","Delete Selected (" + this._nodeCount + " nodes, " + this._wireCount + " wires)"));
-		}
-		if(this._nodeCount > 0) {
-			var typeName = "Nodes";
-			if(this._nodeCount == 1) {
-				typeName = "Node";
+		if(this._nodeCount > 0 || this._wireCount > 0) {
+			if(this._nodeCount > 0 && this._wireCount > 0) {
+				entries.push(ui_contextmenu_data_MenuEntry.createCommand("DELETE_ALL_SELECTED","Delete Selected (" + this._nodeCount + " nodes, " + this._wireCount + " wires)"));
+			} else if(this._nodeCount > 0) {
+				var typeName = this._nodeCount == 1 ? "Node" : "Nodes";
+				entries.push(ui_contextmenu_data_MenuEntry.createCommand("DELETE_SELECTED_ATOMS","Delete " + typeName + " (" + this._nodeCount + ")"));
 			}
-			entries.push(ui_contextmenu_data_MenuEntry.createCommand("DELETE_SELECTED_ATOMS","Delete Selected " + typeName + " (" + this._nodeCount + ")"));
-		}
-		if(this._wireCount > 0) {
-			var label = this._wireCount > 1 ? "Delete Selected Wires (" + this._wireCount + ")" : "Delete Wire";
-			entries.push(ui_contextmenu_data_MenuEntry.createCommand("DELETE_WIRES",label));
+			if(this._wireCount > 0) {
+				var label = this._wireCount > 1 ? "Delete Wires (" + this._wireCount + ")" : "Delete Wire";
+				entries.push(ui_contextmenu_data_MenuEntry.createCommand("DELETE_WIRES",label));
+			}
 		}
 		if(this._nodeCount >= 2 && this._allowAssembly) {
 			entries.push(ui_contextmenu_data_MenuEntry.createCommand("GROUP_ATOMS","Group Selected Atoms (" + this._nodeCount + ")"));
 		}
-		entries.push(ui_contextmenu_data_MenuEntry.createCommand("ADD_PORT","Add Input Port",{ type : core_types_ContactType.INPUT}));
-		entries.push(ui_contextmenu_data_MenuEntry.createCommand("ADD_PORT","Add Output Port",{ type : core_types_ContactType.OUTPUT}));
+		if(this._includeAddPort) {
+			entries.push(ui_contextmenu_data_MenuEntry.createCommand("ADD_PORT","Add Input Port",{ type : core_types_ContactType.INPUT}));
+			entries.push(ui_contextmenu_data_MenuEntry.createCommand("ADD_PORT","Add Output Port",{ type : core_types_ContactType.OUTPUT}));
+		}
 		return entries;
 	}
 	,getCategoryId: function() {
@@ -102529,24 +102815,25 @@ system_managers_UndoManager.UNDO_STACK_CHANGED = "undoStackChanged";
 system_managers_UndoManager.REDO_STACK_CHANGED = "redoStackChanged";
 ui_ButtonComponent.SIZE = 40;
 ui_DevicePanel._dragTickRegistered = false;
-ui_contextmenu_CategoryItem.ITEM_WIDTH = 150.0;
+ui_contextmenu_CategoryItem.ITEM_WIDTH = 100.0;
 ui_contextmenu_CategoryItem.ITEM_HEIGHT = 40.0;
 ui_contextmenu_CategoryItem.COLOR_NORMAL_BG = 2763322;
 ui_contextmenu_CategoryItem.COLOR_HOVER_BG = 3816010;
-ui_contextmenu_CategoryItem.COLOR_SELECTED_BG = 43775;
+ui_contextmenu_CategoryItem.COLOR_SELECTED_BG = 3618615;
 ui_contextmenu_CategoryItem.COLOR_NORMAL_TEXT = 11184810;
 ui_contextmenu_CategoryItem.COLOR_SELECTED_TEXT = 16777215;
 ui_contextmenu_CategoryItem.COLOR_ACCENT = 65416;
-ui_contextmenu_CategorySidebar.SIDEBAR_WIDTH = 150.0;
-ui_contextmenu_ContentPanel.PANEL_WIDTH = 450.0;
+ui_contextmenu_CategorySidebar.SIDEBAR_WIDTH = 100.0;
+ui_contextmenu_ContentPanel.PANEL_WIDTH = 330.0;
 ui_contextmenu_ContentPanel.SEARCH_HEIGHT = 35.0;
 ui_contextmenu_ContentPanel.RECENT_HEIGHT = 60.0;
 ui_contextmenu_ContentPanel.PADDING = 10.0;
-ui_contextmenu_ContextMenu.SIDEBAR_WIDTH = 150.0;
-ui_contextmenu_ContextMenu.CONTENT_WIDTH = 450.0;
-ui_contextmenu_ContextMenu.TOTAL_WIDTH = 600.;
-ui_contextmenu_ContextMenu.MIN_HEIGHT = 200.0;
-ui_contextmenu_ContextMenu.MAX_HEIGHT = 500.0;
+ui_contextmenu_ContentPanel.MAX_CONTENT_HEIGHT = 315.0;
+ui_contextmenu_ContextMenu.SIDEBAR_WIDTH = 100.0;
+ui_contextmenu_ContextMenu.CONTENT_WIDTH = 335.0;
+ui_contextmenu_ContextMenu.TOTAL_WIDTH = 435.;
+ui_contextmenu_ContextMenu.MIN_HEIGHT = 150.0;
+ui_contextmenu_ContextMenu.MAX_HEIGHT = 320.0;
 ui_contextmenu_MenuBoundsCalculator.DEFAULT_MARGIN = 8.0;
 ui_contextmenu_MenuBoundsCalculator.MAX_WIDTH = 600.0;
 ui_contextmenu_MenuBoundsCalculator.MAX_HEIGHT = 500.0;
@@ -102554,20 +102841,19 @@ ui_contextmenu_MenuBoundsCalculator.MIN_WIDTH = 300.0;
 ui_contextmenu_MenuBoundsCalculator.MIN_HEIGHT = 200.0;
 ui_contextmenu_MenuItem.LIST_WIDTH = 150.0;
 ui_contextmenu_MenuItem.LIST_HEIGHT = 30.0;
-ui_contextmenu_MenuItem.GRID_WIDTH = 100.0;
-ui_contextmenu_MenuItem.GRID_HEIGHT = 80.0;
+ui_contextmenu_MenuItem.GRID_WIDTH = 77.0;
+ui_contextmenu_MenuItem.GRID_HEIGHT = 60.0;
 ui_contextmenu_MenuItem.ICON_SIZE = 32.0;
 ui_contextmenu_MenuItem.COLOR_NORMAL_BG = 2236979;
 ui_contextmenu_MenuItem.COLOR_HOVER_BG = 3359829;
 ui_contextmenu_MenuItem.COLOR_NORMAL_TEXT = 16777215;
 ui_contextmenu_MenuItem.COLOR_HOVER_TEXT = 43775;
 ui_contextmenu_MenuItem.COLOR_SHORTCUT = 8947848;
-ui_contextmenu_MenuItem.COLOR_ICON = 43775;
-ui_contextmenu_MenuItemGrid.SPACING = 5.0;
-ui_contextmenu_MenuItemGrid.ITEM_WIDTH = 100.0;
-ui_contextmenu_MenuItemGrid.ITEM_HEIGHT = 80.0;
+ui_contextmenu_MenuItemGrid.SPACING = 3.0;
+ui_contextmenu_MenuItemGrid.ITEM_WIDTH = 77.0;
+ui_contextmenu_MenuItemGrid.ITEM_HEIGHT = 60.0;
 ui_contextmenu_RecentSection.SECTION_HEIGHT = 60.0;
-ui_contextmenu_SearchBar.PLACEHOLDER = "Search entries...";
+ui_contextmenu_SearchBar.PLACEHOLDER = "Search... (e.g., 'button', 'audio')";
 ui_contextmenu_SearchBar.BAR_HEIGHT = 35.0;
 ui_contextmenu_data_MenuCategory.RECENT = "recent";
 ui_contextmenu_data_MenuCategory.EDITOR = "editor";

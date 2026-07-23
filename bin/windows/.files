@@ -1,3 +1,5 @@
 bin/windows/bin/assets/fixed_classes.hx
+bin/windows/bin/assets/icons/atoms/comport.png
+bin/windows/bin/assets/icons/atoms/fft.png
 bin/windows/bin/assets/openfl.svg
 bin/windows/bin/manifest/default.json

@@ -65,8 +65,8 @@ class MenuItem extends Sprite
     
     private static inline var LIST_WIDTH:Float = 150.0;
     private static inline var LIST_HEIGHT:Float = 30.0;
-    private static inline var GRID_WIDTH:Float = 100.0;
-    private static inline var GRID_HEIGHT:Float = 80.0;
+    private static inline var GRID_WIDTH:Float = 77.0;  // change sinchroniusly with ITEM_WIDTH in MenuItemGrid class constant.
+    private static inline var GRID_HEIGHT:Float = 60.0; // change sinchroniusly with ITEM_HEIGHT in MenuItemGrid class constant.
     private static inline var ICON_SIZE:Float = 32.0;
     
     private static inline var COLOR_NORMAL_BG:Int = 0x222233;
@@ -141,13 +141,13 @@ class MenuItem extends Sprite
         
         var path = "";
         if (entry.categoryId == MenuCategory.ATOMS) {
-            path = "icons/atoms/" + entry.icon + ".png";
+            path = "assets/icons/atoms/" + entry.icon + ".png";
         } else if (entry.categoryId == MenuCategory.ASSEMBLIES) {
             // If it's the default placeholder
             if (entry.icon == "default_assembly") {
-                path = "icons/assemblies/default.png";
+                path = "assets/icons/assemblies/default.png";
             } else {
-                path = "icons/assemblies/" + entry.icon + ".png";
+                path = "assets/icons/assemblies/" + entry.icon + ".png";
             }
         }
         
@@ -156,6 +156,7 @@ class MenuItem extends Sprite
             bmpData = openfl.Assets.getBitmapData(path);
         } catch (e:Dynamic) {
             // Asset not found
+			trace("Asset not found");
         }
         
         if (bmpData != null)
@@ -219,12 +220,12 @@ class MenuItem extends Sprite
         _bg.graphics.drawRect(0, 0, LIST_WIDTH, LIST_HEIGHT);
         _bg.graphics.endFill();
         
-        _iconContainer.x = 5;
+        _iconContainer.x = 6;
         _iconContainer.y = (LIST_HEIGHT - ICON_SIZE) / 2;
         
-        _labelField.x = 45;
-        _labelField.y = 0;
-        _labelField.width = LIST_WIDTH - 105;
+        _labelField.x = 40;
+        _labelField.y = 5;
+        _labelField.width = LIST_WIDTH - 5;
         _labelField.height = LIST_HEIGHT;
         
         _shortcutField.x = LIST_WIDTH - 55;
@@ -244,7 +245,7 @@ class MenuItem extends Sprite
         _iconContainer.y = 10;
         
         _labelField.x = 5;
-        _labelField.y = ICON_SIZE + 15;
+        _labelField.y = ICON_SIZE + 10;
         _labelField.width = GRID_WIDTH - 10;
         _labelField.height = 30;
         

@@ -53,13 +53,13 @@ class CategoryItem extends Sprite
     private var _label:TextField;
     
     /** Fixed dimensions. */
-    private static inline var ITEM_WIDTH:Float = 150.0;
+    private static inline var ITEM_WIDTH:Float = 100.0;
     private static inline var ITEM_HEIGHT:Float = 40.0;
     
     /** Colors. */
     private static inline var COLOR_NORMAL_BG:Int = 0x2a2a3a;
     private static inline var COLOR_HOVER_BG:Int = 0x3a3a4a;
-    private static inline var COLOR_SELECTED_BG:Int = 0x00AAFF;
+    private static inline var COLOR_SELECTED_BG:Int = 0x373737;//0x00AAFF;
     private static inline var COLOR_NORMAL_TEXT:Int = 0xAAAAAA;
     private static inline var COLOR_SELECTED_TEXT:Int = 0xFFFFFF;
     private static inline var COLOR_ACCENT:Int = 0x00FF88;
@@ -131,7 +131,7 @@ class CategoryItem extends Sprite
     private function drawNormal():Void
     {
         _bg.graphics.clear();
-        _bg.graphics.beginFill(COLOR_NORMAL_BG);
+        _bg.graphics.beginFill(COLOR_NORMAL_BG, 0.2);
         _bg.graphics.drawRect(0, 0, ITEM_WIDTH, ITEM_HEIGHT);
         _bg.graphics.endFill();
         _label.textColor = COLOR_NORMAL_TEXT;
@@ -155,7 +155,7 @@ class CategoryItem extends Sprite
     private function drawSelected():Void
     {
         _bg.graphics.clear();
-        _bg.graphics.beginFill(COLOR_SELECTED_BG);
+        _bg.graphics.beginFill(COLOR_SELECTED_BG, 0.5);
         _bg.graphics.drawRect(0, 0, ITEM_WIDTH, ITEM_HEIGHT);
         _bg.graphics.endFill();
         

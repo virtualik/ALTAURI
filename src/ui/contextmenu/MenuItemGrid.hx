@@ -45,11 +45,11 @@ class MenuItemGrid extends Sprite
     private var _columns:Int;
     
     /** Item spacing. */
-    private static inline var SPACING:Float = 5.0;
+    private static inline var SPACING:Float = 3.0;
     
     /** Item dimensions (must match MenuItem GRID mode). */
-    private static inline var ITEM_WIDTH:Float = 100.0;
-    private static inline var ITEM_HEIGHT:Float = 80.0;
+    private static inline var ITEM_WIDTH:Float = 77.0;  // change sinchroniusly with GRID_WIDTH in MenuItem class constant.
+    private static inline var ITEM_HEIGHT:Float = 60.0; // change sinchroniusly with GRID_HEIGHT in MenuItem class constant.
     
     /**
      * Create a new menu item grid.
