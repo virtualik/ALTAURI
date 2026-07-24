@@ -127,7 +127,7 @@ class TextAreaAtom extends Atom
                 {
                     if (_text.length > 0)
                     {
-                        _text += "\n" + appendStr;
+                        _text += appendStr;
                     }
                     else
                     {

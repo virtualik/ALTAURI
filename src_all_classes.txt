@@ -6435,10 +6435,9 @@ class ComEnumeratorWidget extends DeviceView
 
 ================================================================================
 // FILE: core\view\ComPortWidget.hx
-// Lines: 1119 | Chars: 37248
+// Lines: 1263 | Chars: 39276
 ================================================================================
 
-// FILE: core\view\ComPortWidget.hx
 package core.view;
 
 import openfl.display.Sprite;
@@ -6448,1114 +6447,1259 @@ import openfl.text.TextFormatAlign;
 import openfl.text.TextFieldType;
 import openfl.events.MouseEvent;
 import openfl.events.Event;
+import openfl.events.FocusEvent;
 import openfl.events.KeyboardEvent;
 import openfl.ui.Keyboard;
 import core.base.Atom;
 import core.base.Contact;
 
 /**
-* ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     COM PORT WIDGET v2.0                                  ║
-* ║          (Dual-Platform: C++ WinAPI + HTML5 Web Serial API)               ║
-* ╠═══════════════════════════════════════════════════════════════════════════╣
-* ║                                                                           ║
-* ║  Interactive control panel for serial port communication.                 ║
-* ║  At compile time, Haxe selects the appropriate UI variant:                ║
-* ║                                                                           ║
-* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
-* ║  │                    COMPILATION FLOW                                 │  ║
-* ║  │                                                                     │  ║
-* ║  │  haxe -cpp  ──► #if cpp   ──► Port name text field (manual entry)   │  ║
-* ║  │  haxe -html5──► #if html5 ──► "Select Port" button (browser dialog) │  ║
-* ║  │                                                                     │  ║
-* ║  │  Common code (TX/RX, indicators, open/close) is shared.             │  ║
-* ║  │  Platform-specific code is isolated in #if blocks.                  │  ║
-* ║  └─────────────────────────────────────────────────────────────────────┘  ║
-* ║                                                                           
-* ║  v2.0 Changes (HTML5):                                                    ║
-* ║  - Added "Select Port" button (replaces manual port name entry)           ║
-* ║  - Added bufferSize/chunkSize/enabled configuration inputs                ║
-* ║  - DTR control hidden (not supported in Web Serial API)                   ║
-* ║  - Port name field shows selected port info (read-only)                   ║
-* ║                                                                           ║
-* ╠═══════════════════════════════════════════════════════════════════════════╣
-*                         ARCHITECTURE                                       ║
-* ═══════════════════════════════════════════════════════════════════════════╣
-* ║                                                                           ║
-* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
-* ║  │                     ComPortWidget                                   │  ║
-* ║  │                                                                     │  ║
-* ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
-* ║  │  │  COMMON LAYER (all targets)                                   │  │  ║
-* ║  │  │  ──────────────────────────────────────────────────────────── │  │  ║
-* ║  │  │  • Contacts: baudRate, open, close, send, txData,             │  │  ║
-* ║  │  │    isOpen, rxData, rxTick, txTick, error, errorTick           │  │  ║
-* ║  │  │  • updatePulseTimers(): reset tick pulses                     │  │  ║
-* ║  │  │  • readInputs(): input reading + dispatch                     │  │  ║
-* ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
-*   │                                                                     │  ║
-*   │  ┌──────────────────────────┐  ┌────────────────────────────────  │  ║
-* ║  │  │  #if cpp                 │  │  #if html5                     │  │  ║
-* ║  │  │  ─────────               │  │  ──────────                    │  │  ║
-* ║  │  │  portName: TextField     │  │  selectPortBtn: Sprite         │  │  ║
-* ║  │  │  (manual COM1 entry)     │  │  (browser dialog trigger)      │  │  ║
-* ║  │  │                          │  │                                │  │  ║
-* ║  │  │  dtrBtn: visible         │  │  dtrBtn: hidden/disabled       │  │  ║
-* ║  │  │                          │  │                                │  │  ║
-* ║  │  │  (no extra config)       │  │  bufferSize/chunkSize/enabled  │  │  ║
-* ║  │  │                          │  │  configuration fields          │  │  ║
-* ║  │  └──────────────────────────┘  └────────────────────────────────  │  ║
-* ║  │                                                                     │  ║
-* ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
-*   │  │  DATABANK (Haxe fields, shared)                               │  │  ║
-* ║  │  │  ──────────────────────────────────────────────────────────── │  │  ║
-* ║  │  │  _baudRateContact, _openContact, _closeContact               │  │  ║
-* ║  │  │  _sendContact, _txDataContact, _setDTRContact                │  │  ║
-* ║  │  │  _isOpenContact, _rxDataContact, _rxTickContact              │  │  ║
-* ║  │  │  _txTickContact, _errorContact, _errorTickContact            │  │  ║
-* ║  │  │  _lastRxData, _lastError                                     │  │  ║
-* ║  │  │  _rxLedTimer, _txLedTimer, _errLedTimer                      │  │  ║
-* ║  │  │  _dtrState                                                   │  │  ║
-* ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
-*   └─────────────────────────────────────────────────────────────────────┘  ║
-* ║                                                                           ║
-* ╠═══════════════════════════════════════════════════════════════════════════╣
-* ║                     UI LAYOUT                                             ║
-* ╠═══════════════════════════════════════════════════════════════════════════╣
-* ║                                                                           ║
-* ║  C++ Layout:                                                              ║
-* ║  ──────────                                                               ║
-* ║  [Title: COM Port]                          [LED ●]                       ║
-*   ─────────────────────────────────────────────────────────────────────    ║
-* ║  PORT: [COM1        ]    BAUD: [9600       ]                              ║
-* ║  [  OPEN  ]  [  CLOSE  ]     DTR: [ON/OFF]                                ║
-* ║  ─────────────────────────────────────────────────────────────────────    ║
-* ║  TX: [_________________________] [SEND]                                   ║
-* ║  ─────────────────────────────────────────────────────────────────────    ║
-*   RX DATA:                                                                 ║
-*   ┌─────────────────────────────────────────────────────────────────────┐  ║
-* ║  │  Received text...                                                   │  ║
-* ║  └─────────────────────────────────────────────────────────────────────┘  ║
-* ║  RX: ●  TX: ●  ERR: ●                                                     ║
-* ║                                                                           ║
-* ║  HTML5 Layout:                                                            ║
-* ║  ────────────                                                             ║
-* ║  [Title: COM Port]                          [LED ●]                       ║
-* ║  ─────────────────────────────────────────────────────────────────────    ║
-* ║  [Select Port]  BAUD: [9600       ]                                       ║
-* ║  Port: COM3 (USB-Serial)                                                  ║
-* ║  [  OPEN  ]  [  CLOSE  ]                                                  ║
-* ║  ─────────────────────────────────────────────────────────────────────    ║
-* ║  Buffer: [4096]  Chunk: [256]  [Enabled ✓]                                ║
-* ║  ────────────────────────────────────────────────────────────────────    
-* ║  TX: [_________________________] [SEND]                                   ║
-* ║  ─────────────────────────────────────────────────────────────────────    ║
-* ║  RX DATA:                                                                 
-* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
-* ║  │  Received text...                                                   │  ║
-* ║  └─────────────────────────────────────────────────────────────────────┘  
-* ║  RX: ●  TX: ●  ERR: ●                                                     ║
-*                                                                            ║
-* ╚═══════════════════════════════════════════════════════════════════════════╝
-*/
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║                     COM PORT WIDGET v2.0                                  ║
+ * ║          (Dual-Platform: C++ WinAPI + HTML5 Web Serial API)               ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  Interactive control panel for serial port communication.                 ║
+ * ║  At compile time, Haxe selects the appropriate UI variant:                ║
+ * ║                                                                           ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │                    COMPILATION FLOW                                 │
+ * ║  │                                                                     │
+ * ║  │  haxe -cpp  ──► #if cpp   ──► Port name text field (manual entry)   │  ║
+ *   │  haxe -html5──► #if html5 ──► "Select Port" button (browser dialog) │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  Common code (TX/RX, indicators, open/close) is shared.             │  ║
+ * ║  │  Platform-specific code is isolated in #if blocks.                  │  ║
+ * ║  ─────────────────────────────────────────────────────────────────────  ║
+ * ║
+ * ║  v2.0 Changes (HTML5):                                                    ║
+ * ║  - Added "Select Port" button (replaces manual port name entry)           ║
+ * ║  - Added bufferSize/chunkSize/enabled configuration inputs                ║
+ * ║  - DTR control hidden (not supported in Web Serial API)                   ║
+ * ║  - Port name field shows selected port info (read-only)                   ║
+ * ║                                                                           ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ *                         ARCHITECTURE                                       ║
+ * ═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ *   ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │                     ComPortWidget                                   │  ║
+ * ║  │                                                                     │  ║
+ *   │  ┌───────────────────────────────────────────────────────────────┐  │
+ * ║  │  │  COMMON LAYER (all targets)                                   │  │
+ * ║  │  │  ─────────────────────────────────────────────────────────── │  │  ║
+ * ║  │  │  • Contacts: baudRate, open, close, send, txData,             │  │  ║
+ * ║  │  │    isOpen, rxData, rxTick, txTick, error, errorTick           │  │  ║
+ *   │  │  • updatePulseTimers(): reset tick pulses                     │  │  ║
+ * ║  │  │  • readInputs(): input reading + dispatch                     │  │  ║
+ * ║  │  └───────────────────────────────────────────────────────────────┘  │
+ * ║  │                                                                     │
+ * ║  │  ┌──────────────────────────┐  ┌────────────────────────────────┐ │  ║
+ * ║  │  │  #if cpp                 │  │  #if html5                     │ │
+ * ║  │  │  ────────               │  │  ──────────                    │ │  ║
+ * ║  │  │  portName: TextField     │  │  selectPortBtn: Sprite         │ │  ║
+ * ║  │  │  (manual COM1 entry)     │  │  (browser dialog trigger)      │ │  ║
+ * ║  │  │                          │  │                                │ │  ║
+ * ║  │  │  dtrBtn: visible         │  │  dtrBtn: hidden/disabled       │ │  ║
+ * ║  │  │                          │  │                                │ │  ║
+ * ║  │  │  (no extra config)       │  │  bufferSize/chunkSize/enabled  │ │  ║
+ * ║  │  │                          │  │  configuration fields          │ │  ║
+ * ║  │  └──────────────────────────┘  └──────────────────────────────── │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
+ * ║  │  │  DATABANK (Haxe fields, shared)                               │  │
+ * ║  │  │  ─────────────────────────────────────────────────────────── │  │  ║
+ * ║  │  │  _baudRateContact, _openContact, _closeContact               │  │  ║
+ * ║  │  │  _sendContact, _txDataContact, _setDTRContact                │  │  ║
+ * ║  │  │  _isOpenContact, _rxDataContact, _rxTickContact              │  │  ║
+ * ║  │  │  _txTickContact, _errorContact, _errorTickContact            │  │
+ * ║  │  │  _lastRxData, _lastError                                     │  │  ║
+ * ║  │  │  _rxLedTimer, _txLedTimer, _errLedTimer                      │  │  ║
+ * ║  │  │  _dtrState                                                   │  │  ║
+ * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                     UI LAYOUT                                             ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  C++ Layout:                                                              ║
+ * ║  ──────────                                                               ║
+ * ║  [Title: COM Port]                          [LED ●]                       ║
+ * ║  ─────────────────────────────────────────────────────────────────────    ║
+ * ║  PORT: [COM1        ]    BAUD: [9600       ]                              ║
+ * ║  [  OPEN  ]  [  CLOSE  ]     DTR: [ON/OFF]                                ║
+ * ║  ─────────────────────────────────────────────────────────────────────    ║
+ * ║  TX: [_________________________] [SEND]                                   ║
+ * ║  ─────────────────────────────────────────────────────────────────────    ║
+ * ║  RX DATA:                                                                 ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │  Received text...                                                   │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║  RX: ●  TX: ●  ERR: ●                                                     ║
+ * ║                                                                           ║
+ * ║  HTML5 Layout:                                                            ║
+ * ║  ────────────                                                             ║
+ * ║  [Title: COM Port]                          [LED ●]                       ║
+ * ║  ─────────────────────────────────────────────────────────────────────    ║
+ * ║  [Select Port]  BAUD: [9600       ]                                       ║
+ * ║  Port: COM3 (USB-Serial)                                                  ║
+ * ║  [  OPEN  ]  [  CLOSE  ]                                                  ║
+ * ║  ─────────────────────────────────────────────────────────────────────    ║
+ * ║  Buffer: [4096]  Chunk: [256]  [Enabled ✓]                                ║
+ * ║  ────────────────────────────────────────────────────────────────────    ║
+ * ║  TX: [_________________________] [SEND]                                   ║
+ * ║  ─────────────────────────────────────────────────────────────────────    ║
+ * ║  RX DATA:                                                                 ║
+ * ║  ─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │  Received text...                                                   │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║  RX: ●  TX: ●  ERR: ●                                                     ║
+ * ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
+ */
 class ComPortWidget extends DeviceView
 {
-// =========================================================================
-// CONSTANTS
-// =========================================================================
-private static var DEFAULT_BAUD_RATES:Array<Int> = [9600, 19200, 38400, 57600, 115200];
-// =========================================================================
-// UI COMPONENTS
-// =========================================================================
-// Background & Header
-private var _bg:Sprite;
-private var _header:Sprite;
-private var _titleLabel:TextField;
-// Port Settings
-private var _portLabel:TextField;
-private var _portInput:TextField;
-private var _baudLabel:TextField;
-private var _baudInput:TextField;
-// Control Buttons
-private var _openBtn:Sprite;
-private var _closeBtn:Sprite;
-private var _dtrBtn:Sprite;
-private var _dtrLabel:TextField;
-// TX Section
-private var _txSection:Sprite;
-private var _txInput:TextField;
-private var _sendBtn:Sprite;
-// RX Section
-private var _rxSection:Sprite;
-private var _rxDisplay:TextField;
-private var _rxScrollPos:Int = 0;
-// Indicators
-private var _statusLed:Sprite;
-private var _statusGlow:Sprite;
-private var _rxLed:Sprite;
-private var _txLed:Sprite;
-private var _errLed:Sprite;
-// Status Bar
-private var _statusBar:TextField;
-private var _errorDisplay:TextField;
-// =========================================================================
-// HTML5-SPECIFIC UI COMPONENTS
-// =========================================================================
-#if html5
-/** "Select Port" button (replaces manual port name entry). */
-private var _selectPortBtn:Sprite;
-/** Read-only field showing selected port info. */
-private var _selectedPortInfo:TextField;
-/** Buffer size configuration input. */
-private var _bufferSizeInput:TextField;
-/** Chunk size configuration input. */
-private var _chunkSizeInput:TextField;
-/** Enabled toggle button. */
-private var _enabledBtn:Sprite;
-private var _enabledLabel:TextField;
-/** Buffer size label. */
-private var _bufferSizeLabel:TextField;
-/** Chunk size label. */
-private var _chunkSizeLabel:TextField;
-#end
-// =========================================================================
-// CONFIGURATION
-// =========================================================================
-// Widget dimensions
-public var widgetWidth:Float = 300;
-public var widgetHeight:Float = 380;
-// Widget size return (used by Reflect in DeviceView base class)
-override public function getWidgetSize():{width:Float, height:Float}
-{
-return {width: widgetWidth, height: widgetHeight};
-}
-private var _colorBg:Int = 0x1a1a24;
-private var _colorHeader:Int = 0x2a2a3a;
-private var _colorAccent:Int = 0x00AAFF;
-private var _colorActive:Int = 0x00FF88;
-private var _colorDanger:Int = 0xFF4444;
-private var _colorWarning:Int = 0xFFAA00;
-private var _colorInactive:Int = 0x333344;
-private var _colorText:Int = 0xFFFFFF;
-private var _colorMuted:Int = 0x888899;
-private var _colorInputBg:Int = 0x0d0d18;
-private var _colorRxGreen:Int = 0x00CC66;
-// =========================================================================
-// STATE
-// =========================================================================
-private var _portNameContact:Contact;
-private var _baudRateContact:Contact;
-private var _openContact:Contact;
-private var _closeContact:Contact;
-private var _sendContact:Contact;
-private var _txDataContact:Contact;
-private var _setDTRContact:Contact;
-private var _isOpenContact:Contact;
-private var _rxDataContact:Contact;
-private var _rxTickContact:Contact;
-private var _txTickContact:Contact;
-private var _errorContact:Contact;
-private var _errorTickContact:Contact;
-private var _lastRxData:String = "";
-private var _lastError:String = "";
-// Timers for LED pulses
-private var _rxLedTimer:Float = 0;
-private var _txLedTimer:Float = 0;
-private var _errLedTimer:Float = 0;
-private var _ledPulseDuration:Float = 0.15;
-// DTR state
-private var _dtrState:Bool = false;
-// =========================================================================
-// HTML5-SPECIFIC STATE
-// =========================================================================
-#if html5
-/** Buffer size contact. */
-private var _bufferSizeContact:Contact;
-/** Chunk size contact. */
-private var _chunkSizeContact:Contact;
-/** Enabled contact. */
-private var _enabledContact:Contact;
-/** Current buffer size value. */
-private var _currentBufferSize:Int = 4096;
-/** Current chunk size value. */
-private var _currentChunkSize:Int = 256;
-/** Current enabled state. */
-private var _currentEnabled:Bool = true;
-#end
-// =========================================================================
-// CONSTRUCTOR
-// =========================================================================
-public function new(atom:Atom)
-{
-super(atom);
-findContacts();
-buildUI();
-syncFromAtom();
-}
-// =========================================================================
-// INITIALIZATION
-// =========================================================================
-private function findContacts():Void
-{
-if (atom == null) return;
-// Inputs
-_portNameContact = atom.getInput("portName");
-_baudRateContact = atom.getInput("baudRate");
-_openContact     = atom.getInput("open");
-_closeContact    = atom.getInput("close");
-_sendContact     = atom.getInput("send");
-_txDataContact   = atom.getInput("txData");
-_setDTRContact   = atom.getInput("setDTR");
-// Outputs
-_isOpenContact   = atom.getOutput("isOpen");
-_rxDataContact   = atom.getOutput("rxData");
-_rxTickContact   = atom.getOutput("rxTick");
-_txTickContact   = atom.getOutput("txTick");
-_errorContact    = atom.getOutput("error");
-_errorTickContact = atom.getOutput("errorTick");
-#if html5
-_bufferSizeContact = atom.getInput("bufferSize");
-_chunkSizeContact  = atom.getInput("chunkSize");
-_enabledContact    = atom.getInput("enabled");
-#end
-}
-override private function onActivate():Void
-{
-findContacts();
-syncFromAtom();
-}
-// =========================================================================
-// UI CONSTRUCTION
-// =========================================================================
-private function buildUI():Void
-{
-var yPos:Float = 0;
-// === BACKGROUND ===
-_bg = new Sprite();
-addChild(_bg);
-// === HEADER ===
-_header = new Sprite();
-_header.y = yPos;
-addChild(_header);
-_titleLabel = new TextField();
-_titleLabel.defaultTextFormat = new TextFormat("_typewriter", 13, _colorText, true);
-_titleLabel.text = "  COM PORT";
-_titleLabel.width = widgetWidth - 40;
-_titleLabel.height = 28;
-_titleLabel.selectable = false;
-_titleLabel.mouseEnabled = false;
-_header.addChild(_titleLabel);
-// Status LED (top right corner)
-_statusGlow = new Sprite();
-_statusGlow.graphics.beginFill(_colorDanger, 0.2);
-_statusGlow.graphics.drawCircle(0, 0, 12);
-_statusGlow.graphics.endFill();
-_statusGlow.x = widgetWidth - 18;
-_statusGlow.y = 14;
-_statusGlow.visible = false;
-_header.addChild(_statusGlow);
-_statusLed = new Sprite();
-_statusLed.graphics.beginFill(0x440000);
-_statusLed.graphics.drawCircle(0, 0, 6);
-_statusLed.graphics.endFill();
-_statusLed.x = widgetWidth - 18;
-_statusLed.y = 14;
-_header.addChild(_statusLed);
-yPos += 32;
-// === PORT SETTINGS ===
-#if cpp
-// C++: Manual port name entry
-_portLabel = createLabel("PORT");
-_portLabel.y = yPos;
-addChild(_portLabel);
-_baudLabel = createLabel("BAUD");
-_baudLabel.x = 150;
-_baudLabel.y = yPos;
-addChild(_baudLabel);
-yPos += 18;
-_portInput = createInputField("COM1", 130);
-_portInput.x = 10;
-_portInput.y = yPos;
-_portInput.addEventListener(Event.CHANGE, onPortNameChanged);
-addChild(_portInput);
-#elseif html5
-// HTML5: Select Port button + baud rate
-_selectPortBtn = createActionButton("Select Port", 0x224466, onSelectPortClick);
-_selectPortBtn.x = 10;
-_selectPortBtn.y = yPos;
-addChild(_selectPortBtn);
-_baudLabel = createLabel("BAUD");
-_baudLabel.x = 150;
-_baudLabel.y = yPos;
-addChild(_baudLabel);
-yPos += 18;
-// Read-only port info field
-_selectedPortInfo = createInputField("No port selected", 130);
-_selectedPortInfo.type = TextFieldType.DYNAMIC;
-_selectedPortInfo.x = 10;
-_selectedPortInfo.y = yPos;
-addChild(_selectedPortInfo);
-#end
-_baudInput = createInputField("9600", 100);
-_baudInput.x = 150;
-_baudInput.y = yPos;
-_baudInput.addEventListener(Event.CHANGE, onBaudRateChanged);
-addChild(_baudInput);
-yPos += 30;
-// === OPEN / CLOSE BUTTONS ===
-_openBtn = createActionButton("OPEN", 0x225533, onOpenClick);
-_openBtn.x = 10;
-_openBtn.y = yPos;
-addChild(_openBtn);
-_closeBtn = createActionButton("CLOSE", 0x553322, onCloseClick);
-_closeBtn.x = 95;
-_closeBtn.y = yPos;
-addChild(_closeBtn);
-#if cpp
-// C++: DTR toggle visible
-_dtrBtn = new Sprite();
-_dtrBtn.graphics.beginFill(_colorInactive);
-_dtrBtn.graphics.drawRoundRect(0, 0, 50, 26, 4, 4);
-_dtrBtn.graphics.endFill();
-_dtrLabel = new TextField();
-_dtrLabel.defaultTextFormat = new TextFormat("_typewriter", 10, _colorMuted, true, null, null, null, null, TextFormatAlign.CENTER);
-_dtrLabel.text = "DTR";
-_dtrLabel.width = 50;
-_dtrLabel.height = 26;
-_dtrLabel.selectable = false;
-_dtrLabel.mouseEnabled = false;
-_dtrBtn.addChild(_dtrLabel);
-_dtrBtn.x = 200;
-_dtrBtn.y = yPos;
-_dtrBtn.buttonMode = true;
-_dtrBtn.useHandCursor = true;
-_dtrBtn.addEventListener(MouseEvent.CLICK, onDTRClick);
-addChild(_dtrBtn);
-#elseif html5
-// HTML5: DTR hidden (not supported in Web Serial API)
-_dtrBtn = null;
-_dtrLabel = null;
-#end
-yPos += 36;
-// === HTML5-SPECIFIC CONFIGURATION SECTION ===
-#if html5
-// Buffer size, chunk size, enabled toggle
-_bufferSizeLabel = createLabel("Buffer:");
-_bufferSizeLabel.y = yPos;
-addChild(_bufferSizeLabel);
-_bufferSizeInput = createInputField("4096", 60);
-_bufferSizeInput.x = 60;
-_bufferSizeInput.y = yPos;
-_bufferSizeInput.addEventListener(Event.CHANGE, onBufferSizeChanged);
-addChild(_bufferSizeInput);
-_chunkSizeLabel = createLabel("Chunk:");
-_chunkSizeLabel.x = 130;
-_chunkSizeLabel.y = yPos;
-addChild(_chunkSizeLabel);
-_chunkSizeInput = createInputField("256", 50);
-_chunkSizeInput.x = 180;
-_chunkSizeInput.y = yPos;
-_chunkSizeInput.addEventListener(Event.CHANGE, onChunkSizeChanged);
-addChild(_chunkSizeInput);
-_enabledBtn = new Sprite();
-_enabledBtn.graphics.beginFill(_colorActive);
-_enabledBtn.graphics.drawRoundRect(0, 0, 70, 26, 4, 4);
-_enabledBtn.graphics.endFill();
-_enabledBtn.x = 240;
-_enabledBtn.y = yPos;
-_enabledBtn.buttonMode = true;
-_enabledBtn.useHandCursor = true;
-_enabledBtn.addEventListener(MouseEvent.CLICK, onEnabledClick);
-addChild(_enabledBtn);
-_enabledLabel = new TextField();
-_enabledLabel.defaultTextFormat = new TextFormat("_typewriter", 10, 0x000000, true, null, null, null, null, TextFormatAlign.CENTER);
-_enabledLabel.text = "ON";
-_enabledLabel.width = 70;
-_enabledLabel.height = 26;
-_enabledLabel.selectable = false;
-_enabledLabel.mouseEnabled = false;
-_enabledBtn.addChild(_enabledLabel);
-yPos += 36;
-#end
-// === TX SECTION ===
-_txSection = new Sprite();
-_txSection.y = yPos;
-addChild(_txSection);
-var txLabel = new TextField();
-txLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-txLabel.text = "TX DATA";
-txLabel.width = 60;
-txLabel.height = 15;
-txLabel.selectable = false;
-_txSection.addChild(txLabel);
-_txInput = createInputField("", Std.int(widgetWidth - 80));
-_txInput.x = 0;
-_txInput.y = 15;
-_txInput.addEventListener(KeyboardEvent.KEY_DOWN, onTxKeyDown);
-_txSection.addChild(_txInput);
-_sendBtn = createActionButton("SEND", 0x224466, onSendClick);
-_sendBtn.x = widgetWidth - 62;
-_sendBtn.y = 14;
-_txSection.addChild(_sendBtn);
-yPos += 52;
-// === RX SECTION ===
-_rxSection = new Sprite();
-_rxSection.y = yPos;
-addChild(_rxSection);
-var rxLabel = new TextField();
-rxLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-rxLabel.text = "RX DATA";
-rxLabel.width = 60;
-rxLabel.height = 15;
-rxLabel.selectable = false;
-_rxSection.addChild(rxLabel);
-// Received data display area
-_rxDisplay = new TextField();
-_rxDisplay.defaultTextFormat = new TextFormat("_typewriter", 11, _colorRxGreen);
-_rxDisplay.text = "";
-_rxDisplay.width = widgetWidth - 20;
-_rxDisplay.height = 100;
-_rxDisplay.x = 5;
-_rxDisplay.y = 15;
-_rxDisplay.background = true;
-_rxDisplay.backgroundColor = _colorInputBg;
-_rxDisplay.border = true;
-_rxDisplay.borderColor = 0x222233;
-_rxDisplay.multiline = true;
-_rxDisplay.wordWrap = true;
-_rxDisplay.selectable = true;
-_rxDisplay.mouseEnabled = true;
-_rxSection.addChild(_rxDisplay);
-yPos += 125;
-// === INDICATORS ===
-var indicatorY:Float = yPos;
-// Status bar
-_statusBar = new TextField();
-_statusBar.defaultTextFormat = new TextFormat("_typewriter", 10, _colorMuted);
-_statusBar.text = "Disconnected";
-_statusBar.width = 140;
-_statusBar.height = 16;
-_statusBar.x = 10;
-_statusBar.y = indicatorY;
-_statusBar.selectable = false;
-addChild(_statusBar);
-// RX LED
-var rxLedLabel = new TextField();
-rxLedLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-rxLedLabel.text = "RX";
-rxLedLabel.width = 20;
-rxLedLabel.height = 14;
-rxLedLabel.x = 120;
-rxLedLabel.y = indicatorY;
-rxLedLabel.selectable = false;
-addChild(rxLedLabel);
-_rxLed = new Sprite();
-_rxLed.graphics.beginFill(0x003300);
-_rxLed.graphics.drawCircle(0, 0, 5);
-_rxLed.graphics.endFill();
-_rxLed.x = 145;
-_rxLed.y = indicatorY + 7;
-addChild(_rxLed);
-// TX LED
-var txLedLabel = new TextField();
-txLedLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-txLedLabel.text = "TX";
-txLedLabel.width = 20;
-txLedLabel.height = 14;
-txLedLabel.x = 160;
-txLedLabel.y = indicatorY;
-txLedLabel.selectable = false;
-addChild(txLedLabel);
-_txLed = new Sprite();
-_txLed.graphics.beginFill(0x003300);
-_txLed.graphics.drawCircle(0, 0, 5);
-_txLed.graphics.endFill();
-_txLed.x = 185;
-_txLed.y = indicatorY + 7;
-addChild(_txLed);
-// ERR LED
-var errLedLabel = new TextField();
-errLedLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-errLedLabel.text = "ERR";
-errLedLabel.width = 25;
-errLedLabel.height = 14;
-errLedLabel.x = 200;
-errLedLabel.y = indicatorY;
-errLedLabel.selectable = false;
-addChild(errLedLabel);
-_errLed = new Sprite();
-_errLed.graphics.beginFill(0x330000);
-_errLed.graphics.drawCircle(0, 0, 5);
-_errLed.graphics.endFill();
-_errLed.x = 228;
-_errLed.y = indicatorY + 7;
-addChild(_errLed);
-// Error display
-_errorDisplay = new TextField();
-_errorDisplay.defaultTextFormat = new TextFormat("_typewriter", 9, _colorDanger);
-_errorDisplay.text = "";
-_errorDisplay.width = widgetWidth - 20;
-_errorDisplay.height = 15;
-_errorDisplay.x = 10;
-_errorDisplay.y = indicatorY + 18;
-_errorDisplay.selectable = false;
-addChild(_errorDisplay);
-// Final background rendering
-redrawBackground();
-}
-private function redrawBackground():Void
-{
-// Main background
-_bg.graphics.clear();
-_bg.graphics.beginFill(_colorBg, 0.95);
-_bg.graphics.lineStyle(1, _colorAccent);
-_bg.graphics.drawRoundRect(0, 0, widgetWidth, widgetHeight, 8, 8);
-_bg.graphics.endFill();
-// Header
-_header.graphics.clear();
-_header.graphics.beginFill(_colorHeader);
-_header.graphics.drawRoundRectComplex(0, 0, widgetWidth, 28, 8, 8, 0, 0);
-_header.graphics.endFill();
-// TX section background
-_txSection.graphics.clear();
-_txSection.graphics.beginFill(0x0d0d18, 0.5);
-_txSection.graphics.lineStyle(1, 0x222244);
-_txSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 45, 4, 4);
-_txSection.graphics.endFill();
-// RX section background
-_rxSection.graphics.clear();
-_rxSection.graphics.beginFill(0x0d0d18, 0.5);
-_rxSection.graphics.lineStyle(1, 0x224422);
-_rxSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 120, 4, 4);
-_rxSection.graphics.endFill();
-}
-// =========================================================================
-// UI ELEMENT CREATION
-// =========================================================================
-private function createLabel(text:String):TextField
-{
-var tf = new TextField();
-tf.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-tf.text = text;
-tf.width = 60;
-tf.height = 16;
-tf.x = 10;
-tf.selectable = false;
-tf.mouseEnabled = false;
-return tf;
-}
-private function createInputField(defaultText:String, width:Int):TextField
-{
-var tf = new TextField();
-tf.defaultTextFormat = new TextFormat("_typewriter", 12, _colorText);
-tf.text = defaultText;
-tf.width = width;
-tf.height = 22;
-tf.background = true;
-tf.backgroundColor = _colorInputBg;
-tf.border = true;
-tf.borderColor = 0x333355;
-tf.type = TextFieldType.INPUT;
-tf.selectable = true;
-tf.mouseEnabled = true;
-return tf;
-}
-private function createActionButton(label:String, color:Int, callback:MouseEvent -> Void):Sprite
-{
-var btn = new Sprite();
-btn.graphics.beginFill(color);
-btn.graphics.drawRoundRect(0, 0, 75, 26, 4, 4);
-btn.graphics.endFill();
-var tf = new TextField();
-tf.defaultTextFormat = new TextFormat("_typewriter", 11, _colorText, true, null, null, null, null, TextFormatAlign.CENTER);
-tf.text = label;
-tf.width = 75;
-tf.height = 26;
-tf.selectable = false;
-tf.mouseEnabled = false;
-btn.addChild(tf);
-btn.buttonMode = true;
-btn.useHandCursor = true;
-btn.addEventListener(MouseEvent.CLICK, callback);
-return btn;
-}
-// =========================================================================
-// ATOM SYNCHRONIZATION
-// =========================================================================
-override private function syncFromAtom():Void
-{
-// Read current contact values and update UI
-if (_portNameContact != null && _portNameContact.value != null)
-{
-#if cpp
-_portInput.text = Std.string(_portNameContact.value);
-#elseif html5
-_selectedPortInfo.text = Std.string(_portNameContact.value);
-#end
-}
-if (_baudRateContact != null && _baudRateContact.value != null)
-{
-_baudInput.text = Std.string(_baudRateContact.value);
-}
-if (_isOpenContact != null && _isOpenContact.value != null)
-{
-updateConnectionStatus(_isOpenContact.value == true);
-}
-if (_rxDataContact != null && _rxDataContact.value != null)
-{
-var rxStr = Std.string(_rxDataContact.value);
-if (rxStr != "" && rxStr != _lastRxData)
-{
-appendRxData(rxStr);
-}
-}
-if (_errorContact != null && _errorContact.value != null)
-{
-var errStr = Std.string(_errorContact.value);
-if (errStr != "" && errStr != _lastError)
-{
-_errorDisplay.text = "Error: " + errStr;
-_lastError = errStr;
-}
-}
-#if html5
-// Sync HTML5-specific configuration
-if (_bufferSizeContact != null && _bufferSizeContact.value != null)
-{
-_currentBufferSize = Std.int(_bufferSizeContact.value);
-_bufferSizeInput.text = Std.string(_currentBufferSize);
-}
-if (_chunkSizeContact != null && _chunkSizeContact.value != null)
-{
-_currentChunkSize = Std.int(_chunkSizeContact.value);
-_chunkSizeInput.text = Std.string(_currentChunkSize);
-}
-if (_enabledContact != null && _enabledContact.value != null)
-{
-_currentEnabled = (_enabledContact.value == true);
-updateEnabledButton();
-}
-#end
-}
-override private function onContactChanged(contact:Contact, newValue:Dynamic):Void
-{
-if (isDisposed) return;
-if (contact == _isOpenContact)
-{
-updateConnectionStatus(newValue == true);
-}
-else if (contact == _rxDataContact)
-{
-if (newValue != null && newValue != "")
-{
-appendRxData(Std.string(newValue));
-}
-}
-else if (contact == _rxTickContact)
-{
-if (newValue == true)
-{
-pulseLed(_rxLed, 0x00FF00, 0x003300);
-_rxLedTimer = _ledPulseDuration;
-}
-}
-else if (contact == _txTickContact)
-{
-if (newValue == true)
-{
-pulseLed(_txLed, 0x00AAFF, 0x001133);
-_txLedTimer = _ledPulseDuration;
-}
-}
-else if (contact == _errorTickContact)
-{
-if (newValue == true)
-{
-pulseLed(_errLed, 0xFF4444, 0x330000);
-_errLedTimer = _ledPulseDuration;
-}
-}
-else if (contact == _errorContact)
-{
-if (newValue != null && newValue != "")
-{
-_errorDisplay.text = "Error: " + Std.string(newValue);
-_lastError = Std.string(newValue);
-}
-else
-{
-_errorDisplay.text = "";
-_lastError = "";
-}
-}
-}
-// =========================================================================
-// UI UPDATE
-// =========================================================================
-private function updateConnectionStatus(isOpen:Bool):Void
-{
-if (isOpen)
-{
-// Port is open - green LED
-_statusLed.graphics.clear();
-_statusLed.graphics.beginFill(_colorActive);
-_statusLed.graphics.drawCircle(0, 0, 6);
-_statusLed.graphics.endFill();
-_statusGlow.graphics.clear();
-_statusGlow.graphics.beginFill(_colorActive, 0.2);
-_statusGlow.graphics.drawCircle(0, 0, 12);
-_statusGlow.graphics.endFill();
-_statusGlow.visible = true;
-_statusBar.text = "Connected";
-_statusBar.textColor = _colorActive;
-}
-else
-{
-// Port is closed - red LED
-_statusLed.graphics.clear();
-_statusLed.graphics.beginFill(0x440000);
-_statusLed.graphics.drawCircle(0, 0, 6);
-_statusLed.graphics.endFill();
-_statusGlow.visible = false;
-_statusBar.text = "Disconnected";
-_statusBar.textColor = _colorMuted;
-}
-}
-/**
-* Append received data to the display.
-* Implements a circular buffer logic to prevent memory overflow
-* during long-running sessions by trimming old data.
-*/
-private function appendRxData(data:String):Void
-{
-if (_rxDisplay == null) return;
-_lastRxData = data;
-var currentText = _rxDisplay.text;
-// Limit display buffer to prevent memory issues
-if (currentText.length > 2000)
-{
-// Keep only the last 1000 characters
-currentText = currentText.substr(currentText.length - 1000);
-}
-_rxDisplay.text = currentText + data;
-// Auto-scroll to bottom
-_rxDisplay.scrollV = _rxDisplay.maxScrollV;
-}
-private function pulseLed(led:Sprite, onColor:Int, offColor:Int):Void
-{
-if (led == null) return;
-led.graphics.clear();
-led.graphics.beginFill(onColor);
-led.graphics.drawCircle(0, 0, 5);
-led.graphics.endFill();
-}
-private function resetLed(led:Sprite, offColor:Int):Void
-{
-if (led == null) return;
-led.graphics.clear();
-led.graphics.beginFill(offColor);
-led.graphics.drawCircle(0, 0, 5);
-led.graphics.endFill();
-}
-// =========================================================================
-// EVENT HANDLERS
-// =========================================================================
-#if cpp
-private function onPortNameChanged(e:Event):Void
-{
-if (_portNameContact != null)
-{
-_portNameContact.value = _portInput.text;
-}
-}
-#elseif html5
-/**
-* Handle "Select Port" button click.
-* Triggers the browser's port selection dialog via the atom's open mechanism.
-*
-* Web Serial API requires a user gesture to show the port picker.
-* We simulate this by triggering the open contact, which the atom
-* handles by calling navigator.serial.requestPort().
-*/
-private function onSelectPortClick(e:MouseEvent):Void
-{
-// The atom will handle port selection when open is triggered
-// We just need to ensure the atom knows we want to select a port
-if (_openContact != null)
-{
-_openContact.value = true;
-}
-}
-private function onBufferSizeChanged(e:Event):Void
-{
-if (_bufferSizeContact != null)
-{
-var size = Std.parseInt(_bufferSizeInput.text);
-if (size != null && size >= 256 && size <= 65536)
-{
-_currentBufferSize = size;
-_bufferSizeContact.value = size;
-}
-}
-}
-private function onChunkSizeChanged(e:Event):Void
-{
-if (_chunkSizeContact != null)
-{
-var size = Std.parseInt(_chunkSizeInput.text);
-if (size != null && size >= 1 && size <= 4096)
-{
-_currentChunkSize = size;
-_chunkSizeContact.value = size;
-}
-}
-}
-private function onEnabledClick(e:MouseEvent):Void
-{
-_currentEnabled = !_currentEnabled;
-updateEnabledButton();
-if (_enabledContact != null)
-{
-_enabledContact.value = _currentEnabled;
-}
-}
-private function updateEnabledButton():Void
-{
-if (_enabledBtn == null || _enabledLabel == null) return;
-if (_currentEnabled)
-{
-_enabledBtn.graphics.clear();
-_enabledBtn.graphics.beginFill(_colorActive);
-_enabledBtn.graphics.drawRoundRect(0, 0, 70, 26, 4, 4);
-_enabledBtn.graphics.endFill();
-_enabledLabel.textColor = 0x000000;
-_enabledLabel.text = "ON";
-}
-else
-{
-_enabledBtn.graphics.clear();
-_enabledBtn.graphics.beginFill(_colorInactive);
-_enabledBtn.graphics.drawRoundRect(0, 0, 70, 26, 4, 4);
-_enabledBtn.graphics.endFill();
-_enabledLabel.textColor = _colorMuted;
-_enabledLabel.text = "OFF";
-}
-}
-#end
-private function onBaudRateChanged(e:Event):Void
-{
-if (_baudRateContact != null)
-{
-var baud = Std.parseInt(_baudInput.text);
-if (baud != null && baud > 0)
-{
-_baudRateContact.value = baud;
-}
-}
-}
-private function onOpenClick(e:MouseEvent):Void
-{
-// Update port parameters before opening
-#if cpp
-if (_portNameContact != null) _portNameContact.value = _portInput.text;
-#end
-var baud = Std.parseInt(_baudInput.text);
-if (_baudRateContact != null && baud != null && baud > 0)
-{
-_baudRateContact.value = baud;
-}
-// Trigger open
-if (_openContact != null)
-{
-_openContact.value = true;
-}
-}
-private function onCloseClick(e:MouseEvent):Void
-{
-if (_closeContact != null)
-{
-_closeContact.value = true;
-}
-}
-private function onSendClick(e:MouseEvent):Void
-{
-sendTxData();
-}
-private function onTxKeyDown(e:KeyboardEvent):Void
-{
-if (e.keyCode == Keyboard.ENTER)
-{
-sendTxData();
-}
-}
-private function sendTxData():Void
-{
-if (_txDataContact != null)
-{
-_txDataContact.value = _txInput.text;
-}
-if (_sendContact != null)
-{
-_sendContact.value = true;
-}
-// Do not clear input field - user may want to send again
-}
-#if cpp
-private function onDTRClick(e:MouseEvent):Void
-{
-_dtrState = !_dtrState;
-if (_setDTRContact != null)
-{
-_setDTRContact.value = _dtrState;
-}
-// Update button visual
-_dtrBtn.graphics.clear();
-if (_dtrState)
-{
-_dtrBtn.graphics.beginFill(_colorActive);
-_dtrLabel.textColor = 0x000000;
-}
-else
-{
-_dtrBtn.graphics.beginFill(_colorInactive);
-_dtrLabel.textColor = _colorMuted;
-}
-_dtrBtn.graphics.drawRoundRect(0, 0, 50, 26, 4, 4);
-_dtrBtn.graphics.endFill();
-}
-#end
-// =========================================================================
-// UPDATE LOOP (for LED animation)
-// =========================================================================
-override public function activate():Void
-{
-super.activate();
-if (stage != null)
-{
-stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
-}
-else
-{
-addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
-}
-}
-override public function deactivate():Void
-{
-super.deactivate();
-if (stage != null)
-{
-stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
-}
-}
-private function onAddedToStage(e:Event):Void
-{
-removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
-stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
-}
-private function onEnterFrame(e:Event):Void
-{
-// LED pulse fade-out animation
-var dt:Float = 1.0 / 60.0;
-if (_rxLedTimer > 0)
-{
-_rxLedTimer -= dt;
-if (_rxLedTimer <= 0)
-{
-resetLed(_rxLed, 0x003300);
-}
-}
-if (_txLedTimer > 0)
-{
-_txLedTimer -= dt;
-if (_txLedTimer <= 0)
-{
-resetLed(_txLed, 0x001133);
-}
-}
-if (_errLedTimer > 0)
-{
-_errLedTimer -= dt;
-if (_errLedTimer <= 0)
-{
-resetLed(_errLed, 0x330000);
-}
-}
-}
-// =========================================================================
-// DISPOSE
-// =========================================================================
-override public function dispose():Void
-{
-if (stage != null)
-{
-stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
-}
-// Remove listeners
-if (_openBtn != null) _openBtn.removeEventListener(MouseEvent.CLICK, onOpenClick);
-if (_closeBtn != null) _closeBtn.removeEventListener(MouseEvent.CLICK, onCloseClick);
-if (_sendBtn != null) _sendBtn.removeEventListener(MouseEvent.CLICK, onSendClick);
-#if cpp
-if (_dtrBtn != null) _dtrBtn.removeEventListener(MouseEvent.CLICK, onDTRClick);
-if (_portInput != null) _portInput.removeEventListener(Event.CHANGE, onPortNameChanged);
-#elseif html5
-if (_selectPortBtn != null) _selectPortBtn.removeEventListener(MouseEvent.CLICK, onSelectPortClick);
-if (_bufferSizeInput != null) _bufferSizeInput.removeEventListener(Event.CHANGE, onBufferSizeChanged);
-if (_chunkSizeInput != null) _chunkSizeInput.removeEventListener(Event.CHANGE, onChunkSizeChanged);
-if (_enabledBtn != null) _enabledBtn.removeEventListener(MouseEvent.CLICK, onEnabledClick);
-#end
-if (_baudInput != null) _baudInput.removeEventListener(Event.CHANGE, onBaudRateChanged);
-if (_txInput != null) _txInput.removeEventListener(KeyboardEvent.KEY_DOWN, onTxKeyDown);
-_bg = null;
-_header = null;
-_titleLabel = null;
-_portLabel = null;
-_portInput = null;
-_baudLabel = null;
-_baudInput = null;
-_openBtn = null;
-_closeBtn = null;
-_dtrBtn = null;
-_dtrLabel = null;
-_txSection = null;
-_txInput = null;
-_sendBtn = null;
-_rxSection = null;
-_rxDisplay = null;
-_statusLed = null;
-_statusGlow = null;
-_rxLed = null;
-_txLed = null;
-_errLed = null;
-_statusBar = null;
-_errorDisplay = null;
-_portNameContact = null;
-_baudRateContact = null;
-_openContact = null;
-_closeContact = null;
-_sendContact = null;
-_txDataContact = null;
-_setDTRContact = null;
-_isOpenContact = null;
-_rxDataContact = null;
-_rxTickContact = null;
-_txTickContact = null;
-_errorContact = null;
-_errorTickContact = null;
-#if html5
-_selectPortBtn = null;
-_selectedPortInfo = null;
-_bufferSizeInput = null;
-_chunkSizeInput = null;
-_enabledBtn = null;
-_enabledLabel = null;
-_bufferSizeLabel = null;
-_chunkSizeLabel = null;
-_bufferSizeContact = null;
-_chunkSizeContact = null;
-_enabledContact = null;
-#end
-super.dispose();
-}
+	// =========================================================================
+	// CONSTANTS
+	// =========================================================================
+	private static var DEFAULT_BAUD_RATES:Array<Int> = [9600, 19200, 38400, 57600, 115200];
+
+	// =========================================================================
+	// UI COMPONENTS
+	// =========================================================================
+	// Background & Header
+	private var _bg:Sprite;
+	private var _header:Sprite;
+	private var _titleLabel:TextField;
+
+	// Port Settings
+	private var _portLabel:TextField;
+	private var _portInput:TextField;
+	private var _baudLabel:TextField;
+	private var _baudInput:TextField;
+
+	// Control Buttons
+	private var _openBtn:Sprite;
+	private var _closeBtn:Sprite;
+	private var _dtrBtn:Sprite;
+	private var _dtrLabel:TextField;
+
+	// TX Section
+	private var _txSection:Sprite;
+	private var _txInput:TextField;
+	private var _sendBtn:Sprite;
+
+	// RX Section
+	private var _rxSection:Sprite;
+	private var _rxDisplay:TextField;
+	private var _rxScrollPos:Int = 0;
+
+	// Indicators
+	private var _statusLed:Sprite;
+	private var _statusGlow:Sprite;
+	private var _rxLed:Sprite;
+	private var _txLed:Sprite;
+	private var _errLed:Sprite;
+
+	// Status Bar
+	private var _statusBar:TextField;
+	private var _errorDisplay:TextField;
+
+	// =========================================================================
+	// HTML5-SPECIFIC UI COMPONENTS
+	// =========================================================================
+	#if html5
+	/** "Select Port" button (replaces manual port name entry). */
+	private var _selectPortBtn:Sprite;
+	/** Read-only field showing selected port info. */
+	private var _selectedPortInfo:TextField;
+	/** Buffer size configuration input. */
+	private var _bufferSizeInput:TextField;
+	/** Chunk size configuration input. */
+	private var _chunkSizeInput:TextField;
+	/** Enabled toggle button. */
+	private var _enabledBtn:Sprite;
+	private var _enabledLabel:TextField;
+	/** Buffer size label. */
+	private var _bufferSizeLabel:TextField;
+	/** Chunk size label. */
+	private var _chunkSizeLabel:TextField;
+	#end
+
+	// =========================================================================
+	// CONFIGURATION
+	// =========================================================================
+	// Widget dimensions
+	public var widgetWidth:Float = 300;
+	public var widgetHeight:Float = 380;
+
+	// Widget size return (used by Reflect in DeviceView base class)
+	override public function getWidgetSize(): {width:Float, height:Float}
+	{
+		return {width: widgetWidth, height: widgetHeight};
+	}
+
+	private var _colorBg:Int = 0x1a1a24;
+	private var _colorHeader:Int = 0x2a2a3a;
+	private var _colorAccent:Int = 0x00AAFF;
+	private var _colorActive:Int = 0x00FF88;
+	private var _colorDanger:Int = 0xFF4444;
+	private var _colorWarning:Int = 0xFFAA00;
+	private var _colorInactive:Int = 0x333344;
+	private var _colorText:Int = 0xFFFFFF;
+	private var _colorMuted:Int = 0x888899;
+	private var _colorInputBg:Int = 0x0d0d18;
+	private var _colorRxGreen:Int = 0x00CC66;
+
+	// =========================================================================
+	// STATE
+	// =========================================================================
+	private var _portNameContact:Contact;
+	private var _baudRateContact:Contact;
+	private var _openContact:Contact;
+	private var _closeContact:Contact;
+	private var _sendContact:Contact;
+	private var _txDataContact:Contact;
+	private var _setDTRContact:Contact;
+	private var _isOpenContact:Contact;
+	private var _rxDataContact:Contact;
+	private var _rxTickContact:Contact;
+	private var _txTickContact:Contact;
+	private var _errorContact:Contact;
+	private var _errorTickContact:Contact;
+	private var _lastRxData:String = "";
+	private var _lastError:String = "";
+
+	// Timers for LED pulses
+	private var _rxLedTimer:Float = 0;
+	private var _txLedTimer:Float = 0;
+	private var _errLedTimer:Float = 0;
+	private var _ledPulseDuration:Float = 0.15;
+
+	// DTR state
+	private var _dtrState:Bool = false;
+
+	// =========================================================================
+	// HTML5-SPECIFIC STATE
+	// =========================================================================
+	#if html5
+	/** Buffer size contact. */
+	private var _bufferSizeContact:Contact;
+	/** Chunk size contact. */
+	private var _chunkSizeContact:Contact;
+	/** Enabled contact. */
+	private var _enabledContact:Contact;
+	/** Current buffer size value. */
+	private var _currentBufferSize:Int = 4096;
+	/** Current chunk size value. */
+	private var _currentChunkSize:Int = 256;
+	/** Current enabled state. */
+	private var _currentEnabled:Bool = true;
+	#end
+
+	// =========================================================================
+	// CONSTRUCTOR
+	// =========================================================================
+	public function new(atom:Atom)
+	{
+		super(atom);
+		findContacts();
+		buildUI();
+		syncFromAtom();
+	}
+
+	// =========================================================================
+	// INITIALIZATION
+	// =========================================================================
+	private function findContacts():Void
+	{
+		if (atom == null) return;
+
+		// Inputs
+		_portNameContact = atom.getInput("portName");
+		_baudRateContact = atom.getInput("baudRate");
+		_openContact     = atom.getInput("open");
+		_closeContact    = atom.getInput("close");
+		_sendContact     = atom.getInput("send");
+		_txDataContact   = atom.getInput("txData");
+		_setDTRContact   = atom.getInput("setDTR");
+
+		// Outputs
+		_isOpenContact   = atom.getOutput("isOpen");
+		_rxDataContact   = atom.getOutput("rxData");
+		_rxTickContact   = atom.getOutput("rxTick");
+		_txTickContact   = atom.getOutput("txTick");
+		_errorContact    = atom.getOutput("error");
+		_errorTickContact = atom.getOutput("errorTick");
+
+		#if html5
+		_bufferSizeContact = atom.getInput("bufferSize");
+		_chunkSizeContact  = atom.getInput("chunkSize");
+		_enabledContact    = atom.getInput("enabled");
+		#end
+	}
+
+	override private function onActivate():Void
+	{
+		findContacts();
+		syncFromAtom();
+	}
+
+	// =========================================================================
+	// UI CONSTRUCTION
+	// =========================================================================
+	private function buildUI():Void
+	{
+		var yPos:Float = 0;
+
+		// === BACKGROUND ===
+		_bg = new Sprite();
+		addChild(_bg);
+
+		// === HEADER ===
+		_header = new Sprite();
+		_header.y = yPos;
+		addChild(_header);
+
+		_titleLabel = new TextField();
+		_titleLabel.defaultTextFormat = new TextFormat("_typewriter", 13, _colorText, true);
+		_titleLabel.text = "  COM PORT";
+		_titleLabel.width = widgetWidth - 40;
+		_titleLabel.height = 28;
+		_titleLabel.selectable = false;
+		_titleLabel.mouseEnabled = false;
+		_header.addChild(_titleLabel);
+
+		// Status LED (top right corner)
+		_statusGlow = new Sprite();
+		_statusGlow.graphics.beginFill(_colorDanger, 0.2);
+		_statusGlow.graphics.drawCircle(0, 0, 12);
+		_statusGlow.graphics.endFill();
+		_statusGlow.x = widgetWidth - 18;
+		_statusGlow.y = 14;
+		_statusGlow.visible = false;
+		_header.addChild(_statusGlow);
+
+		_statusLed = new Sprite();
+		_statusLed.graphics.beginFill(0x440000);
+		_statusLed.graphics.drawCircle(0, 0, 6);
+		_statusLed.graphics.endFill();
+		_statusLed.x = widgetWidth - 18;
+		_statusLed.y = 14;
+		_header.addChild(_statusLed);
+
+		yPos += 32;
+
+		// === PORT SETTINGS ===
+		#if cpp
+		// C++: Manual port name entry
+		_portLabel = createLabel("PORT");
+		_portLabel.y = yPos;
+		addChild(_portLabel);
+
+		_baudLabel = createLabel("BAUD");
+		_baudLabel.x = 150;
+		_baudLabel.y = yPos;
+		addChild(_baudLabel);
+
+		yPos += 18;
+
+		_portInput = createInputField("COM1", 130);
+		_portInput.x = 10;
+		_portInput.y = yPos;
+		_portInput.addEventListener(Event.CHANGE, onPortNameChanged);
+		addChild(_portInput);
+
+		#elseif html5
+		// HTML5: Select Port button + baud rate
+		_selectPortBtn = createActionButton("Select Port", 0x224466, onSelectPortClick);
+		_selectPortBtn.x = 10;
+		_selectPortBtn.y = yPos;
+		addChild(_selectPortBtn);
+
+		_baudLabel = createLabel("BAUD");
+		_baudLabel.x = 150;
+		_baudLabel.y = yPos;
+		addChild(_baudLabel);
+
+		yPos += 18;
+
+		// Read-only port info field
+		_selectedPortInfo = createInputField("No port selected", 130);
+		_selectedPortInfo.type = TextFieldType.DYNAMIC;
+		_selectedPortInfo.x = 10;
+		_selectedPortInfo.y = yPos;
+		addChild(_selectedPortInfo);
+		#end
+
+		_baudInput = createInputField("9600", 100);
+		_baudInput.x = 150;
+		_baudInput.y = yPos;
+		_baudInput.addEventListener(Event.CHANGE, onBaudRateChanged);
+		addChild(_baudInput);
+
+		yPos += 30;
+
+		// === OPEN / CLOSE BUTTONS ===
+		_openBtn = createActionButton("OPEN", 0x225533, onOpenClick);
+		_openBtn.x = 10;
+		_openBtn.y = yPos;
+		addChild(_openBtn);
+
+		_closeBtn = createActionButton("CLOSE", 0x553322, onCloseClick);
+		_closeBtn.x = 95;
+		_closeBtn.y = yPos;
+		addChild(_closeBtn);
+
+		#if cpp
+		// C++: DTR toggle visible
+		_dtrBtn = new Sprite();
+		_dtrBtn.graphics.beginFill(_colorInactive);
+		_dtrBtn.graphics.drawRoundRect(0, 0, 50, 26, 4, 4);
+		_dtrBtn.graphics.endFill();
+
+		_dtrLabel = new TextField();
+		_dtrLabel.defaultTextFormat = new TextFormat("_typewriter", 10, _colorMuted, true, null, null, null, null, TextFormatAlign.CENTER);
+		_dtrLabel.text = "DTR";
+		_dtrLabel.width = 50;
+		_dtrLabel.height = 26;
+		_dtrLabel.selectable = false;
+		_dtrLabel.mouseEnabled = false;
+		_dtrBtn.addChild(_dtrLabel);
+
+		_dtrBtn.x = 200;
+		_dtrBtn.y = yPos;
+		_dtrBtn.buttonMode = true;
+		_dtrBtn.useHandCursor = true;
+		_dtrBtn.addEventListener(MouseEvent.CLICK, onDTRClick);
+		addChild(_dtrBtn);
+
+		#elseif html5
+		// HTML5: DTR hidden (not supported in Web Serial API)
+		_dtrBtn = null;
+		_dtrLabel = null;
+		#end
+
+		yPos += 36;
+
+		// === HTML5-SPECIFIC CONFIGURATION SECTION ===
+		#if html5
+		// Buffer size, chunk size, enabled toggle
+		_bufferSizeLabel = createLabel("Buffer:");
+		_bufferSizeLabel.y = yPos;
+		addChild(_bufferSizeLabel);
+
+		_bufferSizeInput = createInputField("4096", 60);
+		_bufferSizeInput.x = 60;
+		_bufferSizeInput.y = yPos;
+		_bufferSizeInput.addEventListener(Event.CHANGE, onBufferSizeChanged);
+		addChild(_bufferSizeInput);
+
+		_chunkSizeLabel = createLabel("Chunk:");
+		_chunkSizeLabel.x = 130;
+		_chunkSizeLabel.y = yPos;
+		addChild(_chunkSizeLabel);
+
+		_chunkSizeInput = createInputField("256", 50);
+		_chunkSizeInput.x = 180;
+		_chunkSizeInput.y = yPos;
+		_chunkSizeInput.addEventListener(Event.CHANGE, onChunkSizeChanged);
+		addChild(_chunkSizeInput);
+
+		_enabledBtn = new Sprite();
+		_enabledBtn.graphics.beginFill(_colorActive);
+		_enabledBtn.graphics.drawRoundRect(0, 0, 70, 26, 4, 4);
+		_enabledBtn.graphics.endFill();
+		_enabledBtn.x = 240;
+		_enabledBtn.y = yPos;
+		_enabledBtn.buttonMode = true;
+		_enabledBtn.useHandCursor = true;
+		_enabledBtn.addEventListener(MouseEvent.CLICK, onEnabledClick);
+		addChild(_enabledBtn);
+
+		_enabledLabel = new TextField();
+		_enabledLabel.defaultTextFormat = new TextFormat("_typewriter", 10, 0x000000, true, null, null, null, null, TextFormatAlign.CENTER);
+		_enabledLabel.text = "ON";
+		_enabledLabel.width = 70;
+		_enabledLabel.height = 26;
+		_enabledLabel.selectable = false;
+		_enabledLabel.mouseEnabled = false;
+		_enabledBtn.addChild(_enabledLabel);
+
+		yPos += 36;
+		#end
+
+		// === TX SECTION ===
+		_txSection = new Sprite();
+		_txSection.y = yPos;
+		addChild(_txSection);
+
+		var txLabel = new TextField();
+		txLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+		txLabel.text = "TX DATA";
+		txLabel.width = 60;
+		txLabel.height = 15;
+		txLabel.selectable = false;
+		_txSection.addChild(txLabel);
+
+		_txInput = createInputField("", Std.int(widgetWidth - 80));
+		_txInput.x = 0;
+		_txInput.y = 15;
+		_txInput.addEventListener(KeyboardEvent.KEY_DOWN, onTxKeyDown);
+		_txSection.addChild(_txInput);
+
+		_sendBtn = createActionButton("SEND", 0x224466, onSendClick);
+		_sendBtn.x = widgetWidth - 62;
+		_sendBtn.y = 14;
+		_txSection.addChild(_sendBtn);
+
+		yPos += 52;
+
+		// === RX SECTION ===
+		_rxSection = new Sprite();
+		_rxSection.y = yPos;
+		addChild(_rxSection);
+
+		var rxLabel = new TextField();
+		rxLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+		rxLabel.text = "RX DATA";
+		rxLabel.width = 60;
+		rxLabel.height = 15;
+		rxLabel.selectable = false;
+		_rxSection.addChild(rxLabel);
+
+		// Received data display area
+		_rxDisplay = new TextField();
+		_rxDisplay.defaultTextFormat = new TextFormat("_typewriter", 11, _colorRxGreen);
+		_rxDisplay.text = "";
+		_rxDisplay.width = widgetWidth - 20;
+		_rxDisplay.height = 100;
+		_rxDisplay.x = 5;
+		_rxDisplay.y = 15;
+		_rxDisplay.background = true;
+		_rxDisplay.backgroundColor = _colorInputBg;
+		_rxDisplay.border = true;
+		_rxDisplay.borderColor = 0x222233;
+		_rxDisplay.multiline = true;
+		_rxDisplay.wordWrap = true;
+		_rxDisplay.selectable = true;
+		_rxDisplay.mouseEnabled = true;
+		_rxSection.addChild(_rxDisplay);
+
+		yPos += 125;
+
+		// === INDICATORS ===
+		var indicatorY:Float = yPos;
+
+		// Status bar
+		_statusBar = new TextField();
+		_statusBar.defaultTextFormat = new TextFormat("_typewriter", 10, _colorMuted);
+		_statusBar.text = "Disconnected";
+		_statusBar.width = 140;
+		_statusBar.height = 16;
+		_statusBar.x = 10;
+		_statusBar.y = indicatorY;
+		_statusBar.selectable = false;
+		addChild(_statusBar);
+
+		// RX LED
+		var rxLedLabel = new TextField();
+		rxLedLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+		rxLedLabel.text = "RX";
+		rxLedLabel.width = 20;
+		rxLedLabel.height = 14;
+		rxLedLabel.x = 120;
+		rxLedLabel.y = indicatorY;
+		rxLedLabel.selectable = false;
+		addChild(rxLedLabel);
+
+		_rxLed = new Sprite();
+		_rxLed.graphics.beginFill(0x003300);
+		_rxLed.graphics.drawCircle(0, 0, 5);
+		_rxLed.graphics.endFill();
+		_rxLed.x = 145;
+		_rxLed.y = indicatorY + 7;
+		addChild(_rxLed);
+
+		// TX LED
+		var txLedLabel = new TextField();
+		txLedLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+		txLedLabel.text = "TX";
+		txLedLabel.width = 20;
+		txLedLabel.height = 14;
+		txLedLabel.x = 160;
+		txLedLabel.y = indicatorY;
+		txLedLabel.selectable = false;
+		addChild(txLedLabel);
+
+		_txLed = new Sprite();
+		_txLed.graphics.beginFill(0x003300);
+		_txLed.graphics.drawCircle(0, 0, 5);
+		_txLed.graphics.endFill();
+		_txLed.x = 185;
+		_txLed.y = indicatorY + 7;
+		addChild(_txLed);
+
+		// ERR LED
+		var errLedLabel = new TextField();
+		errLedLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+		errLedLabel.text = "ERR";
+		errLedLabel.width = 25;
+		errLedLabel.height = 14;
+		errLedLabel.x = 200;
+		errLedLabel.y = indicatorY;
+		errLedLabel.selectable = false;
+		addChild(errLedLabel);
+
+		_errLed = new Sprite();
+		_errLed.graphics.beginFill(0x330000);
+		_errLed.graphics.drawCircle(0, 0, 5);
+		_errLed.graphics.endFill();
+		_errLed.x = 228;
+		_errLed.y = indicatorY + 7;
+		addChild(_errLed);
+
+		// Error display
+		_errorDisplay = new TextField();
+		_errorDisplay.defaultTextFormat = new TextFormat("_typewriter", 9, _colorDanger);
+		_errorDisplay.text = "";
+		_errorDisplay.width = widgetWidth - 20;
+		_errorDisplay.height = 15;
+		_errorDisplay.x = 10;
+		_errorDisplay.y = indicatorY + 18;
+		_errorDisplay.selectable = false;
+		addChild(_errorDisplay);
+
+		// Final background rendering
+		redrawBackground();
+	}
+
+	private function redrawBackground():Void
+	{
+		// Main background
+		_bg.graphics.clear();
+		_bg.graphics.beginFill(_colorBg, 0.95);
+		_bg.graphics.lineStyle(1, _colorAccent);
+		_bg.graphics.drawRoundRect(0, 0, widgetWidth, widgetHeight, 8, 8);
+		_bg.graphics.endFill();
+
+		// Header
+		_header.graphics.clear();
+		_header.graphics.beginFill(_colorHeader);
+		_header.graphics.drawRoundRectComplex(0, 0, widgetWidth, 28, 8, 8, 0, 0);
+		_header.graphics.endFill();
+
+		// TX section background
+		_txSection.graphics.clear();
+		_txSection.graphics.beginFill(0x0d0d18, 0.5);
+		_txSection.graphics.lineStyle(1, 0x222244);
+		_txSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 45, 4, 4);
+		_txSection.graphics.endFill();
+
+		// RX section background
+		_rxSection.graphics.clear();
+		_rxSection.graphics.beginFill(0x0d0d18, 0.5);
+		_rxSection.graphics.lineStyle(1, 0x224422);
+		_rxSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 120, 4, 4);
+		_rxSection.graphics.endFill();
+	}
+
+	// =========================================================================
+	// UI ELEMENT CREATION
+	// =========================================================================
+	private function createLabel(text:String):TextField
+	{
+		var tf = new TextField();
+		tf.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+		tf.text = text;
+		tf.width = 60;
+		tf.height = 16;
+		tf.x = 10;
+		tf.selectable = false;
+		tf.mouseEnabled = false;
+		return tf;
+	}
+
+	private function createInputField(defaultText:String, width:Int):TextField
+	{
+		var tf = new TextField();
+		tf.defaultTextFormat = new TextFormat("_typewriter", 12, _colorText);
+		tf.text = defaultText;
+		tf.width = width;
+		tf.height = 22;
+		tf.background = true;
+		tf.backgroundColor = _colorInputBg;
+		tf.border = true;
+		tf.borderColor = 0x333355;
+		tf.type = TextFieldType.INPUT;
+		tf.selectable = true;
+		tf.mouseEnabled = true;
+		return tf;
+	}
+
+	private function createActionButton(label:String, color:Int, callback:MouseEvent -> Void):Sprite
+	{
+		var btn = new Sprite();
+		btn.graphics.beginFill(color);
+		btn.graphics.drawRoundRect(0, 0, 75, 26, 4, 4);
+		btn.graphics.endFill();
+
+		var tf = new TextField();
+		tf.defaultTextFormat = new TextFormat("_typewriter", 11, _colorText, true, null, null, null, null, TextFormatAlign.CENTER);
+		tf.text = label;
+		tf.width = 75;
+		tf.height = 26;
+		tf.selectable = false;
+		tf.mouseEnabled = false;
+		btn.addChild(tf);
+
+		btn.buttonMode = true;
+		btn.useHandCursor = true;
+		btn.addEventListener(MouseEvent.CLICK, callback);
+
+		return btn;
+	}
+
+	// =========================================================================
+	// ATOM SYNCHRONIZATION
+	// =========================================================================
+	override private function syncFromAtom():Void
+	{
+		// Read current contact values and update UI
+		#if cpp
+		if (_portNameContact != null && _portNameContact.value != null)
+		{
+			_portInput.text = Std.string(_portNameContact.value);
+		}
+		#elseif html5
+		if (_portNameContact != null && _portNameContact.value != null)
+		{
+			_selectedPortInfo.text = Std.string(_portNameContact.value);
+		}
+		#end
+
+		if (_baudRateContact != null && _baudRateContact.value != null)
+		{
+			_baudInput.text = Std.string(_baudRateContact.value);
+		}
+
+		if (_isOpenContact != null && _isOpenContact.value != null)
+		{
+			updateConnectionStatus(_isOpenContact.value == true);
+		}
+
+		if (_rxDataContact != null && _rxDataContact.value != null)
+		{
+			var rxStr = Std.string(_rxDataContact.value);
+			if (rxStr != "" && rxStr != _lastRxData)
+			{
+				appendRxData(rxStr);
+			}
+		}
+
+		if (_errorContact != null && _errorContact.value != null)
+		{
+			var errStr = Std.string(_errorContact.value);
+			if (errStr != "" && errStr != _lastError)
+			{
+				_errorDisplay.text = "Error: " + errStr;
+				_lastError = errStr;
+			}
+		}
+
+		#if html5
+		// Sync HTML5-specific configuration
+		if (_bufferSizeContact != null && _bufferSizeContact.value != null)
+		{
+			_currentBufferSize = Std.int(_bufferSizeContact.value);
+			_bufferSizeInput.text = Std.string(_currentBufferSize);
+		}
+
+		if (_chunkSizeContact != null && _chunkSizeContact.value != null)
+		{
+			_currentChunkSize = Std.int(_chunkSizeContact.value);
+			_chunkSizeInput.text = Std.string(_currentChunkSize);
+		}
+
+		if (_enabledContact != null && _enabledContact.value != null)
+		{
+			_currentEnabled = (_enabledContact.value == true);
+			updateEnabledButton();
+		}
+		#end
+	}
+
+	override private function onContactChanged(contact:Contact, newValue:Dynamic):Void
+	{
+		if (isDisposed) return;
+
+		if (contact == _isOpenContact)
+		{
+			updateConnectionStatus(newValue == true);
+		}
+		else if (contact == _rxDataContact)
+		{
+			if (newValue != null && newValue != "")
+			{
+				appendRxData(Std.string(newValue));
+			}
+		}
+		else if (contact == _rxTickContact)
+		{
+			if (newValue == true)
+			{
+				pulseLed(_rxLed, 0x00FF00, 0x003300);
+				_rxLedTimer = _ledPulseDuration;
+			}
+		}
+		else if (contact == _txTickContact)
+		{
+			if (newValue == true)
+			{
+				pulseLed(_txLed, 0x00AAFF, 0x001133);
+				_txLedTimer = _ledPulseDuration;
+			}
+		}
+		else if (contact == _errorTickContact)
+		{
+			if (newValue == true)
+			{
+				pulseLed(_errLed, 0xFF4444, 0x330000);
+				_errLedTimer = _ledPulseDuration;
+			}
+		}
+		else if (contact == _errorContact)
+		{
+			if (newValue != null && newValue != "")
+			{
+				_errorDisplay.text = "Error: " + Std.string(newValue);
+				_lastError = Std.string(newValue);
+			}
+			else
+			{
+				_errorDisplay.text = "";
+				_lastError = "";
+			}
+		}
+	}
+
+	// =========================================================================
+	// UI UPDATE
+	// =========================================================================
+	private function updateConnectionStatus(isOpen:Bool):Void
+	{
+		if (isOpen)
+		{
+			// Port is open - green LED
+			_statusLed.graphics.clear();
+			_statusLed.graphics.beginFill(_colorActive);
+			_statusLed.graphics.drawCircle(0, 0, 6);
+			_statusLed.graphics.endFill();
+
+			_statusGlow.graphics.clear();
+			_statusGlow.graphics.beginFill(_colorActive, 0.2);
+			_statusGlow.graphics.drawCircle(0, 0, 12);
+			_statusGlow.graphics.endFill();
+			_statusGlow.visible = true;
+
+			_statusBar.text = "Connected";
+			_statusBar.textColor = _colorActive;
+		}
+		else
+		{
+			// Port is closed - red LED
+			_statusLed.graphics.clear();
+			_statusLed.graphics.beginFill(0x440000);
+			_statusLed.graphics.drawCircle(0, 0, 6);
+			_statusLed.graphics.endFill();
+			_statusGlow.visible = false;
+
+			_statusBar.text = "Disconnected";
+			_statusBar.textColor = _colorMuted;
+		}
+	}
+
+	/**
+	 * Append received data to the display.
+	 * Implements a circular buffer logic to prevent memory overflow
+	 * during long-running sessions by trimming old data.
+	 */
+	private function appendRxData(data:String):Void
+	{
+		if (_rxDisplay == null) return;
+
+		_lastRxData = data;
+		var currentText = _rxDisplay.text;
+
+		// Limit display buffer to prevent memory issues
+		if (currentText.length > 2000)
+		{
+			// Keep only the last 1000 characters
+			currentText = currentText.substr(currentText.length - 1000);
+		}
+
+		_rxDisplay.text = currentText + data;
+
+		// Auto-scroll to bottom
+		_rxDisplay.scrollV = _rxDisplay.maxScrollV;
+	}
+
+	private function pulseLed(led:Sprite, onColor:Int, offColor:Int):Void
+	{
+		if (led == null) return;
+
+		led.graphics.clear();
+		led.graphics.beginFill(onColor);
+		led.graphics.drawCircle(0, 0, 5);
+		led.graphics.endFill();
+	}
+
+	private function resetLed(led:Sprite, offColor:Int):Void
+	{
+		if (led == null) return;
+
+		led.graphics.clear();
+		led.graphics.beginFill(offColor);
+		led.graphics.drawCircle(0, 0, 5);
+		led.graphics.endFill();
+	}
+
+	// =========================================================================
+	// EVENT HANDLERS
+	// =========================================================================
+	#if cpp
+	private function onPortNameChanged(e:Event):Void
+	{
+		if (_portNameContact != null)
+		{
+			_portNameContact.value = _portInput.text;
+		}
+	}
+	#elseif html5
+	/**
+	 * Handle "Select Port" button click.
+	 * Triggers the browser's port selection dialog via the atom's open mechanism.
+	 *
+	 * Web Serial API requires a user gesture to show the port picker.
+	 * We simulate this by triggering the open contact, which the atom
+	 * handles by calling navigator.serial.requestPort().
+	 */
+	private function onSelectPortClick(e:MouseEvent):Void
+	{
+		// The atom will handle port selection when open is triggered
+		// We just need to ensure the atom knows we want to select a port
+		if (_openContact != null)
+		{
+			_openContact.value = true;
+		}
+	}
+
+	private function onBufferSizeChanged(e:Event):Void
+	{
+		if (_bufferSizeContact != null)
+		{
+			var size = Std.parseInt(_bufferSizeInput.text);
+			if (size != null && size >= 256 && size <= 65536)
+			{
+				_currentBufferSize = size;
+				_bufferSizeContact.value = size;
+			}
+		}
+	}
+
+	private function onChunkSizeChanged(e:Event):Void
+	{
+		if (_chunkSizeContact != null)
+		{
+			var size = Std.parseInt(_chunkSizeInput.text);
+			if (size != null && size >= 1 && size <= 4096)
+			{
+				_currentChunkSize = size;
+				_chunkSizeContact.value = size;
+			}
+		}
+	}
+
+	private function onEnabledClick(e:MouseEvent):Void
+	{
+		_currentEnabled = !_currentEnabled;
+		updateEnabledButton();
+
+		if (_enabledContact != null)
+		{
+			_enabledContact.value = _currentEnabled;
+		}
+	}
+
+	private function updateEnabledButton():Void
+	{
+		if (_enabledBtn == null || _enabledLabel == null) return;
+
+		if (_currentEnabled)
+		{
+			_enabledBtn.graphics.clear();
+			_enabledBtn.graphics.beginFill(_colorActive);
+			_enabledBtn.graphics.drawRoundRect(0, 0, 70, 26, 4, 4);
+			_enabledBtn.graphics.endFill();
+			_enabledLabel.textColor = 0x000000;
+			_enabledLabel.text = "ON";
+		}
+		else
+		{
+			_enabledBtn.graphics.clear();
+			_enabledBtn.graphics.beginFill(_colorInactive);
+			_enabledBtn.graphics.drawRoundRect(0, 0, 70, 26, 4, 4);
+			_enabledBtn.graphics.endFill();
+			_enabledLabel.textColor = _colorMuted;
+			_enabledLabel.text = "OFF";
+		}
+	}
+	#end
+
+	private function onBaudRateChanged(e:Event):Void
+	{
+		if (_baudRateContact != null)
+		{
+			var baud = Std.parseInt(_baudInput.text);
+			if (baud != null && baud > 0)
+			{
+				_baudRateContact.value = baud;
+			}
+		}
+	}
+
+	private function onOpenClick(e:MouseEvent):Void
+	{
+		// Update port parameters before opening
+		#if cpp
+		if (_portNameContact != null) _portNameContact.value = _portInput.text;
+		#end
+
+		var baud = Std.parseInt(_baudInput.text);
+		if (_baudRateContact != null && baud != null && baud > 0)
+		{
+			_baudRateContact.value = baud;
+		}
+
+		// Trigger open
+		if (_openContact != null)
+		{
+			_openContact.value = true;
+		}
+	}
+
+	private function onCloseClick(e:MouseEvent):Void
+	{
+		if (_closeContact != null)
+		{
+			_closeContact.value = true;
+		}
+	}
+
+	private function onSendClick(e:MouseEvent):Void
+	{
+		sendTxData();
+	}
+
+	private function onTxKeyDown(e:KeyboardEvent):Void
+	{
+		if (e.keyCode == Keyboard.ENTER)
+		{
+			sendTxData();
+		}
+	}
+
+	private function sendTxData():Void
+	{
+		if (_txDataContact != null)
+		{
+			_txDataContact.value = _txInput.text;
+		}
+
+		if (_sendContact != null)
+		{
+			_sendContact.value = true;
+		}
+
+		// Do not clear input field - user may want to send again
+	}
+
+	#if cpp
+	private function onDTRClick(e:MouseEvent):Void
+	{
+		_dtrState = !_dtrState;
+
+		if (_setDTRContact != null)
+		{
+			_setDTRContact.value = _dtrState;
+		}
+
+		// Update button visual
+		_dtrBtn.graphics.clear();
+		if (_dtrState)
+		{
+			_dtrBtn.graphics.beginFill(_colorActive);
+			_dtrLabel.textColor = 0x000000;
+		}
+		else
+		{
+			_dtrBtn.graphics.beginFill(_colorInactive);
+			_dtrLabel.textColor = _colorMuted;
+		}
+		_dtrBtn.graphics.drawRoundRect(0, 0, 50, 26, 4, 4);
+		_dtrBtn.graphics.endFill();
+	}
+	#end
+
+	// =========================================================================
+	// UPDATE LOOP (for LED animation)
+	// =========================================================================
+	override public function activate():Void
+	{
+		super.activate();
+
+		if (stage != null)
+		{
+			stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
+		}
+		else
+		{
+			addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
+		}
+	}
+
+	override public function deactivate():Void
+	{
+		super.deactivate();
+
+		if (stage != null)
+		{
+			stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
+		}
+	}
+
+	private function onAddedToStage(e:Event):Void
+	{
+		removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
+		stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
+	}
+
+	private function onEnterFrame(e:Event):Void
+	{
+		// LED pulse fade-out animation
+		var dt:Float = 1.0 / 60.0;
+
+		if (_rxLedTimer > 0)
+		{
+			_rxLedTimer -= dt;
+			if (_rxLedTimer <= 0)
+			{
+				resetLed(_rxLed, 0x003300);
+			}
+		}
+
+		if (_txLedTimer > 0)
+		{
+			_txLedTimer -= dt;
+			if (_txLedTimer <= 0)
+			{
+				resetLed(_txLed, 0x001133);
+			}
+		}
+
+		if (_errLedTimer > 0)
+		{
+			_errLedTimer -= dt;
+			if (_errLedTimer <= 0)
+			{
+				resetLed(_errLed, 0x330000);
+			}
+		}
+	}
+
+	// =========================================================================
+	// DISPOSE
+	// =========================================================================
+	override public function dispose():Void
+	{
+		if (stage != null)
+		{
+			stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
+		}
+
+		// Remove listeners
+		if (_openBtn != null) _openBtn.removeEventListener(MouseEvent.CLICK, onOpenClick);
+		if (_closeBtn != null) _closeBtn.removeEventListener(MouseEvent.CLICK, onCloseClick);
+		if (_sendBtn != null) _sendBtn.removeEventListener(MouseEvent.CLICK, onSendClick);
+
+		#if cpp
+		if (_dtrBtn != null) _dtrBtn.removeEventListener(MouseEvent.CLICK, onDTRClick);
+		if (_portInput != null) _portInput.removeEventListener(Event.CHANGE, onPortNameChanged);
+		#elseif html5
+		if (_selectPortBtn != null) _selectPortBtn.removeEventListener(MouseEvent.CLICK, onSelectPortClick);
+		if (_bufferSizeInput != null) _bufferSizeInput.removeEventListener(Event.CHANGE, onBufferSizeChanged);
+		if (_chunkSizeInput != null) _chunkSizeInput.removeEventListener(Event.CHANGE, onChunkSizeChanged);
+		if (_enabledBtn != null) _enabledBtn.removeEventListener(MouseEvent.CLICK, onEnabledClick);
+		#end
+
+		if (_baudInput != null) _baudInput.removeEventListener(Event.CHANGE, onBaudRateChanged);
+		if (_txInput != null) _txInput.removeEventListener(KeyboardEvent.KEY_DOWN, onTxKeyDown);
+
+		_bg = null;
+		_header = null;
+		_titleLabel = null;
+		_portLabel = null;
+		_portInput = null;
+		_baudLabel = null;
+		_baudInput = null;
+		_openBtn = null;
+		_closeBtn = null;
+		_dtrBtn = null;
+		_dtrLabel = null;
+		_txSection = null;
+		_txInput = null;
+		_sendBtn = null;
+		_rxSection = null;
+		_rxDisplay = null;
+		_statusLed = null;
+		_statusGlow = null;
+		_rxLed = null;
+		_txLed = null;
+		_errLed = null;
+		_statusBar = null;
+		_errorDisplay = null;
+
+		_portNameContact = null;
+		_baudRateContact = null;
+		_openContact = null;
+		_closeContact = null;
+		_sendContact = null;
+		_txDataContact = null;
+		_setDTRContact = null;
+		_isOpenContact = null;
+		_rxDataContact = null;
+		_rxTickContact = null;
+		_txTickContact = null;
+		_errorContact = null;
+		_errorTickContact = null;
+
+		#if html5
+		_selectPortBtn = null;
+		_selectedPortInfo = null;
+		_bufferSizeInput = null;
+		_chunkSizeInput = null;
+		_enabledBtn = null;
+		_enabledLabel = null;
+		_bufferSizeLabel = null;
+		_chunkSizeLabel = null;
+		_bufferSizeContact = null;
+		_chunkSizeContact = null;
+		_enabledContact = null;
+		#end
+
+		super.dispose();
+	}
 }
 
 ================================================================================
@@ -8454,7 +8598,7 @@ class DeviceViewRegistry
 
 ================================================================================
 // FILE: core\view\DeviceWidgetFactory.hx
-// Lines: 249 | Chars: 8162
+// Lines: 250 | Chars: 8163
 ================================================================================
 
 package core.view;
@@ -8624,10 +8768,11 @@ class DeviceWidgetFactory
 				new TextWidget(atom, "out", false);
 			case "signalgenerator":
 				new SignalGeneratorWidget(atom);
-				#if cpp
+
 			case "comportatom", "com port":
 				new ComPortWidget(atom);
-			case "comenumeratoratom", "com enumerator":
+			#if cpp
+				case "comenumeratoratom", "com enumerator":
 				new ComEnumeratorWidget(atom);
 			case "websocketatom", "websocket":
 				new WEBSocketWidget(atom);
@@ -23601,7 +23746,7 @@ typedef WireEntry = {
 
 ================================================================================
 // FILE: library\AtomRegistry.hx
-// Lines: 610 | Chars: 30428
+// Lines: 610 | Chars: 30429
 ================================================================================
 
 // FILE: library/AtomRegistry.hx
@@ -23877,7 +24022,7 @@ class AtomRegistry
         // =========================================================================
         // ComPortAtom is now registered for BOTH platforms, as it has dual implementation.
         reg("ComPortAtom", "COM Port", [
-            {name: "portName",  type: INPUT,  defaultValue: "COM1", dataType: "string", priority: IMPORTANT, label: "Port"},
+            {name: "portName",  type: INPUT,  defaultValue: "COM13", dataType: "string", priority: IMPORTANT, label: "Port"},
             {name: "baudRate",  type: INPUT,  defaultValue: 9600,   dataType: "int",    priority: IMPORTANT, label: "Baud"},
             {name: "bufferSize",type: INPUT,  defaultValue: 4096,   dataType: "int",    priority: OPTIONAL,  label: "BufSize"},
             {name: "chunkSize", type: INPUT,  defaultValue: 256,    dataType: "int",    priority: OPTIONAL,  label: "Chunk"},
@@ -24541,12 +24686,11 @@ class ComEnumeratorAtom extends Atom implements system.managers.Driver
 
 ================================================================================
 // FILE: library\drivers\ComPortAtom.hx
-// Lines: 896 | Chars: 26387
+// Lines: 988 | Chars: 25773
 ================================================================================
 
 // FILE: library/drivers/ComPortAtom.hx
 package library.drivers;
-
 import core.base.Atom;
 import core.base.Contact;
 import core.types.ContactType.*;
@@ -24558,887 +24702,980 @@ import system.managers.DriverManager;
 #include <thread>
 #include <mutex>
 #include <map>
-			 ')
+')
 @:cppFileCode('
-			  #ifdef _WIN32
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOGDI
 #include <windows.h>
 #pragma comment(lib, "advapi32.lib")
-			  #endif
-			  struct ComPortState {
-			  HANDLE hComm;
-			  std::thread* readThread;
-			  volatile bool isRunning;
-			  char rxBuffer[1024];
-			  bool hasRxData;
-			  std::mutex rxMutex;
-			  char errBuffer[256];
-			  bool hasError;
-			  std::mutex errMutex;
-			  };
-			  static std::map<void*, ComPortState*> _com_states_map;
-			  static std::mutex _com_map_mutex;
-			  static void _altauri_com_reader_loop(void* haxePtr) {
-			  ComPortState* st = nullptr;
-			  {
-			  std::lock_guard<std::mutex> mapLock(_com_map_mutex);
-			  auto it = _com_states_map.find(haxePtr);
-			  if (it == _com_states_map.end()) return;
-			  st = it->second;
-			  }
-			  st->isRunning = true;
-			  char tempBuf[1024];
-			  DWORD bytesRead;
-			  while (st->isRunning) {
-			  #ifdef _WIN32
-			  bytesRead = 0;
-			  BOOL bResult = ReadFile(st->hComm, tempBuf, sizeof(tempBuf) - 1, &bytesRead, NULL);
-			  if (bResult && bytesRead > 0) {
-			  tempBuf[bytesRead] = 0;
-			  std::lock_guard<std::mutex> rxLock(st->rxMutex);
-			  strncpy(st->rxBuffer, tempBuf, sizeof(st->rxBuffer) - 1);
-			  st->rxBuffer[sizeof(st->rxBuffer) - 1] = 0;
-			  st->hasRxData = true;
-			  }
-			  else if (bResult && bytesRead == 0) {
-			  continue;
-			  }
-			  else {
-			  DWORD lastError = GetLastError();
-			  if (lastError == ERROR_TIMEOUT) {
-			  continue;
-			  }
-			  if (lastError == ERROR_OPERATION_ABORTED || !st->isRunning) {
-			  break;
-			  }
-			  std::lock_guard<std::mutex> errLock(st->errMutex);
-			  sprintf(st->errBuffer, "Rx Err:%lu", lastError);
-			  st->hasError = true;
-			  break;
-			  }
-			  #endif
-			  }
-			  st->isRunning = false;
-			  }
-			  ')
+#endif
+struct ComPortState {
+HANDLE hComm;
+std::thread* readThread;
+volatile bool isRunning;
+char rxBuffer[1024];
+bool hasRxData;
+std::mutex rxMutex;
+char errBuffer[256];
+bool hasError;
+std::mutex errMutex;
+};
+static std::map<void*, ComPortState*> _com_states_map;
+static std::mutex _com_map_mutex;
+static void _altauri_com_reader_loop(void* haxePtr) {
+ComPortState* st = nullptr;
+{
+std::lock_guard<std::mutex> mapLock(_com_map_mutex);
+auto it = _com_states_map.find(haxePtr);
+if (it == _com_states_map.end()) return;
+st = it->second;
+}
+st->isRunning = true;
+char tempBuf[1024];
+DWORD bytesRead;
+while (st->isRunning) {
+#ifdef _WIN32
+bytesRead = 0;
+BOOL bResult = ReadFile(st->hComm, tempBuf, sizeof(tempBuf) - 1, &bytesRead, NULL);
+if (bResult && bytesRead > 0) {
+tempBuf[bytesRead] = 0;
+std::lock_guard<std::mutex> rxLock(st->rxMutex);
+strncpy(st->rxBuffer, tempBuf, sizeof(st->rxBuffer) - 1);
+st->rxBuffer[sizeof(st->rxBuffer) - 1] = 0;
+st->hasRxData = true;
+}
+else if (bResult && bytesRead == 0) {
+continue;
+}
+else {
+DWORD lastError = GetLastError();
+if (lastError == ERROR_TIMEOUT) {
+continue;
+}
+if (lastError == ERROR_OPERATION_ABORTED || !st->isRunning) {
+break;
+}
+std::lock_guard<std::mutex> errLock(st->errMutex);
+sprintf(st->errBuffer, "Rx Err:%lu", lastError);
+st->hasError = true;
+break;
+}
+#endif
+}
+st->isRunning = false;
+}
+')
 #end
 
 /**
-* COM PORT ATOM v2.0 (Dual-Platform: C++ WinAPI + HTML5 Web Serial API)
-*
-* Serial port driver with platform-specific backends.
-* At compile time, Haxe selects the appropriate backend:
-*
-* ─────────────────────────────────────────────────────────────────────
-* │                    COMPILATION FLOW                                 │
-* │                                                                     │
-* │  haxe -cpp  ──► #if cpp   ──► WinAPI + Background Thread          │
-* │  haxe -html5──► #if html5 ──► Browser Web Serial API              │
-* │                                                                     │
-* │  Common code (contacts, update logic, ring buffer) is shared.       │
-* │  Platform-specific code is isolated in #if blocks.                  │
-* └─────────────────────────────────────────────────────────────────────┘
-*
-* Architecture:
-* ┌─────────────────────────────────────────────────────────────────────┐
-* │                     ComPortAtom                                     │
-* │                                                                     │
-* │  COMMON LAYER (all targets):                                        │
-* │  • Contacts: portName, baudRate, open, close, send, txData, setDTR │
-* │  • Outputs: isOpen, rxData, rxTick, txTick, error, errorTick       │
-* │  • Ring buffer for sequential Rx emission                          │
-* │  • update(dt): propagation + pulse timers                          │
-* │                                                                     │
-* │  #if cpp:                                                           │
-* │  • ComPortState* (C++)                                              │
-* │  • Background thread with ReadFile()                                │
-* │  • Mutex/Atomic sync                                                │
-* │                                                                     │
-* │  #if html5:                                                         │
-* │  • Dynamic _serialPort (Web Serial API)                            │
-* │  • Async read loop via navigator.serial                            │
-* │  • Single-threaded (browser event loop)                            │
-* └─────────────────────────────────────────────────────────────────────┘
-*/
+ * COM PORT ATOM v2.1 (Dual-Platform: C++ WinAPI + HTML5 Web Serial API)
+ *
+ * Serial port driver with platform-specific backends.
+ * At compile time, Haxe selects the appropriate backend:
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ * │                    COMPILATION FLOW                                 │
+ * │                                                                     │
+ * │  haxe -cpp  ──► #if cpp   ──► WinAPI + Background Thread          │
+ * │  haxe -html5──► #if html5 ──► Browser Web Serial API              │
+ * │                                                                     │
+ * │  Common code (contacts, update logic, ring buffer) is shared.       │
+ * │  Platform-specific code is isolated in #if blocks.                  │
+ * └─────────────────────────────────────────────────────────────────────┘
+ *
+ * v2.1 Changes (HTML5 Promise fix):
+ * - All Promise callbacks now use arrow functions (x) => {} instead of
+ *   function(x) {} to preserve lexical `this` binding.
+ * - Without this fix, `this.onPortRequested` was undefined inside
+ *   .then() callbacks because regular functions create their own `this`.
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────┐
+ * │                     ComPortAtom                                     │
+ * │                                                                     │
+ * │  COMMON LAYER (all targets):                                        │
+ * │  • Contacts: portName, baudRate, open, close, send, txData, setDTR │
+ * │  • Outputs: isOpen, rxData, rxTick, txTick, error, errorTick       │
+ * │  • Ring buffer for sequential Rx emission                          │
+ * │  • update(dt): propagation + pulse timers                          │
+ * │                                                                     │
+ * │  #if cpp:                                                           │
+ * │  • ComPortState* (C++)                                              │
+ * │  • Background thread with ReadFile()                                │
+ * │  • Mutex/Atomic sync                                                │
+ * │                                                                     │
+ * │  #if html5:                                                         │
+ * │  • Dynamic _serialPort (Web Serial API)                            │
+ * │  • Async read loop via navigator.serial                            │
+ * │  • Single-threaded (browser event loop)                            │
+ * ─────────────────────────────────────────────────────────────────────
+ */
 class ComPortAtom extends Atom implements system.managers.Driver
 {
 // =========================================================================
 // CONSTANTS
 // =========================================================================
-	private static inline var PULSE_DURATION:Float = 0.05;
-	private static inline var DEFAULT_BUFFER_SIZE:Int = 4096;
-	private static inline var DEFAULT_CHUNK_SIZE:Int = 256;
-	private static inline var MIN_BUFFER_SIZE:Int = 256;
-	private static inline var MAX_BUFFER_SIZE:Int = 65536;
-	private static inline var MIN_CHUNK_SIZE:Int = 1;
-	private static inline var MAX_CHUNK_SIZE:Int = 4096;
+private static inline var PULSE_DURATION:Float = 0.05;
+private static inline var DEFAULT_BUFFER_SIZE:Int = 4096;
+private static inline var DEFAULT_CHUNK_SIZE:Int = 256;
+private static inline var MIN_BUFFER_SIZE:Int = 256;
+private static inline var MAX_BUFFER_SIZE:Int = 65536;
+private static inline var MIN_CHUNK_SIZE:Int = 1;
+private static inline var MAX_CHUNK_SIZE:Int = 4096;
+
 // =========================================================================
 // RING BUFFER (COMMON)
 // =========================================================================
-	private var _ringBuffer:Array<Int>;
-	private var _readPos:Int = 0;
-	private var _writePos:Int = 0;
-	private var _overflowCount:Int = 0;
-	private var _bufferSize:Int = DEFAULT_BUFFER_SIZE;
-	private var _chunkSize:Int = DEFAULT_CHUNK_SIZE;
-	private var _enabled:Bool = true;
+private var _ringBuffer:Array<Int>;
+private var _readPos:Int = 0;
+private var _writePos:Int = 0;
+private var _overflowCount:Int = 0;
+private var _bufferSize:Int = DEFAULT_BUFFER_SIZE;
+private var _chunkSize:Int = DEFAULT_CHUNK_SIZE;
+private var _enabled:Bool = true;
+
 // =========================================================================
 // PARAMETERS AND INPUTS (COMMON)
 // =========================================================================
-	private var _lastTxData:String = "";
-	private var _lastDTR:Bool = false;
-	private var _isOpenFlag:Bool = false;
+private var _lastTxData:String = "";
+private var _lastDTR:Bool = false;
+private var _isOpenFlag:Bool = false;
+
 // =========================================================================
 // PENDING FIELDS (COMMON)
 // =========================================================================
-	@:volatile private var _hasPendingRx:Bool = false;
-	@:volatile private var _hasPendingErr:Bool = false;
-	private var _pendingRxStr:String = "";
-	private var _pendingErrStr:String = "";
+@:volatile private var _hasPendingRx:Bool = false;
+@:volatile private var _hasPendingErr:Bool = false;
+private var _pendingRxStr:String = "";
+private var _pendingErrStr:String = "";
+
 // =========================================================================
 // PULSE TIMERS (COMMON)
 // =========================================================================
-	private var _rxTimer:Float = 0.0;
-	private var _txTimer:Float = 0.0;
-	private var _errTimer:Float = 0.0;
+private var _rxTimer:Float = 0.0;
+private var _txTimer:Float = 0.0;
+private var _errTimer:Float = 0.0;
+
 // =========================================================================
 // PLATFORM-SPECIFIC FIELDS
 // =========================================================================
-	#if cpp
+#if cpp
 // C++ fields are managed via __cpp__() — no Haxe fields needed
-	#elseif html5
-	/** Native browser SerialPort instance (Dynamic — Web Serial API not in Haxe externs). */
-	private var _serialPort:Dynamic = null;
-	/** Readable stream reader. */
-	private var _reader:Dynamic = null;
-	/** Writable stream writer. */
-	private var _writer:Dynamic = null;
-	/** Read loop active flag. */
-	private var _isReading:Bool = false;
-	#end
+#elseif html5
+/** Native browser SerialPort instance (Dynamic — Web Serial API not in Haxe externs). */
+private var _serialPort:Dynamic = null;
+/** Readable stream reader. */
+private var _reader:Dynamic = null;
+/** Writable stream writer. */
+private var _writer:Dynamic = null;
+/** Read loop active flag. */
+private var _isReading:Bool = false;
+#end
+
 // =========================================================================
 // CONSTRUCTOR (COMMON)
 // =========================================================================
-	public function new(id:String)
-	{
-		super(
-			[
-				new Contact("COM1", INPUT, "portName"),
-				new Contact(9600, INPUT, "baudRate"),
-				new Contact(DEFAULT_BUFFER_SIZE, INPUT, "bufferSize"),
-				new Contact(DEFAULT_CHUNK_SIZE, INPUT, "chunkSize"),
-				new Contact(true, INPUT, "enabled"),
-				new Contact(false, INPUT, "open"),
-				new Contact(false, INPUT, "close"),
-				new Contact(false, INPUT, "send"),
-				new Contact("", INPUT, "txData"),
-				new Contact(false, INPUT, "setDTR")
-			],
-			[
-				new Contact(false, OUTPUT, "isOpen"),
-				new Contact("", OUTPUT, "rxData"),
-				new Contact(false, OUTPUT, "rxTick"),
-				new Contact(false, OUTPUT, "txTick"),
-				new Contact("", OUTPUT, "error"),
-				new Contact(false, OUTPUT, "errorTick")
-			],
-			null,
-			id,
-			"ComPortAtom",
-			true
-		);
-		initRingBuffer(DEFAULT_BUFFER_SIZE);
-		init();
-	}
+public function new(id:String)
+{
+super(
+[
+new Contact("COM1", INPUT, "portName"),
+new Contact(9600, INPUT, "baudRate"),
+new Contact(DEFAULT_BUFFER_SIZE, INPUT, "bufferSize"),
+new Contact(DEFAULT_CHUNK_SIZE, INPUT, "chunkSize"),
+new Contact(true, INPUT, "enabled"),
+new Contact(false, INPUT, "open"),
+new Contact(false, INPUT, "close"),
+new Contact(false, INPUT, "send"),
+new Contact("", INPUT, "txData"),
+new Contact(false, INPUT, "setDTR")
+],
+[
+new Contact(false, OUTPUT, "isOpen"),
+new Contact("", OUTPUT, "rxData"),
+new Contact(false, OUTPUT, "rxTick"),
+new Contact(false, OUTPUT, "txTick"),
+new Contact("", OUTPUT, "error"),
+new Contact(false, OUTPUT, "errorTick")
+],
+null,
+id,
+"ComPortAtom",
+true
+);
+initRingBuffer(DEFAULT_BUFFER_SIZE);
+init();
+}
+
 // =========================================================================
 // RING BUFFER MANAGEMENT (COMMON)
 // =========================================================================
-	private function initRingBuffer(size:Int):Void
-	{
-		_bufferSize = size;
-		_ringBuffer = new Array<Int>();
-		for (i in 0..._bufferSize)
-		{
-			_ringBuffer.push(0);
-		}
-		_readPos = 0;
-		_writePos = 0;
-		_overflowCount = 0;
-	}
-	private function writeToBuffer(data:Array<Int>):Int
-	{
-		var written = 0;
-		for (byte in data)
-		{
-			var idx = _writePos % _bufferSize;
-			_ringBuffer[idx] = byte;
-			_writePos++;
-			written++;
-			if (getBufferCount() > _bufferSize)
-			{
-				_readPos = _writePos - _bufferSize;
-				_overflowCount++;
-				if (_overflowCount % 100 == 0)
-				{
-					trace('ComPortAtom: Ring buffer overflow! Lost $_overflowCount bytes total');
-				}
-			}
-		}
-		return written;
-	}
-	private function getBufferCount():Int
-	{
-		return _writePos - _readPos;
-	}
-	private function clearBuffer():Void
-	{
-		_readPos = 0;
-		_writePos = 0;
-		_overflowCount = 0;
-	}
-	/**
-	* Read data from ring buffer and emit via rxData output.
-	*
-	* Emits up to _chunkSize bytes per call to prevent blocking.
-	* Data is emitted sequentially in the order it was received.
-	*/
-	private function emitRxData():Void
-	{
-		var availableBytes = getBufferCount();
-		if (availableBytes == 0) return;
+private function initRingBuffer(size:Int):Void
+{
+_bufferSize = size;
+_ringBuffer = new Array<Int>();
+for (i in 0..._bufferSize)
+{
+_ringBuffer.push(0);
+}
+_readPos = 0;
+_writePos = 0;
+_overflowCount = 0;
+}
 
-		// Limit chunk size to prevent blocking
-		var bytesToRead:Int = Std.int(Math.min(availableBytes, _chunkSize));
+private function writeToBuffer(data:Array<Int>):Int
+{
+var written = 0;
+for (byte in data)
+{
+var idx = _writePos % _bufferSize;
+_ringBuffer[idx] = byte;
+_writePos++;
+written++;
+if (getBufferCount() > _bufferSize)
+{
+_readPos = _writePos - _bufferSize;
+_overflowCount++;
+if (_overflowCount % 100 == 0)
+{
+trace('ComPortAtom: Ring buffer overflow! Lost $_overflowCount bytes total');
+}
+}
+}
+return written;
+}
 
-		// Build string from ring buffer character by character
-		var rxString = "";
-		for (i in 0...bytesToRead)
-		{
-			var idx = _readPos % _bufferSize;
-			rxString += String.fromCharCode(_ringBuffer[idx]);
-			_readPos++;
-		}
+private function getBufferCount():Int
+{
+return _writePos - _readPos;
+}
 
-		// Emit via output
-		var rxOut = getOutput("rxData");
-		if (rxOut != null)
-		{
-			rxOut.setValueSilent(rxString);
-			rxOut.propagateCurrentValue();
-		}
+private function clearBuffer():Void
+{
+_readPos = 0;
+_writePos = 0;
+_overflowCount = 0;
+}
 
-		// Pulse
-		var rxTick = getOutput("rxTick");
-		if (rxTick != null)
-		{
-			rxTick.value = true;
-			_rxTimer = PULSE_DURATION;
-		}
-	}
+/**
+ * Read data from ring buffer and emit via rxData output.
+ *
+ * Emits up to _chunkSize bytes per call to prevent blocking.
+ * Data is emitted sequentially in the order it was received.
+ */
+private function emitRxData():Void
+{
+var availableBytes = getBufferCount();
+if (availableBytes == 0) return;
+
+// Limit chunk size to prevent blocking
+var bytesToRead:Int = Std.int(Math.min(availableBytes, _chunkSize));
+
+// Build string from ring buffer character by character
+var rxString = "";
+for (i in 0...bytesToRead)
+{
+var idx = _readPos % _bufferSize;
+rxString += String.fromCharCode(_ringBuffer[idx]);
+_readPos++;
+}
+
+// Emit via output
+var rxOut = getOutput("rxData");
+if (rxOut != null)
+{
+rxOut.setValueSilent(rxString);
+rxOut.propagateCurrentValue();
+}
+
+// Pulse
+var rxTick = getOutput("rxTick");
+if (rxTick != null)
+{
+rxTick.value = true;
+_rxTimer = PULSE_DURATION;
+}
+}
+
 // =========================================================================
 // DRIVER INTERFACE
 // =========================================================================
-	override public function init():Void
-	{
+override public function init():Void
+{
 // Port opens on "open" trigger
-	}
-	override public function update(dt:Float):Void
-	{
-		if (_isDisposed) return;
+}
+
+override public function update(dt:Float):Void
+{
+if (_isDisposed) return;
+
 // Read configuration inputs
-		readConfiguration();
-		if (!_enabled) return;
+readConfiguration();
+
+if (!_enabled) return;
+
 // Poll platform backend
-		#if cpp
-		untyped __cpp__('
-		ComPortState* _cps_stPtr = nullptr;
-		{
-		std::lock_guard<std::mutex> _cps_mapLock(_com_map_mutex);
-		auto _cps_it = _com_states_map.find((void*){0}.mPtr);
-		if (_cps_it != _com_states_map.end()) {
-		_cps_stPtr = _cps_it->second;
-	}
-	}
-		if (_cps_stPtr) {
-		{
-		std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
-		if (_cps_stPtr->hasRxData) {
-		{0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer);
-		{0}->_hasPendingRx = true;
-		_cps_stPtr->hasRxData = false;
-	}
-	}
-		{
-		std::lock_guard<std::mutex> _cps_errLock(_cps_stPtr->errMutex);
-		if (_cps_stPtr->hasError) {
-		{0}->_pendingErrStr = ::String(_cps_stPtr->errBuffer);
-		{0}->_hasPendingErr = true;
-		_cps_stPtr->hasError = false;
-	}
-	}
-	}
-		', this);
-		#end
+#if cpp
+untyped __cpp__('
+ComPortState* _cps_stPtr = nullptr;
+{
+std::lock_guard<std::mutex> _cps_mapLock(_com_map_mutex);
+auto _cps_it = _com_states_map.find((void*){0}.mPtr);
+if (_cps_it != _com_states_map.end()) {
+_cps_stPtr = _cps_it->second;
+}
+}
+if (_cps_stPtr) {
+{
+std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
+if (_cps_stPtr->hasRxData) {
+{0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer);
+{0}->_hasPendingRx = true;
+_cps_stPtr->hasRxData = false;
+}
+}
+{
+std::lock_guard<std::mutex> _cps_errLock(_cps_stPtr->errMutex);
+if (_cps_stPtr->hasError) {
+{0}->_pendingErrStr = ::String(_cps_stPtr->errBuffer);
+{0}->_hasPendingErr = true;
+_cps_stPtr->hasError = false;
+}
+}
+}
+', this);
+#end
+
 // HTML5: _hasPendingRx is set by WebSocket callbacks
 // Process pending received data
-		if (_hasPendingRx)
-		{
-			_hasPendingRx = false;
-			var rxOut = getOutput("rxData");
-			if (rxOut != null)
-			{
-				rxOut.setValueSilent(_pendingRxStr);
-				rxOut.propagateCurrentValue();
-			}
-			var rxTick = getOutput("rxTick");
-			if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
-		}
-		if (_hasPendingErr)
-		{
-			_hasPendingErr = false;
-			var errOut = getOutput("error");
-			if (errOut != null)
-			{
-				errOut.setValueSilent(_pendingErrStr);
-				errOut.propagateCurrentValue();
-			}
-			var errTick = getOutput("errorTick");
-			if (errTick != null) { errTick.value = true; _errTimer = PULSE_DURATION; }
-		}
+if (_hasPendingRx)
+{
+_hasPendingRx = false;
+var rxOut = getOutput("rxData");
+if (rxOut != null)
+{
+rxOut.setValueSilent(_pendingRxStr);
+rxOut.propagateCurrentValue();
+}
+var rxTick = getOutput("rxTick");
+if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
+}
+
+if (_hasPendingErr)
+{
+_hasPendingErr = false;
+var errOut = getOutput("error");
+if (errOut != null)
+{
+errOut.setValueSilent(_pendingErrStr);
+errOut.propagateCurrentValue();
+}
+var errTick = getOutput("errorTick");
+if (errTick != null) { errTick.value = true; _errTimer = PULSE_DURATION; }
+}
+
 // Emit from ring buffer (HTML5 sequential emission)
-		#if html5
-		emitRxData();
-		#end
+#if html5
+emitRxData();
+#end
+
 // Read inputs and control
-		readInputs();
+readInputs();
+
 // Update pulse timers
-		updatePulseTimers(dt);
-	}
-	override public function dispose():Void
-	{
-		#if cpp
-		closeDevice();
-		#elseif html5
-		if (_isOpenFlag)
-		{
-			closeDevice();
-		}
-		#end
-		DriverManager.getInstance().unregister(this.id);
-		super.dispose();
-	}
+updatePulseTimers(dt);
+}
+
+override public function dispose():Void
+{
+#if cpp
+closeDevice();
+#elseif html5
+if (_isOpenFlag)
+{
+closeDevice();
+}
+#end
+DriverManager.getInstance().unregister(this.id);
+super.dispose();
+}
+
 // =========================================================================
 // CONFIGURATION READING (COMMON)
 // =========================================================================
-	private function readConfiguration():Void
-	{
-		var bufSizeC = getInput("bufferSize");
-		if (bufSizeC != null && bufSizeC.value != null)
-		{
-			var newSize = Std.int(bufSizeC.value);
-			if (newSize >= MIN_BUFFER_SIZE && newSize <= MAX_BUFFER_SIZE && newSize != _bufferSize)
-			{
-				trace('ComPortAtom: Buffer size changed from $_bufferSize to $newSize');
-				initRingBuffer(newSize);
-			}
-		}
-		var chunkC = getInput("chunkSize");
-		if (chunkC != null && chunkC.value != null)
-		{
-			var newChunk = Std.int(chunkC.value);
-			if (newChunk >= MIN_CHUNK_SIZE && newChunk <= MAX_CHUNK_SIZE)
-			{
-				_chunkSize = newChunk;
-			}
-		}
-		var enabledC = getInput("enabled");
-		if (enabledC != null && enabledC.value != null)
-		{
-			_enabled = (enabledC.value == true);
-		}
-	}
+private function readConfiguration():Void
+{
+var bufSizeC = getInput("bufferSize");
+if (bufSizeC != null && bufSizeC.value != null)
+{
+var newSize = Std.int(bufSizeC.value);
+if (newSize >= MIN_BUFFER_SIZE && newSize <= MAX_BUFFER_SIZE && newSize != _bufferSize)
+{
+trace('ComPortAtom: Buffer size changed from $_bufferSize to $newSize');
+initRingBuffer(newSize);
+}
+}
+
+var chunkC = getInput("chunkSize");
+if (chunkC != null && chunkC.value != null)
+{
+var newChunk = Std.int(chunkC.value);
+if (newChunk >= MIN_CHUNK_SIZE && newChunk <= MAX_CHUNK_SIZE)
+{
+_chunkSize = newChunk;
+}
+}
+
+var enabledC = getInput("enabled");
+if (enabledC != null && enabledC.value != null)
+{
+_enabled = (enabledC.value == true);
+}
+}
+
 // =========================================================================
 // INPUT READING (COMMON)
 // =========================================================================
-	private function readInputs():Void
-	{
-		var openC  = getInput("open");
-		var closeC = getInput("close");
-		var sendC  = getInput("send");
-		var txC    = getInput("txData");
-		var dtrC   = getInput("setDTR");
-		var baudC = getInput("baudRate");
-		if (baudC != null && baudC.value != null)
-		{
-			var newBaud = Std.int(baudC.value);
-			if (newBaud > 0 && newBaud != 9600)
-			{
-				if (_isOpenFlag)
-				{
-					closeDevice();
-					openDevice();
-				}
-			}
-		}
-		if (openC != null && openC.value == true)
-		{
-			openDevice();
-			openC.value = false;
-		}
-		if (closeC != null && closeC.value == true)
-		{
-			closeDevice();
-			closeC.value = false;
-		}
-		if (sendC != null && sendC.value == true && _isOpenFlag)
-		{
-			if (txC != null && txC.value != null && txC.value != "")
-			{
-				sendToDevice(txC.value);
-				var txTick = getOutput("txTick");
-				if (txTick != null) { txTick.value = true; _txTimer = PULSE_DURATION; }
-			}
-			sendC.value = false;
-		}
-		if (dtrC != null && dtrC.value != null)
-		{
-			var newDTR:Bool = dtrC.value == true;
-			if (newDTR != _lastDTR && _isOpenFlag)
-			{
-				_lastDTR = newDTR;
-				setDTRState(newDTR);
-			}
-		}
-	}
+private function readInputs():Void
+{
+var openC  = getInput("open");
+var closeC = getInput("close");
+var sendC  = getInput("send");
+var txC    = getInput("txData");
+var dtrC   = getInput("setDTR");
+var baudC = getInput("baudRate");
+
+if (baudC != null && baudC.value != null)
+{
+var newBaud = Std.int(baudC.value);
+if (newBaud > 0 && newBaud != 9600)
+{
+if (_isOpenFlag)
+{
+closeDevice();
+openDevice();
+}
+}
+}
+
+if (openC != null && openC.value == true)
+{
+openDevice();
+openC.value = false;
+}
+
+if (closeC != null && closeC.value == true)
+{
+closeDevice();
+closeC.value = false;
+}
+
+if (sendC != null && sendC.value == true && _isOpenFlag)
+{
+if (txC != null && txC.value != null && txC.value != "")
+{
+sendToDevice(txC.value);
+var txTick = getOutput("txTick");
+if (txTick != null) { txTick.value = true; _txTimer = PULSE_DURATION; }
+}
+sendC.value = false;
+}
+
+if (dtrC != null && dtrC.value != null)
+{
+var newDTR:Bool = dtrC.value == true;
+if (newDTR != _lastDTR && _isOpenFlag)
+{
+_lastDTR = newDTR;
+setDTRState(newDTR);
+}
+}
+}
+
 // =========================================================================
 // DEVICE OPERATION (C++ WinAPI)
 // =========================================================================
-	#if cpp
-	private function openDevice():Void
-	{
-		if (_isOpenFlag) closeDevice();
-		var portNameStr:String = getInput("portName").value;
-		var baudRateInt:Int = Std.int(getInput("baudRate").value);
-		untyped __cpp__('
-		ComPortState* st = new ComPortState();
-		st->hComm = INVALID_HANDLE_VALUE;
-		st->readThread = nullptr;
-		st->isRunning = false;
-		st->hasRxData = false;
-		st->hasError = false;
-		st->rxBuffer[0] = 0;
-		st->errBuffer[0] = 0;
-		#ifdef _WIN32
-		char fullPortName[20] = "";
-		::String portStr = {1};
-		const char* _cps_rawName = portStr.c_str();
-		if (_cps_rawName[0] == (char)92) {
-		strncpy(fullPortName, _cps_rawName, sizeof(fullPortName) - 1);
-	} else {
-		fullPortName[0] = (char)92;
-		fullPortName[1] = (char)92;
-		fullPortName[2] = (char)46;
-		fullPortName[3] = (char)92;
-		strncpy(fullPortName + 4, _cps_rawName, sizeof(fullPortName) - 5);
-	}
-		fullPortName[sizeof(fullPortName) - 1] = 0;
-		st->hComm = CreateFileA(fullPortName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-		if (st->hComm == INVALID_HANDLE_VALUE) {
-		DWORD err = GetLastError();
-		sprintf(st->errBuffer, "Open Failed:%lu", err);
-		st->hasError = true;
-	} else {
-		SetupComm(st->hComm, 4096, 4096);
-		DCB dcbSerialParams;
-		memset(&dcbSerialParams, 0, sizeof(DCB));
-		dcbSerialParams.DCBlength = sizeof(DCB);
-		GetCommState(st->hComm, &dcbSerialParams);
-		dcbSerialParams.BaudRate = (DWORD){2};
-		dcbSerialParams.ByteSize = 8;
-		dcbSerialParams.StopBits = ONESTOPBIT;
-		dcbSerialParams.Parity = NOPARITY;
-		dcbSerialParams.fDtrControl = DTR_CONTROL_ENABLE;
-		dcbSerialParams.fRtsControl = RTS_CONTROL_ENABLE;
-		if (!SetCommState(st->hComm, &dcbSerialParams)) {
-		DWORD err = GetLastError();
-		sprintf(st->errBuffer, "SetCommState:%lu", err);
-		st->hasError = true;
-		CloseHandle(st->hComm);
-		st->hComm = INVALID_HANDLE_VALUE;
-	} else {
-		COMMTIMEOUTS timeouts;
-		memset(&timeouts, 0, sizeof(COMMTIMEOUTS));
-		timeouts.ReadIntervalTimeout = MAXDWORD;
-		timeouts.ReadTotalTimeoutMultiplier = 0;
-		timeouts.ReadTotalTimeoutConstant = 0;
-		timeouts.WriteTotalTimeoutMultiplier = 10;
-		timeouts.WriteTotalTimeoutConstant = 100;
-		SetCommTimeouts(st->hComm, &timeouts);
-		PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
-		st->readThread = new std::thread(_altauri_com_reader_loop, (void*){0}.mPtr);
-	}
-	}
-		#endif
-		{
-		std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
-		_com_states_map[(void*){0}.mPtr] = st;
-		{0}->_isOpenFlag = (st->hComm != INVALID_HANDLE_VALUE);
-	}
-		', this, portNameStr, baudRateInt);
-		var outOpen = getOutput("isOpen");
-		if (outOpen != null) outOpen.value = _isOpenFlag;
-	}
-	private function closeDevice():Void
-	{
-		if (!_isOpenFlag) return;
-		untyped __cpp__('
-		ComPortState* st = nullptr;
-		{
-		std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
-		auto _cps_it = _com_states_map.find((void*){0}.mPtr);
-		if (_cps_it != _com_states_map.end()) {
-		st = _cps_it->second;
-		_com_states_map.erase(_cps_it);
-	}
-	}
-		if (st) {
-		#ifdef _WIN32
-		st->isRunning = false;
-		if (st->hComm != INVALID_HANDLE_VALUE) {
-		CancelIoEx(st->hComm, NULL);
-	}
-		if (st->readThread && st->readThread->joinable()) {
-		st->readThread->join();
-	}
-		delete st->readThread;
-		if (st->hComm != INVALID_HANDLE_VALUE) {
-		PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
-		CloseHandle(st->hComm);
-	}
-		#endif
-		delete st;
-	}
-		', this);
-		_isOpenFlag = false;
-		var outOpen = getOutput("isOpen");
-		if (outOpen != null) outOpen.value = false;
-	}
-	private function sendToDevice(data:String):Void
-	{
-		untyped __cpp__('
-		ComPortState* _cps_stPtr = nullptr;
-		{
-		std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
-		auto _cps_it = _com_states_map.find((void*){0}.mPtr);
-		if (_cps_it != _com_states_map.end()) {
-		_cps_stPtr = _cps_it->second;
-	}
-	}
-		if (_cps_stPtr) {
-		#ifdef _WIN32
-		if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
-		const char* buffer = {1}.c_str();
-		DWORD bytesToWrite = (DWORD)strlen(buffer);
-		DWORD bytesWritten;
-		WriteFile(_cps_stPtr->hComm, buffer, bytesToWrite, &bytesWritten, NULL);
-	}
-		#endif
-	}
-		', this, data);
-	}
-	private function setDTRState(state:Bool):Void
-	{
-		untyped __cpp__('
-		ComPortState* _cps_stPtr = nullptr;
-		{
-		std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
-		auto _cps_it = _com_states_map.find((void*){0}.mPtr);
-		if (_cps_it != _com_states_map.end()) {
-		_cps_stPtr = _cps_it->second;
-	}
-	}
-		if (_cps_stPtr) {
-		#ifdef _WIN32
-		if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
-		if ({1}) {
-		EscapeCommFunction(_cps_stPtr->hComm, SETDTR);
-	} else {
-		EscapeCommFunction(_cps_stPtr->hComm, CLRDTR);
-	}
-	}
-		#endif
-	}
-		', this, state);
-	}
-	#end
+#if cpp
+private function openDevice():Void
+{
+if (_isOpenFlag) closeDevice();
+
+var portNameStr:String = getInput("portName").value;
+var baudRateInt:Int = Std.int(getInput("baudRate").value);
+
+untyped __cpp__('
+ComPortState* st = new ComPortState();
+st->hComm = INVALID_HANDLE_VALUE;
+st->readThread = nullptr;
+st->isRunning = false;
+st->hasRxData = false;
+st->hasError = false;
+st->rxBuffer[0] = 0;
+st->errBuffer[0] = 0;
+#ifdef _WIN32
+char fullPortName[20] = "";
+::String portStr = {1};
+const char* _cps_rawName = portStr.c_str();
+if (_cps_rawName[0] == (char)92) {
+strncpy(fullPortName, _cps_rawName, sizeof(fullPortName) - 1);
+} else {
+fullPortName[0] = (char)92;
+fullPortName[1] = (char)92;
+fullPortName[2] = (char)46;
+fullPortName[3] = (char)92;
+strncpy(fullPortName + 4, _cps_rawName, sizeof(fullPortName) - 5);
+}
+fullPortName[sizeof(fullPortName) - 1] = 0;
+st->hComm = CreateFileA(fullPortName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+if (st->hComm == INVALID_HANDLE_VALUE) {
+DWORD err = GetLastError();
+sprintf(st->errBuffer, "Open Failed:%lu", err);
+st->hasError = true;
+} else {
+SetupComm(st->hComm, 4096, 4096);
+DCB dcbSerialParams;
+memset(&dcbSerialParams, 0, sizeof(DCB));
+dcbSerialParams.DCBlength = sizeof(DCB);
+GetCommState(st->hComm, &dcbSerialParams);
+dcbSerialParams.BaudRate = (DWORD){2};
+dcbSerialParams.ByteSize = 8;
+dcbSerialParams.StopBits = ONESTOPBIT;
+dcbSerialParams.Parity = NOPARITY;
+dcbSerialParams.fDtrControl = DTR_CONTROL_ENABLE;
+dcbSerialParams.fRtsControl = RTS_CONTROL_ENABLE;
+if (!SetCommState(st->hComm, &dcbSerialParams)) {
+DWORD err = GetLastError();
+sprintf(st->errBuffer, "SetCommState:%lu", err);
+st->hasError = true;
+CloseHandle(st->hComm);
+st->hComm = INVALID_HANDLE_VALUE;
+} else {
+COMMTIMEOUTS timeouts;
+memset(&timeouts, 0, sizeof(COMMTIMEOUTS));
+timeouts.ReadIntervalTimeout = MAXDWORD;
+timeouts.ReadTotalTimeoutMultiplier = 0;
+timeouts.ReadTotalTimeoutConstant = 0;
+timeouts.WriteTotalTimeoutMultiplier = 10;
+timeouts.WriteTotalTimeoutConstant = 100;
+SetCommTimeouts(st->hComm, &timeouts);
+PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
+st->readThread = new std::thread(_altauri_com_reader_loop, (void*){0}.mPtr);
+}
+}
+#endif
+{
+std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
+_com_states_map[(void*){0}.mPtr] = st;
+{0}->_isOpenFlag = (st->hComm != INVALID_HANDLE_VALUE);
+}
+', this, portNameStr, baudRateInt);
+
+var outOpen = getOutput("isOpen");
+if (outOpen != null) outOpen.value = _isOpenFlag;
+}
+
+private function closeDevice():Void
+{
+if (!_isOpenFlag) return;
+
+untyped __cpp__('
+ComPortState* st = nullptr;
+{
+std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
+auto _cps_it = _com_states_map.find((void*){0}.mPtr);
+if (_cps_it != _com_states_map.end()) {
+st = _cps_it->second;
+_com_states_map.erase(_cps_it);
+}
+}
+if (st) {
+#ifdef _WIN32
+st->isRunning = false;
+if (st->hComm != INVALID_HANDLE_VALUE) {
+CancelIoEx(st->hComm, NULL);
+}
+if (st->readThread && st->readThread->joinable()) {
+st->readThread->join();
+}
+delete st->readThread;
+if (st->hComm != INVALID_HANDLE_VALUE) {
+PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
+CloseHandle(st->hComm);
+}
+#endif
+delete st;
+}
+', this);
+
+_isOpenFlag = false;
+var outOpen = getOutput("isOpen");
+if (outOpen != null) outOpen.value = false;
+}
+
+private function sendToDevice(data:String):Void
+{
+untyped __cpp__('
+ComPortState* _cps_stPtr = nullptr;
+{
+std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
+auto _cps_it = _com_states_map.find((void*){0}.mPtr);
+if (_cps_it != _com_states_map.end()) {
+_cps_stPtr = _cps_it->second;
+}
+}
+if (_cps_stPtr) {
+#ifdef _WIN32
+if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
+const char* buffer = {1}.c_str();
+DWORD bytesToWrite = (DWORD)strlen(buffer);
+DWORD bytesWritten;
+WriteFile(_cps_stPtr->hComm, buffer, bytesToWrite, &bytesWritten, NULL);
+}
+#endif
+}
+', this, data);
+}
+
+private function setDTRState(state:Bool):Void
+{
+untyped __cpp__('
+ComPortState* _cps_stPtr = nullptr;
+{
+std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
+auto _cps_it = _com_states_map.find((void*){0}.mPtr);
+if (_cps_it != _com_states_map.end()) {
+_cps_stPtr = _cps_it->second;
+}
+}
+if (_cps_stPtr) {
+#ifdef _WIN32
+if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
+if ({1}) {
+EscapeCommFunction(_cps_stPtr->hComm, SETDTR);
+} else {
+EscapeCommFunction(_cps_stPtr->hComm, CLRDTR);
+}
+}
+#endif
+}
+', this, state);
+}
+#end
+
 // =========================================================================
 // DEVICE OPERATION (HTML5 Web Serial API)
 // =========================================================================
-	#if html5
-	/**
-	* Open serial port using Web Serial API.
-	*
-	* NOTE: Web Serial API requires user gesture to request port.
-	* The first open() call will show a browser dialog to select port.
-	* Subsequent calls will reuse the granted permission.
-	*
-	* IMPORTANT: This method MUST be called from a user gesture context
-	* (e.g., button click in ComPortWidget). If called from update(),
-	* the browser will block the request.
-	*/
-	private function openDevice():Void
-	{
-		if (_isOpenFlag) closeDevice();
-		clearBuffer();
+#if html5
+/**
+ * Open serial port using Web Serial API.
+ *
+ * NOTE: Web Serial API requires user gesture to request port.
+ * The first open() call will show a browser dialog to select port.
+ * Subsequent calls will reuse the granted permission.
+ *
+ * IMPORTANT: This method MUST be called from a user gesture context
+ * (e.g., button click in ComPortWidget). If called from update(),
+ * the browser will block the request.
+ *
+ * v2.1 FIX: All Promise callbacks now use arrow functions (x) => {}
+ * to preserve lexical `this` binding. Previously, regular function(x) {}
+ * created its own `this` (undefined in strict mode), causing
+ * "Cannot read properties of undefined (reading 'onPortRequested')".
+ */
+private function openDevice():Void
+{
+if (_isOpenFlag) closeDevice();
+clearBuffer();
+
 // Get navigator.serial
-		var serial:Dynamic = untyped __js__("navigator.serial");
-		if (serial == null)
-		{
-			setError("Web Serial API not supported in this browser");
-			return;
-		}
-// Request port (async, requires user gesture)
-		untyped __js__("{0}.requestPort().then(function(port) { {1}.onPortRequested(port); }, function(err) { {1}.onPortRequestError(err); })",
-		serial, this);
-	}
-	/**
-	* Callback: port selected by user.
-	*/
-	public function onPortRequested(port:Dynamic):Void
-	{
-		_serialPort = port;
-		var baudRateInt:Int = 9600;
-		var baudC = getInput("baudRate");
-		if (baudC != null && baudC.value != null) baudRateInt = Std.int(baudC.value);
-		var options:Dynamic = {
-			baudRate: baudRateInt,
-			dataBits: 8,
-			stopBits: 1,
-			parity: "none",
-			bufferSize: 4096,
-			flowControl: "none"
-		};
-		untyped __js__("{0}.open({1}).then(function() { {2}.onPortOpened(); }, function(err) { {2}.onPortOpenError(err); })",
-					   _serialPort, options, this);
-	}
-	/**
-	* Callback: port opened successfully.
-	*/
-	public function onPortOpened():Void
-	{
-		_isOpenFlag = true;
-		var outOpen = getOutput("isOpen");
-		if (outOpen != null) outOpen.value = true;
-		startReadLoop();
-		trace('ComPortAtom: Port opened');
-	}
-	/**
-	* Callback: port open failed.
-	*/
-	public function onPortOpenError(err:Dynamic):Void
-	{
-		setError('Failed to open port: $err');
-	}
-	/**
-	* Callback: port request failed (user cancelled or API error).
-	*/
-	public function onPortRequestError(err:Dynamic):Void
-	{
-		setError('Failed to request port: $err');
-	}
-	/**
-	* Close serial port and release all streams.
-	*/
-	private function closeDevice():Void
-	{
-		if (!_isOpenFlag) return;
-		_isReading = false;
+var serial:Dynamic = untyped __js__("navigator.serial");
+if (serial == null)
+{
+setError("Web Serial API not supported in this browser");
+return;
+}
+
+// v2.1 FIX: Arrow functions preserve lexical `this`
+// Previously: .then(function(port) { this.onPortRequested(port); })
+// Now:        .then((port) => { this.onPortRequested(port); })
+untyped __js__("{0}.requestPort().then((port) => { {1}.onPortRequested(port); }, (err) => { {1}.onPortRequestError(err); })",
+serial, this);
+}
+
+/**
+ * Callback: port selected by user.
+ */
+public function onPortRequested(port:Dynamic):Void
+{
+_serialPort = port;
+
+var baudRateInt:Int = 9600;
+var baudC = getInput("baudRate");
+if (baudC != null && baudC.value != null) baudRateInt = Std.int(baudC.value);
+
+var options:Dynamic = {
+baudRate: baudRateInt,
+dataBits: 8,
+stopBits: 1,
+parity: "none",
+bufferSize: 4096,
+flowControl: "none"
+};
+
+// v2.1 FIX: Arrow functions preserve lexical `this`
+untyped __js__("{0}.open({1}).then(() => { {2}.onPortOpened(); }, (err) => { {2}.onPortOpenError(err); })",
+_serialPort, options, this);
+}
+
+/**
+ * Callback: port opened successfully.
+ */
+public function onPortOpened():Void
+{
+_isOpenFlag = true;
+var outOpen = getOutput("isOpen");
+if (outOpen != null) outOpen.value = true;
+startReadLoop();
+trace('ComPortAtom: Port opened');
+}
+
+/**
+ * Callback: port open failed.
+ */
+public function onPortOpenError(err:Dynamic):Void
+{
+setError('Failed to open port: $err');
+}
+
+/**
+ * Callback: port request failed (user cancelled or API error).
+ */
+public function onPortRequestError(err:Dynamic):Void
+{
+setError('Failed to request port: $err');
+}
+
+/**
+ * Close serial port and release all streams.
+ */
+private function closeDevice():Void
+{
+if (!_isOpenFlag) return;
+
+_isReading = false;
+
 // Close reader
-		if (_reader != null)
-		{
-			untyped __js__("{0}.cancel().catch(function(err) {}); {0}.releaseLock();", _reader);
-			_reader = null;
-		}
+if (_reader != null)
+{
+untyped __js__("{0}.cancel().catch((err) => {}); {0}.releaseLock();", _reader);
+_reader = null;
+}
+
 // Close writer
-		if (_writer != null)
-		{
-			untyped __js__("{0}.close().catch(function(err) {}); {0}.releaseLock();", _writer);
-			_writer = null;
-		}
+if (_writer != null)
+{
+untyped __js__("{0}.close().catch((err) => {}); {0}.releaseLock();", _writer);
+_writer = null;
+}
+
 // Close port
-		if (_serialPort != null)
-		{
-			untyped __js__("{0}.close().then(function() { {1}.onPortClosed(); }, function(err) { {1}.onPortCloseError(err); })",
-			_serialPort, this);
-			_serialPort = null;
-		}
-	}
-	/**
-	* Callback: port closed successfully.
-	*/
-	public function onPortClosed():Void
-	{
-		_isOpenFlag = false;
-		var outOpen = getOutput("isOpen");
-		if (outOpen != null) outOpen.value = false;
-		trace('ComPortAtom: Port closed');
-	}
-	/**
-	* Callback: port close failed.
-	*/
-	public function onPortCloseError(err:Dynamic):Void
-	{
-		setError('Failed to close port: $err');
-	}
-	/**
-	* Start asynchronous read loop.
-	*
-	* Reads chunks from serial port and writes to ring buffer.
-	* Runs continuously until _isReading is set to false.
-	*/
-	private function startReadLoop():Void
-	{
-		_isReading = true;
-		if (_serialPort == null) return;
-		var readable:Dynamic = untyped __js__("{0}.readable", _serialPort);
-		if (readable == null)
-		{
-			setError("Port has no readable stream");
-			return;
-		}
-		_reader = untyped __js__("{0}.getReader()", readable);
-		readChunk();
-	}
-	/**
-	* Recursive read loop.
-	*/
-	private function readChunk():Void
-	{
-		if (!_isReading || _isDisposed) return;
-		untyped __js__("{0}.read().then(function(result) { {1}.onReadResult(result); }, function(err) { {1}.onReadError(err); })",
-		_reader, this);
-	}
-	/**
-	* Callback: read result received.
-	*/
-	public function onReadResult(result:Dynamic):Void
-	{
-		if (result.done)
-		{
-			_isReading = false;
-			return;
-		}
+if (_serialPort != null)
+{
+// v2.1 FIX: Arrow functions preserve lexical `this`
+untyped __js__("{0}.close().then(() => { {1}.onPortClosed(); }, (err) => { {1}.onPortCloseError(err); })",
+_serialPort, this);
+_serialPort = null;
+}
+}
+
+/**
+ * Callback: port closed successfully.
+ */
+public function onPortClosed():Void
+{
+_isOpenFlag = false;
+var outOpen = getOutput("isOpen");
+if (outOpen != null) outOpen.value = false;
+trace('ComPortAtom: Port closed');
+}
+
+/**
+ * Callback: port close failed.
+ */
+public function onPortCloseError(err:Dynamic):Void
+{
+setError('Failed to close port: $err');
+}
+
+/**
+ * Start asynchronous read loop.
+ *
+ * Reads chunks from serial port and writes to ring buffer.
+ * Runs continuously until _isReading is set to false.
+ */
+private function startReadLoop():Void
+{
+_isReading = true;
+if (_serialPort == null) return;
+
+var readable:Dynamic = untyped __js__("{0}.readable", _serialPort);
+if (readable == null)
+{
+setError("Port has no readable stream");
+return;
+}
+
+_reader = untyped __js__("{0}.getReader()", readable);
+readChunk();
+}
+
+/**
+ * Recursive read loop.
+ */
+private function readChunk():Void
+{
+if (!_isReading || _isDisposed) return;
+
+// v2.1 FIX: Arrow functions preserve lexical `this`
+untyped __js__("{0}.read().then((result) => { {1}.onReadResult(result); }, (err) => { {1}.onReadError(err); })",
+_reader, this);
+}
+
+/**
+ * Callback: read result received.
+ */
+public function onReadResult(result:Dynamic):Void
+{
+if (result.done)
+{
+_isReading = false;
+return;
+}
+
 // Convert Uint8Array to Array<Int>
-		var bytes:Array<Int> = [];
-		var value:Dynamic = result.value;
-		var len:Int = untyped __js__("{0}.length", value);
-		for (i in 0...len)
-		{
-			bytes.push(untyped __js__("{0}[{1}]", value, i));
-		}
-		writeToBuffer(bytes);
-		_hasPendingRx = true;
+var bytes:Array<Int> = [];
+var value:Dynamic = result.value;
+var len:Int = untyped __js__("{0}.length", value);
+for (i in 0...len)
+{
+bytes.push(untyped __js__("{0}[{1}]", value, i));
+}
+
+writeToBuffer(bytes);
+_hasPendingRx = true;
+
 // Continue reading
-		readChunk();
-	}
-	/**
-	* Callback: read error.
-	*/
-	public function onReadError(err:Dynamic):Void
-	{
-		if (_isReading && !_isDisposed)
-		{
-			setError('Read error: $err');
-		}
-	}
-	/**
-	* Send data to serial port.
-	*
-	* @param data String data to send (will be encoded as UTF-8)
-	*/
-	private function sendToDevice(data:String):Void
-	{
-		if (_serialPort == null || !_isOpenFlag) return;
-		var writable:Dynamic = untyped __js__("{0}.writable", _serialPort);
-		if (writable == null)
-		{
-			setError("Port has no writable stream");
-			return;
-		}
-		_writer = untyped __js__("{0}.getWriter()", writable);
-		var encoder:Dynamic = untyped __js__("new TextEncoder()");
-		var encoded:Dynamic = untyped __js__("{0}.encode({1})", encoder, data);
-		untyped __js__("{0}.write({1}).then(function() { {2}.onWriteSuccess(); }, function(err) { {2}.onWriteError(err); })",
-		_writer, encoded, this);
-	}
-	/**
-	* Callback: write successful.
-	*/
-	public function onWriteSuccess():Void
-	{
-		if (_writer != null)
-		{
-			untyped __js__("{0}.releaseLock()", _writer);
-			_writer = null;
-		}
-	}
-	/**
-	* Callback: write error.
-	*/
-	public function onWriteError(err:Dynamic):Void
-	{
-		setError('Write error: $err');
-		if (_writer != null)
-		{
-			untyped __js__("{0}.releaseLock()", _writer);
-			_writer = null;
-		}
-	}
-	/**
-	* Set DTR state.
-	*
-	* NOTE: Web Serial API does not directly support DTR control.
-	* This is a placeholder for future implementation if needed.
-	*
-	* @param state true = DTR high, false = DTR low
-	*/
-	private function setDTRState(state:Bool):Void
-	{
-		trace('ComPortAtom: DTR control not supported in Web Serial API');
-	}
-	/**
-	* Set error state.
-	*
-	* @param msg Error message
-	*/
-	private function setError(msg:String):Void
-	{
-		_pendingErrStr = msg;
-		_hasPendingErr = true;
-	}
-	#end
+readChunk();
+}
+
+/**
+ * Callback: read error.
+ */
+public function onReadError(err:Dynamic):Void
+{
+if (_isReading && !_isDisposed)
+{
+setError('Read error: $err');
+}
+}
+
+/**
+ * Send data to serial port.
+ *
+ * @param data String data to send (will be encoded as UTF-8)
+ */
+private function sendToDevice(data:String):Void
+{
+if (_serialPort == null || !_isOpenFlag) return;
+
+var writable:Dynamic = untyped __js__("{0}.writable", _serialPort);
+if (writable == null)
+{
+setError("Port has no writable stream");
+return;
+}
+
+_writer = untyped __js__("{0}.getWriter()", writable);
+var encoder:Dynamic = untyped __js__("new TextEncoder()");
+var encoded:Dynamic = untyped __js__("{0}.encode({1})", encoder, data);
+
+// v2.1 FIX: Arrow functions preserve lexical `this`
+untyped __js__("{0}.write({1}).then(() => { {2}.onWriteSuccess(); }, (err) => { {2}.onWriteError(err); })",
+_writer, encoded, this);
+}
+
+/**
+ * Callback: write successful.
+ */
+public function onWriteSuccess():Void
+{
+if (_writer != null)
+{
+untyped __js__("{0}.releaseLock()", _writer);
+_writer = null;
+}
+}
+
+/**
+ * Callback: write error.
+ */
+public function onWriteError(err:Dynamic):Void
+{
+setError('Write error: $err');
+if (_writer != null)
+{
+untyped __js__("{0}.releaseLock()", _writer);
+_writer = null;
+}
+}
+
+/**
+ * Set DTR state.
+ *
+ * NOTE: Web Serial API does not directly support DTR control.
+ * This is a placeholder for future implementation if needed.
+ *
+ * @param state true = DTR high, false = DTR low
+ */
+private function setDTRState(state:Bool):Void
+{
+trace('ComPortAtom: DTR control not supported in Web Serial API');
+}
+
+/**
+ * Set error state.
+ *
+ * @param msg Error message
+ */
+private function setError(msg:String):Void
+{
+_pendingErrStr = msg;
+_hasPendingErr = true;
+}
+#end
+
 // =========================================================================
 // PULSE TIMERS (COMMON)
 // =========================================================================
-	private function updatePulseTimers(dt:Float):Void
-	{
-		if (_rxTimer > 0)
-		{
-			_rxTimer -= dt;
-			if (_rxTimer <= 0) { var c = getOutput("rxTick"); if (c != null) c.value = false; }
-		}
-		if (_txTimer > 0)
-		{
-			_txTimer -= dt;
-			if (_txTimer <= 0) { var c = getOutput("txTick"); if (c != null) c.value = false; }
-		}
-		if (_errTimer > 0)
-		{
-			_errTimer -= dt;
-			if (_errTimer <= 0) { var c = getOutput("errorTick"); if (c != null) c.value = false; }
-		}
-	}
+private function updatePulseTimers(dt:Float):Void
+{
+if (_rxTimer > 0)
+{
+_rxTimer -= dt;
+if (_rxTimer <= 0) { var c = getOutput("rxTick"); if (c != null) c.value = false; }
+}
+if (_txTimer > 0)
+{
+_txTimer -= dt;
+if (_txTimer <= 0) { var c = getOutput("txTick"); if (c != null) c.value = false; }
+}
+if (_errTimer > 0)
+{
+_errTimer -= dt;
+if (_errTimer <= 0) { var c = getOutput("errorTick"); if (c != null) c.value = false; }
+}
+}
 }
 
 ================================================================================
