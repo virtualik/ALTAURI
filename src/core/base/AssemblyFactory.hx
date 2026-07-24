@@ -200,11 +200,11 @@ class AssemblyFactory
                                 #else
                                 trace('⚠️ MiniAudioAtom requires C++ target');
                                 #end
-                        case "ComPortAtom":
-                                #if cpp
-                                atom = new library.drivers.ComPortAtom(id);
-                                trace('📡 AssemblyFactory: Created ComPortAtom...');
-                                #end
+								
+						case "ComPortAtom":
+								atom = new library.drivers.ComPortAtom(id);
+								trace(' AssemblyFactory: Created ComPortAtom...');
+								
                         case "ComEnumeratorAtom":
                                 #if cpp
                                 atom = new library.drivers.ComEnumeratorAtom(id);

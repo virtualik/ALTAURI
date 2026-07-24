@@ -20,22 +20,24 @@ import ui.contextmenu.data.RecentMenuTracker;
  * ║  - Atoms: Grid of atom types from AtomRegistry                            ║
  * ║  - Assemblies: Grid of user-created assemblies                            ║
  * ║                                                                           ║
+ * ║  v2.1: Added view mode toggle (LIST/GRID) buttons next to SearchBar       ║
+ * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  ContentPanel (Sprite)                                              │  ║
  * ║  │                                                                     │  ║
  * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
- * ║  │  │  [SearchBar]                                                  │  │  ║
+ * ║  │  │  [SearchBar]  [≡] []  ← View mode toggle buttons              │  │  ║
  * ║  │  ├───────────────────────────────────────────────────────────────┤  │  ║
  * ║  │  │  [RecentSection] (if Recent category)                         │  │  ║
  * ║  │  ├───────────────────────────────────────────────────────────────┤  │  ║
  * ║  │  │  [MenuItemGrid or List]                                       │  │  ║
- * ║  │  │  ┌────┐ ┌────┐ ┌────┐                                         │  │  ║
- * ║  │  │  │Btn │ │LED │ │Tog │  3 columns                              │  │  ║
- * ║  │  │  └────┘ └────┘ └────┘                                         │  │  ║
+ * ║  │  │  ┌────┐ ┌────┐ ┌────┐ ┌────┐                                  │  │  ║
+ * ║  │  │  │Btn │ │LED │ │Tog │ │Sig │  4 columns                       │  │  ║
+ * ║  │  │  └────┘ └────┘ └────┘ └────┘                                  │  │  ║
  * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
  * ║  │                                                                     │  ║
- * ║  │  Width: 450px (fixed)                                               │  ║
+ * ║  │  Width: 480px (fixed)                                               │  ║
  * ║  │  Height: Auto (based on content)                                    │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
@@ -46,6 +48,11 @@ class ContentPanel extends Sprite
 	public var onEntryClick:MenuEntry -> Void;
 	private var _searchBar:SearchBar;
 	private var _recentSection:RecentSection;
+// NEW: View mode toggle buttons
+	private var _viewToggleContainer:Sprite;
+	private var _btnList:Sprite;
+	private var _btnGrid:Sprite;
+	private var _currentDisplayMode:DisplayMode = DisplayMode.GRID;
 // NEW: Dedicated container for scrollable content
 	private var _scrollContainer:Sprite;
 	private var _grid:MenuItemGrid;
@@ -61,6 +68,9 @@ class ContentPanel extends Sprite
 	private static inline var RECENT_HEIGHT:Float = 60.0;
 	private static inline var PADDING:Float = 10.0;
 	private static inline var MAX_CONTENT_HEIGHT:Float = 315.0;
+	// View toggle button dimensions
+	private static inline var TOGGLE_BTN_SIZE:Float = 28.0;
+	private static inline var TOGGLE_BTN_SPACING:Float = 5.0;
 	public function new()
 	{
 		super();
@@ -70,33 +80,51 @@ class ContentPanel extends Sprite
 	private function buildUI():Void
 	{
 // 1. Background (covers entire panel)
-		graphics.beginFill(0x373737, 1.0);
+		graphics.beginFill(0x1a1a24);
 		graphics.drawRect(0, 0, PANEL_WIDTH, MAX_CONTENT_HEIGHT);
 		graphics.endFill();
 // Enable mouse interaction to block events from passing through to Editor
 		mouseEnabled = true;
 		mouseChildren = true;
 		addEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
-// 2. Search bar (Fixed at top, NEVER scrolls)
-		_searchBar = new SearchBar(PANEL_WIDTH - PADDING * 2);
+// 2. Search bar (narrower to fit toggle buttons)
+		var searchBarWidth = PANEL_WIDTH - PADDING * 2 - TOGGLE_BTN_SIZE * 2 - TOGGLE_BTN_SPACING * 3;
+		_searchBar = new SearchBar(searchBarWidth);
 		_searchBar.x = PADDING;
 		_searchBar.y = PADDING;
 		_searchBar.onSearch = onSearch;
 		addChild(_searchBar);
-// 3. Recent section (Fixed below search, NEVER scrolls)
+// 3. View mode toggle buttons
+		_viewToggleContainer = new Sprite();
+		_viewToggleContainer.x = PADDING + searchBarWidth + TOGGLE_BTN_SPACING;
+		_viewToggleContainer.y = PADDING;
+		addChild(_viewToggleContainer);
+// List button (≡)
+		_btnList = createToggleButton("≡", DisplayMode.LIST);
+		_btnList.x = 0;
+		_btnList.y = 0;
+		_viewToggleContainer.addChild(_btnList);
+// Grid button (⊞)
+		_btnGrid = createToggleButton("", DisplayMode.GRID);
+		_btnGrid.x = TOGGLE_BTN_SIZE + TOGGLE_BTN_SPACING;
+		_btnGrid.y = 0;
+		_viewToggleContainer.addChild(_btnGrid);
+// Set initial state
+		updateToggleButtons();
+// 4. Recent section (Fixed below search, NEVER scrolls)
 		_recentSection = new RecentSection(PANEL_WIDTH - PADDING * 2);
 		_recentSection.x = PADDING;
 		_recentSection.y = PADDING + SEARCH_HEIGHT + PADDING;
 		_recentSection.onEntryClick = onEntryClicked;
 		_recentSection.visible = false;
 		addChild(_recentSection);
-// 4. Scroll Container (Holds ONLY the grid/list)
+// 5. Scroll Container (Holds ONLY the grid/list)
 		_scrollContainer = new Sprite();
 		_scrollContainer.x = PADDING;
 // Initial Y will be set in updateContent based on Recent visibility
 		_scrollContainer.y = PADDING + SEARCH_HEIGHT + PADDING;
 		addChild(_scrollContainer);
-// 5. Grid (4 columns) and List are children of _scrollContainer
+// 6. Grid (4 columns) and List are children of _scrollContainer
 		_grid = new MenuItemGrid(4);
 		_grid.x = 0; // Relative to scroll container
 		_grid.y = 0;
@@ -106,6 +134,102 @@ class ContentPanel extends Sprite
 		_listContainer.x = 0; // Relative to scroll container
 		_listContainer.y = 0;
 		_scrollContainer.addChild(_listContainer);
+	}
+	/**
+	* Create a toggle button for view mode.
+	*
+	* @param icon Icon character (≡ for list, ⊞ for grid)
+	* @param mode Display mode this button represents
+	* @return Sprite button
+	*/
+	private function createToggleButton(icon:String, mode:DisplayMode):Sprite
+	{
+		var btn = new Sprite();
+		btn.graphics.beginFill(0x333344);
+		btn.graphics.lineStyle(1, 0x555566);
+		btn.graphics.drawRoundRect(0, 0, TOGGLE_BTN_SIZE, TOGGLE_BTN_SIZE, 4, 4);
+		btn.graphics.endFill();
+		var tf = new openfl.text.TextField();
+		tf.defaultTextFormat = new openfl.text.TextFormat("_sans", 16, 0xAAAAAA, true);
+		tf.text = icon;
+		tf.width = TOGGLE_BTN_SIZE;
+		tf.height = TOGGLE_BTN_SIZE;
+		tf.selectable = false;
+		tf.mouseEnabled = false;
+		var fmt = new openfl.text.TextFormat("_sans", 16, 0xAAAAAA, true, null, null, null, null, "center");
+		tf.setTextFormat(fmt);
+		btn.addChild(tf);
+		btn.buttonMode = true;
+		btn.useHandCursor = true;
+		btn.addEventListener(MouseEvent.CLICK, function(e:MouseEvent)
+		{
+			onViewModeToggle(mode);
+		});
+		return btn;
+	}
+	/**
+	* Handle view mode toggle button click.
+	*
+	* @param mode New display mode
+	*/
+	private function onViewModeToggle(mode:DisplayMode):Void
+	{
+		if (_currentDisplayMode == mode) return;
+		_currentDisplayMode = mode;
+		updateToggleButtons();
+// Refresh current content with new mode
+		if (_currentCategory != null && _currentEntries != null)
+		{
+			updateContent(_currentCategory, _currentEntries);
+		}
+	}
+	/**
+	* Update toggle button visual states.
+	*/
+	private function updateToggleButtons():Void
+	{
+// List button
+		if (_currentDisplayMode == DisplayMode.LIST)
+		{
+			_btnList.graphics.clear();
+			_btnList.graphics.beginFill(0x00AAFF);
+			_btnList.graphics.lineStyle(1, 0x00AAFF);
+			_btnList.graphics.drawRoundRect(0, 0, TOGGLE_BTN_SIZE, TOGGLE_BTN_SIZE, 4, 4);
+			_btnList.graphics.endFill();
+			var tf = cast(_btnList.getChildAt(0), openfl.text.TextField);
+			tf.textColor = 0xFFFFFF;
+		}
+		else
+		{
+			_btnList.graphics.clear();
+			_btnList.graphics.beginFill(0x333344);
+			_btnList.graphics.lineStyle(1, 0x555566);
+			_btnList.graphics.drawRoundRect(0, 0, TOGGLE_BTN_SIZE, TOGGLE_BTN_SIZE, 4, 4);
+			_btnList.graphics.endFill();
+			var tf = cast(_btnList.getChildAt(0), openfl.text.TextField);
+			tf.textColor = 0xAAAAAA;
+		}
+// Grid button
+		if (_currentDisplayMode == DisplayMode.GRID)
+		{
+			_btnGrid.graphics.clear();
+			_btnGrid.graphics.beginFill(0x00AAFF);
+			_btnGrid.graphics.lineStyle(1, 0x00AAFF);
+			_btnGrid.graphics.drawRoundRect(0, 0, TOGGLE_BTN_SIZE, TOGGLE_BTN_SIZE, 4, 4);
+			_btnGrid.graphics.endFill();
+			var tf = cast(_btnGrid.getChildAt(0), openfl.text.TextField);
+			tf.textColor = 0xFFFFFF;
+		}
+		else
+		{
+			_btnGrid.graphics.clear();
+			_btnGrid.graphics.beginFill(0x333344);
+			_btnGrid.graphics.lineStyle(1, 0x555566);
+			_btnGrid.graphics.drawRoundRect(0, 0, TOGGLE_BTN_SIZE, TOGGLE_BTN_SIZE, 4, 4);
+			_btnGrid.graphics.endFill();
+			var tf = cast(_btnGrid.getChildAt(0), openfl.text.TextField);
+			tf.textColor = 0xAAAAAA;
+		}
 	}
 	public function updateContent(category:MenuCategory, entries:Array<MenuEntry>):Void
 	{
@@ -129,7 +253,8 @@ class ContentPanel extends Sprite
 			_recentSection.visible = false;
 			_scrollContainer.y = PADDING + SEARCH_HEIGHT + PADDING;
 		}
-		if (category.id == MenuCategory.EDITOR)
+// Use current display mode instead of hardcoded category check
+		if (_currentDisplayMode == DisplayMode.LIST)
 		{
 			displayAsList(entries);
 		}
@@ -176,7 +301,7 @@ class ContentPanel extends Sprite
 				filtered.push(entry);
 			}
 		}
-		if (_currentCategory.id == MenuCategory.EDITOR)
+		if (_currentDisplayMode == DisplayMode.LIST)
 		{
 			displayAsList(filtered);
 		}

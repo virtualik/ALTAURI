@@ -165,10 +165,11 @@ class DeviceWidgetFactory
 				new TextWidget(atom, "out", false);
 			case "signalgenerator":
 				new SignalGeneratorWidget(atom);
-				#if cpp
+
 			case "comportatom", "com port":
 				new ComPortWidget(atom);
-			case "comenumeratoratom", "com enumerator":
+			#if cpp
+				case "comenumeratoratom", "com enumerator":
 				new ComEnumeratorWidget(atom);
 			case "websocketatom", "websocket":
 				new WEBSocketWidget(atom);

@@ -1,124 +1,221 @@
+// FILE: library/AtomRegistry.hx
 package library;
-
 import core.data.Blueprint;
 import core.types.ContactType;
 
 /**
- * ATOM REGISTRY v2.4 (Icon ID Support + Fixed Arguments)
- * 
- * Central registry for all atom type blueprints.
- * Manages both native (built-in) and custom (user-created) atoms.
- * 
- * Architecture:
- * ┌─────────────────────────────────────────────────────────────────────────┐
- * │   AtomRegistry (Static Singleton)                                       │
- * │                                                                         │
- * │   ┌─────────────────────────────────────────────────────────────────┐   │
- * │   │  _blueprints:Map<String, Blueprint>                             │   │
- * │   │                                                                 │   │
- * │   │  Native Atoms (registered in initialize()):                     │   │
- * │   │  - Button, LED, Toggle, TextInput, Relay                        │   │
- * │   │  - SignalGenerator, MiniAudioAtom, SystemVUMeterAtom            │   │
- * │   │  - ComPortAtom, ComEnumeratorAtom, Oscilloscope                 │   │
- * │   └─────────────────────────────────────────────────────────────────┘   │
- * │                                                                         │
- * │   Public API:                                                           │
- * │   - initialize()      → Register all native atoms                       │
- * │   - get(id)           → Retrieve blueprint by ID                        │
- * │   - getAllIds()       → Get list of all registered atom types           │
- * │   - registerBlueprint → Add custom blueprint                            │
- * │   - remove(id)        → Remove blueprint (for deletion)                 │
- * │   - scanFolder(path)  → Load all .atom files from directory             │
- * │   - loadAtomFile(path)→ Parse and register single .atom file            │
- * └─────────────────────────────────────────────────────────────────────────┘
- * 
- * v2.4 Changes:
- * - Added `iconId` parameter to `reg()` function.
- * - Fixed argument shifting in `PassThroughAtom` registration.
- * - Explicitly defined all 8 arguments in all `reg()` calls for consistency.
- */
+* ╔═══════════════════════════════════════════════════════════════════════════╗
+* ║                     ATOM REGISTRY v3.0                                    ║
+* ║          (Icon ID Support + Platform Filtering + Fixed Arguments)         ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  Central registry for all atom type blueprints.                           ║
+* ║  Manages both native (built-in) and custom (user-created) atoms.          ║
+* ║                                                                           ║
+* ║  Architecture:                                                            ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │   AtomRegistry (Static Singleton)                                   │  ║
+* ║  │                                                                     │  ║
+* ║  │   ┌─────────────────────────────────────────────────────────────┐   │  ║
+* ║  │   │  _blueprints:Map<String, Blueprint>                         │   │  ║
+* ║  │   │                                                             │   │  ║
+* ║  │   │  Native Atoms (registered in initialize()):                 │   │  ║
+* ║  │   │  - Button, LED, Toggle, TextInput, Relay                    │   │  ║
+* ║  │   │  - SignalGenerator, MiniAudioAtom, SystemVUMeterAtom        │   │  ║
+* ║  │   │  - ComPortAtom, ComEnumeratorAtom, Oscilloscope             │   │  ║
+* ║  │   └─────────────────────────────────────────────────────────────┘   │  ║
+* ║  │                                                                     │  ║
+* ║  │   Public API:                                                       │  ║
+* ║  │   - initialize()      → Register all native atoms                   │  ║
+* ║  │   - get(id)           → Retrieve blueprint by ID                    │  ║
+* ║  │   - getAllIds()       → Get list of all registered atom types       │  ║
+* ║  │   - getFilteredIds()  → Get IDs filtered by current platform (v3.0) │  ║
+* ║  │   - registerBlueprint → Add custom blueprint                        │  ║
+* ║  │   - remove(id)        → Remove blueprint (for deletion)             │  ║
+* ║  │   - scanFolder(path)  → Load all .atom files from directory         │  ║
+* ║  │   - loadAtomFile(path)→ Parse and register single .atom file        │  ║
+* ║  │   - getCurrentPlatform() → Get current target platform string       │  ║
+* ║  │   - isAvailableForPlatform(bp) → Check if blueprint is available    │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║                                                                           ║
+* ║  v3.0 Changes:                                                            ║
+* ║  - Added platform filtering support                                       ║
+* ║  - Added getCurrentPlatform() to detect current target                    ║
+* ║  - Added getFilteredIds() to return only platform-compatible atoms        ║
+* ║  - Added isAvailableForPlatform() helper                                  ║
+* ║                                                                           ║
+* ║  v2.4 Changes:                                                            ║
+* ║  - Added `iconId` parameter to `reg()` function.                          ║
+* ║  - Fixed argument shifting in `PassThroughAtom` registration.             ║
+* ║  - Explicitly defined all 8 arguments in all `reg()` calls for consistency.║
+* ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
 class AtomRegistry
 {
     private static var _initialized:Bool = false;
     private static var _blueprints:Map<String, Blueprint> = new Map();
-    
+
     /**
-     * Custom library path for user-created assemblies.
-     * Set during ProjectManager.init().
-     */
+    * Custom library path for user-created assemblies.
+    * Set during ProjectManager.init().
+    */
     public static var customLibraryPath:String = "";
-    
+
     /**
-     * Internal helper to register a blueprint with common parameters.
-     * 
-     * @param id          Unique identifier (e.g., "Button", "SignalGenerator")
-     * @param name        Human-readable name
-     * @param pins        Array of PinDef describing inputs/outputs
-     * @param logic       Optional processing function (for native atoms)
-     * @param deviceType  DeviceView type hint (e.g., "button", "oscilloscope")
-     * @param isNative    True if this is a built-in atom (cannot be edited)
-     * @param isActive    True if this atom requires DriverManager updates
-     * @param iconId      Identifier for the icon asset (e.g., "signal_generator")
-     */
+    * Internal helper to register a blueprint with common parameters.
+    *
+    * @param id          Unique identifier (e.g., "Button", "SignalGenerator")
+    * @param name        Human-readable name
+    * @param pins        Array of PinDef describing inputs/outputs
+    * @param logic       Optional processing function (for native atoms)
+    * @param deviceType  DeviceView type hint (e.g., "button", "oscilloscope")
+    * @param isNative    True if this is a built-in atom (cannot be edited)
+    * @param isActive    True if this atom requires DriverManager updates
+    * @param iconId      Identifier for the icon asset (e.g., "signal_generator")
+    * @param platforms   Target platforms (null = all platforms)
+    */
     private static function reg(
-        id:String, 
-        name:String, 
-        pins:Array<core.data.Blueprint.PinDef>, 
-        ?logic:Dynamic = null, 
-        ?deviceType:String = null, 
-        ?isNative:Bool = true, 
+        id:String,
+        name:String,
+        pins:Array<core.data.Blueprint.PinDef>,
+        ?logic:Dynamic = null,
+        ?deviceType:String = null,
+        ?isNative:Bool = true,
         ?isActive:Bool = false,
-        ?iconId:String = null
+        ?iconId:String = null,
+        ?platforms:Array<String> = null
     ):Void
     {
-        var bp = new Blueprint(id, name, pins, null);
+        var bp = new Blueprint(id, name, pins, null, null, null, null, platforms);
         bp.deviceType = deviceType;
         bp.isNative = isNative;
         bp.isActive = isActive;
-        bp.iconId = iconId; // <-- NEW: Assign iconId to Blueprint
+        bp.iconId = iconId;
         _blueprints.set(id, bp);
     }
-    
+
     /**
-     * Get all registered atom type IDs.
-     * 
-     * @return Array of blueprint IDs (both native and custom)
-     */
+    * Get all registered atom type IDs.
+    *
+    * @return Array of blueprint IDs (both native and custom)
+    */
     public static function getAllIds():Array<String>
     {
         return [for (key in _blueprints.keys()) key];
     }
-    
+
+    // =========================================================================
+    // v3.0: PLATFORM FILTERING API
+    // =========================================================================
     /**
-     * Initialize the registry with all native (built-in) atoms.
-     * Called once at application startup.
-     */
+    * v3.0: Get current target platform string.
+    *
+    * Uses Haxe conditional compilation to detect the current target.
+    * Returns:
+    *   - "html5" for HTML5 target (browser)
+    *   - "cpp" for C++ target (Windows/Linux native)
+    *   - "unknown" if platform cannot be determined
+    *
+    * @return Current platform identifier
+    */
+    public static function getCurrentPlatform():String
+    {
+        #if html5
+        return "html5";
+        #elseif cpp
+        return "cpp";
+        #else
+        return "unknown";
+        #end
+    }
+
+    /**
+    * v3.0: Check if a blueprint is available for a specific platform.
+    *
+    * A blueprint is available if:
+    *   - platforms is null (available on all platforms)
+    *   - platforms is empty array (available on all platforms)
+    *   - platforms contains the target platform
+    *
+    * @param bp       Blueprint to check
+    * @param platform Target platform string
+    * @return true if blueprint is available for the platform
+    */
+    public static function isAvailableForPlatform(bp:Blueprint, platform:String):Bool
+    {
+        if (bp.platforms == null || bp.platforms.length == 0)
+        {
+            return true; // Available on all platforms
+        }
+        return bp.platforms.indexOf(platform) != -1;
+    }
+
+    /**
+    * v3.0: Get atom type IDs filtered by current platform.
+    *
+    * Returns only blueprints that are available for the current target platform.
+    * Blueprints with null/empty platforms array are considered available on all platforms.
+    *
+    * @return Array of blueprint IDs compatible with current platform
+    */
+    public static function getFilteredIds():Array<String>
+    {
+        var currentPlatform = getCurrentPlatform();
+        var filteredIds:Array<String> = [];
+        for (key in _blueprints.keys())
+        {
+            var bp = _blueprints.get(key);
+            if (bp != null && isAvailableForPlatform(bp, currentPlatform))
+            {
+                filteredIds.push(key);
+            }
+        }
+        return filteredIds;
+    }
+
+    /**
+    * v3.0: Check if a blueprint is available for the current platform.
+    *
+    * Convenience method that combines getCurrentPlatform() and isAvailableForPlatform().
+    *
+    * @param bp Blueprint to check
+    * @return true if blueprint is available for current platform
+    */
+    public static function isAvailableForCurrentPlatform(bp:Blueprint):Bool
+    {
+        return isAvailableForPlatform(bp, getCurrentPlatform());
+    }
+    // =========================================================================
+
+    /**
+    * Initialize the registry with all native (built-in) atoms.
+    * Called once at application startup.
+    */
     public static function initialize():Void
     {
         if (_initialized) return;
-        
+
         // =================================================================
         // NATIVE ATOMS REGISTRATION
         // =================================================================
-        
         // --- Electro / UI ---
         reg("Button", "Push Button", [
             {name: "out", type: OUTPUT, dataType: "bool"}
         ], null, "button", true, false, "button");
-        
+
         reg("LED", "LED Indicator", [
             {name: "in", type: INPUT, dataType: "bool"}
         ], null, "led", true, false, "led");
-        
+
         reg("Toggle", "Toggle Switch", [
             {name: "out", type: OUTPUT, dataType: "bool"}
         ], null, "toggle", true, false, "toggle");
-        
+
         reg("TextInput", "Text Input", [
             {name: "set", type: INPUT, dataType: "string"},
             {name: "out", type: OUTPUT, dataType: "string"}
         ], null, "textinput", true, false, "textinput");
-        
+
         reg("Relay", "Relay", [
             {name: "signal", type: INPUT, dataType: "any"},
             {name: "control", type: INPUT, dataType: "bool"},
@@ -140,28 +237,27 @@ class AtomRegistry
             {name: "lineCount",  type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Lines"},
             {name: "cursorLine", type: OUTPUT, dataType: "int",    priority: OPTIONAL, label: "Cursor"}
         ], null, "textarea", true, false, "textarea");
-        
+
         // =================================================================
         // ACTIVE DRIVERS (require DriverManager updates)
         // =================================================================
-        
         reg("SignalGenerator", "Signal Generator", [
-            {name: "freq", type: INPUT, defaultValue: 1.0, dataType: "float", 
+            {name: "freq", type: INPUT, defaultValue: 1.0, dataType: "float",
              priority: IMPORTANT, label: "Freq", visibleInEditor: true},
-            {name: "quantum", type: INPUT, defaultValue: 0.1, dataType: "float", 
+            {name: "quantum", type: INPUT, defaultValue: 0.1, dataType: "float",
              priority: OPTIONAL, visibleInEditor: false},
-            {name: "mode", type: INPUT, defaultValue: 3, dataType: "int", 
+            {name: "mode", type: INPUT, defaultValue: 3, dataType: "int",
              priority: IMPORTANT, label: "Mode", visibleInEditor: true},
             {name: "out", type: OUTPUT, dataType: "float", priority: CRITICAL},
             {name: "changed", type: OUTPUT, dataType: "bool", priority: OPTIONAL}
         ], null, "panel", true, true, "signal_generator");
-        
+
         reg("BufferingAtom", "Audio Buffer", [
-            {name: "bufferSize", type: INPUT, defaultValue: 512, dataType: "int", 
+            {name: "bufferSize", type: INPUT, defaultValue: 512, dataType: "int",
              priority: IMPORTANT, label: "Size", visibleInEditor: true},
-            {name: "quantum", type: INPUT, defaultValue: 0.1, dataType: "float", 
+            {name: "quantum", type: INPUT, defaultValue: 0.1, dataType: "float",
              priority: OPTIONAL, visibleInEditor: false},
-            {name: "mode", type: INPUT, defaultValue: 0, dataType: "int", 
+            {name: "mode", type: INPUT, defaultValue: 0, dataType: "int",
              priority: IMPORTANT, label: "Mode", visibleInEditor: true},
             {name: "in", type: INPUT, dataType: "float", priority: CRITICAL},
             {name: "buffer", type: OUTPUT, dataType: "array", priority: CRITICAL},
@@ -169,7 +265,35 @@ class AtomRegistry
             {name: "count", type: OUTPUT, dataType: "int", priority: IMPORTANT, label: "Count"},
             {name: "full", type: OUTPUT, dataType: "bool", priority: IMPORTANT, label: "Full"}
         ], null, "buffer", true, true, "buffering");
-        
+
+        // =========================================================================
+        // CROSS-PLATFORM DRIVERS (C++ and HTML5)
+        // =========================================================================
+        // ComPortAtom is now registered for BOTH platforms, as it has dual implementation.
+        reg("ComPortAtom", "COM Port", [
+            {name: "portName",  type: INPUT,  defaultValue: "COM13", dataType: "string", priority: IMPORTANT, label: "Port"},
+            {name: "baudRate",  type: INPUT,  defaultValue: 9600,   dataType: "int",    priority: IMPORTANT, label: "Baud"},
+            {name: "bufferSize",type: INPUT,  defaultValue: 4096,   dataType: "int",    priority: OPTIONAL,  label: "BufSize"},
+            {name: "chunkSize", type: INPUT,  defaultValue: 256,    dataType: "int",    priority: OPTIONAL,  label: "Chunk"},
+            {name: "enabled",   type: INPUT,  defaultValue: true,   dataType: "bool",   priority: OPTIONAL,  label: "Enabled"},
+            {name: "open",      type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL},
+            {name: "close",     type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL},
+            {name: "send",      type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL},
+            {name: "txData",    type: INPUT,  defaultValue: "",     dataType: "string", priority: OPTIONAL},
+            {name: "setDTR",    type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL},
+            {name: "isOpen",    type: OUTPUT, dataType: "bool",     priority: CRITICAL},
+            {name: "rxData",    type: OUTPUT, dataType: "string",   priority: IMPORTANT, label: "RX"},
+            {name: "rxTick",    type: OUTPUT, dataType: "bool",     priority: INTERNAL},
+            {name: "txTick",    type: OUTPUT, dataType: "bool",     priority: INTERNAL},
+            {name: "error",     type: OUTPUT, dataType: "string",   priority: IMPORTANT, label: "Error"},
+            {name: "errorTick", type: OUTPUT, dataType: "bool",     priority: INTERNAL}
+        ], null, "comport", true, true, "comport", ["cpp", "html5"]);
+
+        reg("ComEnumeratorAtom", "COM Enumerator", [
+            {name: "ports", type: OUTPUT, dataType: "string", priority: CRITICAL}
+        ], null, "comenumerator", true, true, "comenumerator", ["cpp"]);
+
+        #if cpp
         reg("MiniAudioAtom", "Mini Audio Capture", [
             {name: "mode",     type: INPUT,  defaultValue: 1,    dataType: "int",     priority: IMPORTANT, label: "Mode"},
             {name: "quantum",  type: INPUT,  defaultValue: 0.01, dataType: "float",   priority: OPTIONAL},
@@ -183,8 +307,8 @@ class AtomRegistry
             {name: "tick",     type: OUTPUT, dataType: "bool",   priority: INTERNAL},
             {name: "level",    type: OUTPUT, dataType: "float",  priority: IMPORTANT, label: "Level"},
             {name: "device",   type: OUTPUT, dataType: "string", priority: OPTIONAL}
-        ], null, "miniaudio", true, true, "miniaudio");
-        
+        ], null, "miniaudio", true, true, "miniaudio", ["cpp"]);
+
         reg("SystemVUMeterAtom", "System Stereo VU Meter", [
             {name: "mode",     type: INPUT,  defaultValue: 0,    dataType: "int",   priority: IMPORTANT, label: "Source"},
             {name: "peakL",    type: OUTPUT, dataType: "float",  priority: CRITICAL, label: "Peak L"},
@@ -198,29 +322,8 @@ class AtomRegistry
             {name: "active",   type: OUTPUT, dataType: "bool",   priority: OPTIONAL},
             {name: "clipL",    type: OUTPUT, dataType: "bool",   priority: OPTIONAL, label: "Clip L"},
             {name: "clipR",    type: OUTPUT, dataType: "bool",   priority: OPTIONAL, label: "Clip R"}
-        ], null, "vumeter", true, true, "vumeter");
-        
-        reg("ComPortAtom", "COM Port", [
-            {name: "portName",  type: INPUT,  defaultValue: "COM1", dataType: "string", priority: IMPORTANT, label: "Port"},
-            {name: "baudRate",  type: INPUT,  defaultValue: 9600,   dataType: "int",    priority: IMPORTANT, label: "Baud"},
-            {name: "open",      type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL},
-            {name: "close",     type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL},
-            {name: "send",      type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL},
-            {name: "txData",    type: INPUT,  defaultValue: "",     dataType: "string", priority: OPTIONAL},
-            {name: "setDTR",    type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL},
-            {name: "isOpen",    type: OUTPUT, dataType: "bool",     priority: CRITICAL},
-            {name: "rxData",    type: OUTPUT, dataType: "string",   priority: IMPORTANT, label: "RX"},
-            {name: "rxTick",    type: OUTPUT, dataType: "bool",     priority: INTERNAL},
-            {name: "txTick",    type: OUTPUT, dataType: "bool",     priority: INTERNAL},
-            {name: "error",     type: OUTPUT, dataType: "string",   priority: IMPORTANT, label: "Error"},
-            {name: "errorTick", type: OUTPUT, dataType: "bool",     priority: INTERNAL}
-        ], null, "comport", true, true, "comport");
-        
-        reg("ComEnumeratorAtom", "COM Enumerator", [
-            {name: "ports", type: OUTPUT, dataType: "string", priority: CRITICAL}
-        ], null, "comenumerator", true, true, "comenumerator");
+        ], null, "vumeter", true, true, "vumeter", ["cpp"]);
 
-        #if cpp
         reg("WEBSocketAtom", "WebSocket Client", [
             {name: "url", type: INPUT, dataType: "string", priority: IMPORTANT, label: "URL"},
             {name: "connect", type: INPUT, dataType: "bool", priority: CRITICAL},
@@ -233,7 +336,7 @@ class AtomRegistry
             {name: "sentTick", type: OUTPUT, dataType: "bool", priority: INTERNAL},
             {name: "error", type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
             {name: "errorTick", type: OUTPUT, dataType: "bool", priority: INTERNAL}
-        ], null, "websocket", true, true, "websocket");
+        ], null, "websocket", true, true, "websocket", ["cpp"]);
         #end
 
         reg("NETRadioPlayerAtom", "NET Radio Player", [
@@ -248,7 +351,7 @@ class AtomRegistry
             {name: "updated",       type: OUTPUT, dataType: "bool",    priority: OPTIONAL},
             {name: "state",         type: OUTPUT, dataType: "bool",    priority: OPTIONAL, label: "Error"},
             {name: "error",         type: OUTPUT, dataType: "string",  priority: OPTIONAL, label: "Error Msg"}
-        ], null, "netradio", true, true, "netradio");
+        ], null, "netradio", true, true, "netradio", ["cpp"]);
 
         reg("URLAudioStreamPlayer", "URL Audio Player", [
             {name: "url", type: INPUT, dataType: "string", priority: CRITICAL, visibleInEditor: true, label: "URL"},
@@ -258,23 +361,22 @@ class AtomRegistry
             {name: "isBuffering", type: OUTPUT, dataType: "bool", priority: IMPORTANT, label: "Buffering"},
             {name: "error", type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
             {name: "state", type: OUTPUT, dataType: "int", priority: OPTIONAL, label: "State"}
-        ], null, "urlplayer", true, true, "urlplayer");
+        ], null, "urlplayer", true, true, "urlplayer", ["cpp"]);
 
         // =================================================================
         // LOGIC & PASSIVE
         // =================================================================
-        
         // !!! FIX: Аргументы были сдвинуты. Добавлен `null` для `logic` и `iconId` в конец.
         reg("PassThroughAtom", "Pass Through", [
             {name: "in",      type: INPUT,  dataType: "any",   priority: CRITICAL},
             {name: "out",     type: OUTPUT, dataType: "any",   priority: CRITICAL},
-            {name: "changed", type: OUTPUT, dataType: "bool",  priority: OPTIONAL} 
+            {name: "changed", type: OUTPUT, dataType: "bool",  priority: OPTIONAL}
         ], null, "wire", true, false, "passthrough");
-        
+
         reg("Oscilloscope", "Oscilloscope", [
             {name: "in", type: INPUT, dataType: "array", priority: INTERNAL, visibleInEditor: false}
         ], null, "oscilloscope", true, false, "oscilloscope");
-        
+
         reg("FFTAtom", "FFT Spectrum", [
             {name: "buffer", type: INPUT, dataType: "array", priority: INTERNAL, visibleInEditor: false},
             {name: "windowSize", type: INPUT, defaultValue: 512, dataType: "int", priority: IMPORTANT, label: "Size"},
@@ -289,29 +391,29 @@ class AtomRegistry
             {name: "treble", type: OUTPUT, dataType: "float", priority: IMPORTANT, label: "Treble"},
             {name: "changed", type: OUTPUT, dataType: "bool", priority: OPTIONAL}
         ], null, "fft", true, true, "fft");
-        
-        _initialized = true;		
+
+        _initialized = true;
     }
-    
+
     /**
-     * Retrieve a blueprint by its unique ID.
-     */
+    * Retrieve a blueprint by its unique ID.
+    */
     public static function get(id:String):Blueprint
     {
         return _blueprints.get(id);
     }
-    
+
     /**
-     * Register a custom blueprint (typically loaded from .atom file).
-     */
+    * Register a custom blueprint (typically loaded from .atom file).
+    */
     public static function registerBlueprint(id:String, bp:Blueprint):Void
     {
         _blueprints.set(id, bp);
     }
-    
+
     /**
-     * Remove a blueprint from the registry.
-     */
+    * Remove a blueprint from the registry.
+    */
     public static function remove(id:String):Bool
     {
         if (_blueprints.exists(id))
@@ -323,18 +425,18 @@ class AtomRegistry
         trace('AtomRegistry: $id not found for removal');
         return false;
     }
-    
+
     /**
-     * Check if a blueprint with given ID exists.
-     */
+    * Check if a blueprint with given ID exists.
+    */
     public static function exists(id:String):Bool
     {
         return _blueprints.exists(id);
     }
-    
+
     /**
-     * Scan a directory for .atom files and register them.
-     */
+    * Scan a directory for .atom files and register them.
+    */
     public static function scanFolder(path:String):Void
     {
         #if sys
@@ -350,9 +452,7 @@ class AtomRegistry
             }
             return;
         }
-        
         trace("Scanning library folder: " + path);
-        
         for (file in sys.FileSystem.readDirectory(path))
         {
             if (StringTools.endsWith(file, ".atom"))
@@ -363,10 +463,10 @@ class AtomRegistry
         }
         #end
     }
-    
+
     /**
-     * Load and parse a single .atom file, then register its blueprint.
-     */
+    * Load and parse a single .atom file, then register its blueprint.
+    */
     public static function loadAtomFile(fullPath:String):Bool
     {
         #if sys
@@ -374,7 +474,7 @@ class AtomRegistry
             var content = sys.io.File.getContent(fullPath);
             var json = haxe.Json.parse(content);
             var rawBp:Dynamic = json.blueprint;
-            
+
             // Parse pins
             var pins:Array<core.data.Blueprint.PinDef> = [];
             if (rawBp.pins != null)
@@ -391,7 +491,6 @@ class AtomRegistry
                             extName = Std.string(p.externalName);
                             if (extName == "null") extName = null;
                         }
-
                         pins.push({
                             name: pinName,
                             type: _parseContactType(p.type),
@@ -402,8 +501,8 @@ class AtomRegistry
                         seenNames.set(pinName, true);
                     }
                 }
-            }            
-            
+            }
+
             // Parse connections
             var conns:Array<core.data.ConnectionDef> = [];
             if (rawBp.internalConnections != null)
@@ -411,18 +510,18 @@ class AtomRegistry
                 for (c in (cast(rawBp.internalConnections, Array<Dynamic>)))
                 {
                     conns.push({
-                        from: { 
-                            atomId: Std.string(c.from.atomId), 
-                            contactName: Std.string(c.from.contactName) 
+                        from: {
+                            atomId: Std.string(c.from.atomId),
+                            contactName: Std.string(c.from.contactName)
                         },
-                        to: { 
-                            atomId: Std.string(c.to.atomId), 
-                            contactName: Std.string(c.to.contactName) 
+                        to: {
+                            atomId: Std.string(c.to.atomId),
+                            contactName: Std.string(c.to.contactName)
                         }
                     });
                 }
             }
-            
+
             // Parse atom definitions
             var atoms:Array<core.data.AtomDef> = [];
             if (rawBp.internalAtoms != null)
@@ -438,7 +537,18 @@ class AtomRegistry
                     });
                 }
             }
-            
+
+            // v3.0: Parse platforms array
+            var platforms:Array<String> = null;
+            if (rawBp.platforms != null)
+            {
+                platforms = [];
+                for (p in cast(rawBp.platforms, Array<Dynamic>))
+                {
+                    platforms.push(Std.string(p));
+                }
+            }
+
             // Create blueprint
             var bp = new Blueprint(
                 Std.string(rawBp.id),
@@ -447,16 +557,14 @@ class AtomRegistry
                 null,
                 atoms,
                 conns,
-                Std.string(rawBp.category)
+                Std.string(rawBp.category),
+                platforms
             );
-            
             if (rawBp.deviceType != null)
             {
                 bp.deviceType = Std.string(rawBp.deviceType);
             }
-            
             bp.isNative = false;
-            
             registerBlueprint(bp.id, bp);
             trace("Library loaded: " + bp.id);
             return true;
@@ -470,14 +578,13 @@ class AtomRegistry
         return false;
         #end
     }
-    
+
     /**
-     * Parse ContactType from dynamic value (String or Int).
-     */
+    * Parse ContactType from dynamic value (String or Int).
+    */
     private static function _parseContactType(val:Dynamic):ContactType
     {
         if (Std.isOfType(val, ContactType)) return val;
-        
         if (Std.isOfType(val, String))
         {
             switch (Std.string(val))
@@ -488,7 +595,6 @@ class AtomRegistry
                 default: return UNDEFINED;
             }
         }
-        
         if (Std.isOfType(val, Int) || Std.isOfType(val, Float))
         {
             switch (Std.int(val))
@@ -499,7 +605,6 @@ class AtomRegistry
                 default: return UNDEFINED;
             }
         }
-        
         return UNDEFINED;
     }
 }

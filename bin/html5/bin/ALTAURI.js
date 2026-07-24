@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "158";
+	app.meta.h["build"] = "159";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
@@ -4747,7 +4747,7 @@ ManifestResources.init = function(config) {
 		ManifestResources.rootPath = "./";
 	}
 	var bundle;
-	var data = "{\"name\":null,\"assets\":\"aoy4:pathy25:assets%2Ffixed_classes.hxy4:sizei103582y4:typey4:TEXTy2:idR1y7:preloadtgoR0y36:assets%2Ficons%2Fatoms%2Fcomport.pngR2i4680R3y5:IMAGER5R7R6tgoR0y19:assets%2Fopenfl.svgR2i62864R3R4R5R9R6tgh\",\"rootPath\":null,\"version\":2,\"libraryArgs\":[],\"libraryType\":null}";
+	var data = "{\"name\":null,\"assets\":\"aoy4:pathy25:assets%2Ffixed_classes.hxy4:sizei103582y4:typey4:TEXTy2:idR1y7:preloadtgoR0y36:assets%2Ficons%2Fatoms%2Fcomport.pngR2i4680R3y5:IMAGER5R7R6tgoR0y32:assets%2Ficons%2Fatoms%2Ffft.pngR2i4517R3R8R5R9R6tgoR0y19:assets%2Fopenfl.svgR2i62864R3R4R5R10R6tgh\",\"rootPath\":null,\"version\":2,\"libraryArgs\":[],\"libraryType\":null}";
 	var manifest = lime_utils_AssetManifest.parse(data,ManifestResources.rootPath);
 	var library = lime_utils_AssetLibrary.fromManifest(manifest);
 	lime_utils_Assets.registerLibrary("default",library);
@@ -7136,6 +7136,8 @@ core_base_AssemblyFactory.createAtom = function(typeId,forcedId,initialState) {
 	case "ComEnumeratorAtom":
 		break;
 	case "ComPortAtom":
+		atom = new library_drivers_ComPortAtom(id);
+		haxe_Log.trace(" AssemblyFactory: Created ComPortAtom...",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 206, className : "core.base.AssemblyFactory", methodName : "createAtom"});
 		break;
 	case "FFTAtom":
 		atom = new library_electro_FFTAtom(id);
@@ -7636,7 +7638,7 @@ var core_data_ParameterPriority = $hxEnums["core.data.ParameterPriority"] = { __
 	,INTERNAL: {_hx_name:"INTERNAL",_hx_index:3,__enum__:"core.data.ParameterPriority",toString:$estr}
 };
 core_data_ParameterPriority.__constructs__ = [core_data_ParameterPriority.CRITICAL,core_data_ParameterPriority.IMPORTANT,core_data_ParameterPriority.OPTIONAL,core_data_ParameterPriority.INTERNAL];
-var core_data_Blueprint = function(id,name,pins,logic,internalAtoms,internalConnections,category) {
+var core_data_Blueprint = function(id,name,pins,logic,internalAtoms,internalConnections,category,platforms) {
 	if(category == null) {
 		category = "General";
 	}
@@ -7650,6 +7652,7 @@ var core_data_Blueprint = function(id,name,pins,logic,internalAtoms,internalConn
 	this.internalAtoms = internalAtoms != null ? internalAtoms : [];
 	this.internalConnections = internalConnections != null ? internalConnections : [];
 	this.category = category;
+	this.platforms = platforms;
 };
 $hxClasses["core.data.Blueprint"] = core_data_Blueprint;
 core_data_Blueprint.__name__ = "core.data.Blueprint";
@@ -8550,6 +8553,679 @@ core_view_ButtonWidget.prototype = $extend(core_view_DeviceView.prototype,{
 	}
 	,__class__: core_view_ButtonWidget
 });
+var core_view_ComPortWidget = function(atom) {
+	this._currentEnabled = true;
+	this._currentChunkSize = 256;
+	this._currentBufferSize = 4096;
+	this._dtrState = false;
+	this._ledPulseDuration = 0.15;
+	this._errLedTimer = 0;
+	this._txLedTimer = 0;
+	this._rxLedTimer = 0;
+	this._lastError = "";
+	this._lastRxData = "";
+	this._colorRxGreen = 52326;
+	this._colorInputBg = 855320;
+	this._colorMuted = 8947865;
+	this._colorText = 16777215;
+	this._colorInactive = 3355460;
+	this._colorWarning = 16755200;
+	this._colorDanger = 16729156;
+	this._colorActive = 65416;
+	this._colorAccent = 43775;
+	this._colorHeader = 2763322;
+	this._colorBg = 1710628;
+	this.widgetHeight = 380;
+	this.widgetWidth = 300;
+	this._rxScrollPos = 0;
+	core_view_DeviceView.call(this,atom);
+	this.findContacts();
+	this.buildUI();
+	this.syncFromAtom();
+};
+$hxClasses["core.view.ComPortWidget"] = core_view_ComPortWidget;
+core_view_ComPortWidget.__name__ = "core.view.ComPortWidget";
+core_view_ComPortWidget.__super__ = core_view_DeviceView;
+core_view_ComPortWidget.prototype = $extend(core_view_DeviceView.prototype,{
+	getWidgetSize: function() {
+		return { width : this.widgetWidth, height : this.widgetHeight};
+	}
+	,findContacts: function() {
+		if(this.atom == null) {
+			return;
+		}
+		this._portNameContact = this.atom.getInput("portName");
+		this._baudRateContact = this.atom.getInput("baudRate");
+		this._openContact = this.atom.getInput("open");
+		this._closeContact = this.atom.getInput("close");
+		this._sendContact = this.atom.getInput("send");
+		this._txDataContact = this.atom.getInput("txData");
+		this._setDTRContact = this.atom.getInput("setDTR");
+		this._isOpenContact = this.atom.getOutput("isOpen");
+		this._rxDataContact = this.atom.getOutput("rxData");
+		this._rxTickContact = this.atom.getOutput("rxTick");
+		this._txTickContact = this.atom.getOutput("txTick");
+		this._errorContact = this.atom.getOutput("error");
+		this._errorTickContact = this.atom.getOutput("errorTick");
+		this._bufferSizeContact = this.atom.getInput("bufferSize");
+		this._chunkSizeContact = this.atom.getInput("chunkSize");
+		this._enabledContact = this.atom.getInput("enabled");
+	}
+	,onActivate: function() {
+		this.findContacts();
+		this.syncFromAtom();
+	}
+	,buildUI: function() {
+		var yPos = 0;
+		this._bg = new openfl_display_Sprite();
+		this.addChild(this._bg);
+		this._header = new openfl_display_Sprite();
+		this._header.set_y(yPos);
+		this.addChild(this._header);
+		this._titleLabel = new openfl_text_TextField();
+		this._titleLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",13,this._colorText,true));
+		this._titleLabel.set_text("  COM PORT");
+		this._titleLabel.set_width(this.widgetWidth - 40);
+		this._titleLabel.set_height(28);
+		this._titleLabel.set_selectable(false);
+		this._titleLabel.mouseEnabled = false;
+		this._header.addChild(this._titleLabel);
+		this._statusGlow = new openfl_display_Sprite();
+		this._statusGlow.get_graphics().beginFill(this._colorDanger,0.2);
+		this._statusGlow.get_graphics().drawCircle(0,0,12);
+		this._statusGlow.get_graphics().endFill();
+		this._statusGlow.set_x(this.widgetWidth - 18);
+		this._statusGlow.set_y(14);
+		this._statusGlow.set_visible(false);
+		this._header.addChild(this._statusGlow);
+		this._statusLed = new openfl_display_Sprite();
+		this._statusLed.get_graphics().beginFill(4456448);
+		this._statusLed.get_graphics().drawCircle(0,0,6);
+		this._statusLed.get_graphics().endFill();
+		this._statusLed.set_x(this.widgetWidth - 18);
+		this._statusLed.set_y(14);
+		this._header.addChild(this._statusLed);
+		yPos += 32;
+		this._selectPortBtn = this.createActionButton("Select Port",2245734,$bind(this,this.onSelectPortClick));
+		this._selectPortBtn.set_x(10);
+		this._selectPortBtn.set_y(yPos);
+		this.addChild(this._selectPortBtn);
+		this._baudLabel = this.createLabel("BAUD");
+		this._baudLabel.set_x(150);
+		this._baudLabel.set_y(yPos);
+		this.addChild(this._baudLabel);
+		yPos += 18;
+		this._selectedPortInfo = this.createInputField("No port selected",130);
+		this._selectedPortInfo.set_type(0);
+		this._selectedPortInfo.set_x(10);
+		this._selectedPortInfo.set_y(yPos);
+		this.addChild(this._selectedPortInfo);
+		this._baudInput = this.createInputField("9600",100);
+		this._baudInput.set_x(150);
+		this._baudInput.set_y(yPos);
+		this._baudInput.addEventListener("change",$bind(this,this.onBaudRateChanged));
+		this.addChild(this._baudInput);
+		yPos += 30;
+		this._openBtn = this.createActionButton("OPEN",2250035,$bind(this,this.onOpenClick));
+		this._openBtn.set_x(10);
+		this._openBtn.set_y(yPos);
+		this.addChild(this._openBtn);
+		this._closeBtn = this.createActionButton("CLOSE",5583650,$bind(this,this.onCloseClick));
+		this._closeBtn.set_x(95);
+		this._closeBtn.set_y(yPos);
+		this.addChild(this._closeBtn);
+		this._dtrBtn = null;
+		this._dtrLabel = null;
+		yPos += 36;
+		this._bufferSizeLabel = this.createLabel("Buffer:");
+		this._bufferSizeLabel.set_y(yPos);
+		this.addChild(this._bufferSizeLabel);
+		this._bufferSizeInput = this.createInputField("4096",60);
+		this._bufferSizeInput.set_x(60);
+		this._bufferSizeInput.set_y(yPos);
+		this._bufferSizeInput.addEventListener("change",$bind(this,this.onBufferSizeChanged));
+		this.addChild(this._bufferSizeInput);
+		this._chunkSizeLabel = this.createLabel("Chunk:");
+		this._chunkSizeLabel.set_x(130);
+		this._chunkSizeLabel.set_y(yPos);
+		this.addChild(this._chunkSizeLabel);
+		this._chunkSizeInput = this.createInputField("256",50);
+		this._chunkSizeInput.set_x(180);
+		this._chunkSizeInput.set_y(yPos);
+		this._chunkSizeInput.addEventListener("change",$bind(this,this.onChunkSizeChanged));
+		this.addChild(this._chunkSizeInput);
+		this._enabledBtn = new openfl_display_Sprite();
+		this._enabledBtn.get_graphics().beginFill(this._colorActive);
+		this._enabledBtn.get_graphics().drawRoundRect(0,0,70,26,4,4);
+		this._enabledBtn.get_graphics().endFill();
+		this._enabledBtn.set_x(240);
+		this._enabledBtn.set_y(yPos);
+		this._enabledBtn.set_buttonMode(true);
+		this._enabledBtn.useHandCursor = true;
+		this._enabledBtn.addEventListener("click",$bind(this,this.onEnabledClick));
+		this.addChild(this._enabledBtn);
+		this._enabledLabel = new openfl_text_TextField();
+		this._enabledLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",10,0,true,null,null,null,null,0));
+		this._enabledLabel.set_text("ON");
+		this._enabledLabel.set_width(70);
+		this._enabledLabel.set_height(26);
+		this._enabledLabel.set_selectable(false);
+		this._enabledLabel.mouseEnabled = false;
+		this._enabledBtn.addChild(this._enabledLabel);
+		yPos += 36;
+		this._txSection = new openfl_display_Sprite();
+		this._txSection.set_y(yPos);
+		this.addChild(this._txSection);
+		var txLabel = new openfl_text_TextField();
+		txLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",9,this._colorMuted));
+		txLabel.set_text("TX DATA");
+		txLabel.set_width(60);
+		txLabel.set_height(15);
+		txLabel.set_selectable(false);
+		this._txSection.addChild(txLabel);
+		this._txInput = this.createInputField("",this.widgetWidth - 80 | 0);
+		this._txInput.set_x(0);
+		this._txInput.set_y(15);
+		this._txInput.addEventListener("keyDown",$bind(this,this.onTxKeyDown));
+		this._txSection.addChild(this._txInput);
+		this._sendBtn = this.createActionButton("SEND",2245734,$bind(this,this.onSendClick));
+		this._sendBtn.set_x(this.widgetWidth - 62);
+		this._sendBtn.set_y(14);
+		this._txSection.addChild(this._sendBtn);
+		yPos += 52;
+		this._rxSection = new openfl_display_Sprite();
+		this._rxSection.set_y(yPos);
+		this.addChild(this._rxSection);
+		var rxLabel = new openfl_text_TextField();
+		rxLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",9,this._colorMuted));
+		rxLabel.set_text("RX DATA");
+		rxLabel.set_width(60);
+		rxLabel.set_height(15);
+		rxLabel.set_selectable(false);
+		this._rxSection.addChild(rxLabel);
+		this._rxDisplay = new openfl_text_TextField();
+		this._rxDisplay.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",11,this._colorRxGreen));
+		this._rxDisplay.set_text("");
+		this._rxDisplay.set_width(this.widgetWidth - 20);
+		this._rxDisplay.set_height(100);
+		this._rxDisplay.set_x(5);
+		this._rxDisplay.set_y(15);
+		this._rxDisplay.set_background(true);
+		this._rxDisplay.set_backgroundColor(this._colorInputBg);
+		this._rxDisplay.set_border(true);
+		this._rxDisplay.set_borderColor(2236979);
+		this._rxDisplay.set_multiline(true);
+		this._rxDisplay.set_wordWrap(true);
+		this._rxDisplay.set_selectable(true);
+		this._rxDisplay.mouseEnabled = true;
+		this._rxSection.addChild(this._rxDisplay);
+		var indicatorY = yPos += 125;
+		this._statusBar = new openfl_text_TextField();
+		this._statusBar.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",10,this._colorMuted));
+		this._statusBar.set_text("Disconnected");
+		this._statusBar.set_width(140);
+		this._statusBar.set_height(16);
+		this._statusBar.set_x(10);
+		this._statusBar.set_y(indicatorY);
+		this._statusBar.set_selectable(false);
+		this.addChild(this._statusBar);
+		var rxLedLabel = new openfl_text_TextField();
+		rxLedLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",9,this._colorMuted));
+		rxLedLabel.set_text("RX");
+		rxLedLabel.set_width(20);
+		rxLedLabel.set_height(14);
+		rxLedLabel.set_x(120);
+		rxLedLabel.set_y(indicatorY);
+		rxLedLabel.set_selectable(false);
+		this.addChild(rxLedLabel);
+		this._rxLed = new openfl_display_Sprite();
+		this._rxLed.get_graphics().beginFill(13056);
+		this._rxLed.get_graphics().drawCircle(0,0,5);
+		this._rxLed.get_graphics().endFill();
+		this._rxLed.set_x(145);
+		this._rxLed.set_y(indicatorY + 7);
+		this.addChild(this._rxLed);
+		var txLedLabel = new openfl_text_TextField();
+		txLedLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",9,this._colorMuted));
+		txLedLabel.set_text("TX");
+		txLedLabel.set_width(20);
+		txLedLabel.set_height(14);
+		txLedLabel.set_x(160);
+		txLedLabel.set_y(indicatorY);
+		txLedLabel.set_selectable(false);
+		this.addChild(txLedLabel);
+		this._txLed = new openfl_display_Sprite();
+		this._txLed.get_graphics().beginFill(13056);
+		this._txLed.get_graphics().drawCircle(0,0,5);
+		this._txLed.get_graphics().endFill();
+		this._txLed.set_x(185);
+		this._txLed.set_y(indicatorY + 7);
+		this.addChild(this._txLed);
+		var errLedLabel = new openfl_text_TextField();
+		errLedLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",9,this._colorMuted));
+		errLedLabel.set_text("ERR");
+		errLedLabel.set_width(25);
+		errLedLabel.set_height(14);
+		errLedLabel.set_x(200);
+		errLedLabel.set_y(indicatorY);
+		errLedLabel.set_selectable(false);
+		this.addChild(errLedLabel);
+		this._errLed = new openfl_display_Sprite();
+		this._errLed.get_graphics().beginFill(3342336);
+		this._errLed.get_graphics().drawCircle(0,0,5);
+		this._errLed.get_graphics().endFill();
+		this._errLed.set_x(228);
+		this._errLed.set_y(indicatorY + 7);
+		this.addChild(this._errLed);
+		this._errorDisplay = new openfl_text_TextField();
+		this._errorDisplay.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",9,this._colorDanger));
+		this._errorDisplay.set_text("");
+		this._errorDisplay.set_width(this.widgetWidth - 20);
+		this._errorDisplay.set_height(15);
+		this._errorDisplay.set_x(10);
+		this._errorDisplay.set_y(indicatorY + 18);
+		this._errorDisplay.set_selectable(false);
+		this.addChild(this._errorDisplay);
+		this.redrawBackground();
+	}
+	,redrawBackground: function() {
+		this._bg.get_graphics().clear();
+		this._bg.get_graphics().beginFill(this._colorBg,0.95);
+		this._bg.get_graphics().lineStyle(1,this._colorAccent);
+		this._bg.get_graphics().drawRoundRect(0,0,this.widgetWidth,this.widgetHeight,8,8);
+		this._bg.get_graphics().endFill();
+		this._header.get_graphics().clear();
+		this._header.get_graphics().beginFill(this._colorHeader);
+		this._header.get_graphics().drawRoundRectComplex(0,0,this.widgetWidth,28,8,8,0,0);
+		this._header.get_graphics().endFill();
+		this._txSection.get_graphics().clear();
+		this._txSection.get_graphics().beginFill(855320,0.5);
+		this._txSection.get_graphics().lineStyle(1,2236996);
+		this._txSection.get_graphics().drawRoundRect(0,0,this.widgetWidth - 20,45,4,4);
+		this._txSection.get_graphics().endFill();
+		this._rxSection.get_graphics().clear();
+		this._rxSection.get_graphics().beginFill(855320,0.5);
+		this._rxSection.get_graphics().lineStyle(1,2245666);
+		this._rxSection.get_graphics().drawRoundRect(0,0,this.widgetWidth - 20,120,4,4);
+		this._rxSection.get_graphics().endFill();
+	}
+	,createLabel: function(text) {
+		var tf = new openfl_text_TextField();
+		tf.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",9,this._colorMuted));
+		tf.set_text(text);
+		tf.set_width(60);
+		tf.set_height(16);
+		tf.set_x(10);
+		tf.set_selectable(false);
+		tf.mouseEnabled = false;
+		return tf;
+	}
+	,createInputField: function(defaultText,width) {
+		var tf = new openfl_text_TextField();
+		tf.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",12,this._colorText));
+		tf.set_text(defaultText);
+		tf.set_width(width);
+		tf.set_height(22);
+		tf.set_background(true);
+		tf.set_backgroundColor(this._colorInputBg);
+		tf.set_border(true);
+		tf.set_borderColor(3355477);
+		tf.set_type(1);
+		tf.set_selectable(true);
+		tf.mouseEnabled = true;
+		return tf;
+	}
+	,createActionButton: function(label,color,callback) {
+		var btn = new openfl_display_Sprite();
+		btn.get_graphics().beginFill(color);
+		btn.get_graphics().drawRoundRect(0,0,75,26,4,4);
+		btn.get_graphics().endFill();
+		var tf = new openfl_text_TextField();
+		tf.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",11,this._colorText,true,null,null,null,null,0));
+		tf.set_text(label);
+		tf.set_width(75);
+		tf.set_height(26);
+		tf.set_selectable(false);
+		tf.mouseEnabled = false;
+		btn.addChild(tf);
+		btn.set_buttonMode(true);
+		btn.useHandCursor = true;
+		btn.addEventListener("click",callback);
+		return btn;
+	}
+	,syncFromAtom: function() {
+		if(this._portNameContact != null && this._portNameContact.get_value() != null) {
+			this._selectedPortInfo.set_text(Std.string(this._portNameContact.get_value()));
+		}
+		if(this._baudRateContact != null && this._baudRateContact.get_value() != null) {
+			this._baudInput.set_text(Std.string(this._baudRateContact.get_value()));
+		}
+		if(this._isOpenContact != null && this._isOpenContact.get_value() != null) {
+			this.updateConnectionStatus(this._isOpenContact.get_value() == true);
+		}
+		if(this._rxDataContact != null && this._rxDataContact.get_value() != null) {
+			var rxStr = Std.string(this._rxDataContact.get_value());
+			if(rxStr != "" && rxStr != this._lastRxData) {
+				this.appendRxData(rxStr);
+			}
+		}
+		if(this._errorContact != null && this._errorContact.get_value() != null) {
+			var errStr = Std.string(this._errorContact.get_value());
+			if(errStr != "" && errStr != this._lastError) {
+				this._errorDisplay.set_text("Error: " + errStr);
+				this._lastError = errStr;
+			}
+		}
+		if(this._bufferSizeContact != null && this._bufferSizeContact.get_value() != null) {
+			this._currentBufferSize = this._bufferSizeContact.get_value() | 0;
+			this._bufferSizeInput.set_text(Std.string(this._currentBufferSize));
+		}
+		if(this._chunkSizeContact != null && this._chunkSizeContact.get_value() != null) {
+			this._currentChunkSize = this._chunkSizeContact.get_value() | 0;
+			this._chunkSizeInput.set_text(Std.string(this._currentChunkSize));
+		}
+		if(this._enabledContact != null && this._enabledContact.get_value() != null) {
+			this._currentEnabled = this._enabledContact.get_value() == true;
+			this.updateEnabledButton();
+		}
+	}
+	,onContactChanged: function(contact,newValue) {
+		if(this.isDisposed) {
+			return;
+		}
+		if(contact == this._isOpenContact) {
+			this.updateConnectionStatus(newValue == true);
+		} else if(contact == this._rxDataContact) {
+			if(newValue != null && newValue != "") {
+				this.appendRxData(Std.string(newValue));
+			}
+		} else if(contact == this._rxTickContact) {
+			if(newValue == true) {
+				this.pulseLed(this._rxLed,65280,13056);
+				this._rxLedTimer = this._ledPulseDuration;
+			}
+		} else if(contact == this._txTickContact) {
+			if(newValue == true) {
+				this.pulseLed(this._txLed,43775,4403);
+				this._txLedTimer = this._ledPulseDuration;
+			}
+		} else if(contact == this._errorTickContact) {
+			if(newValue == true) {
+				this.pulseLed(this._errLed,16729156,3342336);
+				this._errLedTimer = this._ledPulseDuration;
+			}
+		} else if(contact == this._errorContact) {
+			if(newValue != null && newValue != "") {
+				this._errorDisplay.set_text("Error: " + Std.string(newValue));
+				this._lastError = Std.string(newValue);
+			} else {
+				this._errorDisplay.set_text("");
+				this._lastError = "";
+			}
+		}
+	}
+	,updateConnectionStatus: function(isOpen) {
+		if(isOpen) {
+			this._statusLed.get_graphics().clear();
+			this._statusLed.get_graphics().beginFill(this._colorActive);
+			this._statusLed.get_graphics().drawCircle(0,0,6);
+			this._statusLed.get_graphics().endFill();
+			this._statusGlow.get_graphics().clear();
+			this._statusGlow.get_graphics().beginFill(this._colorActive,0.2);
+			this._statusGlow.get_graphics().drawCircle(0,0,12);
+			this._statusGlow.get_graphics().endFill();
+			this._statusGlow.set_visible(true);
+			this._statusBar.set_text("Connected");
+			this._statusBar.set_textColor(this._colorActive);
+		} else {
+			this._statusLed.get_graphics().clear();
+			this._statusLed.get_graphics().beginFill(4456448);
+			this._statusLed.get_graphics().drawCircle(0,0,6);
+			this._statusLed.get_graphics().endFill();
+			this._statusGlow.set_visible(false);
+			this._statusBar.set_text("Disconnected");
+			this._statusBar.set_textColor(this._colorMuted);
+		}
+	}
+	,appendRxData: function(data) {
+		if(this._rxDisplay == null) {
+			return;
+		}
+		this._lastRxData = data;
+		var currentText = this._rxDisplay.get_text();
+		if(currentText.length > 2000) {
+			currentText = HxOverrides.substr(currentText,currentText.length - 1000,null);
+		}
+		this._rxDisplay.set_text(currentText + data);
+		this._rxDisplay.set_scrollV(this._rxDisplay.get_maxScrollV());
+	}
+	,pulseLed: function(led,onColor,offColor) {
+		if(led == null) {
+			return;
+		}
+		led.get_graphics().clear();
+		led.get_graphics().beginFill(onColor);
+		led.get_graphics().drawCircle(0,0,5);
+		led.get_graphics().endFill();
+	}
+	,resetLed: function(led,offColor) {
+		if(led == null) {
+			return;
+		}
+		led.get_graphics().clear();
+		led.get_graphics().beginFill(offColor);
+		led.get_graphics().drawCircle(0,0,5);
+		led.get_graphics().endFill();
+	}
+	,onSelectPortClick: function(e) {
+		if(this._openContact != null) {
+			this._openContact.set_value(true);
+		}
+	}
+	,onBufferSizeChanged: function(e) {
+		if(this._bufferSizeContact != null) {
+			var size = Std.parseInt(this._bufferSizeInput.get_text());
+			if(size != null && size >= 256 && size <= 65536) {
+				this._currentBufferSize = size;
+				this._bufferSizeContact.set_value(size);
+			}
+		}
+	}
+	,onChunkSizeChanged: function(e) {
+		if(this._chunkSizeContact != null) {
+			var size = Std.parseInt(this._chunkSizeInput.get_text());
+			if(size != null && size >= 1 && size <= 4096) {
+				this._currentChunkSize = size;
+				this._chunkSizeContact.set_value(size);
+			}
+		}
+	}
+	,onEnabledClick: function(e) {
+		this._currentEnabled = !this._currentEnabled;
+		this.updateEnabledButton();
+		if(this._enabledContact != null) {
+			this._enabledContact.set_value(this._currentEnabled);
+		}
+	}
+	,updateEnabledButton: function() {
+		if(this._enabledBtn == null || this._enabledLabel == null) {
+			return;
+		}
+		if(this._currentEnabled) {
+			this._enabledBtn.get_graphics().clear();
+			this._enabledBtn.get_graphics().beginFill(this._colorActive);
+			this._enabledBtn.get_graphics().drawRoundRect(0,0,70,26,4,4);
+			this._enabledBtn.get_graphics().endFill();
+			this._enabledLabel.set_textColor(0);
+			this._enabledLabel.set_text("ON");
+		} else {
+			this._enabledBtn.get_graphics().clear();
+			this._enabledBtn.get_graphics().beginFill(this._colorInactive);
+			this._enabledBtn.get_graphics().drawRoundRect(0,0,70,26,4,4);
+			this._enabledBtn.get_graphics().endFill();
+			this._enabledLabel.set_textColor(this._colorMuted);
+			this._enabledLabel.set_text("OFF");
+		}
+	}
+	,onBaudRateChanged: function(e) {
+		if(this._baudRateContact != null) {
+			var baud = Std.parseInt(this._baudInput.get_text());
+			if(baud != null && baud > 0) {
+				this._baudRateContact.set_value(baud);
+			}
+		}
+	}
+	,onOpenClick: function(e) {
+		var baud = Std.parseInt(this._baudInput.get_text());
+		if(this._baudRateContact != null && baud != null && baud > 0) {
+			this._baudRateContact.set_value(baud);
+		}
+		if(this._openContact != null) {
+			this._openContact.set_value(true);
+		}
+	}
+	,onCloseClick: function(e) {
+		if(this._closeContact != null) {
+			this._closeContact.set_value(true);
+		}
+	}
+	,onSendClick: function(e) {
+		this.sendTxData();
+	}
+	,onTxKeyDown: function(e) {
+		if(e.keyCode == 13) {
+			this.sendTxData();
+		}
+	}
+	,sendTxData: function() {
+		if(this._txDataContact != null) {
+			this._txDataContact.set_value(this._txInput.get_text());
+		}
+		if(this._sendContact != null) {
+			this._sendContact.set_value(true);
+		}
+	}
+	,activate: function() {
+		core_view_DeviceView.prototype.activate.call(this);
+		if(this.stage != null) {
+			this.stage.addEventListener("enterFrame",$bind(this,this.onEnterFrame));
+		} else {
+			this.addEventListener("addedToStage",$bind(this,this.onAddedToStage));
+		}
+	}
+	,deactivate: function() {
+		core_view_DeviceView.prototype.deactivate.call(this);
+		if(this.stage != null) {
+			this.stage.removeEventListener("enterFrame",$bind(this,this.onEnterFrame));
+		}
+	}
+	,onAddedToStage: function(e) {
+		this.removeEventListener("addedToStage",$bind(this,this.onAddedToStage));
+		this.stage.addEventListener("enterFrame",$bind(this,this.onEnterFrame));
+	}
+	,onEnterFrame: function(e) {
+		var dt = 0.016666666666666666;
+		if(this._rxLedTimer > 0) {
+			this._rxLedTimer -= dt;
+			if(this._rxLedTimer <= 0) {
+				this.resetLed(this._rxLed,13056);
+			}
+		}
+		if(this._txLedTimer > 0) {
+			this._txLedTimer -= dt;
+			if(this._txLedTimer <= 0) {
+				this.resetLed(this._txLed,4403);
+			}
+		}
+		if(this._errLedTimer > 0) {
+			this._errLedTimer -= dt;
+			if(this._errLedTimer <= 0) {
+				this.resetLed(this._errLed,3342336);
+			}
+		}
+	}
+	,dispose: function() {
+		if(this.stage != null) {
+			this.stage.removeEventListener("enterFrame",$bind(this,this.onEnterFrame));
+		}
+		if(this._openBtn != null) {
+			this._openBtn.removeEventListener("click",$bind(this,this.onOpenClick));
+		}
+		if(this._closeBtn != null) {
+			this._closeBtn.removeEventListener("click",$bind(this,this.onCloseClick));
+		}
+		if(this._sendBtn != null) {
+			this._sendBtn.removeEventListener("click",$bind(this,this.onSendClick));
+		}
+		if(this._selectPortBtn != null) {
+			this._selectPortBtn.removeEventListener("click",$bind(this,this.onSelectPortClick));
+		}
+		if(this._bufferSizeInput != null) {
+			this._bufferSizeInput.removeEventListener("change",$bind(this,this.onBufferSizeChanged));
+		}
+		if(this._chunkSizeInput != null) {
+			this._chunkSizeInput.removeEventListener("change",$bind(this,this.onChunkSizeChanged));
+		}
+		if(this._enabledBtn != null) {
+			this._enabledBtn.removeEventListener("click",$bind(this,this.onEnabledClick));
+		}
+		if(this._baudInput != null) {
+			this._baudInput.removeEventListener("change",$bind(this,this.onBaudRateChanged));
+		}
+		if(this._txInput != null) {
+			this._txInput.removeEventListener("keyDown",$bind(this,this.onTxKeyDown));
+		}
+		this._bg = null;
+		this._header = null;
+		this._titleLabel = null;
+		this._portLabel = null;
+		this._portInput = null;
+		this._baudLabel = null;
+		this._baudInput = null;
+		this._openBtn = null;
+		this._closeBtn = null;
+		this._dtrBtn = null;
+		this._dtrLabel = null;
+		this._txSection = null;
+		this._txInput = null;
+		this._sendBtn = null;
+		this._rxSection = null;
+		this._rxDisplay = null;
+		this._statusLed = null;
+		this._statusGlow = null;
+		this._rxLed = null;
+		this._txLed = null;
+		this._errLed = null;
+		this._statusBar = null;
+		this._errorDisplay = null;
+		this._portNameContact = null;
+		this._baudRateContact = null;
+		this._openContact = null;
+		this._closeContact = null;
+		this._sendContact = null;
+		this._txDataContact = null;
+		this._setDTRContact = null;
+		this._isOpenContact = null;
+		this._rxDataContact = null;
+		this._rxTickContact = null;
+		this._txTickContact = null;
+		this._errorContact = null;
+		this._errorTickContact = null;
+		this._selectPortBtn = null;
+		this._selectedPortInfo = null;
+		this._bufferSizeInput = null;
+		this._chunkSizeInput = null;
+		this._enabledBtn = null;
+		this._enabledLabel = null;
+		this._bufferSizeLabel = null;
+		this._chunkSizeLabel = null;
+		this._bufferSizeContact = null;
+		this._chunkSizeContact = null;
+		this._enabledContact = null;
+		core_view_DeviceView.prototype.dispose.call(this);
+	}
+	,__class__: core_view_ComPortWidget
+});
 var core_view_DeviceViewRegistry = function() {
 	this._widgets = new haxe_ds_StringMap();
 	this._containers = new haxe_ds_StringMap();
@@ -8874,6 +9550,8 @@ core_view_DeviceWidgetFactory.createByAtomType = function(atom) {
 	}
 	var type = atom.type.toLowerCase();
 	switch(type) {
+	case "com port":case "comportatom":
+		return new core_view_ComPortWidget(atom);
 	case "fft spectrum":case "fftatom":
 		return new core_view_FFTWidget(atom);
 	case "led":case "led indicator":
@@ -19814,14 +20492,14 @@ js_html__$CanvasElement_CanvasUtil.getContextWebGL = function(canvas,attribs) {
 var library_AtomRegistry = function() { };
 $hxClasses["library.AtomRegistry"] = library_AtomRegistry;
 library_AtomRegistry.__name__ = "library.AtomRegistry";
-library_AtomRegistry.reg = function(id,name,pins,logic,deviceType,isNative,isActive,iconId) {
+library_AtomRegistry.reg = function(id,name,pins,logic,deviceType,isNative,isActive,iconId,platforms) {
 	if(isActive == null) {
 		isActive = false;
 	}
 	if(isNative == null) {
 		isNative = true;
 	}
-	var bp = new core_data_Blueprint(id,name,pins,null);
+	var bp = new core_data_Blueprint(id,name,pins,null,null,null,null,platforms);
 	bp.deviceType = deviceType;
 	bp.isNative = isNative;
 	bp.isActive = isActive;
@@ -19841,6 +20519,35 @@ library_AtomRegistry.getAllIds = function() {
 	}
 	return _g;
 };
+library_AtomRegistry.getCurrentPlatform = function() {
+	return "html5";
+};
+library_AtomRegistry.isAvailableForPlatform = function(bp,platform) {
+	if(bp.platforms == null || bp.platforms.length == 0) {
+		return true;
+	}
+	return bp.platforms.indexOf(platform) != -1;
+};
+library_AtomRegistry.getFilteredIds = function() {
+	var currentPlatform = library_AtomRegistry.getCurrentPlatform();
+	var filteredIds = [];
+	var h = library_AtomRegistry._blueprints.h;
+	var key_h = h;
+	var key_keys = Object.keys(h);
+	var key_length = key_keys.length;
+	var key_current = 0;
+	while(key_current < key_length) {
+		var key = key_keys[key_current++];
+		var bp = library_AtomRegistry._blueprints.h[key];
+		if(bp != null && library_AtomRegistry.isAvailableForPlatform(bp,currentPlatform)) {
+			filteredIds.push(key);
+		}
+	}
+	return filteredIds;
+};
+library_AtomRegistry.isAvailableForCurrentPlatform = function(bp) {
+	return library_AtomRegistry.isAvailableForPlatform(bp,library_AtomRegistry.getCurrentPlatform());
+};
 library_AtomRegistry.initialize = function() {
 	if(library_AtomRegistry._initialized) {
 		return;
@@ -19853,12 +20560,10 @@ library_AtomRegistry.initialize = function() {
 	library_AtomRegistry.reg("TextArea","Text Area",[{ name : "text", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL, label : "Text"},{ name : "append", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Append"},{ name : "clear", type : core_types_ContactType.INPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Clear"},{ name : "editable", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.IMPORTANT, label : "Editable", visibleInEditor : true},{ name : "wordWrap", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "WordWrap", visibleInEditor : true},{ name : "autoScroll", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "AutoScroll", visibleInEditor : true},{ name : "hScroll", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "HScroll", visibleInEditor : true},{ name : "vScroll", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "VScroll", visibleInEditor : true},{ name : "maxChars", type : core_types_ContactType.INPUT, defaultValue : 40, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Width", visibleInEditor : true},{ name : "numLines", type : core_types_ContactType.INPUT, defaultValue : 8, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Lines", visibleInEditor : true},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "lineCount", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Lines"},{ name : "cursorLine", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "Cursor"}],null,"textarea",true,false,"textarea");
 	library_AtomRegistry.reg("SignalGenerator","Signal Generator",[{ name : "freq", type : core_types_ContactType.INPUT, defaultValue : 1.0, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Freq", visibleInEditor : true},{ name : "quantum", type : core_types_ContactType.INPUT, defaultValue : 0.1, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL, visibleInEditor : false},{ name : "mode", type : core_types_ContactType.INPUT, defaultValue : 3, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Mode", visibleInEditor : true},{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL}],null,"panel",true,true,"signal_generator");
 	library_AtomRegistry.reg("BufferingAtom","Audio Buffer",[{ name : "bufferSize", type : core_types_ContactType.INPUT, defaultValue : 512, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Size", visibleInEditor : true},{ name : "quantum", type : core_types_ContactType.INPUT, defaultValue : 0.1, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL, visibleInEditor : false},{ name : "mode", type : core_types_ContactType.INPUT, defaultValue : 0, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Mode", visibleInEditor : true},{ name : "in", type : core_types_ContactType.INPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL},{ name : "buffer", type : core_types_ContactType.OUTPUT, dataType : "array", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "count", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Count"},{ name : "full", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.IMPORTANT, label : "Full"}],null,"buffer",true,true,"buffering");
-	library_AtomRegistry.reg("MiniAudioAtom","Mini Audio Capture",[{ name : "mode", type : core_types_ContactType.INPUT, defaultValue : 1, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Mode"},{ name : "quantum", type : core_types_ContactType.INPUT, defaultValue : 0.01, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL},{ name : "gain", type : core_types_ContactType.INPUT, defaultValue : 1.0, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Gain"},{ name : "channel", type : core_types_ContactType.INPUT, defaultValue : 0, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL},{ name : "rate", type : core_types_ContactType.INPUT, defaultValue : 0, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL},{ name : "sample", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "rms", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "RMS"},{ name : "clip", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "tick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL},{ name : "level", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Level"},{ name : "device", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.OPTIONAL}],null,"miniaudio",true,true,"miniaudio");
-	library_AtomRegistry.reg("SystemVUMeterAtom","System Stereo VU Meter",[{ name : "mode", type : core_types_ContactType.INPUT, defaultValue : 0, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Source"},{ name : "peakL", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL, label : "Peak L"},{ name : "peakR", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL, label : "Peak R"},{ name : "peakMono", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Peak Mono"},{ name : "percentL", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "% L"},{ name : "percentR", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "% R"},{ name : "dB_L", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "dB L"},{ name : "dB_R", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "dB R"},{ name : "channels", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "Channels"},{ name : "active", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "clipL", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Clip L"},{ name : "clipR", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Clip R"}],null,"vumeter",true,true,"vumeter");
-	library_AtomRegistry.reg("ComPortAtom","COM Port",[{ name : "portName", type : core_types_ContactType.INPUT, defaultValue : "COM1", dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Port"},{ name : "baudRate", type : core_types_ContactType.INPUT, defaultValue : 9600, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Baud"},{ name : "open", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "close", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "send", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "txData", type : core_types_ContactType.INPUT, defaultValue : "", dataType : "string", priority : core_data_ParameterPriority.OPTIONAL},{ name : "setDTR", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "isOpen", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL},{ name : "rxData", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "RX"},{ name : "rxTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL},{ name : "txTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Error"},{ name : "errorTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL}],null,"comport",true,true,"comport");
-	library_AtomRegistry.reg("ComEnumeratorAtom","COM Enumerator",[{ name : "ports", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL}],null,"comenumerator",true,true,"comenumerator");
-	library_AtomRegistry.reg("NETRadioPlayerAtom","NET Radio Player",[{ name : "stream_url", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "URL"},{ name : "poll_interval", type : core_types_ContactType.INPUT, defaultValue : 5.0, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL, label : "Poll (s)"},{ name : "playCtrl", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, label : "Play"},{ name : "volume", type : core_types_ContactType.INPUT, defaultValue : 1.0, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Volume"},{ name : "title", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Title"},{ name : "artist", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Artist"},{ name : "track", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Track"},{ name : "raw_metadata", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.INTERNAL},{ name : "updated", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "state", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Error"},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.OPTIONAL, label : "Error Msg"}],null,"netradio",true,true,"netradio");
-	library_AtomRegistry.reg("URLAudioStreamPlayer","URL Audio Player",[{ name : "url", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL, visibleInEditor : true, label : "URL"},{ name : "play", type : core_types_ContactType.INPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, visibleInEditor : true, label : "Play"},{ name : "volume", type : core_types_ContactType.INPUT, dataType : "float", defaultValue : 1.0, priority : core_data_ParameterPriority.OPTIONAL, visibleInEditor : true, label : "Vol"},{ name : "isPlaying", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, label : "Playing"},{ name : "isBuffering", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.IMPORTANT, label : "Buffering"},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Error"},{ name : "state", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "State"}],null,"urlplayer",true,true,"urlplayer");
+	library_AtomRegistry.reg("ComPortAtom","COM Port",[{ name : "portName", type : core_types_ContactType.INPUT, defaultValue : "COM13", dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Port"},{ name : "baudRate", type : core_types_ContactType.INPUT, defaultValue : 9600, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Baud"},{ name : "bufferSize", type : core_types_ContactType.INPUT, defaultValue : 4096, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "BufSize"},{ name : "chunkSize", type : core_types_ContactType.INPUT, defaultValue : 256, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "Chunk"},{ name : "enabled", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Enabled"},{ name : "open", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "close", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "send", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "txData", type : core_types_ContactType.INPUT, defaultValue : "", dataType : "string", priority : core_data_ParameterPriority.OPTIONAL},{ name : "setDTR", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "isOpen", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL},{ name : "rxData", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "RX"},{ name : "rxTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL},{ name : "txTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Error"},{ name : "errorTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL}],null,"comport",true,true,"comport",["cpp","html5"]);
+	library_AtomRegistry.reg("ComEnumeratorAtom","COM Enumerator",[{ name : "ports", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL}],null,"comenumerator",true,true,"comenumerator",["cpp"]);
+	library_AtomRegistry.reg("NETRadioPlayerAtom","NET Radio Player",[{ name : "stream_url", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "URL"},{ name : "poll_interval", type : core_types_ContactType.INPUT, defaultValue : 5.0, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL, label : "Poll (s)"},{ name : "playCtrl", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, label : "Play"},{ name : "volume", type : core_types_ContactType.INPUT, defaultValue : 1.0, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Volume"},{ name : "title", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Title"},{ name : "artist", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Artist"},{ name : "track", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Track"},{ name : "raw_metadata", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.INTERNAL},{ name : "updated", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "state", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Error"},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.OPTIONAL, label : "Error Msg"}],null,"netradio",true,true,"netradio",["cpp"]);
+	library_AtomRegistry.reg("URLAudioStreamPlayer","URL Audio Player",[{ name : "url", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL, visibleInEditor : true, label : "URL"},{ name : "play", type : core_types_ContactType.INPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, visibleInEditor : true, label : "Play"},{ name : "volume", type : core_types_ContactType.INPUT, dataType : "float", defaultValue : 1.0, priority : core_data_ParameterPriority.OPTIONAL, visibleInEditor : true, label : "Vol"},{ name : "isPlaying", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, label : "Playing"},{ name : "isBuffering", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.IMPORTANT, label : "Buffering"},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Error"},{ name : "state", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "State"}],null,"urlplayer",true,true,"urlplayer",["cpp"]);
 	library_AtomRegistry.reg("PassThroughAtom","Pass Through",[{ name : "in", type : core_types_ContactType.INPUT, dataType : "any", priority : core_data_ParameterPriority.CRITICAL},{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "any", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL}],null,"wire",true,false,"passthrough");
 	library_AtomRegistry.reg("Oscilloscope","Oscilloscope",[{ name : "in", type : core_types_ContactType.INPUT, dataType : "array", priority : core_data_ParameterPriority.INTERNAL, visibleInEditor : false}],null,"oscilloscope",true,false,"oscilloscope");
 	library_AtomRegistry.reg("FFTAtom","FFT Spectrum",[{ name : "buffer", type : core_types_ContactType.INPUT, dataType : "array", priority : core_data_ParameterPriority.INTERNAL, visibleInEditor : false},{ name : "windowSize", type : core_types_ContactType.INPUT, defaultValue : 512, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Size"},{ name : "windowType", type : core_types_ContactType.INPUT, defaultValue : 1, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "Window"},{ name : "sampleRate", type : core_types_ContactType.INPUT, defaultValue : 48000, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "Rate"},{ name : "spectrum", type : core_types_ContactType.OUTPUT, dataType : "array", priority : core_data_ParameterPriority.CRITICAL},{ name : "spectrumDB", type : core_types_ContactType.OUTPUT, dataType : "array", priority : core_data_ParameterPriority.CRITICAL},{ name : "peak", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Peak Hz"},{ name : "peakAmp", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL},{ name : "bass", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Bass"},{ name : "mid", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Mid"},{ name : "treble", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Treble"},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL}],null,"fft",true,true,"fft");
@@ -19876,10 +20581,10 @@ library_AtomRegistry.remove = function(id) {
 		if(Object.prototype.hasOwnProperty.call(_this.h,id)) {
 			delete(_this.h[id]);
 		}
-		haxe_Log.trace("AtomRegistry: Removed " + id,{ fileName : "src/library/AtomRegistry.hx", lineNumber : 320, className : "library.AtomRegistry", methodName : "remove"});
+		haxe_Log.trace("AtomRegistry: Removed " + id,{ fileName : "src/library/AtomRegistry.hx", lineNumber : 422, className : "library.AtomRegistry", methodName : "remove"});
 		return true;
 	}
-	haxe_Log.trace("AtomRegistry: " + id + " not found for removal",{ fileName : "src/library/AtomRegistry.hx", lineNumber : 323, className : "library.AtomRegistry", methodName : "remove"});
+	haxe_Log.trace("AtomRegistry: " + id + " not found for removal",{ fileName : "src/library/AtomRegistry.hx", lineNumber : 425, className : "library.AtomRegistry", methodName : "remove"});
 	return false;
 };
 library_AtomRegistry.exists = function(id) {
@@ -19920,6 +20625,388 @@ library_AtomRegistry._parseContactType = function(val) {
 	}
 	return core_types_ContactType.UNDEFINED;
 };
+var library_drivers_ComPortAtom = function(id) {
+	this._isReading = false;
+	this._writer = null;
+	this._reader = null;
+	this._serialPort = null;
+	this._errTimer = 0.0;
+	this._txTimer = 0.0;
+	this._rxTimer = 0.0;
+	this._pendingErrStr = "";
+	this._pendingRxStr = "";
+	this._hasPendingErr = false;
+	this._hasPendingRx = false;
+	this._isOpenFlag = false;
+	this._lastDTR = false;
+	this._lastTxData = "";
+	this._enabled = true;
+	this._chunkSize = 256;
+	this._bufferSize = 4096;
+	this._overflowCount = 0;
+	this._writePos = 0;
+	this._readPos = 0;
+	core_base_Atom.call(this,[new core_base_Contact("COM1",core_types_ContactType.INPUT,"portName"),new core_base_Contact(9600,core_types_ContactType.INPUT,"baudRate"),new core_base_Contact(4096,core_types_ContactType.INPUT,"bufferSize"),new core_base_Contact(256,core_types_ContactType.INPUT,"chunkSize"),new core_base_Contact(true,core_types_ContactType.INPUT,"enabled"),new core_base_Contact(false,core_types_ContactType.INPUT,"open"),new core_base_Contact(false,core_types_ContactType.INPUT,"close"),new core_base_Contact(false,core_types_ContactType.INPUT,"send"),new core_base_Contact("",core_types_ContactType.INPUT,"txData"),new core_base_Contact(false,core_types_ContactType.INPUT,"setDTR")],[new core_base_Contact(false,core_types_ContactType.OUTPUT,"isOpen"),new core_base_Contact("",core_types_ContactType.OUTPUT,"rxData"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"rxTick"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"txTick"),new core_base_Contact("",core_types_ContactType.OUTPUT,"error"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"errorTick")],null,id,"ComPortAtom",true);
+	this.initRingBuffer(4096);
+	this.init();
+};
+$hxClasses["library.drivers.ComPortAtom"] = library_drivers_ComPortAtom;
+library_drivers_ComPortAtom.__name__ = "library.drivers.ComPortAtom";
+library_drivers_ComPortAtom.__interfaces__ = [system_managers_Driver];
+library_drivers_ComPortAtom.__super__ = core_base_Atom;
+library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
+	initRingBuffer: function(size) {
+		this._bufferSize = size;
+		this._ringBuffer = [];
+		var _g = 0;
+		var _g1 = this._bufferSize;
+		while(_g < _g1) {
+			var i = _g++;
+			this._ringBuffer.push(0);
+		}
+		this._readPos = 0;
+		this._writePos = 0;
+		this._overflowCount = 0;
+	}
+	,writeToBuffer: function(data) {
+		var written = 0;
+		var _g = 0;
+		while(_g < data.length) {
+			var byte = data[_g];
+			++_g;
+			var idx = this._writePos % this._bufferSize;
+			this._ringBuffer[idx] = byte;
+			this._writePos++;
+			++written;
+			if(this.getBufferCount() > this._bufferSize) {
+				this._readPos = this._writePos - this._bufferSize;
+				this._overflowCount++;
+				if(this._overflowCount % 100 == 0) {
+					haxe_Log.trace("ComPortAtom: Ring buffer overflow! Lost " + this._overflowCount + " bytes total",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 251, className : "library.drivers.ComPortAtom", methodName : "writeToBuffer"});
+				}
+			}
+		}
+		return written;
+	}
+	,getBufferCount: function() {
+		return this._writePos - this._readPos;
+	}
+	,clearBuffer: function() {
+		this._readPos = 0;
+		this._writePos = 0;
+		this._overflowCount = 0;
+	}
+	,emitRxData: function() {
+		var availableBytes = this.getBufferCount();
+		if(availableBytes == 0) {
+			return;
+		}
+		var bytesToRead = Math.min(availableBytes,this._chunkSize) | 0;
+		var rxString = "";
+		var _g = 0;
+		var _g1 = bytesToRead;
+		while(_g < _g1) {
+			var i = _g++;
+			var idx = this._readPos % this._bufferSize;
+			var code = this._ringBuffer[idx];
+			rxString += String.fromCodePoint(code);
+			this._readPos++;
+		}
+		var rxOut = this.getOutput("rxData");
+		if(rxOut != null) {
+			rxOut.setValueSilent(rxString);
+			rxOut.propagateCurrentValue();
+		}
+		var rxTick = this.getOutput("rxTick");
+		if(rxTick != null) {
+			rxTick.set_value(true);
+			this._rxTimer = 0.05;
+		}
+	}
+	,init: function() {
+	}
+	,update: function(dt) {
+		if(this._isDisposed) {
+			return;
+		}
+		this.readConfiguration();
+		if(!this._enabled) {
+			return;
+		}
+		if(this._hasPendingRx) {
+			this._hasPendingRx = false;
+			var rxOut = this.getOutput("rxData");
+			if(rxOut != null) {
+				rxOut.setValueSilent(this._pendingRxStr);
+				rxOut.propagateCurrentValue();
+			}
+			var rxTick = this.getOutput("rxTick");
+			if(rxTick != null) {
+				rxTick.set_value(true);
+				this._rxTimer = 0.05;
+			}
+		}
+		if(this._hasPendingErr) {
+			this._hasPendingErr = false;
+			var errOut = this.getOutput("error");
+			if(errOut != null) {
+				errOut.setValueSilent(this._pendingErrStr);
+				errOut.propagateCurrentValue();
+			}
+			var errTick = this.getOutput("errorTick");
+			if(errTick != null) {
+				errTick.set_value(true);
+				this._errTimer = 0.05;
+			}
+		}
+		this.emitRxData();
+		this.readInputs();
+		this.updatePulseTimers(dt);
+	}
+	,dispose: function() {
+		if(this._isOpenFlag) {
+			this.closeDevice();
+		}
+		system_managers_DriverManager.getInstance().unregister(this.get_id());
+		core_base_Atom.prototype.dispose.call(this);
+	}
+	,readConfiguration: function() {
+		var bufSizeC = this.getInput("bufferSize");
+		if(bufSizeC != null && bufSizeC.get_value() != null) {
+			var newSize = bufSizeC.get_value() | 0;
+			if(newSize >= 256 && newSize <= 65536 && newSize != this._bufferSize) {
+				haxe_Log.trace("ComPortAtom: Buffer size changed from " + this._bufferSize + " to " + newSize,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 424, className : "library.drivers.ComPortAtom", methodName : "readConfiguration"});
+				this.initRingBuffer(newSize);
+			}
+		}
+		var chunkC = this.getInput("chunkSize");
+		if(chunkC != null && chunkC.get_value() != null) {
+			var newChunk = chunkC.get_value() | 0;
+			if(newChunk >= 1 && newChunk <= 4096) {
+				this._chunkSize = newChunk;
+			}
+		}
+		var enabledC = this.getInput("enabled");
+		if(enabledC != null && enabledC.get_value() != null) {
+			this._enabled = enabledC.get_value() == true;
+		}
+	}
+	,readInputs: function() {
+		var openC = this.getInput("open");
+		var closeC = this.getInput("close");
+		var sendC = this.getInput("send");
+		var txC = this.getInput("txData");
+		var dtrC = this.getInput("setDTR");
+		var baudC = this.getInput("baudRate");
+		if(baudC != null && baudC.get_value() != null) {
+			var newBaud = baudC.get_value() | 0;
+			if(newBaud > 0 && newBaud != 9600) {
+				if(this._isOpenFlag) {
+					this.closeDevice();
+					this.openDevice();
+				}
+			}
+		}
+		if(openC != null && openC.get_value() == true) {
+			this.openDevice();
+			openC.set_value(false);
+		}
+		if(closeC != null && closeC.get_value() == true) {
+			this.closeDevice();
+			closeC.set_value(false);
+		}
+		if(sendC != null && sendC.get_value() == true && this._isOpenFlag) {
+			if(txC != null && txC.get_value() != null && txC.get_value() != "") {
+				this.sendToDevice(txC.get_value());
+				var txTick = this.getOutput("txTick");
+				if(txTick != null) {
+					txTick.set_value(true);
+					this._txTimer = 0.05;
+				}
+			}
+			sendC.set_value(false);
+		}
+		if(dtrC != null && dtrC.get_value() != null) {
+			var newDTR = dtrC.get_value() == true;
+			if(newDTR != this._lastDTR && this._isOpenFlag) {
+				this._lastDTR = newDTR;
+				this.setDTRState(newDTR);
+			}
+		}
+	}
+	,openDevice: function() {
+		if(this._isOpenFlag) {
+			this.closeDevice();
+		}
+		this.clearBuffer();
+		var serial = navigator.serial;
+		if(serial == null) {
+			this.setError("Web Serial API not supported in this browser");
+			return;
+		}
+		serial.requestPort().then((port) => { this.onPortRequested(port); }, (err) => { this.onPortRequestError(err); });
+	}
+	,onPortRequested: function(port) {
+		this._serialPort = port;
+		var baudRateInt = 9600;
+		var baudC = this.getInput("baudRate");
+		if(baudC != null && baudC.get_value() != null) {
+			baudRateInt = baudC.get_value() | 0;
+		}
+		var options = { baudRate : baudRateInt, dataBits : 8, stopBits : 1, parity : "none", bufferSize : 4096, flowControl : "none"};
+		this._serialPort.open(options).then(() => { this.onPortOpened(); }, (err) => { this.onPortOpenError(err); });
+	}
+	,onPortOpened: function() {
+		this._isOpenFlag = true;
+		var outOpen = this.getOutput("isOpen");
+		if(outOpen != null) {
+			outOpen.set_value(true);
+		}
+		this.startReadLoop();
+		haxe_Log.trace("ComPortAtom: Port opened",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 749, className : "library.drivers.ComPortAtom", methodName : "onPortOpened"});
+	}
+	,onPortOpenError: function(err) {
+		this.setError("Failed to open port: " + Std.string(err));
+	}
+	,onPortRequestError: function(err) {
+		this.setError("Failed to request port: " + Std.string(err));
+	}
+	,closeDevice: function() {
+		if(!this._isOpenFlag) {
+			return;
+		}
+		this._isReading = false;
+		if(this._reader != null) {
+			this._reader.cancel().catch((err) => {}); this._reader.releaseLock();
+			this._reader = null;
+		}
+		if(this._writer != null) {
+			this._writer.close().catch((err) => {}); this._writer.releaseLock();
+			this._writer = null;
+		}
+		if(this._serialPort != null) {
+			this._serialPort.close().then(() => { this.onPortClosed(); }, (err) => { this.onPortCloseError(err); });
+			this._serialPort = null;
+		}
+	}
+	,onPortClosed: function() {
+		this._isOpenFlag = false;
+		var outOpen = this.getOutput("isOpen");
+		if(outOpen != null) {
+			outOpen.set_value(false);
+		}
+		haxe_Log.trace("ComPortAtom: Port closed",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 809, className : "library.drivers.ComPortAtom", methodName : "onPortClosed"});
+	}
+	,onPortCloseError: function(err) {
+		this.setError("Failed to close port: " + Std.string(err));
+	}
+	,startReadLoop: function() {
+		this._isReading = true;
+		if(this._serialPort == null) {
+			return;
+		}
+		var readable = this._serialPort.readable;
+		if(readable == null) {
+			this.setError("Port has no readable stream");
+			return;
+		}
+		this._reader = readable.getReader();
+		this.readChunk();
+	}
+	,readChunk: function() {
+		if(!this._isReading || this._isDisposed) {
+			return;
+		}
+		this._reader.read().then((result) => { this.onReadResult(result); }, (err) => { this.onReadError(err); });
+	}
+	,onReadResult: function(result) {
+		if(result.done) {
+			this._isReading = false;
+			return;
+		}
+		var bytes = [];
+		var value = result.value;
+		var len = value.length;
+		var _g = 0;
+		var _g1 = len;
+		while(_g < _g1) {
+			var i = _g++;
+			bytes.push(value[i]);
+		}
+		this.writeToBuffer(bytes);
+		this._hasPendingRx = true;
+		this.readChunk();
+	}
+	,onReadError: function(err) {
+		if(this._isReading && !this._isDisposed) {
+			this.setError("Read error: " + Std.string(err));
+		}
+	}
+	,sendToDevice: function(data) {
+		if(this._serialPort == null || !this._isOpenFlag) {
+			return;
+		}
+		var writable = this._serialPort.writable;
+		if(writable == null) {
+			this.setError("Port has no writable stream");
+			return;
+		}
+		this._writer = writable.getWriter();
+		var encoder = new TextEncoder();
+		var encoded = encoder.encode(data);
+		this._writer.write(encoded).then(() => { this.onWriteSuccess(); }, (err) => { this.onWriteError(err); });
+	}
+	,onWriteSuccess: function() {
+		if(this._writer != null) {
+			this._writer.releaseLock();
+			this._writer = null;
+		}
+	}
+	,onWriteError: function(err) {
+		this.setError("Write error: " + Std.string(err));
+		if(this._writer != null) {
+			this._writer.releaseLock();
+			this._writer = null;
+		}
+	}
+	,setDTRState: function(state) {
+		haxe_Log.trace("ComPortAtom: DTR control not supported in Web Serial API",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 952, className : "library.drivers.ComPortAtom", methodName : "setDTRState"});
+	}
+	,setError: function(msg) {
+		this._pendingErrStr = msg;
+		this._hasPendingErr = true;
+	}
+	,updatePulseTimers: function(dt) {
+		if(this._rxTimer > 0) {
+			this._rxTimer -= dt;
+			if(this._rxTimer <= 0) {
+				var c = this.getOutput("rxTick");
+				if(c != null) {
+					c.set_value(false);
+				}
+			}
+		}
+		if(this._txTimer > 0) {
+			this._txTimer -= dt;
+			if(this._txTimer <= 0) {
+				var c = this.getOutput("txTick");
+				if(c != null) {
+					c.set_value(false);
+				}
+			}
+		}
+		if(this._errTimer > 0) {
+			this._errTimer -= dt;
+			if(this._errTimer <= 0) {
+				var c = this.getOutput("errorTick");
+				if(c != null) {
+					c.set_value(false);
+				}
+			}
+		}
+	}
+	,__class__: library_drivers_ComPortAtom
+});
 var library_drivers_SignalGenerator = function(id) {
 	this._updateCount = 0;
 	this._totalTime = 0.0;
@@ -38748,7 +39835,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 286249;
+	this.version = 793011;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
@@ -96381,8 +97468,19 @@ system_managers_ProjectManager.prototype = {
 				atoms.push({ instanceId : Std.string(a.instanceId), typeId : Std.string(a.typeId), x : a.x, y : a.y, values : a.values});
 			}
 		}
+		var platforms = null;
+		if(rawBp.platforms != null) {
+			platforms = [];
+			var _g = 0;
+			var _g1 = js_Boot.__cast(rawBp.platforms , Array);
+			while(_g < _g1.length) {
+				var p = _g1[_g];
+				++_g;
+				platforms.push(Std.string(p));
+			}
+		}
 		this._sanitizeConnections(conns,atoms,pins,Std.string(rawBp.id));
-		return new core_data_Blueprint(Std.string(rawBp.id),Std.string(rawBp.name),pins,null,atoms,conns,Std.string(rawBp.category));
+		return new core_data_Blueprint(Std.string(rawBp.id),Std.string(rawBp.name),pins,null,atoms,conns,Std.string(rawBp.category),platforms);
 	}
 	,_sanitizeConnections: function(conns,atoms,pins,bpId) {
 		if(conns == null || conns.length == 0) {
@@ -96418,7 +97516,7 @@ system_managers_ProjectManager.prototype = {
 			var conn = toRemove[_g];
 			++_g;
 			HxOverrides.remove(conns,conn);
-			haxe_Log.trace("  🔧 SANITIZE [" + bpId + "]: Removed ghost connection: " + ("" + conn.from.atomId + "." + conn.from.contactName + " → ") + ("" + conn.to.atomId + "." + conn.to.contactName),{ fileName : "src/system/managers/ProjectManager.hx", lineNumber : 704, className : "system.managers.ProjectManager", methodName : "_sanitizeConnections"});
+			haxe_Log.trace("  🔧 SANITIZE [" + bpId + "]: Removed ghost connection: " + ("" + conn.from.atomId + "." + conn.from.contactName + " → ") + ("" + conn.to.atomId + "." + conn.to.contactName),{ fileName : "src/system/managers/ProjectManager.hx", lineNumber : 666, className : "system.managers.ProjectManager", methodName : "_sanitizeConnections"});
 		}
 	}
 	,_isEndpointValid: function(atomId,contactName,atomIds,pinNames) {
@@ -98933,6 +100031,7 @@ var ui_contextmenu_ContentPanel = function() {
 	this._scrollStep = 20.0;
 	this._maxScrollY = 0;
 	this._scrollY = 0;
+	this._currentDisplayMode = ui_contextmenu_DisplayMode.GRID;
 	openfl_display_Sprite.call(this);
 	this._currentEntries = [];
 	this.buildUI();
@@ -98942,17 +100041,31 @@ ui_contextmenu_ContentPanel.__name__ = "ui.contextmenu.ContentPanel";
 ui_contextmenu_ContentPanel.__super__ = openfl_display_Sprite;
 ui_contextmenu_ContentPanel.prototype = $extend(openfl_display_Sprite.prototype,{
 	buildUI: function() {
-		this.get_graphics().beginFill(3618615,1.0);
+		this.get_graphics().beginFill(1710628);
 		this.get_graphics().drawRect(0,0,330.0,315.0);
 		this.get_graphics().endFill();
 		this.mouseEnabled = true;
 		this.mouseChildren = true;
 		this.addEventListener("mouseWheel",$bind(this,this.onMouseWheel));
-		this._searchBar = new ui_contextmenu_SearchBar(310.);
+		var searchBarWidth = 239.;
+		this._searchBar = new ui_contextmenu_SearchBar(searchBarWidth);
 		this._searchBar.set_x(10.0);
 		this._searchBar.set_y(10.0);
 		this._searchBar.onSearch = $bind(this,this.onSearch);
 		this.addChild(this._searchBar);
+		this._viewToggleContainer = new openfl_display_Sprite();
+		this._viewToggleContainer.set_x(10.0 + searchBarWidth + 5.0);
+		this._viewToggleContainer.set_y(10.0);
+		this.addChild(this._viewToggleContainer);
+		this._btnList = this.createToggleButton("≡",ui_contextmenu_DisplayMode.LIST);
+		this._btnList.set_x(0);
+		this._btnList.set_y(0);
+		this._viewToggleContainer.addChild(this._btnList);
+		this._btnGrid = this.createToggleButton("",ui_contextmenu_DisplayMode.GRID);
+		this._btnGrid.set_x(33.);
+		this._btnGrid.set_y(0);
+		this._viewToggleContainer.addChild(this._btnGrid);
+		this.updateToggleButtons();
 		this._recentSection = new ui_contextmenu_RecentSection(310.);
 		this._recentSection.set_x(10.0);
 		this._recentSection.set_y(55.);
@@ -98973,6 +100086,76 @@ ui_contextmenu_ContentPanel.prototype = $extend(openfl_display_Sprite.prototype,
 		this._listContainer.set_y(0);
 		this._scrollContainer.addChild(this._listContainer);
 	}
+	,createToggleButton: function(icon,mode) {
+		var _gthis = this;
+		var btn = new openfl_display_Sprite();
+		btn.get_graphics().beginFill(3355460);
+		btn.get_graphics().lineStyle(1,5592422);
+		btn.get_graphics().drawRoundRect(0,0,28.0,28.0,4,4);
+		btn.get_graphics().endFill();
+		var tf = new openfl_text_TextField();
+		tf.set_defaultTextFormat(new openfl_text_TextFormat("_sans",16,11184810,true));
+		tf.set_text(icon);
+		tf.set_width(28.0);
+		tf.set_height(28.0);
+		tf.set_selectable(false);
+		tf.mouseEnabled = false;
+		var fmt = new openfl_text_TextFormat("_sans",16,11184810,true,null,null,null,null,openfl_text_TextFormatAlign.fromString("center"));
+		tf.setTextFormat(fmt);
+		btn.addChild(tf);
+		btn.set_buttonMode(true);
+		btn.useHandCursor = true;
+		btn.addEventListener("click",function(e) {
+			_gthis.onViewModeToggle(mode);
+		});
+		return btn;
+	}
+	,onViewModeToggle: function(mode) {
+		if(this._currentDisplayMode == mode) {
+			return;
+		}
+		this._currentDisplayMode = mode;
+		this.updateToggleButtons();
+		if(this._currentCategory != null && this._currentEntries != null) {
+			this.updateContent(this._currentCategory,this._currentEntries);
+		}
+	}
+	,updateToggleButtons: function() {
+		if(this._currentDisplayMode == ui_contextmenu_DisplayMode.LIST) {
+			this._btnList.get_graphics().clear();
+			this._btnList.get_graphics().beginFill(43775);
+			this._btnList.get_graphics().lineStyle(1,43775);
+			this._btnList.get_graphics().drawRoundRect(0,0,28.0,28.0,4,4);
+			this._btnList.get_graphics().endFill();
+			var tf = js_Boot.__cast(this._btnList.getChildAt(0) , openfl_text_TextField);
+			tf.set_textColor(16777215);
+		} else {
+			this._btnList.get_graphics().clear();
+			this._btnList.get_graphics().beginFill(3355460);
+			this._btnList.get_graphics().lineStyle(1,5592422);
+			this._btnList.get_graphics().drawRoundRect(0,0,28.0,28.0,4,4);
+			this._btnList.get_graphics().endFill();
+			var tf = js_Boot.__cast(this._btnList.getChildAt(0) , openfl_text_TextField);
+			tf.set_textColor(11184810);
+		}
+		if(this._currentDisplayMode == ui_contextmenu_DisplayMode.GRID) {
+			this._btnGrid.get_graphics().clear();
+			this._btnGrid.get_graphics().beginFill(43775);
+			this._btnGrid.get_graphics().lineStyle(1,43775);
+			this._btnGrid.get_graphics().drawRoundRect(0,0,28.0,28.0,4,4);
+			this._btnGrid.get_graphics().endFill();
+			var tf = js_Boot.__cast(this._btnGrid.getChildAt(0) , openfl_text_TextField);
+			tf.set_textColor(16777215);
+		} else {
+			this._btnGrid.get_graphics().clear();
+			this._btnGrid.get_graphics().beginFill(3355460);
+			this._btnGrid.get_graphics().lineStyle(1,5592422);
+			this._btnGrid.get_graphics().drawRoundRect(0,0,28.0,28.0,4,4);
+			this._btnGrid.get_graphics().endFill();
+			var tf = js_Boot.__cast(this._btnGrid.getChildAt(0) , openfl_text_TextField);
+			tf.set_textColor(11184810);
+		}
+	}
 	,updateContent: function(category,entries) {
 		this._currentCategory = category;
 		this._currentEntries = entries;
@@ -98987,7 +100170,7 @@ ui_contextmenu_ContentPanel.prototype = $extend(openfl_display_Sprite.prototype,
 			this._recentSection.set_visible(false);
 			this._scrollContainer.set_y(55.);
 		}
-		if(category.id == "editor") {
+		if(this._currentDisplayMode == ui_contextmenu_DisplayMode.LIST) {
 			this.displayAsList(entries);
 		} else {
 			this.displayAsGrid(entries);
@@ -99031,7 +100214,7 @@ ui_contextmenu_ContentPanel.prototype = $extend(openfl_display_Sprite.prototype,
 				filtered.push(entry);
 			}
 		}
-		if(this._currentCategory.id == "editor") {
+		if(this._currentDisplayMode == ui_contextmenu_DisplayMode.LIST) {
 			this.displayAsList(filtered);
 		} else {
 			this.displayAsGrid(filtered);
@@ -99382,7 +100565,7 @@ ui_contextmenu_MenuItem.prototype = $extend(openfl_display_Sprite.prototype,{
 			bmpData = openfl_utils_Assets.getBitmapData(path);
 		} catch( _g ) {
 			haxe_NativeStackTrace.lastError = _g;
-			haxe_Log.trace("Asset not found",{ fileName : "src/ui/contextmenu/MenuItem.hx", lineNumber : 159, className : "ui.contextmenu.MenuItem", methodName : "loadIcon"});
+			haxe_Log.trace("Asset not found",{ fileName : "src/ui/contextmenu/MenuItem.hx", lineNumber : 165, className : "ui.contextmenu.MenuItem", methodName : "loadIcon"});
 		}
 		if(bmpData != null) {
 			var bmp = new openfl_display_Bitmap(bmpData);
@@ -99443,14 +100626,16 @@ ui_contextmenu_MenuItem.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._bg.get_graphics().drawRoundRect(0,0,77.0,60.0,6,6);
 		this._bg.get_graphics().endFill();
 		this._iconContainer.set_x(22.5);
-		this._iconContainer.set_y(10);
-		this._labelField.set_x(5);
-		this._labelField.set_y(42.);
-		this._labelField.set_width(67.);
-		this._labelField.set_height(30);
-		var fmt = new openfl_text_TextFormat("_sans",10,16777215,false,null,null,null,null,openfl_text_TextFormatAlign.fromString("center"));
+		this._iconContainer.set_y(8);
+		this._labelField.set_x(4);
+		this._labelField.set_y(40.);
+		this._labelField.set_width(69.);
+		this._labelField.set_height(22);
+		var fmt = new openfl_text_TextFormat("_sans",9,16777215,false,null,null,null,null,openfl_text_TextFormatAlign.fromString("center"));
 		this._labelField.set_defaultTextFormat(fmt);
 		this._labelField.setTextFormat(fmt);
+		this._labelField.set_wordWrap(true);
+		this._labelField.set_multiline(true);
 		this.loadIcon();
 	}
 	,drawNormal: function() {
@@ -99937,7 +101122,7 @@ ui_contextmenu_providers_AtomLibraryProvider.__interfaces__ = [ui_contextmenu_da
 ui_contextmenu_providers_AtomLibraryProvider.prototype = {
 	getEntries: function() {
 		var entries = [];
-		var ids = library_AtomRegistry.getAllIds();
+		var ids = library_AtomRegistry.getFilteredIds();
 		ids.sort(function(a,b) {
 			return Reflect.compare(a,b);
 		});
@@ -100455,6 +101640,7 @@ core_logic_EventType.MENU_CLOSED = "MENU_CLOSED";
 core_logic_Impulsys._bus = new haxe_ds_StringMap();
 core_logic_Impulsys._totalListeners = 0;
 core_logic_NamingService._instanceNames = new haxe_ds_StringMap();
+core_view_ComPortWidget.DEFAULT_BAUD_RATES = [9600,19200,38400,57600,115200];
 core_view_DeviceViewRegistry.CONTAINER_NODE_VIEW = "NodeView";
 core_view_DeviceViewRegistry.CONTAINER_DEVICE_WINDOW = "DeviceWindow";
 core_view_OscilloscopeWidget.HISTORY_LAYERS = 5;
@@ -100518,6 +101704,13 @@ haxe_zip_InflateImpl.CODE_LENGTHS_POS = [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,
 library_AtomRegistry._initialized = false;
 library_AtomRegistry._blueprints = new haxe_ds_StringMap();
 library_AtomRegistry.customLibraryPath = "";
+library_drivers_ComPortAtom.PULSE_DURATION = 0.05;
+library_drivers_ComPortAtom.DEFAULT_BUFFER_SIZE = 4096;
+library_drivers_ComPortAtom.DEFAULT_CHUNK_SIZE = 256;
+library_drivers_ComPortAtom.MIN_BUFFER_SIZE = 256;
+library_drivers_ComPortAtom.MAX_BUFFER_SIZE = 65536;
+library_drivers_ComPortAtom.MIN_CHUNK_SIZE = 1;
+library_drivers_ComPortAtom.MAX_CHUNK_SIZE = 4096;
 library_drivers_SignalGenerator.MIN_QUANTUM = 0.001;
 library_drivers_SignalGenerator.MAX_QUANTUM = 1.0;
 library_drivers_SignalGenerator.MIN_FREQUENCY = 0.1;
@@ -102829,6 +104022,8 @@ ui_contextmenu_ContentPanel.SEARCH_HEIGHT = 35.0;
 ui_contextmenu_ContentPanel.RECENT_HEIGHT = 60.0;
 ui_contextmenu_ContentPanel.PADDING = 10.0;
 ui_contextmenu_ContentPanel.MAX_CONTENT_HEIGHT = 315.0;
+ui_contextmenu_ContentPanel.TOGGLE_BTN_SIZE = 28.0;
+ui_contextmenu_ContentPanel.TOGGLE_BTN_SPACING = 5.0;
 ui_contextmenu_ContextMenu.SIDEBAR_WIDTH = 100.0;
 ui_contextmenu_ContextMenu.CONTENT_WIDTH = 335.0;
 ui_contextmenu_ContextMenu.TOTAL_WIDTH = 435.;

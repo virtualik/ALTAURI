@@ -1,70 +1,74 @@
 package ui.contextmenu.providers;
-
 import ui.contextmenu.data.MenuEntry;
 import ui.contextmenu.data.MenuEntryProvider;
 import ui.contextmenu.data.MenuCategory;
 import library.AtomRegistry;
 
 /**
- * ╔═══════════════════════════════════════════════════════════════════════════╗
- * ║                     ATOM LIBRARY PROVIDER                                 ║
- * ║          (Provides built-in atoms for context menu)                       ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                           ║
- * ║  Provides all registered atoms from AtomRegistry:                         ║
- * ║  - Native atoms (Button, LED, Toggle, etc.)                               ║
- * ║  - Active drivers (SignalGenerator, MiniAudioAtom, etc.)                  ║
- * ║  - Custom assemblies (user-created)                                       ║
- * ║                                                                           ║
- * ║  Architecture:                                                            ║
- * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
- * ║  │  AtomLibraryProvider (implements MenuEntryProvider)                 │  ║
- * ║  │                                                                     │  ║
- * ║  │  Methods:                                                           │  ║
- * ║  │  - getEntries() → Array<MenuEntry>                                  │  ║
- * ║  │  - getCategoryId() → String ("atoms")                               │  ║
- * ║  │  - supportsSearch() → Bool (true)                                   │  ║
- * ║  │  - filter(query) → Array<MenuEntry>                                 │  ║
- * ║  └─────────────────────────────────────────────────────────────────────┘  ║
- * ║                                                                           ║
- * ║  Usage:                                                                   ║
- * ║  ───────                                                                  ║
- * ║  var provider = new AtomLibraryProvider(currentBpId);                     ║
- * ║  var entries = provider.getEntries();                                     ║
- * ║                                                                           ║
- * ╚═══════════════════════════════════════════════════════════════════════════╝
- */
+* ╔═══════════════════════════════════════════════════════════════════════════╗
+* ║                     ATOM LIBRARY PROVIDER v3.0                            ║
+* ║          (Provides built-in atoms for context menu)                       ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  Provides all registered atoms from AtomRegistry:                         ║
+* ║  - Native atoms (Button, LED, Toggle, etc.)                               ║
+* ║  - Active drivers (SignalGenerator, MiniAudioAtom, etc.)                  ║
+* ║  - Custom assemblies (user-created)                                       ║
+* ║                                                                           ║
+* ║  v3.0 Changes:                                                            ║
+* ║  - Uses getFilteredIds() instead of getAllIds() to filter by platform     ║
+*   - Only shows atoms available for current target platform                 ║
+* ║                                                                           ║
+*   Architecture:                                                            ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+*   │  AtomLibraryProvider (implements MenuEntryProvider)                 │  ║
+* ║  │                                                                     │  ║
+* ║  │  Methods:                                                           │  ║
+* ║  │  - getEntries() → Array<MenuEntry>                                  │  ║
+* ║  │  - getCategoryId() → String ("atoms")                               │  
+* ║  │  - supportsSearch() → Bool (true)                                   │  ║
+* ║  │  - filter(query) → Array<MenuEntry>                                 │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║                                                                           
+* ║  Usage:                                                                   ║
+* ║  ───────                                                                  ║
+* ║  var provider = new AtomLibraryProvider(currentBpId);                     ║
+* ║  var entries = provider.getEntries();                                     ║
+* ║                                                                           ║
+* ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
 class AtomLibraryProvider implements MenuEntryProvider
 {
     /** Current blueprint ID to exclude from list. */
     private var _currentBpId:String;
-    
+
     /**
-     * Create a new atom library provider.
-     * 
-     * @param currentBpId Current blueprint ID to exclude (prevents self-reference)
-     */
+    * Create a new atom library provider.
+    *
+    * @param currentBpId Current blueprint ID to exclude (prevents self-reference)
+    */
     public function new(?currentBpId:String = null)
     {
         _currentBpId = currentBpId;
     }
-    
+
     /**
-     * Get all atom library entries.
-     * 
-     * @return Array of MenuEntry instances
-     */
+    * Get all atom library entries.
+    *
+    * v3.0: Uses getFilteredIds() to only show atoms available for current platform.
+    *
+    * @return Array of MenuEntry instances
+    */
     public function getEntries():Array<MenuEntry>
     {
         var entries:Array<MenuEntry> = [];
-        var ids = AtomRegistry.getAllIds();
+        // v3.0: Use filtered IDs instead of getAllIds()
+        var ids = AtomRegistry.getFilteredIds();
         ids.sort(function(a, b) return Reflect.compare(a, b));
-        
         for (id in ids)
         {
             if (id == _currentBpId) continue;
             var bp = AtomRegistry.get(id);
-            
             // FIX: Only show native atoms
             if (bp != null && bp.isNative)
             {
@@ -75,38 +79,37 @@ class AtomLibraryProvider implements MenuEntryProvider
         }
         return entries;
     }
-    
+
     /**
-     * Get the category ID this provider belongs to.
-     * 
-     * @return Category ID ("atoms")
-     */
+    * Get the category ID this provider belongs to.
+    *
+    * @return Category ID ("atoms")
+    */
     public function getCategoryId():String
     {
         return MenuCategory.ATOMS;
     }
-    
+
     /**
-     * Check if this provider supports text search filtering.
-     * 
-     * @return true (atom library supports search)
-     */
+    * Check if this provider supports text search filtering.
+    *
+    * @return true (atom library supports search)
+    */
     public function supportsSearch():Bool
     {
         return true;
     }
-    
+
     /**
-     * Filter entries by search query.
-     * 
-     * @param query Search text (case-insensitive)
-     * @return Filtered array of matching entries
-     */
+    * Filter entries by search query.
+    *
+    * @param query Search text (case-insensitive)
+    * @return Filtered array of matching entries
+    */
     public function filter(query:String):Array<MenuEntry>
     {
         var filtered:Array<MenuEntry> = [];
         var lowerQuery = query.toLowerCase();
-        
         for (entry in getEntries())
         {
             if (entry.displayName.toLowerCase().indexOf(lowerQuery) != -1)
@@ -114,7 +117,6 @@ class AtomLibraryProvider implements MenuEntryProvider
                 filtered.push(entry);
             }
         }
-        
         return filtered;
     }
 }
