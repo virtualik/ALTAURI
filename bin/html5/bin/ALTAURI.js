@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "163";
+	app.meta.h["build"] = "164";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
@@ -20675,7 +20675,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 				this._readPos = this._writePos - this._bufferSize;
 				this._overflowCount++;
 				if(this._overflowCount % 100 == 0) {
-					haxe_Log.trace("ComPortAtom: Ring buffer overflow! Lost " + this._overflowCount + " bytes total",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 237, className : "library.drivers.ComPortAtom", methodName : "writeToBuffer"});
+					haxe_Log.trace("ComPortAtom: Ring buffer overflow! Lost " + this._overflowCount + " bytes total",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 241, className : "library.drivers.ComPortAtom", methodName : "writeToBuffer"});
 				}
 			}
 		}
@@ -20783,7 +20783,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(bufSizeC != null && bufSizeC.get_value() != null) {
 			var newSize = bufSizeC.get_value();
 			if(newSize >= 256 && newSize <= 65536 && newSize != this._bufferSize) {
-				haxe_Log.trace("ComPortAtom: Buffer size changed from " + this._bufferSize + " to " + newSize,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 361, className : "library.drivers.ComPortAtom", methodName : "readConfiguration"});
+				haxe_Log.trace("ComPortAtom: Buffer size changed from " + this._bufferSize + " to " + newSize,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 367, className : "library.drivers.ComPortAtom", methodName : "readConfiguration"});
 				this.initRingBuffer(newSize);
 			}
 		}
@@ -21054,10 +21054,10 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 				}
 				return initPromise;
 			}).then(function() {
-				self.interfaceNumber = ifaceNum;
-				self.controlInterface = ctrlIface;
-				self.endpointIn = epIn;
-				self.endpointOut = epOut;
+				self._usbInterfaceNumber = ifaceNum;
+				self._usbControlInterface = ctrlIface;
+				self._usbEndpointIn = epIn;
+				self._usbEndpointOut = epOut;
 				return Promise.resolve();
 			})["catch"](function(err) {
 				return tryClaim(idx + 1);
@@ -21076,72 +21076,92 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		} else if(this._connectionType == "usb") {
 			this.startUsbReadLoop();
 		}
-		haxe_Log.trace("ComPortAtom: Port opened via " + this._connectionType,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 724, className : "library.drivers.ComPortAtom", methodName : "onPortOpened"});
+		haxe_Log.trace("ComPortAtom: Port opened via " + this._connectionType,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 811, className : "library.drivers.ComPortAtom", methodName : "onPortOpened"});
 	}
 	,onPortOpenError: function(err) {
 		this.setError("Failed to open port: " + Std.string(err));
 	}
 	,onPortRequestError: function(err) {
-		haxe_Log.trace("ComPortAtom: Port request cancelled or failed: " + Std.string(err),{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 728, className : "library.drivers.ComPortAtom", methodName : "onPortRequestError"});
+		haxe_Log.trace("ComPortAtom: Port request cancelled or failed: " + Std.string(err),{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 815, className : "library.drivers.ComPortAtom", methodName : "onPortRequestError"});
 	}
 	,closeDevice: function() {
 		var _gthis = this;
 		if(!this._isOpenFlag) {
 			return;
 		}
+		this._isOpenFlag = false;
 		this._isReading = false;
 		if(this._connectionType == "serial") {
+			var self = this;
+			var port = this._serialPort;
+			var closeSequence = Promise.resolve();
 			if(this._reader != null) {
-				var self = this;
-				this._reader.cancel()["catch"](function(err) {
-					return null;
+				var reader = this._reader;
+				this._reader = null;
+				closeSequence = closeSequence.then(function() {
+					return reader.cancel().then(function() {
+					},function(err) {
+						return null;
+					});
 				}).then(function() {
-					_gthis._reader.releaseLock();
-					_gthis._reader = null;
+					reader.releaseLock();
 				});
 			}
 			if(this._writer != null) {
-				var self = this;
-				this._writer.close()["catch"](function(err) {
-					return null;
+				var writer = this._writer;
+				this._writer = null;
+				closeSequence = closeSequence.then(function() {
+					return writer.close().then(function() {
+					},function(err) {
+						return null;
+					});
 				}).then(function() {
-					_gthis._writer.releaseLock();
-					_gthis._writer = null;
+					writer.releaseLock();
 				});
 			}
-			if(this._serialPort != null) {
-				var self = this;
-				this._serialPort.close().then(function() {
+			if(port != null) {
+				closeSequence = closeSequence.then(function() {
+					return port.close();
+				}).then(function() {
 					self.onPortClosed();
-				})["catch"](function(err) {
+				},function(err) {
 					self.onPortCloseError(err);
 				});
-				this._serialPort = null;
+			} else {
+				closeSequence = closeSequence.then(function() {
+					self.onPortClosed();
+				});
 			}
+			this._serialPort = null;
 		} else if(this._connectionType == "usb") {
 			var self1 = this;
 			var dev = this._usbDevice;
 			var p = Promise.resolve();
 			if(this._usbInterfaceNumber != -1) {
 				p = p.then(function() {
-					return dev.releaseInterface(_gthis._usbInterfaceNumber)["catch"](function(e) {
+					return dev.releaseInterface(_gthis._usbInterfaceNumber).then(function() {
+					},function(e) {
 						return null;
 					});
 				});
 			}
 			if(this._usbControlInterface != -1 && this._usbControlInterface != this._usbInterfaceNumber) {
 				p = p.then(function() {
-					return dev.releaseInterface(_gthis._usbControlInterface)["catch"](function(e) {
+					return dev.releaseInterface(_gthis._usbControlInterface).then(function() {
+					},function(e) {
 						return null;
 					});
 				});
 			}
 			p = p.then(function() {
-				return dev.close()["catch"](function(e) {
+				return dev.close().then(function() {
+				},function(e) {
 					return null;
 				});
 			}).then(function() {
 				self1.onPortClosed();
+			},function(err) {
+				self1.onPortCloseError(err);
 			});
 			this._usbDevice = null;
 		}
@@ -21152,7 +21172,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(outOpen != null) {
 			outOpen.set_value(false);
 		}
-		haxe_Log.trace("ComPortAtom: Port closed",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 795, className : "library.drivers.ComPortAtom", methodName : "onPortClosed"});
+		haxe_Log.trace("ComPortAtom: Port closed",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 928, className : "library.drivers.ComPortAtom", methodName : "onPortClosed"});
 	}
 	,onPortCloseError: function(err) {
 		this.setError("Failed to close port: " + Std.string(err));
@@ -21302,7 +21322,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 	}
 	,setDTRState: function(state) {
 		if(this._connectionType == "serial") {
-			haxe_Log.trace("ComPortAtom: DTR control not directly supported in standard Web Serial API without extensions.",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 918, className : "library.drivers.ComPortAtom", methodName : "setDTRState"});
+			haxe_Log.trace("ComPortAtom: DTR control not directly supported in standard Web Serial API without extensions.",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1054, className : "library.drivers.ComPortAtom", methodName : "setDTRState"});
 		} else if(this._connectionType == "usb") {
 			var vid = this._usbDevice.vendorId;
 			var val = state ? 3 : 0;
@@ -40176,7 +40196,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 445449;
+	this.version = 810640;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
