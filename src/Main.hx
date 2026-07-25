@@ -300,39 +300,19 @@ class Main extends Sprite
 		var editor = _editorContext.currentEditor;
 		
 		// === Generate IDs for connections ===
-		var sigGenId = UID.generate();
-		var oscId = UID.generate();
 		var buttonId = UID.generate();
 		var ledId = UID.generate();
-		var toggleId = UID.generate();
-		var relayId = UID.generate();
-		var led2Id = UID.generate();
 		
 		// === Create atoms ===
-		editor.createAtomWithId("SignalGenerator", sigGenId, 200, 200);
-		editor.createAtomWithId("Oscilloscope", oscId, 500, 200);
 		
 		editor.createAtomWithId("Button", buttonId, 200, 400);
 		editor.createAtomWithId("LED", ledId, 450, 400);
-		
-		editor.createAtomWithId("Toggle", toggleId, 200, 550);
-		editor.createAtomWithId("Relay", relayId, 400, 550);
-		editor.createAtomWithId("LED", led2Id, 600, 550);
-		
+	
 		// === Connect them! ===
-		// SignalGenerator.out → Oscilloscope.in
-		editor.connectAtoms(sigGenId, "out", oscId, "in");
-		
 		// Button.out → LED.in
 		editor.connectAtoms(buttonId, "out", ledId, "in");
 		
-		// Toggle.out → Relay.control
-		editor.connectAtoms(toggleId, "out", relayId, "control");
-		
-		// Relay.out → LED_2.in
-		editor.connectAtoms(relayId, "out", led2Id, "in");
-		
-		trace("MainHTML5: Demo project created with 7 atoms and 4 connections");
+		trace("MainHTML5: Demo project created with 2 atoms and 1 connections");
 		
 		// Force redraw after a short delay
 		haxe.Timer.delay(function() {

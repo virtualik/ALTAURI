@@ -75,7 +75,7 @@ import sys.FileSystem;
 
 		var data, manifest, library, bundle;
 
-		data = '{"name":null,"assets":"aoy4:pathy25:assets%2Ffixed_classes.hxy4:sizei103582y4:typey4:TEXTy2:idR1y7:preloadtgoR0y36:assets%2Ficons%2Fatoms%2Fcomport.pngR2i4680R3y5:IMAGER5R7R6tgoR0y32:assets%2Ficons%2Fatoms%2Ffft.pngR2i4517R3R8R5R9R6tgoR0y19:assets%2Fopenfl.svgR2i62864R3R4R5R10R6tgh","rootPath":null,"version":2,"libraryArgs":[],"libraryType":null}';
+		data = '{"name":null,"assets":"aoy4:pathy25:assets%2Ffixed_classes.hxy4:sizei103582y4:typey4:TEXTy2:idR1y7:preloadtgoR0y36:assets%2Ficons%2Fatoms%2Fcomport.pngR2i4680R3y5:IMAGER5R7R6tgoR0y32:assets%2Ficons%2Fatoms%2Ffft.pngR2i4517R3R8R5R9R6tgoR0y19:assets%2Fopenfl.svgR2i62864R3R4R5R10R6tgoR0R7R2i4680R3R8R5R7R6tgoR0R9R2i4517R3R8R5R9R6tgh","rootPath":null,"version":2,"libraryArgs":[],"libraryType":null}';
 		manifest = AssetManifest.parse (data, rootPath);
 		library = AssetLibrary.fromManifest (manifest);
 		Assets.registerLibrary ("default", library);
@@ -98,15 +98,19 @@ import sys.FileSystem;
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_icons_atoms_comport_png extends flash.display.BitmapData { public function new () { super (0, 0, true, 0); } }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_icons_atoms_fft_png extends flash.display.BitmapData { public function new () { super (0, 0, true, 0); } }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_openfl_svg extends null { }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_icons_atoms_comport_png1 extends flash.display.BitmapData { public function new () { super (0, 0, true, 0); } }
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_icons_atoms_fft_png1 extends flash.display.BitmapData { public function new () { super (0, 0, true, 0); } }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__manifest_default_json extends null { }
 
 
 #elseif (desktop || cpp)
 
-@:keep @:file("Assets/fixed_classes.hx") @:noCompletion #if display private #end class __ASSET__assets_fixed_classes_hx extends haxe.io.Bytes {}
-@:keep @:image("Assets/icons/atoms/comport.png") @:noCompletion #if display private #end class __ASSET__assets_icons_atoms_comport_png extends lime.graphics.Image {}
-@:keep @:image("Assets/icons/atoms/fft.png") @:noCompletion #if display private #end class __ASSET__assets_icons_atoms_fft_png extends lime.graphics.Image {}
-@:keep @:file("Assets/openfl.svg") @:noCompletion #if display private #end class __ASSET__assets_openfl_svg extends haxe.io.Bytes {}
+@:keep @:file("assets/fixed_classes.hx") @:noCompletion #if display private #end class __ASSET__assets_fixed_classes_hx extends haxe.io.Bytes {}
+@:keep @:image("assets/icons/atoms/comport.png") @:noCompletion #if display private #end class __ASSET__assets_icons_atoms_comport_png extends lime.graphics.Image {}
+@:keep @:image("assets/icons/atoms/fft.png") @:noCompletion #if display private #end class __ASSET__assets_icons_atoms_fft_png extends lime.graphics.Image {}
+@:keep @:file("assets/openfl.svg") @:noCompletion #if display private #end class __ASSET__assets_openfl_svg extends haxe.io.Bytes {}
+@:keep @:image("assets/icons/atoms/comport.png") @:noCompletion #if display private #end class __ASSET__assets_icons_atoms_comport_png1 extends lime.graphics.Image {}
+@:keep @:image("assets/icons/atoms/fft.png") @:noCompletion #if display private #end class __ASSET__assets_icons_atoms_fft_png1 extends lime.graphics.Image {}
 @:keep @:file("") @:noCompletion #if display private #end class __ASSET__manifest_default_json extends haxe.io.Bytes {}
 
 

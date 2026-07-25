@@ -367,7 +367,7 @@ class AtomRegistry
         // LOGIC & PASSIVE
         // =================================================================
         // !!! FIX: Аргументы были сдвинуты. Добавлен `null` для `logic` и `iconId` в конец.
-        reg("PassThroughAtom", "Pass Through", [
+        reg("PassThrough", "Pass Through", [
             {name: "in",      type: INPUT,  dataType: "any",   priority: CRITICAL},
             {name: "out",     type: OUTPUT, dataType: "any",   priority: CRITICAL},
             {name: "changed", type: OUTPUT, dataType: "bool",  priority: OPTIONAL}

@@ -54,7 +54,10 @@
 	<haxelib name="hxcpp" if="cpp" />
 	<haxedef name="utf8" />
 	
-	<assets path="Assets" rename="assets" />
+	<assets path="assets" />
+	<assets path="assets/icons/atoms" rename="assets/icons/atoms" recursive="true" />
+	<icon path="assets/openfl.svg" />
+	
 	<!-- После успешной сборки HTML5, синхронизируем с ATELIER -->
 	<postbuild command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1" />
 

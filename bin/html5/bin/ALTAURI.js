@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "161";
+	app.meta.h["build"] = "162";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
@@ -3545,25 +3545,12 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		var rootAssembly = new core_base_Assembly("main_asm",demoBlueprint);
 		this._editorContext.push(rootAssembly,true);
 		var editor = this._editorContext.currentEditor;
-		var sigGenId = utils_UID.generate();
-		var oscId = utils_UID.generate();
 		var buttonId = utils_UID.generate();
 		var ledId = utils_UID.generate();
-		var toggleId = utils_UID.generate();
-		var relayId = utils_UID.generate();
-		var led2Id = utils_UID.generate();
-		editor.createAtomWithId("SignalGenerator",sigGenId,200,200);
-		editor.createAtomWithId("Oscilloscope",oscId,500,200);
 		editor.createAtomWithId("Button",buttonId,200,400);
 		editor.createAtomWithId("LED",ledId,450,400);
-		editor.createAtomWithId("Toggle",toggleId,200,550);
-		editor.createAtomWithId("Relay",relayId,400,550);
-		editor.createAtomWithId("LED",led2Id,600,550);
-		editor.connectAtoms(sigGenId,"out",oscId,"in");
 		editor.connectAtoms(buttonId,"out",ledId,"in");
-		editor.connectAtoms(toggleId,"out",relayId,"control");
-		editor.connectAtoms(relayId,"out",led2Id,"in");
-		haxe_Log.trace("MainHTML5: Demo project created with 7 atoms and 4 connections",{ fileName : "src/Main.hx", lineNumber : 335, className : "Main", methodName : "createDemoProject"});
+		haxe_Log.trace("MainHTML5: Demo project created with 7 atoms and 4 connections",{ fileName : "src/Main.hx", lineNumber : 315, className : "Main", methodName : "createDemoProject"});
 		haxe_Timer.delay(function() {
 			if(editor != null && !editor.isDisposed) {
 				editor.forceFullRedraw();
@@ -4256,7 +4243,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				HxOverrides.remove(bp.internalConnections,conn);
 			}
 			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
-			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1465, className : "Main", methodName : "onPortRemoved"});
+			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1445, className : "Main", methodName : "onPortRemoved"});
 		}
 	}
 	,hardReset: function() {
@@ -4405,8 +4392,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		var nodeCount = this._editorContext.currentEditor.getSelectedNodeCount();
 		var wireIds = this._editorContext.currentEditor.getSelectedWireIds();
-		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1634, className : "Main", methodName : "deleteSelectedOnCanvas"});
-		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1635, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1614, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1615, className : "Main", methodName : "deleteSelectedOnCanvas"});
 		if(nodeCount > 0) {
 			this._editorContext.currentEditor.deleteSelectedNodes();
 			this.updateSettingsStats();
@@ -4747,7 +4734,7 @@ ManifestResources.init = function(config) {
 		ManifestResources.rootPath = "./";
 	}
 	var bundle;
-	var data = "{\"name\":null,\"assets\":\"aoy4:pathy25:assets%2Ffixed_classes.hxy4:sizei103582y4:typey4:TEXTy2:idR1y7:preloadtgoR0y36:assets%2Ficons%2Fatoms%2Fcomport.pngR2i4680R3y5:IMAGER5R7R6tgoR0y32:assets%2Ficons%2Fatoms%2Ffft.pngR2i4517R3R8R5R9R6tgoR0y19:assets%2Fopenfl.svgR2i62864R3R4R5R10R6tgh\",\"rootPath\":null,\"version\":2,\"libraryArgs\":[],\"libraryType\":null}";
+	var data = "{\"name\":null,\"assets\":\"aoy4:pathy25:assets%2Ffixed_classes.hxy4:sizei103582y4:typey4:TEXTy2:idR1y7:preloadtgoR0y36:assets%2Ficons%2Fatoms%2Fcomport.pngR2i4680R3y5:IMAGER5R7R6tgoR0y32:assets%2Ficons%2Fatoms%2Ffft.pngR2i4517R3R8R5R9R6tgoR0y19:assets%2Fopenfl.svgR2i62864R3R4R5R10R6tgoR0R7R2i4680R3R8R5R7R6tgoR0R9R2i4517R3R8R5R9R6tgh\",\"rootPath\":null,\"version\":2,\"libraryArgs\":[],\"libraryType\":null}";
 	var manifest = lime_utils_AssetManifest.parse(data,ManifestResources.rootPath);
 	var library = lime_utils_AssetLibrary.fromManifest(manifest);
 	lime_utils_Assets.registerLibrary("default",library);
@@ -20564,7 +20551,7 @@ library_AtomRegistry.initialize = function() {
 	library_AtomRegistry.reg("ComEnumeratorAtom","COM Enumerator",[{ name : "ports", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL}],null,"comenumerator",true,true,"comenumerator",["cpp"]);
 	library_AtomRegistry.reg("NETRadioPlayerAtom","NET Radio Player",[{ name : "stream_url", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "URL"},{ name : "poll_interval", type : core_types_ContactType.INPUT, defaultValue : 5.0, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL, label : "Poll (s)"},{ name : "playCtrl", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, label : "Play"},{ name : "volume", type : core_types_ContactType.INPUT, defaultValue : 1.0, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Volume"},{ name : "title", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Title"},{ name : "artist", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Artist"},{ name : "track", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Track"},{ name : "raw_metadata", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.INTERNAL},{ name : "updated", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "state", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Error"},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.OPTIONAL, label : "Error Msg"}],null,"netradio",true,true,"netradio",["cpp"]);
 	library_AtomRegistry.reg("URLAudioStreamPlayer","URL Audio Player",[{ name : "url", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL, visibleInEditor : true, label : "URL"},{ name : "play", type : core_types_ContactType.INPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, visibleInEditor : true, label : "Play"},{ name : "volume", type : core_types_ContactType.INPUT, dataType : "float", defaultValue : 1.0, priority : core_data_ParameterPriority.OPTIONAL, visibleInEditor : true, label : "Vol"},{ name : "isPlaying", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, label : "Playing"},{ name : "isBuffering", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.IMPORTANT, label : "Buffering"},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Error"},{ name : "state", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "State"}],null,"urlplayer",true,true,"urlplayer",["cpp"]);
-	library_AtomRegistry.reg("PassThroughAtom","Pass Through",[{ name : "in", type : core_types_ContactType.INPUT, dataType : "any", priority : core_data_ParameterPriority.CRITICAL},{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "any", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL}],null,"wire",true,false,"passthrough");
+	library_AtomRegistry.reg("PassThrough","Pass Through",[{ name : "in", type : core_types_ContactType.INPUT, dataType : "any", priority : core_data_ParameterPriority.CRITICAL},{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "any", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL}],null,"wire",true,false,"passthrough");
 	library_AtomRegistry.reg("Oscilloscope","Oscilloscope",[{ name : "in", type : core_types_ContactType.INPUT, dataType : "array", priority : core_data_ParameterPriority.INTERNAL, visibleInEditor : false}],null,"oscilloscope",true,false,"oscilloscope");
 	library_AtomRegistry.reg("FFTAtom","FFT Spectrum",[{ name : "buffer", type : core_types_ContactType.INPUT, dataType : "array", priority : core_data_ParameterPriority.INTERNAL, visibleInEditor : false},{ name : "windowSize", type : core_types_ContactType.INPUT, defaultValue : 512, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Size"},{ name : "windowType", type : core_types_ContactType.INPUT, defaultValue : 1, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "Window"},{ name : "sampleRate", type : core_types_ContactType.INPUT, defaultValue : 48000, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "Rate"},{ name : "spectrum", type : core_types_ContactType.OUTPUT, dataType : "array", priority : core_data_ParameterPriority.CRITICAL},{ name : "spectrumDB", type : core_types_ContactType.OUTPUT, dataType : "array", priority : core_data_ParameterPriority.CRITICAL},{ name : "peak", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Peak Hz"},{ name : "peakAmp", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL},{ name : "bass", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Bass"},{ name : "mid", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Mid"},{ name : "treble", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Treble"},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL}],null,"fft",true,true,"fft");
 	library_AtomRegistry._initialized = true;
@@ -39846,7 +39833,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 292732;
+	this.version = 413867;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
