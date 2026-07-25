@@ -1,4 +1,4 @@
-// FILE: library\electro\TextAreaAtom.hx
+// FILE: library/electro/TextAreaAtom.hx
 package library.electro;
 
 import core.base.Atom;
@@ -6,54 +6,54 @@ import core.base.Contact;
 import core.types.ContactType;
 
 /**
-* TEXT AREA ATOM v1.0 (Configurable Multi-Line Text)
-*
-* Passive atom for multi-line text display and editing.
-* Extends the concept of TextInputAtom with full textarea configuration.
-*
-* Architecture: "ATOM IS DATABANK & COMPUTE CORE"
-* ┌─────────────────────────────────────────────────────────────────────────┐
-* │   TextAreaAtom (Databank)                                               │
-* │                                                                         │
-* │   ┌─────────────────────────────────────────────────────────────────┐   │
-* │   │  CONFIGURATION INPUTS:                                          │   │
-* │   │  - text       (String)  → Full text content                     │   │
-* │   │  - append     (String)  → Append line to existing text          │   │
-* │   │  - clear      (Bool)    → Clear all text on true                │   │
-* │   │  - editable   (Bool)    → Enable/disable user editing           │   │
-* │   │  - wordWrap   (Bool)    → Word wrap mode                        │   │
-* │   │  - autoScroll (Bool)    → Auto-scroll to bottom on new text     │   │
-* │   │  - hScroll    (Bool)    → Horizontal scrollbar visibility       │   │
-* │   │  - vScroll    (Bool)    → Vertical scrollbar visibility         │   │
-* │   │  - maxChars   (Int)     → Max characters per line (width)       │   │
-* │   │  - numLines   (Int)     → Number of visible lines (height)      │   │
-* │   │                                                                 │   │
-* │   │  OUTPUTS:                                                       │   │
-* │   │  - text       (String)  → Current text content                  │   │
-* │   │  - changed    (Bool)    → Pulse on text change                  │   │
-* │   │  - lineCount  (Int)     → Current number of lines               │   │
-* │   │  - cursorLine (Int)     → Current cursor line number            │   │
-* │   └─────────────────────────────────────────────────────────────────┘   │
-* │                                                                         │
-* │   Widget (TextAreaWidget) reads config from atom's contacts.            │
-* │   Widget writes to "text" contact on user input.                        │
-* │   Atom is the Databank — single source of truth.                        │
-* │                                                                         │
-* └─────────────────────────────────────────────────────────────────────────┘
-*
-* Default Configuration:
-* ┌──────────────────┬───────────────┐
-* │ Parameter        │ Default       │
-* ├──────────────────┼───────────────┤
-* │ maxChars         │ 40            │
-* │ numLines         │ 8             │
-* │ editable         │ true          │
-* │ wordWrap         │ true          │
-* │ autoScroll       │ true          │
-* │ hScroll          │ false         │
-* │ vScroll          │ true          │
-* └──────────────────┴───────────────┘
-*/
+ * TEXT AREA ATOM v1.1 (Fixed Append Logic)
+ *
+ * Passive atom for multi-line text display and editing.
+ * Extends the concept of TextInputAtom with full textarea configuration.
+ *
+ * Architecture: "ATOM IS DATABANK & COMPUTE CORE"
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   TextAreaAtom (Databank)                                               │
+ * │                                                                         │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  CONFIGURATION INPUTS:                                          │   │
+ * │   │  - text       (String)  → Full text content                     │   │
+ * │   │  - append     (String)  → Append text to existing content       │   │
+ * │   │  - clear      (Bool)    → Clear all text on true                │   │
+ * │   │  - editable   (Bool)    → Enable/disable user editing           │   │
+ * │   │  - wordWrap   (Bool)    → Word wrap mode                        │   │
+ * │   │  - autoScroll (Bool)    → Auto-scroll to bottom on new text     │   │
+ * │   │  - hScroll    (Bool)    → Horizontal scrollbar visibility       │   │
+ * │   │  - vScroll    (Bool)    → Vertical scrollbar visibility         │   │
+ * │   │  - maxChars   (Int)     → Max characters per line (width)       │   │
+ * │   │  - numLines   (Int)     → Number of visible lines (height)      │   │
+ * │   │                                                                 │   │
+ * │   │  OUTPUTS:                                                       │   │
+ * │   │  - text       (String)  → Current text content                  │   │
+ * │   │  - changed    (Bool)    → Pulse on text change                  │   │
+ * │   │  - lineCount  (Int)     → Current number of lines               │   │
+ * │   │  - cursorLine (Int)     → Current cursor line number            │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
+ * │   Widget (TextAreaWidget) reads config from atom's contacts.            │
+ * │   Widget writes to "text" contact on user input.                        │
+ * │   Atom is the Databank — single source of truth.                        │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * Default Configuration:
+ * ┌──────────────────┬───────────────┐
+ * │ Parameter        │ Default       │
+ * ├──────────────────┼───────────────┤
+ * │ maxChars         │ 40            │
+ * │ numLines         │ 8             │
+ * │ editable         │ true          │
+ * │ wordWrap         │ true          │
+ * │ autoScroll       │ true          │
+ * │ hScroll          │ false         │
+ * │ vScroll          │ true          │
+ * └──────────────────┴───────────────┘
+ */
 class TextAreaAtom extends Atom
 {
     // =========================================================================
@@ -104,9 +104,9 @@ class TextAreaAtom extends Atom
     // COMPUTE MODULE
     // =========================================================================
     /**
-    * Called when any contact value changes.
-    * Routes configuration changes and text operations.
-    */
+     * Called when any contact value changes.
+     * Routes configuration changes and text operations.
+     */
     override public function onContactChanged(c:Contact):Void
     {
         if (_isDisposed) return;
@@ -125,14 +125,10 @@ class TextAreaAtom extends Atom
                 var appendStr = Std.string(c.value);
                 if (appendStr != "" && appendStr != "null")
                 {
-                    if (_text.length > 0)
-                    {
-                        _text += appendStr;
-                    }
-                    else
-                    {
-                        _text = appendStr;
-                    }
+                    // FIX: Removed "\n" + to prevent unwanted line breaks on every append.
+                    // Data is appended exactly as received, allowing the sender to control formatting.
+                    _text += appendStr;
+                    
                     pushTextToOutput();
                     // Reset append input to prevent re-trigger
                     c.value = "";
@@ -174,8 +170,8 @@ class TextAreaAtom extends Atom
     }
 
     /**
-    * Push current text to output and fire changed pulse.
-    */
+     * Push current text to output and fire changed pulse.
+     */
     private function pushTextToOutput():Void
     {
         var textOut = getOutput("text");
@@ -219,9 +215,9 @@ class TextAreaAtom extends Atom
     public function getNumLines():Int return _numLines;
 
     /**
-    * Called by widget when user edits text.
-    * Updates internal state and output contacts.
-    */
+     * Called by widget when user edits text.
+     * Updates internal state and output contacts.
+     */
     public function setTextFromWidget(newText:String):Void
     {
         if (newText != _text)
@@ -235,8 +231,8 @@ class TextAreaAtom extends Atom
     }
 
     /**
-    * Called by widget to report cursor line.
-    */
+     * Called by widget to report cursor line.
+     */
     public function setCursorLine(line:Int):Void
     {
         var c = getOutput("cursorLine");

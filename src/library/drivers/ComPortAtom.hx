@@ -58,13 +58,11 @@ static void _altauri_com_reader_loop(void* haxePtr) {
             tempBuf[bytesRead] = 0;
             std::lock_guard<std::mutex> rxLock(st->rxMutex);
             
-            // === FIX: Конкатенация вместо перезаписи ===
+            // === FIX: Safe concatenation with overflow protection ===
             size_t currentLen = strlen(st->rxBuffer);
             size_t newLen = currentLen + bytesRead;
             
-            // Защита от переполнения
             if (newLen >= sizeof(st->rxBuffer)) {
-                // Сдвигаем данные: оставляем последние (sizeof - 1) байт
                 size_t overflow = newLen - (sizeof(st->rxBuffer) - 1);
                 memmove(st->rxBuffer, st->rxBuffer + overflow, currentLen - overflow);
                 st->rxBuffer[currentLen - overflow] = 0;
@@ -96,15 +94,26 @@ static void _altauri_com_reader_loop(void* haxePtr) {
 #end
 
 /**
- * COM PORT ATOM v2.2 (Dual-Platform: C++ WinAPI + HTML5 Web Serial API + Test Bypass)
+ * COM PORT ATOM v2.3 (Dual-Platform + Zero-GC Batching + Test Bypass)
  *
  * Serial port driver with platform-specific backends.
  * At compile time, Haxe selects the appropriate backend.
  *
- * v2.2 Changes:
+ * ─────────────────────────────────────────────────────────────────────
+ * │                    COMPILATION FLOW                                 │
+ * │                                                                     │
+ * │  haxe -cpp  ──► #if cpp   ──► WinAPI + Background Thread          │
+ * │  haxe -html5──► #if html5 ──► Browser Web Serial API              │
+ * │                                                                     │
+ * │  Common code (contacts, update logic, ring buffer) is shared.       │
+ * │  Platform-specific code is isolated in #if blocks.                  │
+ * └─────────────────────────────────────────────────────────────────────┘
+ *
+ * v2.3 Changes:
  * - ADDED: "testRxData" INPUT contact to bypass C++ backend for UI pipeline testing.
- * - FIXED: C++ rxBuffer now uses safe concatenation with overflow protection (memmove).
- * - FIXED: Haxe update() explicitly clears C++ rxBuffer after reading to prevent stale data.
+ * - OPTIMIZED: Batched Driver Update Pattern (setValueSilent + propagateCurrentValue)
+ *   to prevent TickGenerator overload and UI freezes during large data bursts.
+ * - FIXED: C++ rxBuffer explicitly cleared after reading to prevent stale data races.
  *
  * Architecture:
  * ┌─────────────────────────────────────────────────────────────────────┐
@@ -206,7 +215,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 new Contact(false, INPUT, "send"),
                 new Contact("", INPUT, "txData"),
                 new Contact(false, INPUT, "setDTR"),
-                // FIX: Moved to INPUT to allow injecting test data to bypass C++ backend
+                // FIX: Added as INPUT to allow injecting test data to bypass C++ backend
                 new Contact("", INPUT, "testRxData") 
             ],
             [
@@ -299,7 +308,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
             _readPos++;
         }
 
-        // Emit via output
+        // Emit via output using Batched Driver Update Pattern
         var rxOut = getOutput("rxData");
         if (rxOut != null)
         {
@@ -352,44 +361,46 @@ class ComPortAtom extends Atom implements system.managers.Driver
             }
             // Clear the test input to prevent continuous firing
             testRxC.value = "";
-            return; // Skip C++ polling if we are in test mode
+            // Skip C++ polling if we are in test mode to ensure clean isolation
         }
-
-        // Poll platform backend
-        #if cpp
-        untyped __cpp__('
-        ComPortState* _cps_stPtr = nullptr;
+        else 
         {
-            std::lock_guard<std::mutex> _cps_mapLock(_com_map_mutex);
-            auto _cps_it = _com_states_map.find((void*){0}.mPtr);
-            if (_cps_it != _com_states_map.end()) {
-                _cps_stPtr = _cps_it->second;
-            }
-        }
-        if (_cps_stPtr) {
+            // Poll platform backend
+            #if cpp
+            untyped __cpp__('
+            ComPortState* _cps_stPtr = nullptr;
             {
-                std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
-                if (_cps_stPtr->hasRxData) {
-                    {0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer);
-                    {0}->_hasPendingRx = true;
-                    _cps_stPtr->hasRxData = false;
-                    _cps_stPtr->rxBuffer[0] = 0; // FIX: Explicitly clear buffer after reading
+                std::lock_guard<std::mutex> _cps_mapLock(_com_map_mutex);
+                auto _cps_it = _com_states_map.find((void*){0}.mPtr);
+                if (_cps_it != _com_states_map.end()) {
+                    _cps_stPtr = _cps_it->second;
                 }
             }
-            {
-                std::lock_guard<std::mutex> _cps_errLock(_cps_stPtr->errMutex);
-                if (_cps_stPtr->hasError) {
-                    {0}->_pendingErrStr = ::String(_cps_stPtr->errBuffer);
-                    {0}->_hasPendingErr = true;
-                    _cps_stPtr->hasError = false;
+            if (_cps_stPtr) {
+                {
+                    std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
+                    if (_cps_stPtr->hasRxData) {
+                        {0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer);
+                        {0}->_hasPendingRx = true;
+                        _cps_stPtr->hasRxData = false;
+                        _cps_stPtr->rxBuffer[0] = 0; // FIX: Explicitly clear buffer after reading
+                    }
+                }
+                {
+                    std::lock_guard<std::mutex> _cps_errLock(_cps_stPtr->errMutex);
+                    if (_cps_stPtr->hasError) {
+                        {0}->_pendingErrStr = ::String(_cps_stPtr->errBuffer);
+                        {0}->_hasPendingErr = true;
+                        _cps_stPtr->hasError = false;
+                    }
                 }
             }
+            ', this);
+            #end
         }
-        ', this);
-        #end
 
         // HTML5: _hasPendingRx is set by WebSocket callbacks
-        // Process pending received data
+        // Process pending received data using Batched Driver Update Pattern
         if (_hasPendingRx)
         {
             _hasPendingRx = false;
@@ -722,7 +733,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
      * v2.1 FIX: All Promise callbacks now use arrow functions (x) => {}
      * to preserve lexical `this` binding. Previously, regular function(x) {}
      * created its own `this` (undefined in strict mode), causing
-     * "Cannot read properties of undefined (reading \'onPortRequested\')".
+     * "Cannot read properties of undefined (reading 'onPortRequested')".
      */
     private function openDevice():Void
     {

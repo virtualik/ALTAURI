@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "160";
+	app.meta.h["build"] = "161";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
@@ -20646,7 +20646,7 @@ var library_drivers_ComPortAtom = function(id) {
 	this._overflowCount = 0;
 	this._writePos = 0;
 	this._readPos = 0;
-	core_base_Atom.call(this,[new core_base_Contact("COM1",core_types_ContactType.INPUT,"portName"),new core_base_Contact(9600,core_types_ContactType.INPUT,"baudRate"),new core_base_Contact(4096,core_types_ContactType.INPUT,"bufferSize"),new core_base_Contact(256,core_types_ContactType.INPUT,"chunkSize"),new core_base_Contact(true,core_types_ContactType.INPUT,"enabled"),new core_base_Contact(false,core_types_ContactType.INPUT,"open"),new core_base_Contact(false,core_types_ContactType.INPUT,"close"),new core_base_Contact(false,core_types_ContactType.INPUT,"send"),new core_base_Contact("",core_types_ContactType.INPUT,"txData"),new core_base_Contact(false,core_types_ContactType.INPUT,"setDTR")],[new core_base_Contact(false,core_types_ContactType.OUTPUT,"isOpen"),new core_base_Contact("",core_types_ContactType.OUTPUT,"rxData"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"rxTick"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"txTick"),new core_base_Contact("",core_types_ContactType.OUTPUT,"error"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"errorTick"),new core_base_Contact("",core_types_ContactType.OUTPUT,"testRxData")],null,id,"ComPortAtom",true);
+	core_base_Atom.call(this,[new core_base_Contact("COM1",core_types_ContactType.INPUT,"portName"),new core_base_Contact(9600,core_types_ContactType.INPUT,"baudRate"),new core_base_Contact(4096,core_types_ContactType.INPUT,"bufferSize"),new core_base_Contact(256,core_types_ContactType.INPUT,"chunkSize"),new core_base_Contact(true,core_types_ContactType.INPUT,"enabled"),new core_base_Contact(false,core_types_ContactType.INPUT,"open"),new core_base_Contact(false,core_types_ContactType.INPUT,"close"),new core_base_Contact(false,core_types_ContactType.INPUT,"send"),new core_base_Contact("",core_types_ContactType.INPUT,"txData"),new core_base_Contact(false,core_types_ContactType.INPUT,"setDTR"),new core_base_Contact("",core_types_ContactType.INPUT,"testRxData")],[new core_base_Contact(false,core_types_ContactType.OUTPUT,"isOpen"),new core_base_Contact("",core_types_ContactType.OUTPUT,"rxData"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"rxTick"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"txTick"),new core_base_Contact("",core_types_ContactType.OUTPUT,"error"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"errorTick")],null,id,"ComPortAtom",true);
 	this.initRingBuffer(4096);
 	this.init();
 };
@@ -20682,7 +20682,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 				this._readPos = this._writePos - this._bufferSize;
 				this._overflowCount++;
 				if(this._overflowCount % 100 == 0) {
-					haxe_Log.trace("ComPortAtom: Ring buffer overflow! Lost " + this._overflowCount + " bytes total",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 254, className : "library.drivers.ComPortAtom", methodName : "writeToBuffer"});
+					haxe_Log.trace("ComPortAtom: Ring buffer overflow! Lost " + this._overflowCount + " bytes total",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 269, className : "library.drivers.ComPortAtom", methodName : "writeToBuffer"});
 				}
 			}
 		}
@@ -20733,6 +20733,21 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(!this._enabled) {
 			return;
 		}
+		var testRxC = this.getInput("testRxData");
+		if(testRxC != null && testRxC.get_value() != null && testRxC.get_value() != "") {
+			var testData = Std.string(testRxC.get_value());
+			var rxOut = this.getOutput("rxData");
+			if(rxOut != null) {
+				rxOut.setValueSilent(testData);
+				rxOut.propagateCurrentValue();
+			}
+			var rxTick = this.getOutput("rxTick");
+			if(rxTick != null) {
+				rxTick.set_value(true);
+				this._rxTimer = 0.05;
+			}
+			testRxC.set_value("");
+		}
 		if(this._hasPendingRx) {
 			this._hasPendingRx = false;
 			var rxOut = this.getOutput("rxData");
@@ -20775,7 +20790,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(bufSizeC != null && bufSizeC.get_value() != null) {
 			var newSize = bufSizeC.get_value() | 0;
 			if(newSize >= 256 && newSize <= 65536 && newSize != this._bufferSize) {
-				haxe_Log.trace("ComPortAtom: Buffer size changed from " + this._bufferSize + " to " + newSize,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 427, className : "library.drivers.ComPortAtom", methodName : "readConfiguration"});
+				haxe_Log.trace("ComPortAtom: Buffer size changed from " + this._bufferSize + " to " + newSize,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 467, className : "library.drivers.ComPortAtom", methodName : "readConfiguration"});
 				this.initRingBuffer(newSize);
 			}
 		}
@@ -20863,7 +20878,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 			outOpen.set_value(true);
 		}
 		this.startReadLoop();
-		haxe_Log.trace("ComPortAtom: Port opened",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 752, className : "library.drivers.ComPortAtom", methodName : "onPortOpened"});
+		haxe_Log.trace("ComPortAtom: Port opened",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 790, className : "library.drivers.ComPortAtom", methodName : "onPortOpened"});
 	}
 	,onPortOpenError: function(err) {
 		this.setError("Failed to open port: " + Std.string(err));
@@ -20895,7 +20910,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(outOpen != null) {
 			outOpen.set_value(false);
 		}
-		haxe_Log.trace("ComPortAtom: Port closed",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 812, className : "library.drivers.ComPortAtom", methodName : "onPortClosed"});
+		haxe_Log.trace("ComPortAtom: Port closed",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 850, className : "library.drivers.ComPortAtom", methodName : "onPortClosed"});
 	}
 	,onPortCloseError: function(err) {
 		this.setError("Failed to close port: " + Std.string(err));
@@ -20970,7 +20985,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		}
 	}
 	,setDTRState: function(state) {
-		haxe_Log.trace("ComPortAtom: DTR control not supported in Web Serial API",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 955, className : "library.drivers.ComPortAtom", methodName : "setDTRState"});
+		haxe_Log.trace("ComPortAtom: DTR control not supported in Web Serial API",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 993, className : "library.drivers.ComPortAtom", methodName : "setDTRState"});
 	}
 	,setError: function(msg) {
 		this._pendingErrStr = msg;
@@ -22305,11 +22320,7 @@ library_electro_TextAreaAtom.prototype = $extend(core_base_Atom.prototype,{
 		case "append":
 			var appendStr = Std.string(c.get_value());
 			if(appendStr != "" && appendStr != "null") {
-				if(this._text.length > 0) {
-					this._text += appendStr;
-				} else {
-					this._text = appendStr;
-				}
+				this._text += appendStr;
 				this.pushTextToOutput();
 				c.set_value("");
 			}
@@ -39835,7 +39846,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 380308;
+	this.version = 292732;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
