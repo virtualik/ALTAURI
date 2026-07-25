@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "162";
+	app.meta.h["build"] = "163";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
@@ -3550,7 +3550,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		editor.createAtomWithId("Button",buttonId,200,400);
 		editor.createAtomWithId("LED",ledId,450,400);
 		editor.connectAtoms(buttonId,"out",ledId,"in");
-		haxe_Log.trace("MainHTML5: Demo project created with 7 atoms and 4 connections",{ fileName : "src/Main.hx", lineNumber : 315, className : "Main", methodName : "createDemoProject"});
+		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 315, className : "Main", methodName : "createDemoProject"});
 		haxe_Timer.delay(function() {
 			if(editor != null && !editor.isDisposed) {
 				editor.forceFullRedraw();
@@ -20613,7 +20613,13 @@ library_AtomRegistry._parseContactType = function(val) {
 	return core_types_ContactType.UNDEFINED;
 };
 var library_drivers_ComPortAtom = function(id) {
+	this._connectionType = "none";
 	this._isReading = false;
+	this._usbControlInterface = -1;
+	this._usbEndpointOut = -1;
+	this._usbEndpointIn = -1;
+	this._usbInterfaceNumber = -1;
+	this._usbDevice = null;
 	this._writer = null;
 	this._reader = null;
 	this._serialPort = null;
@@ -20669,7 +20675,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 				this._readPos = this._writePos - this._bufferSize;
 				this._overflowCount++;
 				if(this._overflowCount % 100 == 0) {
-					haxe_Log.trace("ComPortAtom: Ring buffer overflow! Lost " + this._overflowCount + " bytes total",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 269, className : "library.drivers.ComPortAtom", methodName : "writeToBuffer"});
+					haxe_Log.trace("ComPortAtom: Ring buffer overflow! Lost " + this._overflowCount + " bytes total",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 237, className : "library.drivers.ComPortAtom", methodName : "writeToBuffer"});
 				}
 			}
 		}
@@ -20688,7 +20694,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(availableBytes == 0) {
 			return;
 		}
-		var bytesToRead = Math.min(availableBytes,this._chunkSize) | 0;
+		var bytesToRead = availableBytes < this._chunkSize ? availableBytes : this._chunkSize;
 		var rxString = "";
 		var _g = 0;
 		var _g1 = bytesToRead;
@@ -20775,15 +20781,15 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 	,readConfiguration: function() {
 		var bufSizeC = this.getInput("bufferSize");
 		if(bufSizeC != null && bufSizeC.get_value() != null) {
-			var newSize = bufSizeC.get_value() | 0;
+			var newSize = bufSizeC.get_value();
 			if(newSize >= 256 && newSize <= 65536 && newSize != this._bufferSize) {
-				haxe_Log.trace("ComPortAtom: Buffer size changed from " + this._bufferSize + " to " + newSize,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 467, className : "library.drivers.ComPortAtom", methodName : "readConfiguration"});
+				haxe_Log.trace("ComPortAtom: Buffer size changed from " + this._bufferSize + " to " + newSize,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 361, className : "library.drivers.ComPortAtom", methodName : "readConfiguration"});
 				this.initRingBuffer(newSize);
 			}
 		}
 		var chunkC = this.getInput("chunkSize");
 		if(chunkC != null && chunkC.get_value() != null) {
-			var newChunk = chunkC.get_value() | 0;
+			var newChunk = chunkC.get_value();
 			if(newChunk >= 1 && newChunk <= 4096) {
 				this._chunkSize = newChunk;
 			}
@@ -20800,15 +20806,6 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		var txC = this.getInput("txData");
 		var dtrC = this.getInput("setDTR");
 		var baudC = this.getInput("baudRate");
-		if(baudC != null && baudC.get_value() != null) {
-			var newBaud = baudC.get_value() | 0;
-			if(newBaud > 0 && newBaud != 9600) {
-				if(this._isOpenFlag) {
-					this.closeDevice();
-					this.openDevice();
-				}
-			}
-		}
 		if(openC != null && openC.get_value() == true) {
 			this.openDevice();
 			openC.set_value(false);
@@ -20841,22 +20838,232 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 			this.closeDevice();
 		}
 		this.clearBuffer();
-		var serial = navigator.serial;
-		if(serial == null) {
-			this.setError("Web Serial API not supported in this browser");
-			return;
+		var hasSerial = typeof navigator !== 'undefined' && 'serial' in navigator;
+		var hasUSB = typeof navigator !== 'undefined' && 'usb' in navigator;
+		if(hasSerial) {
+			this._connectionType = "serial";
+			var serial = navigator.serial;
+			var self = this;
+			serial.requestPort().then(function(port) {
+				self.onSerialPortRequested(port);
+			})["catch"](function(err) {
+				self.onPortRequestError(err);
+			});
+		} else if(hasUSB) {
+			this._connectionType = "usb";
+			var self1 = this;
+			var filters = [{ vendorId : 12346},{ vendorId : 1027},{ vendorId : 6790},{ vendorId : 4292},{ vendorId : 1659}];
+			navigator.usb.requestDevice({ filters : filters}).then(function(device) {
+				self1.onUsbDeviceRequested(device);
+			})["catch"](function(err) {
+				self1.onPortRequestError(err);
+			});
+		} else {
+			this.setError("Neither Web Serial API nor WebUSB is supported in this browser.");
 		}
-		serial.requestPort().then((port) => { this.onPortRequested(port); }, (err) => { this.onPortRequestError(err); });
 	}
-	,onPortRequested: function(port) {
+	,onSerialPortRequested: function(port) {
 		this._serialPort = port;
 		var baudRateInt = 9600;
 		var baudC = this.getInput("baudRate");
 		if(baudC != null && baudC.get_value() != null) {
-			baudRateInt = baudC.get_value() | 0;
+			baudRateInt = baudC.get_value();
 		}
 		var options = { baudRate : baudRateInt, dataBits : 8, stopBits : 1, parity : "none", bufferSize : 4096, flowControl : "none"};
-		this._serialPort.open(options).then(() => { this.onPortOpened(); }, (err) => { this.onPortOpenError(err); });
+		var self = this;
+		this._serialPort.open(options).then(function() {
+			self.onPortOpened();
+		})["catch"](function(err) {
+			self.onPortOpenError(err);
+		});
+	}
+	,onUsbDeviceRequested: function(device) {
+		var _gthis = this;
+		this._usbDevice = device;
+		var baudRateInt = 9600;
+		var baudC = this.getInput("baudRate");
+		if(baudC != null && baudC.get_value() != null) {
+			baudRateInt = baudC.get_value();
+		}
+		var self = this;
+		this._usbDevice.open().then(function() {
+			return _gthis._usbDevice.selectConfiguration(1);
+		}).then(function() {
+			return self.claimUsbInterfaces(baudRateInt);
+		}).then(function() {
+			self.onPortOpened();
+		})["catch"](function(err) {
+			self.onPortOpenError(err);
+		});
+	}
+	,claimUsbInterfaces: function(baudRate) {
+		var self = this;
+		var dev = this._usbDevice;
+		var config = dev.configuration;
+		var ifaceNum = -1;
+		var ctrlIface = -1;
+		var epIn = -1;
+		var epOut = -1;
+		var interfaces = config.interfaces;
+		var _g = 0;
+		var _g1 = interfaces.length;
+		while(_g < _g1) {
+			var i = _g++;
+			var iface = interfaces[i];
+			if(iface.alternates != null && iface.alternates.length > 0 && iface.alternates[0].interfaceClass == 2) {
+				ctrlIface = iface.interfaceNumber;
+				break;
+			}
+		}
+		var candidates = [];
+		var _g = 0;
+		var _g1 = interfaces.length;
+		while(_g < _g1) {
+			var i = _g++;
+			var iface = interfaces[i];
+			var _g2 = 0;
+			var _g3 = iface.alternates.length;
+			while(_g2 < _g3) {
+				var a = _g2++;
+				var alt = iface.alternates[a];
+				var hasIn = false;
+				var hasOut = false;
+				var _g4 = 0;
+				var _g5 = alt.endpoints.length;
+				while(_g4 < _g5) {
+					var e = _g4++;
+					var ep = alt.endpoints[e];
+					if(ep.type == "bulk" && ep.direction == "in") {
+						hasIn = true;
+					}
+					if(ep.type == "bulk" && ep.direction == "out") {
+						hasOut = true;
+					}
+				}
+				if(hasIn && hasOut) {
+					var score = alt.interfaceClass == 10 ? 0 : 1;
+					candidates.push({ iface : iface, altIndex : a, alt : alt, score : score});
+					break;
+				}
+			}
+		}
+		candidates.sort(function(a,b) {
+			var sa = a.score;
+			var sb = b.score;
+			return sa - sb;
+		});
+		if(candidates.length == 0) {
+			return Promise.reject("No suitable USB interface found");
+		}
+		var tryClaim = null;
+		tryClaim = function(idx) {
+			if(idx >= candidates.length) {
+				return Promise.reject("Unable to claim any USB interface");
+			}
+			var cand = candidates[idx];
+			return dev.claimInterface(cand.iface.interfaceNumber).then(function() {
+				return dev.selectAlternateInterface(cand.iface.interfaceNumber,cand.altIndex)["catch"](function(e) {
+					return null;
+				});
+			}).then(function() {
+				ifaceNum = cand.iface.interfaceNumber;
+				var _g = 0;
+				var _g1 = cand.alt.endpoints.length;
+				while(_g < _g1) {
+					var e = _g++;
+					var ep = cand.alt.endpoints[e];
+					if(ep.type == "bulk" && ep.direction == "in") {
+						epIn = ep.endpointNumber;
+					} else if(ep.type == "bulk" && ep.direction == "out") {
+						epOut = ep.endpointNumber;
+					}
+				}
+				if(ctrlIface == -1 || ctrlIface == ifaceNum) {
+					ctrlIface = ifaceNum;
+				}
+				var vid = dev.vendorId;
+				var initPromise = Promise.resolve();
+				if(vid == 4292) {
+					initPromise = dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 0, value : 1, index : 0}).then(function() {
+						return dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 3, value : 2048, index : 0});
+					}).then(function() {
+						return dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 7, value : 771, index : 0});
+					}).then(function() {
+						var buf = new ArrayBuffer(4);
+						var view = new DataView(buf);
+						view.setUint32(0,baudRate,true);
+						return dev.controlTransferOut({ requestType : "vendor", recipient : "interface", request : 30, value : 0, index : 0},buf);
+					});
+				} else if(vid == 1027) {
+					var divisor = 3000000.0 / baudRate;
+					var intPart = Math.floor(divisor);
+					var fracPart = divisor - intPart;
+					var subInt = 0;
+					if(fracPart >= 0.0625 && fracPart < 0.1875) {
+						subInt = 1;
+					} else if(fracPart >= 0.1875 && fracPart < 0.3125) {
+						subInt = 2;
+					} else if(fracPart >= 0.3125 && fracPart < 0.4375) {
+						subInt = 3;
+					} else if(fracPart >= 0.4375 && fracPart < 0.5625) {
+						subInt = 4;
+					} else if(fracPart >= 0.5625 && fracPart < 0.6875) {
+						subInt = 5;
+					} else if(fracPart >= 0.6875 && fracPart < 0.8125) {
+						subInt = 6;
+					} else if(fracPart >= 0.8125) {
+						subInt = 7;
+					}
+					var val = intPart & 255 | (subInt & 7) << 14 | (intPart >> 8 & 63) << 8;
+					var idx_val = intPart >> 14 & 3;
+					initPromise = dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 0, value : 0, index : 0}).then(function() {
+						return dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 2, value : 0, index : 0});
+					}).then(function() {
+						return dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 4, value : 8, index : 0});
+					}).then(function() {
+						return dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 3, value : val, index : idx_val});
+					}).then(function() {
+						return dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 1, value : 771, index : 0});
+					});
+				} else if(vid == 6790) {
+					var factor = 1532620800.0 / baudRate;
+					var factorInt = Math.floor(factor);
+					var div = 3;
+					while(factorInt > 65520 && div > 0) {
+						factorInt >>= 3;
+						--div;
+					}
+					if(factorInt > 65520) {
+						return Promise.reject("Baudrate not supported by CH340");
+					}
+					factorInt = 65536 - factorInt;
+					var a_val = factorInt & 65280 | div;
+					var b_val = factorInt & 255;
+					initPromise = dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 161, value : 0, index : 0}).then(function() {
+						return dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 154, value : 4882, index : a_val});
+					}).then(function() {
+						return dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 154, value : 3884, index : b_val});
+					}).then(function() {
+						return dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 164, value : 65439, index : 0});
+					});
+				} else {
+					var lineCoding = new Uint8Array([baudRate & 255,baudRate >> 8 & 255,baudRate >> 16 & 255,baudRate >> 24 & 255,0,0,8]);
+					initPromise = dev.controlTransferOut({ requestType : "class", recipient : "interface", request : 32, value : 0, index : ctrlIface},lineCoding).then(function() {
+						return dev.controlTransferOut({ requestType : "class", recipient : "interface", request : 34, value : 3, index : ctrlIface});
+					});
+				}
+				return initPromise;
+			}).then(function() {
+				self.interfaceNumber = ifaceNum;
+				self.controlInterface = ctrlIface;
+				self.endpointIn = epIn;
+				self.endpointOut = epOut;
+				return Promise.resolve();
+			})["catch"](function(err) {
+				return tryClaim(idx + 1);
+			});
+		};
+		return tryClaim(0);
 	}
 	,onPortOpened: function() {
 		this._isOpenFlag = true;
@@ -20864,31 +21071,79 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(outOpen != null) {
 			outOpen.set_value(true);
 		}
-		this.startReadLoop();
-		haxe_Log.trace("ComPortAtom: Port opened",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 790, className : "library.drivers.ComPortAtom", methodName : "onPortOpened"});
+		if(this._connectionType == "serial") {
+			this.startSerialReadLoop();
+		} else if(this._connectionType == "usb") {
+			this.startUsbReadLoop();
+		}
+		haxe_Log.trace("ComPortAtom: Port opened via " + this._connectionType,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 724, className : "library.drivers.ComPortAtom", methodName : "onPortOpened"});
 	}
 	,onPortOpenError: function(err) {
 		this.setError("Failed to open port: " + Std.string(err));
 	}
 	,onPortRequestError: function(err) {
-		this.setError("Failed to request port: " + Std.string(err));
+		haxe_Log.trace("ComPortAtom: Port request cancelled or failed: " + Std.string(err),{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 728, className : "library.drivers.ComPortAtom", methodName : "onPortRequestError"});
 	}
 	,closeDevice: function() {
+		var _gthis = this;
 		if(!this._isOpenFlag) {
 			return;
 		}
 		this._isReading = false;
-		if(this._reader != null) {
-			this._reader.cancel().catch((err) => {}); this._reader.releaseLock();
-			this._reader = null;
-		}
-		if(this._writer != null) {
-			this._writer.close().catch((err) => {}); this._writer.releaseLock();
-			this._writer = null;
-		}
-		if(this._serialPort != null) {
-			this._serialPort.close().then(() => { this.onPortClosed(); }, (err) => { this.onPortCloseError(err); });
-			this._serialPort = null;
+		if(this._connectionType == "serial") {
+			if(this._reader != null) {
+				var self = this;
+				this._reader.cancel()["catch"](function(err) {
+					return null;
+				}).then(function() {
+					_gthis._reader.releaseLock();
+					_gthis._reader = null;
+				});
+			}
+			if(this._writer != null) {
+				var self = this;
+				this._writer.close()["catch"](function(err) {
+					return null;
+				}).then(function() {
+					_gthis._writer.releaseLock();
+					_gthis._writer = null;
+				});
+			}
+			if(this._serialPort != null) {
+				var self = this;
+				this._serialPort.close().then(function() {
+					self.onPortClosed();
+				})["catch"](function(err) {
+					self.onPortCloseError(err);
+				});
+				this._serialPort = null;
+			}
+		} else if(this._connectionType == "usb") {
+			var self1 = this;
+			var dev = this._usbDevice;
+			var p = Promise.resolve();
+			if(this._usbInterfaceNumber != -1) {
+				p = p.then(function() {
+					return dev.releaseInterface(_gthis._usbInterfaceNumber)["catch"](function(e) {
+						return null;
+					});
+				});
+			}
+			if(this._usbControlInterface != -1 && this._usbControlInterface != this._usbInterfaceNumber) {
+				p = p.then(function() {
+					return dev.releaseInterface(_gthis._usbControlInterface)["catch"](function(e) {
+						return null;
+					});
+				});
+			}
+			p = p.then(function() {
+				return dev.close()["catch"](function(e) {
+					return null;
+				});
+			}).then(function() {
+				self1.onPortClosed();
+			});
+			this._usbDevice = null;
 		}
 	}
 	,onPortClosed: function() {
@@ -20897,12 +21152,12 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(outOpen != null) {
 			outOpen.set_value(false);
 		}
-		haxe_Log.trace("ComPortAtom: Port closed",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 850, className : "library.drivers.ComPortAtom", methodName : "onPortClosed"});
+		haxe_Log.trace("ComPortAtom: Port closed",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 795, className : "library.drivers.ComPortAtom", methodName : "onPortClosed"});
 	}
 	,onPortCloseError: function(err) {
 		this.setError("Failed to close port: " + Std.string(err));
 	}
-	,startReadLoop: function() {
+	,startSerialReadLoop: function() {
 		this._isReading = true;
 		if(this._serialPort == null) {
 			return;
@@ -20913,13 +21168,36 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 			return;
 		}
 		this._reader = readable.getReader();
-		this.readChunk();
+		this.readSerialChunk();
 	}
-	,readChunk: function() {
+	,readSerialChunk: function() {
 		if(!this._isReading || this._isDisposed) {
 			return;
 		}
-		this._reader.read().then((result) => { this.onReadResult(result); }, (err) => { this.onReadError(err); });
+		var self = this;
+		this._reader.read().then(function(result) {
+			self.onReadResult(result);
+		})["catch"](function(err) {
+			self.onReadError(err);
+		});
+	}
+	,startUsbReadLoop: function() {
+		this._isReading = true;
+		if(this._usbDevice == null || this._usbEndpointIn == -1) {
+			return;
+		}
+		this.readUsbChunk();
+	}
+	,readUsbChunk: function() {
+		if(!this._isReading || this._isDisposed) {
+			return;
+		}
+		var self = this;
+		this._usbDevice.transferIn(this._usbEndpointIn,64).then(function(result) {
+			self.onUsbReadResult(result);
+		})["catch"](function(err) {
+			self.onUsbReadError(err);
+		});
 	}
 	,onReadResult: function(result) {
 		if(result.done) {
@@ -20937,42 +21215,107 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		}
 		this.writeToBuffer(bytes);
 		this._hasPendingRx = true;
-		this.readChunk();
+		this.readSerialChunk();
 	}
 	,onReadError: function(err) {
 		if(this._isReading && !this._isDisposed) {
 			this.setError("Read error: " + Std.string(err));
 		}
 	}
+	,onUsbReadResult: function(result) {
+		if(result.status == "stall") {
+			var self = this;
+			this._usbDevice.clearHalt("in",this._usbEndpointIn).then(function() {
+				self.readUsbChunk();
+			});
+			return;
+		}
+		if(result.status == "ok" && result.data != null) {
+			var bytes = [];
+			var view = result.data;
+			var _g = 0;
+			var _g1 = view.length;
+			while(_g < _g1) {
+				var i = _g++;
+				bytes.push(view[i]);
+			}
+			this.writeToBuffer(bytes);
+			this._hasPendingRx = true;
+		}
+		this.readUsbChunk();
+	}
+	,onUsbReadError: function(err) {
+		if(this._isReading && !this._isDisposed) {
+			var errMsg = Std.string(err);
+			if(errMsg.indexOf("device unavailable") == -1 && errMsg.indexOf("disconnected") == -1) {
+				this.setError("USB Read error: " + Std.string(err));
+			} else {
+				this._isReading = false;
+			}
+		}
+	}
 	,sendToDevice: function(data) {
-		if(this._serialPort == null || !this._isOpenFlag) {
-			return;
+		if(this._connectionType == "serial") {
+			if(this._serialPort == null || !this._isOpenFlag) {
+				return;
+			}
+			var writable = this._serialPort.writable;
+			if(writable == null) {
+				this.setError("Port has no writable stream");
+				return;
+			}
+			this._writer = writable.getWriter();
+			var encoder = new TextEncoder();
+			var encoded = encoder.encode(data);
+			var self = this;
+			this._writer.write(encoded).then(function() {
+				self.onWriteSuccess();
+			})["catch"](function(err) {
+				self.onWriteError(err);
+			});
+		} else if(this._connectionType == "usb") {
+			if(this._usbDevice == null || this._usbEndpointOut == -1) {
+				return;
+			}
+			var encoder = new TextEncoder();
+			var encoded = encoder.encode(data);
+			var self1 = this;
+			this._usbDevice.transferOut(this._usbEndpointOut,encoded).then(function() {
+				self1.onWriteSuccess();
+			})["catch"](function(err) {
+				self1.onWriteError(err);
+			});
 		}
-		var writable = this._serialPort.writable;
-		if(writable == null) {
-			this.setError("Port has no writable stream");
-			return;
-		}
-		this._writer = writable.getWriter();
-		var encoder = new TextEncoder();
-		var encoded = encoder.encode(data);
-		this._writer.write(encoded).then(() => { this.onWriteSuccess(); }, (err) => { this.onWriteError(err); });
 	}
 	,onWriteSuccess: function() {
-		if(this._writer != null) {
+		if(this._connectionType == "serial" && this._writer != null) {
 			this._writer.releaseLock();
 			this._writer = null;
 		}
 	}
 	,onWriteError: function(err) {
 		this.setError("Write error: " + Std.string(err));
-		if(this._writer != null) {
+		if(this._connectionType == "serial" && this._writer != null) {
 			this._writer.releaseLock();
 			this._writer = null;
 		}
 	}
 	,setDTRState: function(state) {
-		haxe_Log.trace("ComPortAtom: DTR control not supported in Web Serial API",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 993, className : "library.drivers.ComPortAtom", methodName : "setDTRState"});
+		if(this._connectionType == "serial") {
+			haxe_Log.trace("ComPortAtom: DTR control not directly supported in standard Web Serial API without extensions.",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 918, className : "library.drivers.ComPortAtom", methodName : "setDTRState"});
+		} else if(this._connectionType == "usb") {
+			var vid = this._usbDevice.vendorId;
+			var val = state ? 3 : 0;
+			if(vid == 4292) {
+				var maskVal = (state ? 1 : 0) | 256 | (state ? 2 : 0) | 512;
+				this._usbDevice.controlTransferOut({ requestType : "vendor", recipient : "device", request : 7, value : maskVal, index : 0});
+			} else if(vid == 6790) {
+				var ch340Val = ~((state ? 32 : 0) | (state ? 64 : 0)) & 65535;
+				this._usbDevice.controlTransferOut({ requestType : "vendor", recipient : "device", request : 164, value : ch340Val, index : 0});
+			} else {
+				this._usbDevice.controlTransferOut({ requestType : "class", recipient : "interface", request : 34, value : val, index : this._usbControlInterface});
+			}
+		}
 	}
 	,setError: function(msg) {
 		this._pendingErrStr = msg;
@@ -39833,7 +40176,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 413867;
+	this.version = 445449;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";

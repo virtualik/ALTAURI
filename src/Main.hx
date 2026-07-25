@@ -312,7 +312,7 @@ class Main extends Sprite
 		// Button.out → LED.in
 		editor.connectAtoms(buttonId, "out", ledId, "in");
 		
-		trace("MainHTML5: Demo project created with 2 atoms and 1 connections");
+		trace("MainHTML5: Demo project created with 2 atoms and 1 connection");
 		
 		// Force redraw after a short delay
 		haxe.Timer.delay(function() {
