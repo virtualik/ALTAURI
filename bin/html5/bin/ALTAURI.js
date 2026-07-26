@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "165";
+	app.meta.h["build"] = "166";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
@@ -3541,6 +3541,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._windowController = new ui_WindowController();
 	}
 	,createDemoProject: function() {
+		var _gthis = this;
 		var demoBlueprint = new core_data_Blueprint("demo","Demo Showcase",[{ name : "IN", type : core_types_ContactType.INPUT},{ name : "OUT", type : core_types_ContactType.OUTPUT}]);
 		var rootAssembly = new core_base_Assembly("main_asm",demoBlueprint);
 		this._editorContext.push(rootAssembly,true);
@@ -3549,6 +3550,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		var closePortButtonId = utils_UID.generate();
 		var sendTxDataButtonId = utils_UID.generate();
 		var textInputTxDataId = utils_UID.generate();
+		var textAreaRxDataId = utils_UID.generate();
 		var statusLedId = utils_UID.generate();
 		var comport1AtomId = utils_UID.generate();
 		editor.createAtomWithId("ComPortAtom",comport1AtomId,500,20);
@@ -3556,20 +3558,90 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		editor.createAtomWithId("Button",closePortButtonId,200,150);
 		editor.createAtomWithId("Button",sendTxDataButtonId,200,250);
 		editor.createAtomWithId("TextInput",textInputTxDataId,200,350);
+		editor.createAtomWithId("TextArea",textAreaRxDataId,850,350);
 		editor.createAtomWithId("LED",statusLedId,750,70);
 		editor.connectAtoms(comport1AtomId,"isOpen",statusLedId,"in");
+		editor.connectAtoms(comport1AtomId,"rxData",textAreaRxDataId,"append");
 		editor.connectAtoms(openPortButtonId,"out",comport1AtomId,"open");
 		editor.connectAtoms(closePortButtonId,"out",comport1AtomId,"close");
 		editor.connectAtoms(sendTxDataButtonId,"out",comport1AtomId,"send");
 		editor.connectAtoms(textInputTxDataId,"out",comport1AtomId,"txData");
-		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 326, className : "Main", methodName : "createDemoProject"});
+		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 331, className : "Main", methodName : "createDemoProject"});
+		this.renameAtom(rootAssembly,openPortButtonId,"Open Port");
+		this.renameAtom(rootAssembly,closePortButtonId,"Close Port");
+		this.renameAtom(rootAssembly,sendTxDataButtonId,"Send TX");
+		this.renameAtom(rootAssembly,textInputTxDataId,"TX Payload");
+		this.renameAtom(rootAssembly,statusLedId,"Is Open?");
+		this.renameAtom(rootAssembly,comport1AtomId,"COM1 Interface");
+		this.injectTextInputData(rootAssembly,textInputTxDataId,"ALTAURI Ready\r");
 		haxe_Timer.delay(function() {
 			if(editor != null && !editor.isDisposed) {
 				editor.forceFullRedraw();
 			}
-		},100);
+			if(_gthis._isPanelMode) {
+				_gthis.onToggleView();
+			}
+		},10);
+		this.setupDemoDevicePanel(rootAssembly,textInputTxDataId,textAreaRxDataId,statusLedId,openPortButtonId,closePortButtonId,sendTxDataButtonId);
 		this.updateNavigationUI();
 		this.updateButtonStates();
+	}
+	,renameAtom: function(asm,atomId,desired) {
+		var atom = asm.internalAtoms.h[atomId];
+		if(atom != null) {
+			var oldName = atom.get_displayName();
+			var uniqueName = core_logic_NamingService.resolveUniqueInstanceName(desired,atomId);
+			core_logic_NamingService.renameInstance(oldName,uniqueName,atomId);
+			atom.set_displayName(uniqueName);
+		}
+	}
+	,injectTextInputData: function(asm,atomId,text) {
+		var atom = asm.internalAtoms.h[atomId];
+		if(atom != null) {
+			var setContact = atom.getInput("set");
+			if(setContact != null) {
+				setContact.set_value(text);
+			}
+		}
+	}
+	,setupDemoDevicePanel: function(asm,textId,textAreaId,ledId,openPortButtonId,closePortButtonId,sendTxDataButtonId) {
+		var _gthis = this;
+		haxe_Timer.delay(function() {
+			if(!_gthis._isPanelMode) {
+				_gthis.onToggleView();
+			}
+			if(_gthis._devicePanel == null) {
+				return;
+			}
+			var txAtom = asm.internalAtoms.h[textId];
+			var textArea = asm.internalAtoms.h[textAreaId];
+			var ledAtom = asm.internalAtoms.h[ledId];
+			var openBtAtom = asm.internalAtoms.h[openPortButtonId];
+			var closeBtAtom = asm.internalAtoms.h[closePortButtonId];
+			var sendBtAtom = asm.internalAtoms.h[sendTxDataButtonId];
+			if(txAtom != null) {
+				_gthis._devicePanel.addDevice(txAtom,350,50);
+			}
+			if(textArea != null) {
+				_gthis._devicePanel.addDevice(textArea,550,250);
+			}
+			if(ledAtom != null) {
+				_gthis._devicePanel.addDevice(ledAtom,300,280);
+			}
+			if(openBtAtom != null) {
+				_gthis._devicePanel.addDevice(openBtAtom,100,280);
+			}
+			if(closeBtAtom != null) {
+				_gthis._devicePanel.addDevice(closeBtAtom,200,280);
+			}
+			if(sendBtAtom != null) {
+				_gthis._devicePanel.addDevice(sendBtAtom,500,50);
+			}
+			_gthis.syncDevicePanelToCache();
+			if(!_gthis._isPanelMode) {
+				_gthis.onToggleView();
+			}
+		},50);
 	}
 	,loadProject: function() {
 		var _gthis = this;
@@ -4255,7 +4327,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				HxOverrides.remove(bp.internalConnections,conn);
 			}
 			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
-			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1456, className : "Main", methodName : "onPortRemoved"});
+			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1567, className : "Main", methodName : "onPortRemoved"});
 		}
 	}
 	,hardReset: function() {
@@ -4404,8 +4476,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		var nodeCount = this._editorContext.currentEditor.getSelectedNodeCount();
 		var wireIds = this._editorContext.currentEditor.getSelectedWireIds();
-		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1625, className : "Main", methodName : "deleteSelectedOnCanvas"});
-		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1626, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1736, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1737, className : "Main", methodName : "deleteSelectedOnCanvas"});
 		if(nodeCount > 0) {
 			this._editorContext.currentEditor.deleteSelectedNodes();
 			this.updateSettingsStats();
@@ -22914,7 +22986,13 @@ $hxClasses["library.electro.TextInputAtom"] = library_electro_TextInputAtom;
 library_electro_TextInputAtom.__name__ = "library.electro.TextInputAtom";
 library_electro_TextInputAtom.__super__ = core_base_Atom;
 library_electro_TextInputAtom.prototype = $extend(core_base_Atom.prototype,{
-	_calculate: function() {
+	onContactChanged: function(c) {
+		if(c.name == "set") {
+			this._calculate();
+		}
+		core_base_Atom.prototype.onContactChanged.call(this,c);
+	}
+	,_calculate: function() {
 		this._isScheduled = false;
 		var setContact = this.getInput("set");
 		var outContact = this.getOutput("out");
@@ -40256,7 +40334,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 611751;
+	this.version = 63437;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";

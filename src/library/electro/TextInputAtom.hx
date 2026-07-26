@@ -5,7 +5,7 @@ import core.base.Contact;
 import core.types.ContactType;
 
 /**
- * TEXT INPUT ATOM v1.3 (Correctness Pass)
+ * TEXT INPUT ATOM v1.4 (Explicit Contact Change Handling)
  *
  * Passive atom for string or numeric input.
  *
@@ -13,17 +13,20 @@ import core.types.ContactType;
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │   TextInputAtom (Databank)                                              │
  * │                                                                         │
- * │   Contact "set" ──► _calculate() ──► Contact "out"                      │
+ * │   Contact "set" ──► onContactChanged() ──► _calculate() ──► "out"       │
  * │                                                                         │
  * │   Widget (TextInputWidget) writes to "set" contact.                     │
- * │   Atom passes value through to "out" contact.                           │
+ * │   Programmatic injection also writes to "set" contact.                  │
+ * │   Atom reliably passes value through to "out" contact in both cases.    │
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
- * v1.3 Changes:
- * - _calculate() uses getInput()/getOutput() by name
- * - Fixed getPersistentState() to merge with super result
- * - Fixed restoreState() to call super.restoreState() first
+ * v1.4 Changes:
+ * - ADDED: override onContactChanged() to explicitly trigger _calculate() 
+ *   when "set" changes, bypassing the base class _process == null guard.
+ * - _calculate() uses getInput()/getOutput() by name.
+ * - Fixed getPersistentState() to merge with super result.
+ * - Fixed restoreState() to call super.restoreState() first.
  */
 class TextInputAtom extends Atom
 {
@@ -39,7 +42,7 @@ class TextInputAtom extends Atom
             [
                 new Contact("", OUTPUT, "out")
             ],
-            null,
+            null, // _process is null, so base class won't auto-schedule _calculate
             id,
             "TextInput"
         );
@@ -48,6 +51,34 @@ class TextInputAtom extends Atom
     // =========================================================================
     // COMPUTE MODULE
     // =========================================================================
+    /**
+     * Overrides base behavior to explicitly trigger calculation 
+     * when the "set" input changes.
+     * 
+     * WHY THIS IS NEEDED:
+     * The base Atom.onContactChanged() checks `if (_process != null)` before 
+     * scheduling _calculate(). Since TextInputAtom passes `null` as _process, 
+     * base class ignores contact changes. 
+     * 
+     * By overriding this, we guarantee that both UI interactions (Widget) 
+     * and programmatic injections (Databank Injection) immediately propagate 
+     * the value to the "out" contact.
+     * 
+     * @param c The contact that changed
+     */
+    override public function onContactChanged(c:Contact):Void
+    {
+        if (c.name == "set") 
+        {
+            // Force recalculation to propagate "set" value to "out"
+            _calculate();
+        }
+        
+        // Call base logic to handle standard scheduling flags safely
+        // (It will safely do nothing since _process == null, but maintains contract)
+        super.onContactChanged(c);
+    }
+
     /**
      * If "set" input received value — pass it to "out" output.
      *

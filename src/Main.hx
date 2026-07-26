@@ -289,6 +289,8 @@ class Main extends Sprite
 	// =========================================================================
 	private function createDemoProject():Void
 	{
+		//this.visible = false;
+		
 		var demoBlueprint = new Blueprint("demo", "Demo Showcase", [
 			{name: "IN", type: INPUT},
 			{name: "OUT", type: OUTPUT}
@@ -304,6 +306,7 @@ class Main extends Sprite
 		var closePortButtonId = UID.generate();
 		var sendTxDataButtonId = UID.generate();
 		var textInputTxDataId = UID.generate();
+		var textAreaRxDataId = UID.generate();
 		var statusLedId = UID.generate();
 		var comport1AtomId = UID.generate();
 		
@@ -313,11 +316,13 @@ class Main extends Sprite
 		editor.createAtomWithId("Button", closePortButtonId, 200, 150);
 		editor.createAtomWithId("Button", sendTxDataButtonId, 200, 250);
 		editor.createAtomWithId("TextInput", textInputTxDataId, 200, 350);
+		editor.createAtomWithId("TextArea", textAreaRxDataId, 850, 350);
 		editor.createAtomWithId("LED", statusLedId, 750, 70);
 	
 		// === Connect them! ===
 		// Button.out → LED.in
 		editor.connectAtoms(comport1AtomId, "isOpen", statusLedId, "in");
+		editor.connectAtoms(comport1AtomId, "rxData", textAreaRxDataId, "append");
 		editor.connectAtoms(openPortButtonId, "out", comport1AtomId, "open");
 		editor.connectAtoms(closePortButtonId, "out", comport1AtomId, "close");
 		editor.connectAtoms(sendTxDataButtonId, "out", comport1AtomId, "send");
@@ -325,14 +330,120 @@ class Main extends Sprite
 		
 		trace("MainHTML5: Demo project created with 2 atoms and 1 connection");
 		
-		// Force redraw after a short delay
+		// ==========================================
+		// ALTAURI PROGRAMMATIC SETUP PIPELINE
+		// ==========================================
+		
+		// 1. Rename Atoms (Human-readable UI)
+		renameAtom(rootAssembly, openPortButtonId, "Open Port");
+		renameAtom(rootAssembly, closePortButtonId, "Close Port");
+		renameAtom(rootAssembly, sendTxDataButtonId, "Send TX");
+		renameAtom(rootAssembly, textInputTxDataId, "TX Payload");
+		renameAtom(rootAssembly, statusLedId, "Is Open?");
+		renameAtom(rootAssembly, comport1AtomId, "COM1 Interface");
+
+		// 2. Inject Data into Databank
+		injectTextInputData(rootAssembly, textInputTxDataId, "ALTAURI Ready\r");
+
+		// 3. Force initial redraw of the schematic
 		haxe.Timer.delay(function() {
 			if (editor != null && !editor.isDisposed) {
 				editor.forceFullRedraw();
 			}
-		}, 100);
+			if (_isPanelMode) {
+				onToggleView();
+			}
+
+		}, 10);
+		
+		// 4. Setup Device Panel & Toggle View
+		setupDemoDevicePanel(rootAssembly, textInputTxDataId, textAreaRxDataId, statusLedId, openPortButtonId, closePortButtonId, sendTxDataButtonId);
+
 		updateNavigationUI();
 		updateButtonStates();
+	}	
+	
+	/**
+	 * Programmatically renames an atom while respecting the global NamingService registry.
+	 * Prevents memory leaks of old names and guarantees global uniqueness.
+	 *
+	 * @param asm       The assembly containing the atom
+	 * @param atomId    The runtime ID of the atom
+	 * @param desired   The human-readable name you want to assign
+	 */
+	private function renameAtom(asm:Assembly, atomId:String, desired:String):Void
+	{
+		var atom:Atom = cast asm.internalAtoms.get(atomId);
+		if (atom != null) {
+			var oldName = atom.displayName;
+			// Resolve ensures if "Open Port" is taken, it becomes "Open Port_1"
+			var uniqueName = core.logic.NamingService.resolveUniqueInstanceName(desired, atomId);
+			
+			// Atomically unregisters oldName and registers uniqueName
+			core.logic.NamingService.renameInstance(oldName, uniqueName, atomId);
+			atom.displayName = uniqueName;
+		}
+	}
+
+	/**
+	 * Injects initial data into the TextInput Databank.
+	 * The Widget will automatically reflect this value via the "set" -> "out" pipeline.
+	 */
+	private function injectTextInputData(asm:Assembly, atomId:String, text:String):Void
+	{
+		var atom:Atom = cast asm.internalAtoms.get(atomId);
+		if (atom != null) {
+			var setContact = atom.getInput("set");
+			if (setContact != null) {
+				setContact.value = text;
+			}
+		}
+	}
+
+	/**
+	 * Switches to Device Panel mode and populates it with specific demo widgets.
+	 * Uses a delay to ensure NodeEditor completes its layout before UI layers are hidden.
+	 */
+	private function setupDemoDevicePanel(asm:Assembly, textId:String, textAreaId:String, ledId:String, openPortButtonId:String, closePortButtonId:String, sendTxDataButtonId:String):Void
+	{
+		haxe.Timer.delay(function() {
+			// 1. SWITCH MODE FIRST
+			// If we add devices before toggling, restoreDevicePanelFromCache() 
+			// will call clearDevices() and wipe our manual additions.
+			if (!_isPanelMode) {
+				onToggleView();
+			}
+			
+			if (_devicePanel == null) return;
+			
+			// 2. ADD WIDGETS
+			var txAtom:Atom = cast asm.internalAtoms.get(textId);
+			var textArea:Atom = cast asm.internalAtoms.get(textAreaId);
+			var ledAtom:Atom = cast asm.internalAtoms.get(ledId);
+			var openBtAtom:Atom = cast asm.internalAtoms.get(openPortButtonId);
+			var closeBtAtom:Atom = cast asm.internalAtoms.get(closePortButtonId);
+			var sendBtAtom:Atom = cast asm.internalAtoms.get(sendTxDataButtonId);
+			
+			
+			if (txAtom != null) _devicePanel.addDevice(txAtom, 350, 50);
+			if (textArea != null) _devicePanel.addDevice(textArea, 550, 250);
+			if (ledAtom != null) _devicePanel.addDevice(ledAtom, 300, 280);
+			if (openBtAtom != null) _devicePanel.addDevice(openBtAtom, 100, 280);
+			if (closeBtAtom != null) _devicePanel.addDevice(closeBtAtom, 200, 280);
+			if (sendBtAtom != null) _devicePanel.addDevice(sendBtAtom, 500, 50);
+			
+			// 3. SYNC CACHE
+			// Crucial: saves the current panel layout to _cachedDeviceWindowState.
+			// Without this, toggling back to Editor and then to Panel again would 
+			// result in an empty screen because the cache would be empty.
+			syncDevicePanelToCache();
+			if (!_isPanelMode) {
+				onToggleView();
+			}
+
+			//this.visible = true;
+			
+		}, 50); 
 	}
 
 	// =========================================================================
