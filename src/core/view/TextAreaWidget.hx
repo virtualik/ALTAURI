@@ -1,4 +1,3 @@
-// FILE: core\view\TextAreaWidget.hx
 package core.view;
 
 import openfl.display.Sprite;
@@ -17,58 +16,95 @@ import core.logic.EventType;
 import library.electro.TextAreaAtom;
 
 /**
-* TEXT AREA WIDGET v1.1 (Custom Scrollbars)
-*
-* Visual component (Face) for TextAreaAtom.
-* Provides a multi-line text editing area with configurable dimensions,
-* custom-drawn scrollbars, word wrap, and auto-scroll behavior.
-*
-* Architecture: "ATOM IS DATABANK & COMPUTE CORE"
-* ┌─────────────────────────────────────────────────────────────────────────┐
-* │   TextAreaAtom (Databank)                                               │
-* │                                                                         │
-* │   Contact "text"     ◄──► TextAreaWidget                                │
-* │   Contact "editable"  ──► TextAreaWidget (enable/disable)               │
-* │   Contact "wordWrap"  ──► TextAreaWidget                                │
-* │   Contact "autoScroll"──► TextAreaWidget                                │
-* │   Contact "hScroll"   ──► TextAreaWidget                                │
-* │   Contact "vScroll"   ──► TextAreaWidget                                │
-* │   Contact "maxChars"  ──► TextAreaWidget (width)                        │
-* │   Contact "numLines"  ──► TextAreaWidget (height)                       │
-* │                                                                         │
-* │   Widget READS config from atom's contacts.                             │
-* │   Widget WRITES to atom via setTextFromWidget().                        │
-* │   Atom is the Databank — single source of truth.                        │
-* │                                                                         │
-* │   ┌───────────────────────────────────────────────────────────────┐     │
-* │   │  ┌─────────────────────────────────────────────────────────┐  │     │
-* │   │  │  Line 1: Hello World                                  │▐ │     │
-* │   │  │  Line 2: This is a TextArea widget                    │▐ │     │
-* │   │  │  Line 3: with configurable parameters                 │▐ │     │
-* │   │  │  Line 4:                                              │█ │     │
-* │   │  │  Line 5:                                              │█ │     │
-* │   │  │  Line 6:                                              │█ │     │
-* │   │  │  Line 7:                                              │▄ │     │
-* │   │  │  Line 8:                                              │  │     │
-* │   │  └─────────────────────────────────────────────────────────┘  │     │
-* │   │  ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀       │
-* │   │  Lines: 8 | Cursor: 3                                         │     │
-* │   └───────────────────────────────────────────────────────────────┘     │
-* │                                                                         │
-* └─────────────────────────────────────────────────────────────────────────┘
-*
-* Sizing Formula:
-* ┌─────────────────────────────────────────────────────────────────────────┐
-* │  charWidth  = 8px  (monospace _typewriter at 12pt)                     │
-* │  lineHeight = 18px                                                     │
-* │  padding    = 8px                                                      │
-* │  scrollbar  = 14px (custom drawn)                                      │
-* │                                                                         │
-* │  widgetWidth  = maxChars × charWidth + padding×2 + (vScroll ? 14 : 0)  │
-* │  widgetHeight = numLines × lineHeight + padding×2 + (hScroll ? 14 : 0) │
-* │                 + statusBarHeight(18)                                   │
-* └─────────────────────────────────────────────────────────────────────────┘
-*/
+ * TEXT AREA WIDGET v1.2 (Contact Name Fix + Mouse Wheel Scroll)
+ *
+ * Visual component (Face) for TextAreaAtom.
+ * Provides a multi-line text editing area with configurable dimensions,
+ * custom-drawn scrollbars, word wrap, and auto-scroll behavior.
+ *
+ * Architecture: "ATOM IS DATABANK & COMPUTE CORE"
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   TextAreaAtom (Databank)                                               │
+ * │                                                                         │
+ * │   Contact "textIn"    ◄─── TextAreaWidget (user input → atom)           │
+ * │   Contact "textOut"   ───► TextAreaWidget (atom → display)              │
+ * │   Contact "append"    ───► TextAreaWidget (external append → display)   │
+ * │   Contact "editable"  ───► TextAreaWidget (enable/disable)              │
+ * │   Contact "wordWrap"  ───► TextAreaWidget                               │
+ * │   Contact "autoScroll"───► TextAreaWidget                               │
+ * │   Contact "hScroll"   ───► TextAreaWidget                               │
+ * │   Contact "vScroll"   ───► TextAreaWidget                               │
+ * │   Contact "maxChars"  ───► TextAreaWidget (width)                       │
+ * │   Contact "numLines"  ───► TextAreaWidget (height)                      │
+ * │                                                                         │
+ * │   Widget READS config from atom's contacts.                             │
+ * │   Widget WRITES to atom via setTextFromWidget().                        │
+ * │   Atom is the Databank — single source of truth.                        │
+ * │                                                                         │
+ * │   v1.2 CONTACT NAME CONTRACT (CRITICAL):                                │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  Widget subscribes to: "textOut" (output) for text updates      │   │
+ * │   │  Widget writes to:     "textIn"  (input)  for user edits        │   │
+ * │   │                                                                 │   │
+ * │   │  NEVER use "text" as contact name — it doesn't exist!           │   │
+ * │   │  Atom has: "textIn" (input) and "textOut" (output).             │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │   Widget READS config from atom's contacts.                             │
+ * │   Widget WRITES to atom via setTextFromWidget().                        │
+ * │   Atom is the Databank — single source of truth.                        │
+ * │                                                                         │
+ * │   ┌───────────────────────────────────────────────────────────────┐     │
+ * │   │  ┌─────────────────────────────────────────────────────────┐  │     │
+ * │   │  │  Line 1: Hello World                                    │▐ │     │
+ * │   │  │  Line 2: This is a TextArea widget                      │▐ │     │
+ * │   │  │  Line 3: with configurable parameters                   │▐ │     │
+ * │   │  │  Line 4:                                                │█ │     │
+ * │   │  │  Line 5:                                                │█ │     │
+ * │   │  │  Line 6:                                                │█ │     │
+ * │   │  │  Line 7:                                                │▄ │     │
+ * │   │  │  Line 8:                                                │  │     │
+ * │   │  └─────────────────────────────────────────────────────────┘  │     │
+ * │   │  ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  │     │
+ * │   │  Lines: 8 | Cursor: 3                                         │     │
+ * │   └───────────────────────────────────────────────────────────────┘     │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * Sizing Formula:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │  charWidth  = 8px  (monospace _typewriter at 12pt)                      │
+ * │  lineHeight = 18px                                                      │
+ * │  padding    = 8px                                                       │
+ * │  scrollbar  = 14px (custom drawn)                                       │
+ * │                                                                         │
+ * │  widgetWidth  = maxChars × charWidth + padding×2 + (vScroll ? 14 : 0)   │
+ * │  widgetHeight = numLines × lineHeight + padding×2 + (hScroll ? 14 : 0)  │
+ * │                 + statusBarHeight(18)                                   │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * v1.2 Changes:
+ * - FIXED: syncFromAtom() now reads getOutput("textOut") instead of "text"
+ * - FIXED: onContactChanged() now handles case "textOut" instead of "text"
+ * - FIXED: onTextChange() fallback now writes to getInput("textIn")
+ * - ADDED: MouseEvent.MOUSE_WHEEL handler with stopPropagation()
+ *   to prevent scroll events from reaching parent NodeEditor (zoom).
+ * - ADDED: Manual scrollV/scrollH adjustment on wheel for INPUT mode
+ *   (OpenFL TextField doesn't always auto-scroll on wheel in INPUT mode).
+ * - FIXED: updateScrollbarThumbs() called after wheel scroll for
+ *   synchronous thumb position update.
+ *
+ * Sizing Formula:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │  charWidth  = 8px  (monospace _typewriter at 12pt)                     │
+ * │  lineHeight = 18px                                                     │
+ * │  padding    = 8px                                                      │
+ * │  scrollbar  = 14px (custom drawn)                                      │
+ * │                                                                         │
+ * │  widgetWidth  = maxChars × charWidth + padding×2 + (vScroll ? 14 : 0)  │
+ * │  widgetHeight = numLines × lineHeight + padding×2 + (hScroll ? 14 : 0) │
+ * │                 + statusBarHeight(18)                                   │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ */
 class TextAreaWidget extends DeviceView
 {
     // =========================================================================
@@ -83,7 +119,10 @@ class TextAreaWidget extends DeviceView
     private static inline var MAX_CHARS:Int = 200;
     private static inline var MIN_LINES:Int = 1;
     private static inline var MAX_LINES:Int = 100;
-    
+
+    /** Number of lines to scroll per mouse wheel tick. */
+    private static inline var WHEEL_SCROLL_LINES:Int = 3;
+
     // Scrollbar colors
     private static inline var SCROLL_BG_COLOR:Int = 0x1a1a24;
     private static inline var SCROLL_TRACK_COLOR:Int = 0x2a2a3a;
@@ -99,7 +138,7 @@ class TextAreaWidget extends DeviceView
     private var _textField:TextField;
     private var _statusBar:TextField;
     private var _headerLabel:TextField;
-    
+
     // Custom scrollbars
     private var _vScrollBar:Sprite;
     private var _vScrollTrack:Sprite;
@@ -115,7 +154,7 @@ class TextAreaWidget extends DeviceView
     private var _isEditing:Bool = false;
     private var _lastText:String = "";
     private var _suppressUpdate:Bool = false;
-    
+
     // Scrollbar drag state
     private var _isDraggingV:Bool = false;
     private var _isDraggingH:Bool = false;
@@ -179,8 +218,8 @@ class TextAreaWidget extends DeviceView
     }
 
     /**
-    * Read all configuration parameters from the atom's contacts.
-    */
+     * Read all configuration parameters from the atom's contacts.
+     */
     private function syncConfigFromAtom():Void
     {
         if (_textAreaAtom != null)
@@ -227,8 +266,8 @@ class TextAreaWidget extends DeviceView
     }
 
     /**
-    * Recalculate widget dimensions based on current configuration.
-    */
+     * Recalculate widget dimensions based on current configuration.
+     */
     private function recalcSize():Void
     {
         var scrollW = _vScroll ? SCROLLBAR_SIZE : 0;
@@ -308,13 +347,21 @@ class TextAreaWidget extends DeviceView
         _statusBar.selectable = false;
         _statusBar.mouseEnabled = false;
         addChild(_statusBar);
+
+        // === v1.2: MOUSE WHEEL HANDLER ===
+        // Intercept mouse wheel to:
+        //   1. Prevent event from reaching parent NodeEditor (zoom canvas)
+        //   2. Manually scroll text (OpenFL INPUT TextField doesn't always
+        //      auto-scroll on wheel)
+        //   3. Synchronously update custom scrollbar thumb position
+        addEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
     }
 
     /**
-    * Build custom scrollbars (vertical and horizontal).
-    * OpenFL TextField does not draw scrollbars automatically,
-    * so we create custom sprites for visual feedback and interaction.
-    */
+     * Build custom scrollbars (vertical and horizontal).
+     * OpenFL TextField does not draw scrollbars automatically,
+     * so we create custom sprites for visual feedback and interaction.
+     */
     private function buildScrollbars():Void
     {
         // === VERTICAL SCROLLBAR ===
@@ -323,7 +370,7 @@ class TextAreaWidget extends DeviceView
             _vScrollBar = new Sprite();
             _vScrollBar.x = widgetWidth - SCROLLBAR_SIZE - 2;
             _vScrollBar.y = 16;
-            
+
             // Track (background)
             _vScrollTrack = new Sprite();
             _vScrollTrack.graphics.beginFill(SCROLL_TRACK_COLOR);
@@ -332,7 +379,7 @@ class TextAreaWidget extends DeviceView
             _vScrollTrack.graphics.lineStyle(1, SCROLL_BORDER_COLOR);
             _vScrollTrack.graphics.drawRect(0, 0, SCROLLBAR_SIZE - 2, _textField.height);
             _vScrollBar.addChild(_vScrollTrack);
-            
+
             // Thumb (draggable)
             _vScrollThumb = new Sprite();
             _vScrollThumb.graphics.beginFill(SCROLL_THUMB_COLOR);
@@ -343,11 +390,11 @@ class TextAreaWidget extends DeviceView
             _vScrollThumb.addEventListener(MouseEvent.MOUSE_OVER, onVThumbOver);
             _vScrollThumb.addEventListener(MouseEvent.MOUSE_OUT, onVThumbOut);
             _vScrollBar.addChild(_vScrollThumb);
-            
+
             // Track click for jump-to-position
             _vScrollTrack.buttonMode = true;
             _vScrollTrack.addEventListener(MouseEvent.MOUSE_DOWN, onVTrackClick);
-            
+
             addChild(_vScrollBar);
         }
 
@@ -357,7 +404,7 @@ class TextAreaWidget extends DeviceView
             _hScrollBar = new Sprite();
             _hScrollBar.x = PADDING;
             _hScrollBar.y = widgetHeight - STATUS_HEIGHT - SCROLLBAR_SIZE - 2;
-            
+
             // Track (background)
             _hScrollTrack = new Sprite();
             _hScrollTrack.graphics.beginFill(SCROLL_TRACK_COLOR);
@@ -366,7 +413,7 @@ class TextAreaWidget extends DeviceView
             _hScrollTrack.graphics.lineStyle(1, SCROLL_BORDER_COLOR);
             _hScrollTrack.graphics.drawRect(0, 0, _textField.width, SCROLLBAR_SIZE - 2);
             _hScrollBar.addChild(_hScrollTrack);
-            
+
             // Thumb (draggable)
             _hScrollThumb = new Sprite();
             _hScrollThumb.graphics.beginFill(SCROLL_THUMB_COLOR);
@@ -377,18 +424,18 @@ class TextAreaWidget extends DeviceView
             _hScrollThumb.addEventListener(MouseEvent.MOUSE_OVER, onHThumbOver);
             _hScrollThumb.addEventListener(MouseEvent.MOUSE_OUT, onHThumbOut);
             _hScrollBar.addChild(_hScrollThumb);
-            
+
             // Track click for jump-to-position
             _hScrollTrack.buttonMode = true;
             _hScrollTrack.addEventListener(MouseEvent.MOUSE_DOWN, onHTrackClick);
-            
+
             addChild(_hScrollBar);
         }
     }
 
     /**
-    * Full UI rebuild (called when configuration changes).
-    */
+     * Full UI rebuild (called when configuration changes).
+     */
     private function rebuildUI():Void
     {
         // Remove old children
@@ -403,7 +450,7 @@ class TextAreaWidget extends DeviceView
             _textField.removeEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
             _textField.removeEventListener(Event.SCROLL, onScroll);
         }
-        
+
         // Remove scrollbar listeners
         if (_vScrollThumb != null)
         {
@@ -418,6 +465,9 @@ class TextAreaWidget extends DeviceView
             _hScrollThumb.removeEventListener(MouseEvent.MOUSE_OUT, onHThumbOut);
         }
 
+        // v1.2: Remove wheel listener before rebuild
+        removeEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
+
         buildUI();
     }
 
@@ -431,8 +481,8 @@ class TextAreaWidget extends DeviceView
     }
 
     /**
-    * Apply editable/readonly state to the TextField.
-    */
+     * Apply editable/readonly state to the TextField.
+     */
     private function applyEditableState():Void
     {
         if (_textField == null) return;
@@ -453,35 +503,114 @@ class TextAreaWidget extends DeviceView
     }
 
     // =========================================================================
+    // v1.2: MOUSE WHEEL SCROLL HANDLER
+    // =========================================================================
+    /**
+     * Handle mouse wheel for synchronous text scrolling.
+     *
+     * This handler solves TWO problems:
+     *
+     * 1. EVENT ISOLATION: stopPropagation() prevents the wheel event from
+     *    reaching the parent NodeEditor/ViewportManager, which would
+     *    otherwise interpret it as a canvas zoom command.
+     *
+     * 2. SYNCHRONOUS SCROLL: OpenFL TextField with type=INPUT does not
+     *    always auto-scroll on mouse wheel (platform-dependent). We
+     *    manually adjust scrollV/scrollH and immediately update the
+     *    custom scrollbar thumb position in the same frame.
+     *
+     * ┌─────────────────────────────────────────────────────────────────┐
+     * │  Mouse Wheel Event Flow (v1.2):                                 │
+     * │                                                                 │
+     * │  User scrolls wheel over TextAreaWidget                         │
+     * │       │                                                         │
+     * │       ▼                                                         │
+     * │  onMouseWheel(e)                                                │
+     * │       │                                                         │
+     * │       ├── e.stopPropagation()  ← Block parent (no zoom!)        │
+     * │       │                                                         │
+     * │       ├── Shift held?                                           │
+     * │       │    ├── YES → scrollH += delta × WHEEL_SCROLL_LINES      │
+     * │       │    └── NO  → scrollV -= delta × WHEEL_SCROLL_LINES      │
+     * │       │              (delta > 0 = scroll up, < 0 = scroll down) │
+     * │       │                                                         │
+     * │       └── updateScrollbarThumbs()  ← Sync thumb position NOW    │
+     * │                                                                 │
+     * └─────────────────────────────────────────────────────────────────┘
+     *
+     * @param e Mouse wheel event (e.delta > 0 = scroll up, < 0 = scroll down)
+     */
+    private function onMouseWheel(e:MouseEvent):Void
+    {
+        if (_textField == null || isDisposed) return;
+
+        // CRITICAL: Stop event from reaching parent NodeEditor (zoom canvas)
+        e.stopPropagation();
+
+        if (e.shiftKey && _hScroll && !_wordWrap)
+        {
+            // Horizontal scroll with Shift+Wheel
+            var maxH = _textField.maxScrollH;
+            if (maxH > 0)
+            {
+                var deltaH = -e.delta * WHEEL_SCROLL_LINES * 4; // pixels
+                var newH = _textField.scrollH + Std.int(deltaH);
+                if (newH < 0) newH = 0;
+                if (newH > maxH) newH = maxH;
+                _textField.scrollH = newH;
+            }
+        }
+        else
+        {
+            // Vertical scroll (default)
+            var maxV = _textField.maxScrollV;
+            if (maxV > 1)
+            {
+                // e.delta > 0 means scroll UP (content moves down)
+                // e.delta < 0 means scroll DOWN (content moves up)
+                var deltaV = -e.delta * WHEEL_SCROLL_LINES;
+                var newV = _textField.scrollV + Std.int(deltaV);
+                if (newV < 1) newV = 1;
+                if (newV > maxV) newV = maxV;
+                _textField.scrollV = newV;
+            }
+        }
+
+        // Synchronously update custom scrollbar thumb position
+        updateScrollbarThumbs();
+        updateStatusBar();
+    }
+
+    // =========================================================================
     // SCROLLBAR INTERACTION
     // =========================================================================
-    
+
     /**
-    * Update scrollbar thumb positions based on current scroll state.
-    * Called on every scroll event and text change.
-    */
+     * Update scrollbar thumb positions based on current scroll state.
+     * Called on every scroll event, text change, and mouse wheel.
+     */
     private function updateScrollbarThumbs():Void
     {
         if (_textField == null) return;
-        
+
         // === VERTICAL SCROLLBAR ===
         if (_vScroll && _vScrollThumb != null && _vScrollTrack != null)
         {
             var maxScroll = _textField.maxScrollV;
             var currentScroll = _textField.scrollV;
             var trackHeight = _textField.height;
-            
+
             if (maxScroll > 1)
             {
                 // Calculate thumb height (proportional to visible/total lines)
                 var visibleLines = _textField.bottomScrollV - _textField.scrollV + 1;
                 var totalLines = _textField.numLines;
                 var thumbHeight = Math.max(20, (visibleLines / totalLines) * trackHeight);
-                
+
                 // Calculate thumb position
                 var scrollRatio = (currentScroll - 1) / (maxScroll - 1);
                 var thumbY = scrollRatio * (trackHeight - thumbHeight);
-                
+
                 // Redraw thumb
                 _vScrollThumb.graphics.clear();
                 var thumbColor = _isDraggingV ? SCROLL_THUMB_DRAG : (_vThumbHover ? SCROLL_THUMB_HOVER : SCROLL_THUMB_COLOR);
@@ -496,25 +625,25 @@ class TextAreaWidget extends DeviceView
                 _vScrollThumb.visible = false;
             }
         }
-        
+
         // === HORIZONTAL SCROLLBAR ===
         if (_hScroll && _hScrollThumb != null && _hScrollTrack != null && !_wordWrap)
         {
             var maxScrollH = _textField.maxScrollH;
             var currentScrollH = _textField.scrollH;
             var trackWidth = _textField.width;
-            
+
             if (maxScrollH > 0)
             {
                 // Calculate thumb width (proportional to visible/total width)
                 var visibleWidth = _textField.width;
                 var totalWidth = _textField.textWidth + 20; // Approximate total width
                 var thumbWidth = Math.max(30, (visibleWidth / totalWidth) * trackWidth);
-                
+
                 // Calculate thumb position
                 var scrollRatio = currentScrollH / maxScrollH;
                 var thumbX = scrollRatio * (trackWidth - thumbWidth);
-                
+
                 // Redraw thumb
                 _hScrollThumb.graphics.clear();
                 var thumbColor = _isDraggingH ? SCROLL_THUMB_DRAG : (_hThumbHover ? SCROLL_THUMB_HOVER : SCROLL_THUMB_COLOR);
@@ -532,26 +661,26 @@ class TextAreaWidget extends DeviceView
     }
 
     // === VERTICAL SCROLLBAR HANDLERS ===
-    
+
     private function onVThumbMouseDown(e:MouseEvent):Void
     {
         _isDraggingV = true;
         _dragStartY = e.stageY;
         _dragStartScrollV = _textField.scrollV;
-        
+
         stage.addEventListener(MouseEvent.MOUSE_MOVE, onVThumbDrag);
         stage.addEventListener(MouseEvent.MOUSE_UP, onVThumbMouseUp);
         e.stopPropagation();
     }
-    
+
     private function onVThumbDrag(e:MouseEvent):Void
     {
         if (!_isDraggingV || _textField == null) return;
-        
+
         var deltaY = e.stageY - _dragStartY;
         var trackHeight = _textField.height;
         var maxScroll = _textField.maxScrollV;
-        
+
         if (maxScroll > 1)
         {
             var scrollDelta = Std.int((deltaY / trackHeight) * maxScroll);
@@ -560,7 +689,7 @@ class TextAreaWidget extends DeviceView
             updateScrollbarThumbs();
         }
     }
-    
+
     private function onVThumbMouseUp(e:MouseEvent):Void
     {
         _isDraggingV = false;
@@ -568,16 +697,16 @@ class TextAreaWidget extends DeviceView
         stage.removeEventListener(MouseEvent.MOUSE_UP, onVThumbMouseUp);
         updateScrollbarThumbs();
     }
-    
+
     private function onVTrackClick(e:MouseEvent):Void
     {
         if (_textField == null || _vScrollTrack == null) return;
-        
+
         // Jump to clicked position
         var localY = _vScrollTrack.mouseY;
         var trackHeight = _textField.height;
         var maxScroll = _textField.maxScrollV;
-        
+
         if (maxScroll > 1)
         {
             var scrollRatio = localY / trackHeight;
@@ -586,13 +715,13 @@ class TextAreaWidget extends DeviceView
             updateScrollbarThumbs();
         }
     }
-    
+
     private function onVThumbOver(e:MouseEvent):Void
     {
         _vThumbHover = true;
         updateScrollbarThumbs();
     }
-    
+
     private function onVThumbOut(e:MouseEvent):Void
     {
         _vThumbHover = false;
@@ -600,26 +729,26 @@ class TextAreaWidget extends DeviceView
     }
 
     // === HORIZONTAL SCROLLBAR HANDLERS ===
-    
+
     private function onHThumbMouseDown(e:MouseEvent):Void
     {
         _isDraggingH = true;
         _dragStartX = e.stageX;
         _dragStartScrollH = _textField.scrollH;
-        
+
         stage.addEventListener(MouseEvent.MOUSE_MOVE, onHThumbDrag);
         stage.addEventListener(MouseEvent.MOUSE_UP, onHThumbMouseUp);
         e.stopPropagation();
     }
-    
+
     private function onHThumbDrag(e:MouseEvent):Void
     {
         if (!_isDraggingH || _textField == null) return;
-        
+
         var deltaX = e.stageX - _dragStartX;
         var trackWidth = _textField.width;
         var maxScrollH = _textField.maxScrollH;
-        
+
         if (maxScrollH > 0)
         {
             var scrollDelta = Std.int((deltaX / trackWidth) * maxScrollH);
@@ -628,7 +757,7 @@ class TextAreaWidget extends DeviceView
             updateScrollbarThumbs();
         }
     }
-    
+
     private function onHThumbMouseUp(e:MouseEvent):Void
     {
         _isDraggingH = false;
@@ -636,16 +765,16 @@ class TextAreaWidget extends DeviceView
         stage.removeEventListener(MouseEvent.MOUSE_UP, onHThumbMouseUp);
         updateScrollbarThumbs();
     }
-    
+
     private function onHTrackClick(e:MouseEvent):Void
     {
         if (_textField == null || _hScrollTrack == null) return;
-        
+
         // Jump to clicked position
         var localX = _hScrollTrack.mouseX;
         var trackWidth = _textField.width;
         var maxScrollH = _textField.maxScrollH;
-        
+
         if (maxScrollH > 0)
         {
             var scrollRatio = localX / trackWidth;
@@ -654,13 +783,13 @@ class TextAreaWidget extends DeviceView
             updateScrollbarThumbs();
         }
     }
-    
+
     private function onHThumbOver(e:MouseEvent):Void
     {
         _hThumbHover = true;
         updateScrollbarThumbs();
     }
-    
+
     private function onHThumbOut(e:MouseEvent):Void
     {
         _hThumbHover = false;
@@ -670,12 +799,19 @@ class TextAreaWidget extends DeviceView
     // =========================================================================
     // DATA SYNCHRONIZATION
     // =========================================================================
+    /**
+     * v1.2 FIX: Reads from getOutput("textOut") — the ACTUAL output contact name.
+     *
+     * Previous code used getOutput("text") which returned null because
+     * the atom's output contact is named "textOut", not "text".
+     * This caused initial text synchronization to silently fail.
+     */
     override private function syncFromAtom():Void
     {
         if (atom == null || _textField == null) return;
 
-        // Sync text
-        var textOut = atom.getOutput("text");
+        // v1.2 FIX: Use "textOut" — the actual output contact name
+        var textOut = atom.getOutput("textOut");
         if (textOut != null && textOut.value != null)
         {
             var newText = Std.string(textOut.value);
@@ -690,7 +826,26 @@ class TextAreaWidget extends DeviceView
                 {
                     _textField.scrollV = _textField.maxScrollV;
                 }
-                
+
+                updateScrollbarThumbs();
+            }
+        }
+        else if (_textAreaAtom != null)
+        {
+            // Fallback: read directly from Databank if contact not yet available
+            var databankText = _textAreaAtom.getText();
+            if (databankText != _textField.text)
+            {
+                _suppressUpdate = true;
+                _textField.text = databankText;
+                _lastText = databankText;
+                _suppressUpdate = false;
+
+                if (_autoScroll)
+                {
+                    _textField.scrollV = _textField.maxScrollV;
+                }
+
                 updateScrollbarThumbs();
             }
         }
@@ -698,13 +853,22 @@ class TextAreaWidget extends DeviceView
         updateStatusBar();
     }
 
+    /**
+     * v1.2 FIX: Handles "textOut" (not "text") for text updates from atom.
+     *
+     * DeviceView.subscribeToContacts() subscribes to ALL atom outputs.
+     * When atom's "textOut" contact changes, this handler is called with
+     * contact.name == "textOut". Previous code had case "text" which
+     * NEVER matched, so external text updates were silently ignored.
+     */
     override private function onContactChanged(contact:Contact, newValue:Dynamic):Void
     {
         if (isDisposed) return;
 
         switch (contact.name)
         {
-            case "text":
+            // v1.2 FIX: "textOut" — matches atom's actual output contact name
+            case "textOut":
                 if (!_isEditing)
                 {
                     var newText = (newValue != null) ? Std.string(newValue) : "";
@@ -719,7 +883,7 @@ class TextAreaWidget extends DeviceView
                         {
                             _textField.scrollV = _textField.maxScrollV;
                         }
-                        
+
                         updateScrollbarThumbs();
                     }
                 }
@@ -777,7 +941,7 @@ class TextAreaWidget extends DeviceView
                 }
 
             case "changed":
-                // Pulse received — sync text
+                // Pulse received — sync text from Databank
                 syncFromAtom();
 
             case "lineCount":
@@ -789,6 +953,11 @@ class TextAreaWidget extends DeviceView
     // =========================================================================
     // EVENT HANDLERS
     // =========================================================================
+    /**
+     * v1.2 FIX: Fallback path writes to getInput("textIn") — the actual
+     * input contact name. Previous code used getOutput("text") which
+     * returned null (wrong name AND wrong direction — output vs input).
+     */
     private function onTextChange(e:Event):Void
     {
         if (_suppressUpdate || isDisposed) return;
@@ -805,8 +974,11 @@ class TextAreaWidget extends DeviceView
             }
             else
             {
-                var textOut = atom.getOutput("text");
-                if (textOut != null) textOut.value = currentText;
+                // v1.2 FIX: Write to INPUT "textIn" (not OUTPUT "text")
+                // When atom is wrapped in Assembly, we don't have direct
+                // _textAreaAtom reference, so we write through the contact.
+                var textIn = atom.getInput("textIn");
+                if (textIn != null) textIn.value = currentText;
             }
 
             updateStatusBar();
@@ -927,7 +1099,7 @@ class TextAreaWidget extends DeviceView
             _textField.removeEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
             _textField.removeEventListener(Event.SCROLL, onScroll);
         }
-        
+
         // Remove scrollbar listeners
         if (_vScrollThumb != null)
         {
@@ -941,7 +1113,10 @@ class TextAreaWidget extends DeviceView
             _hScrollThumb.removeEventListener(MouseEvent.MOUSE_OVER, onHThumbOver);
             _hScrollThumb.removeEventListener(MouseEvent.MOUSE_OUT, onHThumbOut);
         }
-        
+
+        // v1.2: Remove wheel listener
+        removeEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
+
         // Clean up stage listeners
         if (stage != null)
         {

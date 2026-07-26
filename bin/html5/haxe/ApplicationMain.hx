@@ -20,7 +20,7 @@ class ApplicationMain
 
 		#if (js && html5)
 		#if (munit || (utest && openfl_enable_utest_legacy_mode))
-		lime.system.System.embed("ALTAURI", null, 0, 0);
+		lime.system.System.embed("ALTAURI", null, 1024, 600);
 		#end
 		#else
 		create(null);
@@ -35,7 +35,7 @@ class ApplicationMain
 		ManifestResources.init(config);
 		#end
 
-		app.meta["build"] = "164";
+		app.meta["build"] = "165";
 		app.meta["company"] = "ViRTUALiK";
 		app.meta["file"] = "ALTAURI";
 		app.meta["name"] = "ALTAURI";
@@ -47,28 +47,28 @@ class ApplicationMain
 		#if !flash
 		
 		var attributes:lime.ui.WindowAttributes = {
-			allowHighDPI: false,
+			allowHighDPI: true,
 			alwaysOnTop: false,
 			borderless: false,
 			// display: 0,
 			element: null,
 			frameRate: 60,
 			#if !web fullscreen: false, #end
-			height: 0,
+			height: 600,
 			hidden: #if munit true #else false #end,
 			maximized: false,
 			minimized: false,
 			parameters: {},
 			resizable: true,
 			title: "ALTAURI",
-			width: 0,
+			width: 1024,
 			x: null,
 			y: null,
 		};
 
 		attributes.context = {
 			antialiasing: 0,
-			background: 16777215,
+			background: 1973790,
 			colorDepth: 32,
 			depth: true,
 			hardware: true,
@@ -104,7 +104,7 @@ class ApplicationMain
 		#elseif air
 		app.window.title = "ALTAURI";
 		#else
-		app.window.context.attributes.background = 16777215;
+		app.window.context.attributes.background = 1973790;
 		app.window.frameRate = 60;
 		#end
 

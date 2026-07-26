@@ -12923,10 +12923,9 @@ class SystemVUMeterWidget extends DeviceView
 
 ================================================================================
 // FILE: core\view\TextAreaWidget.hx
-// Lines: 968 | Chars: 35977
+// Lines: 1143 | Chars: 44527
 ================================================================================
 
-// FILE: core\view\TextAreaWidget.hx
 package core.view;
 
 import openfl.display.Sprite;
@@ -12945,58 +12944,95 @@ import core.logic.EventType;
 import library.electro.TextAreaAtom;
 
 /**
-* TEXT AREA WIDGET v1.1 (Custom Scrollbars)
-*
-* Visual component (Face) for TextAreaAtom.
-* Provides a multi-line text editing area with configurable dimensions,
-* custom-drawn scrollbars, word wrap, and auto-scroll behavior.
-*
-* Architecture: "ATOM IS DATABANK & COMPUTE CORE"
-* ┌─────────────────────────────────────────────────────────────────────────┐
-* │   TextAreaAtom (Databank)                                               │
-* │                                                                         │
-* │   Contact "text"     ◄──► TextAreaWidget                                │
-* │   Contact "editable"  ──► TextAreaWidget (enable/disable)               │
-* │   Contact "wordWrap"  ──► TextAreaWidget                                │
-* │   Contact "autoScroll"──► TextAreaWidget                                │
-* │   Contact "hScroll"   ──► TextAreaWidget                                │
-* │   Contact "vScroll"   ──► TextAreaWidget                                │
-* │   Contact "maxChars"  ──► TextAreaWidget (width)                        │
-* │   Contact "numLines"  ──► TextAreaWidget (height)                       │
-* │                                                                         │
-* │   Widget READS config from atom's contacts.                             │
-* │   Widget WRITES to atom via setTextFromWidget().                        │
-* │   Atom is the Databank — single source of truth.                        │
-* │                                                                         │
-* │   ┌───────────────────────────────────────────────────────────────┐     │
-* │   │  ┌─────────────────────────────────────────────────────────┐  │     │
-* │   │  │  Line 1: Hello World                                  │▐ │     │
-* │   │  │  Line 2: This is a TextArea widget                    │▐ │     │
-* │   │  │  Line 3: with configurable parameters                 │▐ │     │
-* │   │  │  Line 4:                                              │█ │     │
-* │   │  │  Line 5:                                              │█ │     │
-* │   │  │  Line 6:                                              │█ │     │
-* │   │  │  Line 7:                                              │▄ │     │
-* │   │  │  Line 8:                                              │  │     │
-* │   │  └─────────────────────────────────────────────────────────┘  │     │
-* │   │  ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀       │
-* │   │  Lines: 8 | Cursor: 3                                         │     │
-* │   └───────────────────────────────────────────────────────────────┘     │
-* │                                                                         │
-* └─────────────────────────────────────────────────────────────────────────┘
-*
-* Sizing Formula:
-* ┌─────────────────────────────────────────────────────────────────────────┐
-* │  charWidth  = 8px  (monospace _typewriter at 12pt)                     │
-* │  lineHeight = 18px                                                     │
-* │  padding    = 8px                                                      │
-* │  scrollbar  = 14px (custom drawn)                                      │
-* │                                                                         │
-* │  widgetWidth  = maxChars × charWidth + padding×2 + (vScroll ? 14 : 0)  │
-* │  widgetHeight = numLines × lineHeight + padding×2 + (hScroll ? 14 : 0) │
-* │                 + statusBarHeight(18)                                   │
-* └─────────────────────────────────────────────────────────────────────────┘
-*/
+ * TEXT AREA WIDGET v1.2 (Contact Name Fix + Mouse Wheel Scroll)
+ *
+ * Visual component (Face) for TextAreaAtom.
+ * Provides a multi-line text editing area with configurable dimensions,
+ * custom-drawn scrollbars, word wrap, and auto-scroll behavior.
+ *
+ * Architecture: "ATOM IS DATABANK & COMPUTE CORE"
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │   TextAreaAtom (Databank)                                               │
+ * │                                                                         │
+ * │   Contact "textIn"    ◄─── TextAreaWidget (user input → atom)           │
+ * │   Contact "textOut"   ───► TextAreaWidget (atom → display)              │
+ * │   Contact "append"    ───► TextAreaWidget (external append → display)   │
+ * │   Contact "editable"  ───► TextAreaWidget (enable/disable)              │
+ * │   Contact "wordWrap"  ───► TextAreaWidget                               │
+ * │   Contact "autoScroll"───► TextAreaWidget                               │
+ * │   Contact "hScroll"   ───► TextAreaWidget                               │
+ * │   Contact "vScroll"   ───► TextAreaWidget                               │
+ * │   Contact "maxChars"  ───► TextAreaWidget (width)                       │
+ * │   Contact "numLines"  ───► TextAreaWidget (height)                      │
+ * │                                                                         │
+ * │   Widget READS config from atom's contacts.                             │
+ * │   Widget WRITES to atom via setTextFromWidget().                        │
+ * │   Atom is the Databank — single source of truth.                        │
+ * │                                                                         │
+ * │   v1.2 CONTACT NAME CONTRACT (CRITICAL):                                │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  Widget subscribes to: "textOut" (output) for text updates      │   │
+ * │   │  Widget writes to:     "textIn"  (input)  for user edits        │   │
+ * │   │                                                                 │   │
+ * │   │  NEVER use "text" as contact name — it doesn't exist!           │   │
+ * │   │  Atom has: "textIn" (input) and "textOut" (output).             │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │   Widget READS config from atom's contacts.                             │
+ * │   Widget WRITES to atom via setTextFromWidget().                        │
+ * │   Atom is the Databank — single source of truth.                        │
+ * │                                                                         │
+ * │   ┌───────────────────────────────────────────────────────────────┐     │
+ * │   │  ┌─────────────────────────────────────────────────────────┐  │     │
+ * │   │  │  Line 1: Hello World                                    │▐ │     │
+ * │   │  │  Line 2: This is a TextArea widget                      │▐ │     │
+ * │   │  │  Line 3: with configurable parameters                   │▐ │     │
+ * │   │  │  Line 4:                                                │█ │     │
+ * │   │  │  Line 5:                                                │█ │     │
+ * │   │  │  Line 6:                                                │█ │     │
+ * │   │  │  Line 7:                                                │▄ │     │
+ * │   │  │  Line 8:                                                │  │     │
+ * │   │  └─────────────────────────────────────────────────────────┘  │     │
+ * │   │  ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  │     │
+ * │   │  Lines: 8 | Cursor: 3                                         │     │
+ * │   └───────────────────────────────────────────────────────────────┘     │
+ * │                                                                         │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * Sizing Formula:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │  charWidth  = 8px  (monospace _typewriter at 12pt)                      │
+ * │  lineHeight = 18px                                                      │
+ * │  padding    = 8px                                                       │
+ * │  scrollbar  = 14px (custom drawn)                                       │
+ * │                                                                         │
+ * │  widgetWidth  = maxChars × charWidth + padding×2 + (vScroll ? 14 : 0)   │
+ * │  widgetHeight = numLines × lineHeight + padding×2 + (hScroll ? 14 : 0)  │
+ * │                 + statusBarHeight(18)                                   │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * v1.2 Changes:
+ * - FIXED: syncFromAtom() now reads getOutput("textOut") instead of "text"
+ * - FIXED: onContactChanged() now handles case "textOut" instead of "text"
+ * - FIXED: onTextChange() fallback now writes to getInput("textIn")
+ * - ADDED: MouseEvent.MOUSE_WHEEL handler with stopPropagation()
+ *   to prevent scroll events from reaching parent NodeEditor (zoom).
+ * - ADDED: Manual scrollV/scrollH adjustment on wheel for INPUT mode
+ *   (OpenFL TextField doesn't always auto-scroll on wheel in INPUT mode).
+ * - FIXED: updateScrollbarThumbs() called after wheel scroll for
+ *   synchronous thumb position update.
+ *
+ * Sizing Formula:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │  charWidth  = 8px  (monospace _typewriter at 12pt)                     │
+ * │  lineHeight = 18px                                                     │
+ * │  padding    = 8px                                                      │
+ * │  scrollbar  = 14px (custom drawn)                                      │
+ * │                                                                         │
+ * │  widgetWidth  = maxChars × charWidth + padding×2 + (vScroll ? 14 : 0)  │
+ * │  widgetHeight = numLines × lineHeight + padding×2 + (hScroll ? 14 : 0) │
+ * │                 + statusBarHeight(18)                                   │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ */
 class TextAreaWidget extends DeviceView
 {
     // =========================================================================
@@ -13011,7 +13047,10 @@ class TextAreaWidget extends DeviceView
     private static inline var MAX_CHARS:Int = 200;
     private static inline var MIN_LINES:Int = 1;
     private static inline var MAX_LINES:Int = 100;
-    
+
+    /** Number of lines to scroll per mouse wheel tick. */
+    private static inline var WHEEL_SCROLL_LINES:Int = 3;
+
     // Scrollbar colors
     private static inline var SCROLL_BG_COLOR:Int = 0x1a1a24;
     private static inline var SCROLL_TRACK_COLOR:Int = 0x2a2a3a;
@@ -13027,7 +13066,7 @@ class TextAreaWidget extends DeviceView
     private var _textField:TextField;
     private var _statusBar:TextField;
     private var _headerLabel:TextField;
-    
+
     // Custom scrollbars
     private var _vScrollBar:Sprite;
     private var _vScrollTrack:Sprite;
@@ -13043,7 +13082,7 @@ class TextAreaWidget extends DeviceView
     private var _isEditing:Bool = false;
     private var _lastText:String = "";
     private var _suppressUpdate:Bool = false;
-    
+
     // Scrollbar drag state
     private var _isDraggingV:Bool = false;
     private var _isDraggingH:Bool = false;
@@ -13107,8 +13146,8 @@ class TextAreaWidget extends DeviceView
     }
 
     /**
-    * Read all configuration parameters from the atom's contacts.
-    */
+     * Read all configuration parameters from the atom's contacts.
+     */
     private function syncConfigFromAtom():Void
     {
         if (_textAreaAtom != null)
@@ -13155,8 +13194,8 @@ class TextAreaWidget extends DeviceView
     }
 
     /**
-    * Recalculate widget dimensions based on current configuration.
-    */
+     * Recalculate widget dimensions based on current configuration.
+     */
     private function recalcSize():Void
     {
         var scrollW = _vScroll ? SCROLLBAR_SIZE : 0;
@@ -13236,13 +13275,21 @@ class TextAreaWidget extends DeviceView
         _statusBar.selectable = false;
         _statusBar.mouseEnabled = false;
         addChild(_statusBar);
+
+        // === v1.2: MOUSE WHEEL HANDLER ===
+        // Intercept mouse wheel to:
+        //   1. Prevent event from reaching parent NodeEditor (zoom canvas)
+        //   2. Manually scroll text (OpenFL INPUT TextField doesn't always
+        //      auto-scroll on wheel)
+        //   3. Synchronously update custom scrollbar thumb position
+        addEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
     }
 
     /**
-    * Build custom scrollbars (vertical and horizontal).
-    * OpenFL TextField does not draw scrollbars automatically,
-    * so we create custom sprites for visual feedback and interaction.
-    */
+     * Build custom scrollbars (vertical and horizontal).
+     * OpenFL TextField does not draw scrollbars automatically,
+     * so we create custom sprites for visual feedback and interaction.
+     */
     private function buildScrollbars():Void
     {
         // === VERTICAL SCROLLBAR ===
@@ -13251,7 +13298,7 @@ class TextAreaWidget extends DeviceView
             _vScrollBar = new Sprite();
             _vScrollBar.x = widgetWidth - SCROLLBAR_SIZE - 2;
             _vScrollBar.y = 16;
-            
+
             // Track (background)
             _vScrollTrack = new Sprite();
             _vScrollTrack.graphics.beginFill(SCROLL_TRACK_COLOR);
@@ -13260,7 +13307,7 @@ class TextAreaWidget extends DeviceView
             _vScrollTrack.graphics.lineStyle(1, SCROLL_BORDER_COLOR);
             _vScrollTrack.graphics.drawRect(0, 0, SCROLLBAR_SIZE - 2, _textField.height);
             _vScrollBar.addChild(_vScrollTrack);
-            
+
             // Thumb (draggable)
             _vScrollThumb = new Sprite();
             _vScrollThumb.graphics.beginFill(SCROLL_THUMB_COLOR);
@@ -13271,11 +13318,11 @@ class TextAreaWidget extends DeviceView
             _vScrollThumb.addEventListener(MouseEvent.MOUSE_OVER, onVThumbOver);
             _vScrollThumb.addEventListener(MouseEvent.MOUSE_OUT, onVThumbOut);
             _vScrollBar.addChild(_vScrollThumb);
-            
+
             // Track click for jump-to-position
             _vScrollTrack.buttonMode = true;
             _vScrollTrack.addEventListener(MouseEvent.MOUSE_DOWN, onVTrackClick);
-            
+
             addChild(_vScrollBar);
         }
 
@@ -13285,7 +13332,7 @@ class TextAreaWidget extends DeviceView
             _hScrollBar = new Sprite();
             _hScrollBar.x = PADDING;
             _hScrollBar.y = widgetHeight - STATUS_HEIGHT - SCROLLBAR_SIZE - 2;
-            
+
             // Track (background)
             _hScrollTrack = new Sprite();
             _hScrollTrack.graphics.beginFill(SCROLL_TRACK_COLOR);
@@ -13294,7 +13341,7 @@ class TextAreaWidget extends DeviceView
             _hScrollTrack.graphics.lineStyle(1, SCROLL_BORDER_COLOR);
             _hScrollTrack.graphics.drawRect(0, 0, _textField.width, SCROLLBAR_SIZE - 2);
             _hScrollBar.addChild(_hScrollTrack);
-            
+
             // Thumb (draggable)
             _hScrollThumb = new Sprite();
             _hScrollThumb.graphics.beginFill(SCROLL_THUMB_COLOR);
@@ -13305,18 +13352,18 @@ class TextAreaWidget extends DeviceView
             _hScrollThumb.addEventListener(MouseEvent.MOUSE_OVER, onHThumbOver);
             _hScrollThumb.addEventListener(MouseEvent.MOUSE_OUT, onHThumbOut);
             _hScrollBar.addChild(_hScrollThumb);
-            
+
             // Track click for jump-to-position
             _hScrollTrack.buttonMode = true;
             _hScrollTrack.addEventListener(MouseEvent.MOUSE_DOWN, onHTrackClick);
-            
+
             addChild(_hScrollBar);
         }
     }
 
     /**
-    * Full UI rebuild (called when configuration changes).
-    */
+     * Full UI rebuild (called when configuration changes).
+     */
     private function rebuildUI():Void
     {
         // Remove old children
@@ -13331,7 +13378,7 @@ class TextAreaWidget extends DeviceView
             _textField.removeEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
             _textField.removeEventListener(Event.SCROLL, onScroll);
         }
-        
+
         // Remove scrollbar listeners
         if (_vScrollThumb != null)
         {
@@ -13346,6 +13393,9 @@ class TextAreaWidget extends DeviceView
             _hScrollThumb.removeEventListener(MouseEvent.MOUSE_OUT, onHThumbOut);
         }
 
+        // v1.2: Remove wheel listener before rebuild
+        removeEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
+
         buildUI();
     }
 
@@ -13359,8 +13409,8 @@ class TextAreaWidget extends DeviceView
     }
 
     /**
-    * Apply editable/readonly state to the TextField.
-    */
+     * Apply editable/readonly state to the TextField.
+     */
     private function applyEditableState():Void
     {
         if (_textField == null) return;
@@ -13381,35 +13431,114 @@ class TextAreaWidget extends DeviceView
     }
 
     // =========================================================================
+    // v1.2: MOUSE WHEEL SCROLL HANDLER
+    // =========================================================================
+    /**
+     * Handle mouse wheel for synchronous text scrolling.
+     *
+     * This handler solves TWO problems:
+     *
+     * 1. EVENT ISOLATION: stopPropagation() prevents the wheel event from
+     *    reaching the parent NodeEditor/ViewportManager, which would
+     *    otherwise interpret it as a canvas zoom command.
+     *
+     * 2. SYNCHRONOUS SCROLL: OpenFL TextField with type=INPUT does not
+     *    always auto-scroll on mouse wheel (platform-dependent). We
+     *    manually adjust scrollV/scrollH and immediately update the
+     *    custom scrollbar thumb position in the same frame.
+     *
+     * ┌─────────────────────────────────────────────────────────────────┐
+     * │  Mouse Wheel Event Flow (v1.2):                                 │
+     * │                                                                 │
+     * │  User scrolls wheel over TextAreaWidget                         │
+     * │       │                                                         │
+     * │       ▼                                                         │
+     * │  onMouseWheel(e)                                                │
+     * │       │                                                         │
+     * │       ├── e.stopPropagation()  ← Block parent (no zoom!)        │
+     * │       │                                                         │
+     * │       ├── Shift held?                                           │
+     * │       │    ├── YES → scrollH += delta × WHEEL_SCROLL_LINES      │
+     * │       │    └── NO  → scrollV -= delta × WHEEL_SCROLL_LINES      │
+     * │       │              (delta > 0 = scroll up, < 0 = scroll down) │
+     * │       │                                                         │
+     * │       └── updateScrollbarThumbs()  ← Sync thumb position NOW    │
+     * │                                                                 │
+     * └─────────────────────────────────────────────────────────────────┘
+     *
+     * @param e Mouse wheel event (e.delta > 0 = scroll up, < 0 = scroll down)
+     */
+    private function onMouseWheel(e:MouseEvent):Void
+    {
+        if (_textField == null || isDisposed) return;
+
+        // CRITICAL: Stop event from reaching parent NodeEditor (zoom canvas)
+        e.stopPropagation();
+
+        if (e.shiftKey && _hScroll && !_wordWrap)
+        {
+            // Horizontal scroll with Shift+Wheel
+            var maxH = _textField.maxScrollH;
+            if (maxH > 0)
+            {
+                var deltaH = -e.delta * WHEEL_SCROLL_LINES * 4; // pixels
+                var newH = _textField.scrollH + Std.int(deltaH);
+                if (newH < 0) newH = 0;
+                if (newH > maxH) newH = maxH;
+                _textField.scrollH = newH;
+            }
+        }
+        else
+        {
+            // Vertical scroll (default)
+            var maxV = _textField.maxScrollV;
+            if (maxV > 1)
+            {
+                // e.delta > 0 means scroll UP (content moves down)
+                // e.delta < 0 means scroll DOWN (content moves up)
+                var deltaV = -e.delta * WHEEL_SCROLL_LINES;
+                var newV = _textField.scrollV + Std.int(deltaV);
+                if (newV < 1) newV = 1;
+                if (newV > maxV) newV = maxV;
+                _textField.scrollV = newV;
+            }
+        }
+
+        // Synchronously update custom scrollbar thumb position
+        updateScrollbarThumbs();
+        updateStatusBar();
+    }
+
+    // =========================================================================
     // SCROLLBAR INTERACTION
     // =========================================================================
-    
+
     /**
-    * Update scrollbar thumb positions based on current scroll state.
-    * Called on every scroll event and text change.
-    */
+     * Update scrollbar thumb positions based on current scroll state.
+     * Called on every scroll event, text change, and mouse wheel.
+     */
     private function updateScrollbarThumbs():Void
     {
         if (_textField == null) return;
-        
+
         // === VERTICAL SCROLLBAR ===
         if (_vScroll && _vScrollThumb != null && _vScrollTrack != null)
         {
             var maxScroll = _textField.maxScrollV;
             var currentScroll = _textField.scrollV;
             var trackHeight = _textField.height;
-            
+
             if (maxScroll > 1)
             {
                 // Calculate thumb height (proportional to visible/total lines)
                 var visibleLines = _textField.bottomScrollV - _textField.scrollV + 1;
                 var totalLines = _textField.numLines;
                 var thumbHeight = Math.max(20, (visibleLines / totalLines) * trackHeight);
-                
+
                 // Calculate thumb position
                 var scrollRatio = (currentScroll - 1) / (maxScroll - 1);
                 var thumbY = scrollRatio * (trackHeight - thumbHeight);
-                
+
                 // Redraw thumb
                 _vScrollThumb.graphics.clear();
                 var thumbColor = _isDraggingV ? SCROLL_THUMB_DRAG : (_vThumbHover ? SCROLL_THUMB_HOVER : SCROLL_THUMB_COLOR);
@@ -13424,25 +13553,25 @@ class TextAreaWidget extends DeviceView
                 _vScrollThumb.visible = false;
             }
         }
-        
+
         // === HORIZONTAL SCROLLBAR ===
         if (_hScroll && _hScrollThumb != null && _hScrollTrack != null && !_wordWrap)
         {
             var maxScrollH = _textField.maxScrollH;
             var currentScrollH = _textField.scrollH;
             var trackWidth = _textField.width;
-            
+
             if (maxScrollH > 0)
             {
                 // Calculate thumb width (proportional to visible/total width)
                 var visibleWidth = _textField.width;
                 var totalWidth = _textField.textWidth + 20; // Approximate total width
                 var thumbWidth = Math.max(30, (visibleWidth / totalWidth) * trackWidth);
-                
+
                 // Calculate thumb position
                 var scrollRatio = currentScrollH / maxScrollH;
                 var thumbX = scrollRatio * (trackWidth - thumbWidth);
-                
+
                 // Redraw thumb
                 _hScrollThumb.graphics.clear();
                 var thumbColor = _isDraggingH ? SCROLL_THUMB_DRAG : (_hThumbHover ? SCROLL_THUMB_HOVER : SCROLL_THUMB_COLOR);
@@ -13460,26 +13589,26 @@ class TextAreaWidget extends DeviceView
     }
 
     // === VERTICAL SCROLLBAR HANDLERS ===
-    
+
     private function onVThumbMouseDown(e:MouseEvent):Void
     {
         _isDraggingV = true;
         _dragStartY = e.stageY;
         _dragStartScrollV = _textField.scrollV;
-        
+
         stage.addEventListener(MouseEvent.MOUSE_MOVE, onVThumbDrag);
         stage.addEventListener(MouseEvent.MOUSE_UP, onVThumbMouseUp);
         e.stopPropagation();
     }
-    
+
     private function onVThumbDrag(e:MouseEvent):Void
     {
         if (!_isDraggingV || _textField == null) return;
-        
+
         var deltaY = e.stageY - _dragStartY;
         var trackHeight = _textField.height;
         var maxScroll = _textField.maxScrollV;
-        
+
         if (maxScroll > 1)
         {
             var scrollDelta = Std.int((deltaY / trackHeight) * maxScroll);
@@ -13488,7 +13617,7 @@ class TextAreaWidget extends DeviceView
             updateScrollbarThumbs();
         }
     }
-    
+
     private function onVThumbMouseUp(e:MouseEvent):Void
     {
         _isDraggingV = false;
@@ -13496,16 +13625,16 @@ class TextAreaWidget extends DeviceView
         stage.removeEventListener(MouseEvent.MOUSE_UP, onVThumbMouseUp);
         updateScrollbarThumbs();
     }
-    
+
     private function onVTrackClick(e:MouseEvent):Void
     {
         if (_textField == null || _vScrollTrack == null) return;
-        
+
         // Jump to clicked position
         var localY = _vScrollTrack.mouseY;
         var trackHeight = _textField.height;
         var maxScroll = _textField.maxScrollV;
-        
+
         if (maxScroll > 1)
         {
             var scrollRatio = localY / trackHeight;
@@ -13514,13 +13643,13 @@ class TextAreaWidget extends DeviceView
             updateScrollbarThumbs();
         }
     }
-    
+
     private function onVThumbOver(e:MouseEvent):Void
     {
         _vThumbHover = true;
         updateScrollbarThumbs();
     }
-    
+
     private function onVThumbOut(e:MouseEvent):Void
     {
         _vThumbHover = false;
@@ -13528,26 +13657,26 @@ class TextAreaWidget extends DeviceView
     }
 
     // === HORIZONTAL SCROLLBAR HANDLERS ===
-    
+
     private function onHThumbMouseDown(e:MouseEvent):Void
     {
         _isDraggingH = true;
         _dragStartX = e.stageX;
         _dragStartScrollH = _textField.scrollH;
-        
+
         stage.addEventListener(MouseEvent.MOUSE_MOVE, onHThumbDrag);
         stage.addEventListener(MouseEvent.MOUSE_UP, onHThumbMouseUp);
         e.stopPropagation();
     }
-    
+
     private function onHThumbDrag(e:MouseEvent):Void
     {
         if (!_isDraggingH || _textField == null) return;
-        
+
         var deltaX = e.stageX - _dragStartX;
         var trackWidth = _textField.width;
         var maxScrollH = _textField.maxScrollH;
-        
+
         if (maxScrollH > 0)
         {
             var scrollDelta = Std.int((deltaX / trackWidth) * maxScrollH);
@@ -13556,7 +13685,7 @@ class TextAreaWidget extends DeviceView
             updateScrollbarThumbs();
         }
     }
-    
+
     private function onHThumbMouseUp(e:MouseEvent):Void
     {
         _isDraggingH = false;
@@ -13564,16 +13693,16 @@ class TextAreaWidget extends DeviceView
         stage.removeEventListener(MouseEvent.MOUSE_UP, onHThumbMouseUp);
         updateScrollbarThumbs();
     }
-    
+
     private function onHTrackClick(e:MouseEvent):Void
     {
         if (_textField == null || _hScrollTrack == null) return;
-        
+
         // Jump to clicked position
         var localX = _hScrollTrack.mouseX;
         var trackWidth = _textField.width;
         var maxScrollH = _textField.maxScrollH;
-        
+
         if (maxScrollH > 0)
         {
             var scrollRatio = localX / trackWidth;
@@ -13582,13 +13711,13 @@ class TextAreaWidget extends DeviceView
             updateScrollbarThumbs();
         }
     }
-    
+
     private function onHThumbOver(e:MouseEvent):Void
     {
         _hThumbHover = true;
         updateScrollbarThumbs();
     }
-    
+
     private function onHThumbOut(e:MouseEvent):Void
     {
         _hThumbHover = false;
@@ -13598,12 +13727,19 @@ class TextAreaWidget extends DeviceView
     // =========================================================================
     // DATA SYNCHRONIZATION
     // =========================================================================
+    /**
+     * v1.2 FIX: Reads from getOutput("textOut") — the ACTUAL output contact name.
+     *
+     * Previous code used getOutput("text") which returned null because
+     * the atom's output contact is named "textOut", not "text".
+     * This caused initial text synchronization to silently fail.
+     */
     override private function syncFromAtom():Void
     {
         if (atom == null || _textField == null) return;
 
-        // Sync text
-        var textOut = atom.getOutput("text");
+        // v1.2 FIX: Use "textOut" — the actual output contact name
+        var textOut = atom.getOutput("textOut");
         if (textOut != null && textOut.value != null)
         {
             var newText = Std.string(textOut.value);
@@ -13618,7 +13754,26 @@ class TextAreaWidget extends DeviceView
                 {
                     _textField.scrollV = _textField.maxScrollV;
                 }
-                
+
+                updateScrollbarThumbs();
+            }
+        }
+        else if (_textAreaAtom != null)
+        {
+            // Fallback: read directly from Databank if contact not yet available
+            var databankText = _textAreaAtom.getText();
+            if (databankText != _textField.text)
+            {
+                _suppressUpdate = true;
+                _textField.text = databankText;
+                _lastText = databankText;
+                _suppressUpdate = false;
+
+                if (_autoScroll)
+                {
+                    _textField.scrollV = _textField.maxScrollV;
+                }
+
                 updateScrollbarThumbs();
             }
         }
@@ -13626,13 +13781,22 @@ class TextAreaWidget extends DeviceView
         updateStatusBar();
     }
 
+    /**
+     * v1.2 FIX: Handles "textOut" (not "text") for text updates from atom.
+     *
+     * DeviceView.subscribeToContacts() subscribes to ALL atom outputs.
+     * When atom's "textOut" contact changes, this handler is called with
+     * contact.name == "textOut". Previous code had case "text" which
+     * NEVER matched, so external text updates were silently ignored.
+     */
     override private function onContactChanged(contact:Contact, newValue:Dynamic):Void
     {
         if (isDisposed) return;
 
         switch (contact.name)
         {
-            case "text":
+            // v1.2 FIX: "textOut" — matches atom's actual output contact name
+            case "textOut":
                 if (!_isEditing)
                 {
                     var newText = (newValue != null) ? Std.string(newValue) : "";
@@ -13647,7 +13811,7 @@ class TextAreaWidget extends DeviceView
                         {
                             _textField.scrollV = _textField.maxScrollV;
                         }
-                        
+
                         updateScrollbarThumbs();
                     }
                 }
@@ -13705,7 +13869,7 @@ class TextAreaWidget extends DeviceView
                 }
 
             case "changed":
-                // Pulse received — sync text
+                // Pulse received — sync text from Databank
                 syncFromAtom();
 
             case "lineCount":
@@ -13717,6 +13881,11 @@ class TextAreaWidget extends DeviceView
     // =========================================================================
     // EVENT HANDLERS
     // =========================================================================
+    /**
+     * v1.2 FIX: Fallback path writes to getInput("textIn") — the actual
+     * input contact name. Previous code used getOutput("text") which
+     * returned null (wrong name AND wrong direction — output vs input).
+     */
     private function onTextChange(e:Event):Void
     {
         if (_suppressUpdate || isDisposed) return;
@@ -13733,8 +13902,11 @@ class TextAreaWidget extends DeviceView
             }
             else
             {
-                var textOut = atom.getOutput("text");
-                if (textOut != null) textOut.value = currentText;
+                // v1.2 FIX: Write to INPUT "textIn" (not OUTPUT "text")
+                // When atom is wrapped in Assembly, we don't have direct
+                // _textAreaAtom reference, so we write through the contact.
+                var textIn = atom.getInput("textIn");
+                if (textIn != null) textIn.value = currentText;
             }
 
             updateStatusBar();
@@ -13855,7 +14027,7 @@ class TextAreaWidget extends DeviceView
             _textField.removeEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
             _textField.removeEventListener(Event.SCROLL, onScroll);
         }
-        
+
         // Remove scrollbar listeners
         if (_vScrollThumb != null)
         {
@@ -13869,7 +14041,10 @@ class TextAreaWidget extends DeviceView
             _hScrollThumb.removeEventListener(MouseEvent.MOUSE_OVER, onHThumbOver);
             _hScrollThumb.removeEventListener(MouseEvent.MOUSE_OUT, onHThumbOut);
         }
-        
+
+        // v1.2: Remove wheel listener
+        removeEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
+
         // Clean up stage listeners
         if (stage != null)
         {
@@ -23746,7 +23921,7 @@ typedef WireEntry = {
 
 ================================================================================
 // FILE: library\AtomRegistry.hx
-// Lines: 610 | Chars: 30425
+// Lines: 611 | Chars: 30535
 ================================================================================
 
 // FILE: library/AtomRegistry.hx
@@ -23974,7 +24149,7 @@ class AtomRegistry
         ], null, "relay", true, false, "relay");
 
         reg("TextArea", "Text Area", [
-            {name: "text",       type: INPUT,  dataType: "string", priority: CRITICAL, label: "Text"},
+            {name: "textIn",       type: INPUT,  dataType: "string", priority: CRITICAL, label: "TextIn"},
             {name: "append",     type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Append"},
             {name: "clear",      type: INPUT,  dataType: "bool",   priority: OPTIONAL, label: "Clear"},
             {name: "editable",   type: INPUT,  defaultValue: true, dataType: "bool",   priority: IMPORTANT, label: "Editable", visibleInEditor: true},
@@ -23984,6 +24159,7 @@ class AtomRegistry
             {name: "vScroll",    type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL, label: "VScroll", visibleInEditor: true},
             {name: "maxChars",   type: INPUT,  defaultValue: 40,   dataType: "int",    priority: IMPORTANT, label: "Width", visibleInEditor: true},
             {name: "numLines",   type: INPUT,  defaultValue: 8,    dataType: "int",    priority: IMPORTANT, label: "Lines", visibleInEditor: true},
+            {name: "textOut",    type: OUTPUT, dataType: "bool",   priority: CRITICAL, label: "TextOut"},
             {name: "changed",    type: OUTPUT, dataType: "bool",   priority: OPTIONAL},
             {name: "lineCount",  type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Lines"},
             {name: "cursorLine", type: OUTPUT, dataType: "int",    priority: OPTIONAL, label: "Cursor"}
@@ -24686,7 +24862,7 @@ class ComEnumeratorAtom extends Atom implements system.managers.Driver
 
 ================================================================================
 // FILE: library\drivers\ComPortAtom.hx
-// Lines: 1029 | Chars: 34509
+// Lines: 1767 | Chars: 77809
 ================================================================================
 
 // FILE: library/drivers/ComPortAtom.hx
@@ -24694,1029 +24870,1767 @@ package library.drivers;
 
 import core.base.Atom;
 import core.base.Contact;
-import core.types.ContactType.*;
+import core.types.ContactType;
 import system.managers.DriverManager;
-
+#if html5
+	import js.Syntax;
+	import js.lib.Uint8Array;
+	import js.lib.ArrayBuffer;
+	import js.lib.DataView;
+#end
 #if cpp
 @:headerCode('
 #include <string>
 #include <thread>
 #include <mutex>
 #include <map>
-')
+			 ')
 @:cppFileCode('
-#ifdef _WIN32
+			  #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOGDI
 #include <windows.h>
 #pragma comment(lib, "advapi32.lib")
-#endif
-
-struct ComPortState {
-    HANDLE hComm;
-    std::thread* readThread;
-    volatile bool isRunning;
-    char rxBuffer[1024];
-    bool hasRxData;
-    std::mutex rxMutex;
-    char errBuffer[256];
-    bool hasError;
-    std::mutex errMutex;
-};
-
-static std::map<void*, ComPortState*> _com_states_map;
-static std::mutex _com_map_mutex;
-
-static void _altauri_com_reader_loop(void* haxePtr) {
-    ComPortState* st = nullptr;
-    {
-        std::lock_guard<std::mutex> mapLock(_com_map_mutex);
-        auto it = _com_states_map.find(haxePtr);
-        if (it == _com_states_map.end()) return;
-        st = it->second;
-    }
-    
-    st->isRunning = true;
-    char tempBuf[1024];
-    DWORD bytesRead;
-    
-    while (st->isRunning) {
-        #ifdef _WIN32
-        bytesRead = 0;
-        BOOL bResult = ReadFile(st->hComm, tempBuf, sizeof(tempBuf) - 1, &bytesRead, NULL);
-        
-        if (bResult && bytesRead > 0) {
-            tempBuf[bytesRead] = 0;
-            std::lock_guard<std::mutex> rxLock(st->rxMutex);
-            
-            // === FIX: Safe concatenation with overflow protection ===
-            size_t currentLen = strlen(st->rxBuffer);
-            size_t newLen = currentLen + bytesRead;
-            
-            if (newLen >= sizeof(st->rxBuffer)) {
-                size_t overflow = newLen - (sizeof(st->rxBuffer) - 1);
-                memmove(st->rxBuffer, st->rxBuffer + overflow, currentLen - overflow);
-                st->rxBuffer[currentLen - overflow] = 0;
-                currentLen = currentLen - overflow;
-            }
-            
-            strncpy(st->rxBuffer + currentLen, tempBuf, bytesRead);
-            st->rxBuffer[currentLen + bytesRead] = 0;
-            st->hasRxData = true;
-        }
-        else if (bResult && bytesRead == 0) {
-            continue;
-        }
-        else {
-            DWORD lastError = GetLastError();
-            if (lastError == ERROR_TIMEOUT) { continue; }
-            if (lastError == ERROR_OPERATION_ABORTED || !st->isRunning) { break; }
-            
-            std::lock_guard<std::mutex> errLock(st->errMutex);
-            sprintf(st->errBuffer, "Rx Err:%lu", lastError);
-            st->hasError = true;
-            break;
-        }
-        #endif
-    }
-    st->isRunning = false;
-}
-')
+			  #endif
+			  struct ComPortState {
+			  HANDLE hComm;
+			  std::thread* readThread;
+			  volatile bool isRunning;
+			  char rxBuffer[1024];
+			  bool hasRxData;
+			  std::mutex rxMutex;
+			  char errBuffer[256];
+			  bool hasError;
+			  std::mutex errMutex;
+			  };
+			  static std::map<void*, ComPortState*> _com_states_map;
+			  static std::mutex _com_map_mutex;
+			  static void _altauri_com_reader_loop(void* haxePtr) {
+			  ComPortState* st = nullptr;
+			  {
+			  std::lock_guard<std::mutex> mapLock(_com_map_mutex);
+			  auto it = _com_states_map.find(haxePtr);
+			  if (it == _com_states_map.end()) return;
+			  st = it->second;
+			  }
+			  st->isRunning = true;
+			  char tempBuf[1024];
+			  DWORD bytesRead;
+			  while (st->isRunning) {
+			  #ifdef _WIN32
+			  bytesRead = 0;
+			  BOOL bResult = ReadFile(st->hComm, tempBuf, sizeof(tempBuf) - 1, &bytesRead, NULL);
+			  if (bResult && bytesRead > 0) {
+			  tempBuf[bytesRead] = 0;
+			  std::lock_guard<std::mutex> rxLock(st->rxMutex);
+			  size_t currentLen = strlen(st->rxBuffer);
+			  size_t newLen = currentLen + bytesRead;
+			  if (newLen >= sizeof(st->rxBuffer)) {
+			  size_t overflow = newLen - (sizeof(st->rxBuffer) - 1);
+			  memmove(st->rxBuffer, st->rxBuffer + overflow, currentLen - overflow);
+			  st->rxBuffer[currentLen - overflow] = 0;
+			  currentLen = currentLen - overflow;
+			  }
+			  strncpy(st->rxBuffer + currentLen, tempBuf, bytesRead);
+			  st->rxBuffer[currentLen + bytesRead] = 0;
+			  st->hasRxData = true;
+			  }
+			  else if (bResult && bytesRead == 0) {
+			  continue;
+			  }
+			  else {
+			  DWORD lastError = GetLastError();
+			  if (lastError == ERROR_TIMEOUT) { continue; }
+			  if (lastError == ERROR_OPERATION_ABORTED || !st->isRunning) { break; }
+			  std::lock_guard<std::mutex> errLock(st->errMutex);
+			  sprintf(st->errBuffer, "Rx Err:%lu", lastError);
+			  st->hasError = true;
+			  break;
+			  }
+			  #endif
+			  }
+			  st->isRunning = false;
+			  }
+			  ')
 #end
-
 /**
- * COM PORT ATOM v2.3 (Dual-Platform + Zero-GC Batching + Test Bypass)
- *
- * Serial port driver with platform-specific backends.
- * At compile time, Haxe selects the appropriate backend.
- *
- * ─────────────────────────────────────────────────────────────────────
- * │                    COMPILATION FLOW                                 │
- * │                                                                     │
- * │  haxe -cpp  ──► #if cpp   ──► WinAPI + Background Thread          │
- * │  haxe -html5──► #if html5 ──► Browser Web Serial API              │
- * │                                                                     │
- * │  Common code (contacts, update logic, ring buffer) is shared.       │
- * │  Platform-specific code is isolated in #if blocks.                  │
- * └─────────────────────────────────────────────────────────────────────┘
- *
- * v2.3 Changes:
- * - ADDED: "testRxData" INPUT contact to bypass C++ backend for UI pipeline testing.
- * - OPTIMIZED: Batched Driver Update Pattern (setValueSilent + propagateCurrentValue)
- *   to prevent TickGenerator overload and UI freezes during large data bursts.
- * - FIXED: C++ rxBuffer explicitly cleared after reading to prevent stale data races.
- *
- * Architecture:
- * ┌─────────────────────────────────────────────────────────────────────┐
- * │                     ComPortAtom                                     │
- * │                                                                     │
- * │  COMMON LAYER (all targets):                                        │
- * │  • Contacts: portName, baudRate, open, close, send, txData, setDTR │
- * │  • Outputs: isOpen, rxData, rxTick, txTick, error, errorTick       │
- * │  • Ring buffer for sequential Rx emission                          │
- * │  • update(dt): propagation + pulse timers                          │
- * │                                                                     │
- * │  #if cpp:                                                           │
- * │  • ComPortState* (C++)                                              │
- * │  • Background thread with ReadFile()                                │
- * │  • Mutex/Atomic sync                                                │
- * │                                                                     │
- * │  #if html5:                                                         │
- * │  • Dynamic _serialPort (Web Serial API)                            │
- * │  • Async read loop via navigator.serial                            │
- * │  • Single-threaded (browser event loop)                            │
- * └─────────────────────────────────────────────────────────────────────┘
- */
+* ╔═══════════════════════════════════════════════════════════════════════════╗
+* ║                     COM PORT ATOM v2.7.0                                  ║
+* ║          (Dual-Platform Serial Driver: C++ WinAPI + HTML5 Web Serial)     ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  Active driver atom for serial port communication.                        ║
+* ║  At compile time, Haxe selects the appropriate backend:                   ║
+* ║                                                                           ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │                    COMPILATION FLOW                                 │  ║
+* ║  │                                                                     │  ║
+* ║  │  haxe -cpp  ──► #if cpp   ──► WinAPI CreateFile + ReadFile thread   │  ║
+* ║  │  haxe -html5──► #if html5 ──► Web Serial API / WebUSB fallback      │  ║
+* ║  │                                                                     │  ║
+* ║  │  Common code (ring buffer, pulse timers, input dispatch) is shared. │  ║
+* ║  │  Platform-specific code is isolated in #if blocks.                  │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                        ARCHITECTURE                                       ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │                     ComPortAtom (Active Driver)                     │  ║
+* ║  │                                                                     │  ║
+* ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
+* ║  │  │  COMMON LAYER (all targets)                                   │  │  ║
+* ║  │  │  ──────────────────────────────────────────────────────────── │  │  ║
+* ║  │  │  • Ring Buffer: circular byte storage with overflow tracking  │  │  ║
+* ║  │  │  • Pulse Timers: rxTick/txTick/errorTick auto-reset           │  │  ║
+* ║  │  │  • Input Dispatch: open/close/send/DTR command handling       │  │  ║
+* ║  │  │  • Configuration: bufferSize/chunkSize/enabled hot-reload     │  │  ║
+* ║  │  │  • Batched Output: setValueSilent + propagateCurrentValue     │  │  ║
+* ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
+* ║  │                                                                     │  ║
+* ║  │  ┌──────────────────────────┐  ┌──────────────────────────────────┐ │  ║
+* ║  │  │  #if cpp                 │  │  #if html5                       │ │  ║
+* ║  │  │  ────────                │  │  ──────────                      │ │  ║
+* ║  │  │  WinAPI CreateFileA      │  │  Web Serial API (primary)        │ │  ║
+* ║  │  │  SetupComm + DCB         │  │  navigator.serial.requestPort    │ │  ║
+* ║  │  │  COMMTIMEOUTS            │  │  port.open(options)              │ │  ║
+* ║  │  │  std::thread reader      │  │  readable.getReader()            │ │  ║
+* ║  │  │  ReadFile loop           │  │                                  │ │  ║
+* ║  │  │  WriteFile               │  │  WebUSB API (fallback)           │ │  ║
+* ║  │  │  EscapeCommFunction DTR  │  │  navigator.usb.requestDevice     │ │  ║
+* ║  │  │  CancelIoEx + join       │  │  Chip-specific init sequences    │ │  ║
+* ║  │  │                          │  │  transferIn / transferOut        │ │  ║
+* ║  │  │  ComPortState struct     │  │  controlTransferOut (vendor)     │ │  ║
+* ║  │  │  _com_states_map         │  │                                  │ │  ║
+* ║  │  └──────────────────────────┘  └──────────────────────────────────┘ │  ║
+* ║  │                                                                     │  ║
+* ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
+* ║  │  │  DATABANK (Haxe fields, shared)                               │  │  ║
+* ║  │  │  ──────────────────────────────────────────────────────────── │  │  ║
+* ║  │  │  _ringBuffer, _readPos, _writePos, _overflowCount             │  │  ║
+* ║  │  │  _bufferSize, _chunkSize, _enabled                            │  │  ║
+* ║  │  │  _lastTxData, _lastDTR, _isOpenFlag                           │  │  ║
+* ║  │  │  _hasPendingRx, _hasPendingErr (volatile)                     │  │  ║
+* ║  │  │  _pendingRxStr, _pendingErrStr                                │  │  ║
+* ║  │  │  _rxTimer, _txTimer, _errTimer                                │  │  ║
+* ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     CONTACT MAP                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  INPUTS (Widget → Atom):                                                  ║
+* ║  ┌────────────────┬──────────┬──────────────────────────────────────────┐ ║
+* ║  │ Contact Name   │ Default  │ Description                              │ ║
+* ║  ├────────────────┼──────────┼──────────────────────────────────────────┤ ║
+* ║  │ portName       │ "COM1"   │ Serial port identifier (e.g., "COM3")    │ ║
+* ║  │ baudRate       │ 9600     │ Baud rate (9600, 115200, etc.)           │ ║
+* ║  │ bufferSize     │ 4096     │ Ring buffer capacity in bytes            │ ║
+* ║  │ chunkSize      │ 256      │ Max bytes emitted per rxData update      │ ║
+* ║  │ enabled        │ true     │ Master enable/disable switch             │ ║
+* ║  │ open           │ false    │ Pulse: trigger port open                 │ ║
+* ║  │ close          │ false    │ Pulse: trigger port close                │ ║
+* ║  │ send           │ false    │ Pulse: trigger TX transmission           │ ║
+* ║  │ txData         │ ""       │ Data string to transmit                  │ ║
+* ║  │ setDTR         │ false    │ DTR line state (C++ only)                │ ║
+* ║  │ testRxData     │ ""       │ Inject test data into RX path            │ ║
+* ║  └────────────────┴──────────┴──────────────────────────────────────────┘ ║
+* ║                                                                           ║
+* ║  OUTPUTS (Atom → Widget / Downstream):                                    ║
+* ║  ┌────────────────┬──────────┬──────────────────────────────────────────┐ ║
+* ║  │ Contact Name   │ Default  │ Description                              │ ║
+* ║  ├────────────────┼──────────┼──────────────────────────────────────────┤ ║
+* ║  │ isOpen         │ false    │ Current port open/closed state           │ ║
+* ║  │ rxData         │ ""       │ Received data chunk (up to chunkSize)    │ ║
+* ║  │ rxTick         │ false    │ Pulse: new RX data available             │ ║
+* ║  │ txTick         │ false    │ Pulse: data was transmitted              │ ║
+* ║  │ error          │ ""       │ Last error message                       │ ║
+* ║  │ errorTick      │ false    │ Pulse: new error occurred                │ ║
+* ║  └────────────────┴──────────┴──────────────────────────────────────────┘ ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     RING BUFFER ARCHITECTURE                              ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │  Ring Buffer (circular, pre-allocated Array<Int>)                   │  ║
+* ║  │                                                                     │  ║
+* ║  │  _bufferSize = 4096 (configurable 256..65536)                       │  ║
+* ║  │                                                                     │  ║
+* ║  │  Index:  0    1    2    3   ...  4093  4094  4095                   │  ║
+* ║  │        ┌────┬────┬────┬────┬───┬─────┬─────┬─────┐                  │  ║
+* ║  │        │0x41│0x42│0x43│0x44│...│0x00 │0x00 │0x00 │                  │  ║
+* ║  │        └────┴────┴────┴────┴───┴─────┴─────┴─────┘                  │  ║
+* ║  │         ▲              ▲                                            │  ║
+* ║  │         │              │                                            │  ║
+* ║  │      _readPos       _writePos                                       │  ║
+* ║  │      (consumer)     (producer)                                      │  ║
+* ║  │                                                                     │  ║
+* ║  │  Overflow policy: overwrite oldest data (advance _readPos)          │  ║
+* ║  │  _overflowCount tracks total lost bytes for diagnostics             │  ║
+* ║  │                                                                     │  ║
+* ║  │  emitRxData() reads up to _chunkSize bytes per update cycle,        │  ║
+* ║  │  converting raw bytes to String via String.fromCharCode().          │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     DATA FLOW PIPELINE                                    ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  RX PATH (Receive):                                                       ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │                                                                     │  ║
+* ║  │  [Hardware]                                                         │  ║
+* ║  │      │                                                              │  ║
+* ║  │      ▼                                                              │  ║
+* ║  │  [C++: ReadFile thread]  OR  [JS: reader.read() / transferIn()]     │  ║
+* ║  │      │                           │                                  │  ║
+* ║  │      ▼                           ▼                                  │  ║
+* ║  │  [ComPortState.rxBuffer]   [_hasPendingRx = true]                   │  ║
+* ║  │      │                           │                                  │  ║
+* ║  │      └───────────┬───────────────┘                                  │  ║
+* ║  │                  ▼                                                  │  ║
+* ║  │  [update(dt): poll _hasPendingRx]                                   │  ║
+* ║  │                  │                                                  │  ║
+* ║  │                  ▼                                                  │  ║
+* ║  │  [writeToBuffer(bytes) → Ring Buffer]                               │  ║
+* ║  │                  │                                                  │  ║
+* ║  │                  ▼                                                  │  ║
+* ║  │  [emitRxData(): read chunkSize bytes → String]                      │  ║
+* ║  │                  │                                                  │  ║
+* ║  │                  ▼                                                  │  ║
+* ║  │  [rxData.setValueSilent(str) + propagateCurrentValue()]             │  ║
+* ║  │  [rxTick.value = true, _rxTimer = PULSE_DURATION]                   │  ║
+* ║  │                                                                     │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║                                                                           ║
+* ║  TX PATH (Transmit):                                                      ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │                                                                     │  ║
+* ║  │  [Widget: user types data + clicks SEND]                            │  ║
+* ║  │      │                                                              │  ║
+* ║  │      ▼                                                              │  ║
+* ║  │  [txData.value = "Hello"]                                           │  ║
+* ║  │  [send.value = true]                                                │  ║
+* ║  │      │                                                              │  ║
+* ║  │      ▼                                                              │  ║
+* ║  │  [readInputs(): detect send pulse]                                  │  ║
+* ║  │      │                                                              │  ║
+* ║  │      ▼                                                              │  ║
+* ║  │  [C++: WriteFile(hComm, data)]  OR  [JS: writer.write(encoded)]     │  ║
+* ║  │      │                           OR  [JS: transferOut(ep, data)]    │  ║
+* ║  │      ▼                                                              │  ║
+* ║  │  [txTick.value = true, _txTimer = PULSE_DURATION]                   │  ║
+* ║  │  [send.value = false]  (auto-reset pulse)                           │  ║
+* ║  │                                                                     │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     PULSE TIMER MECHANISM                                 ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  Tick contacts (rxTick, txTick, errorTick) emit a brief TRUE pulse        ║
+* ║  that auto-resets to FALSE after PULSE_DURATION seconds.                  ║
+* ║                                                                           ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │  Timeline:                                                          │  ║
+* ║  │                                                                     │  ║
+* ║  │  rxTick:  ──────┐         ┌──────────────────────────────────       │  ║
+* ║  │                 │  TRUE   │                                         │  ║
+* ║  │                 └─────────┘                                         │  ║
+* ║  │                 ◄─ 50ms ─►                                          │  ║
+* ║  │                 PULSE_DURATION                                      │  ║
+* ║  │                                                                     │  ║
+* ║  │  update(dt) decrements _rxTimer each frame.                         │  ║
+* ║  │  When _rxTimer <= 0: rxTick.value = false                           │  ║
+* ║  │                                                                     │  ║
+* ║  │  This allows downstream atoms (LED, Oscilloscope) to detect         │  ║
+* ║  │  discrete events without polling the data contact.                  │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     C++ BACKEND: THREAD MODEL                             ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │  Main Thread (Haxe/TickGenerator)     Reader Thread (std::thread)   │  ║
+* ║  │  ────────────────────────────────     ────────────────────────────  │  ║
+* ║  │                                                                     │  ║
+* ║  │  update(dt) {                       _altauri_com_reader_loop() {    │  ║
+* ║  │    lock(rxMutex)                      while (isRunning) {           │  ║
+* ║  │    copy rxBuffer → _pendingRxStr        ReadFile(hComm, buf)        │  ║
+* ║  │    hasRxData = false                    lock(rxMutex)               │  ║
+* ║  │    unlock                               append to rxBuffer          │  ║
+* ║  │                                         hasRxData = true            │  ║
+* ║  │    emit rxData                          unlock                      │  ║
+* ║  │  }                                      }                           │  ║
+* ║  │                                         isRunning = false           │  ║
+* ║  │  closeDevice() {                      }                             │  ║
+* ║  │    isRunning = false                                                │  ║
+* ║  │    CancelIoEx(hComm)                  Thread exits cleanly          │  ║
+* ║  │    readThread->join()                                               │  ║
+* ║  │    CloseHandle(hComm)                                               │  ║
+* ║  │  }                                                                  │  ║
+* ║  │                                                                     │  ║
+* ║  │  Synchronization: std::mutex (rxMutex, errMutex, _com_map_mutex)    │  ║
+* ║  │  Lifecycle: ComPortState* stored in _com_states_map keyed by        │  ║
+* ║  │             Haxe object pointer (this.mPtr)                         │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     HTML5 BACKEND: USB CHIP INIT                          ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  When Web Serial API is unavailable (e.g., Android Chrome), the atom      ║
+* ║  falls back to WebUSB with chip-specific initialization sequences:        ║
+* ║                                                                           ║
+* ║  ┌──────────┬──────────┬──────────────────────────────────────────────┐   ║
+* ║  │ Chip     │ VendorID │ Init Sequence                                │   ║
+* ║  ├──────────┼──────────┼──────────────────────────────────────────────┤   ║
+* ║  │ CP2102   │ 0x10C4   │ 1. Enable UART (req 0x00, val 0x01)          │   ║
+* ║  │          │          │ 2. Set line control (req 0x03, val 0x0800)   │   ║
+* ║  │          │          │ 3. Set MHS (req 0x07, val 0x0303)            │   ║
+* ║  │          │          │ 4. Set baud rate (req 0x1E, 4-byte LE)       │   ║
+* ║  ├──────────┼──────────┼──────────────────────────────────────────────┤   ║
+* ║  │ FTDI     │ 0x0403   │ 1. Reset (req 0x00)                          │   ║
+* ║  │          │          │ 2. Purge RX/TX (req 0x02)                    │   ║
+* ║  │          │          │ 3. Set flow control (req 0x04, val 0x0008)   │   ║
+* ║  │          │          │ 4. Set baud divisor (req 0x03, encoded)      │   ║
+* ║  │          │          │ 5. Set DTR/RTS (req 0x01, val 0x0303)        │   ║
+* ║  ├──────────┼──────────┼──────────────────────────────────────────────┤   ║
+* ║  │ CH340    │ 0x1A86   │ 1. Read init (req 0xA1)                      │   ║
+* ║  │          │          │ 2. Set prescaler (req 0x9A, val 0x1312)      │   ║
+* ║  │          │          │ 3. Set divisor (req 0x9A, val 0x0f2c)        │   ║
+* ║  │          │          │ 4. Set line control (req 0xA4, bitmask)      │   ║
+* ║  ├──────────┼──────────┼──────────────────────────────────────────────┤   ║
+* ║  │ CDC/ACM  │ (any)    │ 1. SET_LINE_CODING (req 0x20, 7-byte struct) │   ║
+* ║  │ (std)    │          │ 2. SET_CONTROL_LINE (req 0x22, val 0x03)     │   ║
+* ║  └──────────┴──────────┴──────────────────────────────────────────────┘   ║
+* ║                                                                           ║
+* ║  Interface selection algorithm:                                           ║
+* ║  1. Find CDC control interface (class 0x02) for ctrlIface                 ║
+* ║  2. Score all interfaces with bulk IN + bulk OUT endpoints                ║
+* ║  3. Prefer CDC data interface (class 0x0A, score=0) over others           ║
+* ║  4. Try claimInterface + selectAlternateInterface in score order          ║
+* ║  5. On failure, try next candidate (recursive tryClaim)                   ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     BATCHED DRIVER UPDATE PATTERN                         ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  Per ALTAURI architecture (ARHITECTURE_PATTERNS.md §2):                   ║
+* ║                                                                           ║
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │  Phase 1: SILENT WRITE (no propagation)                             │  ║
+* ║  │    rxOut.setValueSilent(rxString)                                   │  ║
+* ║  │    errOut.setValueSilent(errString)                                 │  ║
+* ║  │                                                                     │  ║
+* ║  │  Phase 2: SINGLE PROPAGATION (one event per contact)                │  ║
+* ║  │    rxOut.propagateCurrentValue()                                    │  ║
+* ║  │    errOut.propagateCurrentValue()                                   │  ║
+* ║  │                                                                     │  ║
+* ║  │  This reduces TickGenerator load from O(N×M) to O(N+M)              │  ║
+* ║  │  where N = output contacts, M = subscribers per contact.            │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     VERSION HISTORY                                       ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  v2.7.0 — HTML5 Deprecation Fix + Unused Variable Cleanup                 ║
+* ║  ─────────────────────────────────────────────────────────                ║
+* ║  - FIXED: Replaced all deprecated __js__() calls with js.Syntax.code()    ║
+* ║    for HTML5 target compatibility with Haxe 4.3+.                         ║
+* ║  - FIXED: Removed unused import (core.types.ContactType.*) — replaced     ║
+* ║    with explicit ContactType.INPUT / ContactType.OUTPUT references.       ║
+* ║  - FIXED: Removed unused variable `baudC` in readInputs().                ║
+* ║  - FIXED: Removed unused intermediate variable `serial` in openDevice().  ║
+* ║  - ADDED: import js.Syntax for HTML5 target.                              ║
+* ║                                                                           ║
+* ║  v2.6.5 — C++ Bracket Balancing Fix                                       ║
+* ║  ─────────────────────────────────                                        ║
+* ║  - FIXED: Corrected all C++ bracket balancing in __cpp__ blocks to        ║
+* ║    prevent "unmatched '{'" cascade errors in Windows/MSVC compilation.    ║
+* ║  - FIXED: Ensured _com_states_map.end() is used instead of                ║
+* ║    _com_map_mutex.end().                                                  ║
+* ║                                                                           ║
+* ║  v2.6.4 — Type Conversion Fix                                             ║
+* ║  ─────────────────────────                                                ║
+* ║  - Replaced Std.int() with cast Math.floor() for Int conversion.          ║
+* ║  - Removed unused js.Syntax import.                                       ║
+* ║                                                                           ║
+* ║  v2.6.3 — HTML5 Compatibility Fixes                                       ║
+* ║  ──────────────────────────────────                                       ║
+* ║  - Replaced Math.min() with ternary operator.                             ║
+* ║  - Added explicit cast for DataView.setUint32().                          ║
+* ║                                                                           ║
+* ║  v2.6.2 — TypedArray Migration                                            ║
+* ║  ─────────────────────────────                                            ║
+* ║  - Migrated all TypedArrays from js.html.* to js.lib.*.                   ║
+* ║                                                                           ║
+* ║  v2.6.1 — Haxe Parser Conflict Fix                                        ║
+* ║  ──────────────────────────────────                                       ║
+* ║  - Replaced .catch() with ['catch']() to prevent Haxe parser conflicts.   ║
+* ║                                                                           ║
+* ║  v2.6 — WebUSB Fallback                                                   ║
+* ║  ─────────────────────                                                    ║
+* ║  - ADDED: Full WebUSB API fallback for Android devices.                   ║
+* ║  - ADDED: Chip-specific initialization for CP2102, FTDI, CH340, CDC/ACM.  ║
+* ║                                                                           ║
+* ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
 class ComPortAtom extends Atom implements system.managers.Driver
 {
-    // =========================================================================
-    // CONSTANTS
-    // =========================================================================
-    private static inline var PULSE_DURATION:Float = 0.05;
-    private static inline var DEFAULT_BUFFER_SIZE:Int = 4096;
-    private static inline var DEFAULT_CHUNK_SIZE:Int = 256;
-    private static inline var MIN_BUFFER_SIZE:Int = 256;
-    private static inline var MAX_BUFFER_SIZE:Int = 65536;
-    private static inline var MIN_CHUNK_SIZE:Int = 1;
-    private static inline var MAX_CHUNK_SIZE:Int = 4096;
-
-    // =========================================================================
-    // RING BUFFER (COMMON)
-    // =========================================================================
-    private var _ringBuffer:Array<Int>;
-    private var _readPos:Int = 0;
-    private var _writePos:Int = 0;
-    private var _overflowCount:Int = 0;
-    private var _bufferSize:Int = DEFAULT_BUFFER_SIZE;
-    private var _chunkSize:Int = DEFAULT_CHUNK_SIZE;
-    private var _enabled:Bool = true;
-
-    // =========================================================================
-    // PARAMETERS AND INPUTS (COMMON)
-    // =========================================================================
-    private var _lastTxData:String = "";
-    private var _lastDTR:Bool = false;
-    private var _isOpenFlag:Bool = false;
-
-    // =========================================================================
-    // PENDING FIELDS (COMMON)
-    // =========================================================================
-    @:volatile private var _hasPendingRx:Bool = false;
-    @:volatile private var _hasPendingErr:Bool = false;
-    private var _pendingRxStr:String = "";
-    private var _pendingErrStr:String = "";
-
-    // =========================================================================
-    // PULSE TIMERS (COMMON)
-    // =========================================================================
-    private var _rxTimer:Float = 0.0;
-    private var _txTimer:Float = 0.0;
-    private var _errTimer:Float = 0.0;
-
-    // =========================================================================
-    // PLATFORM-SPECIFIC FIELDS
-    // =========================================================================
-    #if cpp
-    // C++ fields are managed via __cpp__() — no Haxe fields needed
-    #elseif html5
-    /** Native browser SerialPort instance (Dynamic — Web Serial API not in Haxe externs). */
-    private var _serialPort:Dynamic = null;
-    /** Readable stream reader. */
-    private var _reader:Dynamic = null;
-    /** Writable stream writer. */
-    private var _writer:Dynamic = null;
-    /** Read loop active flag. */
-    private var _isReading:Bool = false;
-    #end
-
-    // =========================================================================
-    // CONSTRUCTOR (COMMON)
-    // =========================================================================
-    public function new(id:String)
-    {
-        super(
-            [
-                new Contact("COM1", INPUT, "portName"),
-                new Contact(9600, INPUT, "baudRate"),
-                new Contact(DEFAULT_BUFFER_SIZE, INPUT, "bufferSize"),
-                new Contact(DEFAULT_CHUNK_SIZE, INPUT, "chunkSize"),
-                new Contact(true, INPUT, "enabled"),
-                new Contact(false, INPUT, "open"),
-                new Contact(false, INPUT, "close"),
-                new Contact(false, INPUT, "send"),
-                new Contact("", INPUT, "txData"),
-                new Contact(false, INPUT, "setDTR"),
-                // FIX: Added as INPUT to allow injecting test data to bypass C++ backend
-                new Contact("", INPUT, "testRxData") 
-            ],
-            [
-                new Contact(false, OUTPUT, "isOpen"),
-                new Contact("", OUTPUT, "rxData"),
-                new Contact(false, OUTPUT, "rxTick"),
-                new Contact(false, OUTPUT, "txTick"),
-                new Contact("", OUTPUT, "error"),
-                new Contact(false, OUTPUT, "errorTick")
-            ],
-            null,
-            id,
-            "ComPortAtom",
-            true
-        );
-        initRingBuffer(DEFAULT_BUFFER_SIZE);
-        init();
-    }
-
-    // =========================================================================
-    // RING BUFFER MANAGEMENT (COMMON)
-    // =========================================================================
-    private function initRingBuffer(size:Int):Void
-    {
-        _bufferSize = size;
-        _ringBuffer = new Array<Int>();
-        for (i in 0..._bufferSize)
-        {
-            _ringBuffer.push(0);
-        }
-        _readPos = 0;
-        _writePos = 0;
-        _overflowCount = 0;
-    }
-
-    private function writeToBuffer(data:Array<Int>):Int
-    {
-        var written = 0;
-        for (byte in data)
-        {
-            var idx = _writePos % _bufferSize;
-            _ringBuffer[idx] = byte;
-            _writePos++;
-            written++;
-            if (getBufferCount() > _bufferSize)
-            {
-                _readPos = _writePos - _bufferSize;
-                _overflowCount++;
-                if (_overflowCount % 100 == 0)
-                {
-                    trace('ComPortAtom: Ring buffer overflow! Lost $_overflowCount bytes total');
-                }
-            }
-        }
-        return written;
-    }
-
-    private function getBufferCount():Int
-    {
-        return _writePos - _readPos;
-    }
-
-    private function clearBuffer():Void
-    {
-        _readPos = 0;
-        _writePos = 0;
-        _overflowCount = 0;
-    }
-
-    /**
-     * Read data from ring buffer and emit via rxData output.
-     *
-     * Emits up to _chunkSize bytes per call to prevent blocking.
-     * Data is emitted sequentially in the order it was received.
-     */
-    private function emitRxData():Void
-    {
-        var availableBytes = getBufferCount();
-        if (availableBytes == 0) return;
-
-        // Limit chunk size to prevent blocking
-        var bytesToRead:Int = Std.int(Math.min(availableBytes, _chunkSize));
-
-        // Build string from ring buffer character by character
-        var rxString = "";
-        for (i in 0...bytesToRead)
-        {
-            var idx = _readPos % _bufferSize;
-            rxString += String.fromCharCode(_ringBuffer[idx]);
-            _readPos++;
-        }
-
-        // Emit via output using Batched Driver Update Pattern
-        var rxOut = getOutput("rxData");
-        if (rxOut != null)
-        {
-            rxOut.setValueSilent(rxString);
-            rxOut.propagateCurrentValue();
-        }
-
-        // Pulse
-        var rxTick = getOutput("rxTick");
-        if (rxTick != null)
-        {
-            rxTick.value = true;
-            _rxTimer = PULSE_DURATION;
-        }
-    }
-
-    // =========================================================================
-    // DRIVER INTERFACE
-    // =========================================================================
-    override public function init():Void
-    {
-        // Port opens on "open" trigger
-    }
-
-    override public function update(dt:Float):Void
-    {
-        if (_isDisposed) return;
-
-        // Read configuration inputs
-        readConfiguration();
-
-        if (!_enabled) return;
-
-        // === FIX: Test RX data bypass (Direct passthrough to rxData output) ===
-        var testRxC = getInput("testRxData");
-        if (testRxC != null && testRxC.value != null && testRxC.value != "")
-        {
-            var testData:String = Std.string(testRxC.value);
-            var rxOut = getOutput("rxData");
-            if (rxOut != null)
-            {
-                rxOut.setValueSilent(testData);
-                rxOut.propagateCurrentValue();
-            }
-            var rxTick = getOutput("rxTick");
-            if (rxTick != null)
-            {
-                rxTick.value = true;
-                _rxTimer = PULSE_DURATION;
-            }
-            // Clear the test input to prevent continuous firing
-            testRxC.value = "";
-            // Skip C++ polling if we are in test mode to ensure clean isolation
-        }
-        else 
-        {
-            // Poll platform backend
-            #if cpp
-            untyped __cpp__('
-            ComPortState* _cps_stPtr = nullptr;
-            {
-                std::lock_guard<std::mutex> _cps_mapLock(_com_map_mutex);
-                auto _cps_it = _com_states_map.find((void*){0}.mPtr);
-                if (_cps_it != _com_states_map.end()) {
-                    _cps_stPtr = _cps_it->second;
-                }
-            }
-            if (_cps_stPtr) {
-                {
-                    std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
-                    if (_cps_stPtr->hasRxData) {
-                        {0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer);
-                        {0}->_hasPendingRx = true;
-                        _cps_stPtr->hasRxData = false;
-                        _cps_stPtr->rxBuffer[0] = 0; // FIX: Explicitly clear buffer after reading
-                    }
-                }
-                {
-                    std::lock_guard<std::mutex> _cps_errLock(_cps_stPtr->errMutex);
-                    if (_cps_stPtr->hasError) {
-                        {0}->_pendingErrStr = ::String(_cps_stPtr->errBuffer);
-                        {0}->_hasPendingErr = true;
-                        _cps_stPtr->hasError = false;
-                    }
-                }
-            }
-            ', this);
-            #end
-        }
-
-        // HTML5: _hasPendingRx is set by WebSocket callbacks
-        // Process pending received data using Batched Driver Update Pattern
-        if (_hasPendingRx)
-        {
-            _hasPendingRx = false;
-            var rxOut = getOutput("rxData");
-            if (rxOut != null)
-            {
-                rxOut.setValueSilent(_pendingRxStr);
-                rxOut.propagateCurrentValue();
-            }
-            var rxTick = getOutput("rxTick");
-            if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
-        }
-
-        if (_hasPendingErr)
-        {
-            _hasPendingErr = false;
-            var errOut = getOutput("error");
-            if (errOut != null)
-            {
-                errOut.setValueSilent(_pendingErrStr);
-                errOut.propagateCurrentValue();
-            }
-            var errTick = getOutput("errorTick");
-            if (errTick != null) { errTick.value = true; _errTimer = PULSE_DURATION; }
-        }
-
-        // Emit from ring buffer (HTML5 sequential emission)
-        #if html5
-        emitRxData();
-        #end
-
-        // Read inputs and control
-        readInputs();
-
-        // Update pulse timers
-        updatePulseTimers(dt);
-    }
-
-    override public function dispose():Void
-    {
-        #if cpp
-        closeDevice();
-        #elseif html5
-        if (_isOpenFlag)
-        {
-            closeDevice();
-        }
-        #end
-        DriverManager.getInstance().unregister(this.id);
-        super.dispose();
-    }
-
-    // =========================================================================
-    // CONFIGURATION READING (COMMON)
-    // =========================================================================
-    private function readConfiguration():Void
-    {
-        var bufSizeC = getInput("bufferSize");
-        if (bufSizeC != null && bufSizeC.value != null)
-        {
-            var newSize = Std.int(bufSizeC.value);
-            if (newSize >= MIN_BUFFER_SIZE && newSize <= MAX_BUFFER_SIZE && newSize != _bufferSize)
-            {
-                trace('ComPortAtom: Buffer size changed from $_bufferSize to $newSize');
-                initRingBuffer(newSize);
-            }
-        }
-
-        var chunkC = getInput("chunkSize");
-        if (chunkC != null && chunkC.value != null)
-        {
-            var newChunk = Std.int(chunkC.value);
-            if (newChunk >= MIN_CHUNK_SIZE && newChunk <= MAX_CHUNK_SIZE)
-            {
-                _chunkSize = newChunk;
-            }
-        }
-
-        var enabledC = getInput("enabled");
-        if (enabledC != null && enabledC.value != null)
-        {
-            _enabled = (enabledC.value == true);
-        }
-    }
-
-    // =========================================================================
-    // INPUT READING (COMMON)
-    // =========================================================================
-    private function readInputs():Void
-    {
-        var openC  = getInput("open");
-        var closeC = getInput("close");
-        var sendC  = getInput("send");
-        var txC    = getInput("txData");
-        var dtrC   = getInput("setDTR");
-        var baudC = getInput("baudRate");
-
-        if (baudC != null && baudC.value != null)
-        {
-            var newBaud = Std.int(baudC.value);
-            if (newBaud > 0 && newBaud != 9600)
-            {
-                if (_isOpenFlag)
-                {
-                    closeDevice();
-                    openDevice();
-                }
-            }
-        }
-
-        if (openC != null && openC.value == true)
-        {
-            openDevice();
-            openC.value = false;
-        }
-
-        if (closeC != null && closeC.value == true)
-        {
-            closeDevice();
-            closeC.value = false;
-        }
-
-        if (sendC != null && sendC.value == true && _isOpenFlag)
-        {
-            if (txC != null && txC.value != null && txC.value != "")
-            {
-                sendToDevice(txC.value);
-                var txTick = getOutput("txTick");
-                if (txTick != null) { txTick.value = true; _txTimer = PULSE_DURATION; }
-            }
-            sendC.value = false;
-        }
-
-        if (dtrC != null && dtrC.value != null)
-        {
-            var newDTR:Bool = dtrC.value == true;
-            if (newDTR != _lastDTR && _isOpenFlag)
-            {
-                _lastDTR = newDTR;
-                setDTRState(newDTR);
-            }
-        }
-    }
-
-    // =========================================================================
-    // DEVICE OPERATION (C++ WinAPI)
-    // =========================================================================
-    #if cpp
-    private function openDevice():Void
-    {
-        if (_isOpenFlag) closeDevice();
-
-        var portNameStr:String = getInput("portName").value;
-        var baudRateInt:Int = Std.int(getInput("baudRate").value);
-
-        untyped __cpp__('
-        ComPortState* st = new ComPortState();
-        st->hComm = INVALID_HANDLE_VALUE;
-        st->readThread = nullptr;
-        st->isRunning = false;
-        st->hasRxData = false;
-        st->hasError = false;
-        st->rxBuffer[0] = 0;
-        st->errBuffer[0] = 0;
-        #ifdef _WIN32
-        char fullPortName[20] = "";
-        ::String portStr = {1};
-        const char* _cps_rawName = portStr.c_str();
-        if (_cps_rawName[0] == (char)92) {
-            strncpy(fullPortName, _cps_rawName, sizeof(fullPortName) - 1);
-        } else {
-            fullPortName[0] = (char)92;
-            fullPortName[1] = (char)92;
-            fullPortName[2] = (char)46;
-            fullPortName[3] = (char)92;
-            strncpy(fullPortName + 4, _cps_rawName, sizeof(fullPortName) - 5);
-        }
-        fullPortName[sizeof(fullPortName) - 1] = 0;
-        st->hComm = CreateFileA(fullPortName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-        if (st->hComm == INVALID_HANDLE_VALUE) {
-            DWORD err = GetLastError();
-            sprintf(st->errBuffer, "Open Failed:%lu", err);
-            st->hasError = true;
-        } else {
-            SetupComm(st->hComm, 4096, 4096);
-            DCB dcbSerialParams;
-            memset(&dcbSerialParams, 0, sizeof(DCB));
-            dcbSerialParams.DCBlength = sizeof(DCB);
-            GetCommState(st->hComm, &dcbSerialParams);
-            dcbSerialParams.BaudRate = (DWORD){2};
-            dcbSerialParams.ByteSize = 8;
-            dcbSerialParams.StopBits = ONESTOPBIT;
-            dcbSerialParams.Parity = NOPARITY;
-            dcbSerialParams.fDtrControl = DTR_CONTROL_ENABLE;
-            dcbSerialParams.fRtsControl = RTS_CONTROL_ENABLE;
-            if (!SetCommState(st->hComm, &dcbSerialParams)) {
-                DWORD err = GetLastError();
-                sprintf(st->errBuffer, "SetCommState:%lu", err);
-                st->hasError = true;
-                CloseHandle(st->hComm);
-                st->hComm = INVALID_HANDLE_VALUE;
-            } else {
-                COMMTIMEOUTS timeouts;
-                memset(&timeouts, 0, sizeof(COMMTIMEOUTS));
-                timeouts.ReadIntervalTimeout = MAXDWORD;
-                timeouts.ReadTotalTimeoutMultiplier = 0;
-                timeouts.ReadTotalTimeoutConstant = 0;
-                timeouts.WriteTotalTimeoutMultiplier = 10;
-                timeouts.WriteTotalTimeoutConstant = 100;
-                SetCommTimeouts(st->hComm, &timeouts);
-                PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
-                st->readThread = new std::thread(_altauri_com_reader_loop, (void*){0}.mPtr);
-            }
-        }
-        #endif
-        {
-            std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
-            _com_states_map[(void*){0}.mPtr] = st;
-            {0}->_isOpenFlag = (st->hComm != INVALID_HANDLE_VALUE);
-        }
-        ', this, portNameStr, baudRateInt);
-
-        var outOpen = getOutput("isOpen");
-        if (outOpen != null) outOpen.value = _isOpenFlag;
-    }
-
-    private function closeDevice():Void
-    {
-        if (!_isOpenFlag) return;
-
-        untyped __cpp__('
-        ComPortState* st = nullptr;
-        {
-            std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
-            auto _cps_it = _com_states_map.find((void*){0}.mPtr);
-            if (_cps_it != _com_states_map.end()) {
-                st = _cps_it->second;
-                _com_states_map.erase(_cps_it);
-            }
-        }
-        if (st) {
-            #ifdef _WIN32
-            st->isRunning = false;
-            if (st->hComm != INVALID_HANDLE_VALUE) {
-                CancelIoEx(st->hComm, NULL);
-            }
-            if (st->readThread && st->readThread->joinable()) {
-                st->readThread->join();
-            }
-            delete st->readThread;
-            if (st->hComm != INVALID_HANDLE_VALUE) {
-                PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
-                CloseHandle(st->hComm);
-            }
-            #endif
-            delete st;
-        }
-        ', this);
-
-        _isOpenFlag = false;
-        var outOpen = getOutput("isOpen");
-        if (outOpen != null) outOpen.value = false;
-    }
-
-    private function sendToDevice(data:String):Void
-    {
-        untyped __cpp__('
-        ComPortState* _cps_stPtr = nullptr;
-        {
-            std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
-            auto _cps_it = _com_states_map.find((void*){0}.mPtr);
-            if (_cps_it != _com_states_map.end()) {
-                _cps_stPtr = _cps_it->second;
-            }
-        }
-        if (_cps_stPtr) {
-            #ifdef _WIN32
-            if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
-                const char* buffer = {1}.c_str();
-                DWORD bytesToWrite = (DWORD)strlen(buffer);
-                DWORD bytesWritten;
-                WriteFile(_cps_stPtr->hComm, buffer, bytesToWrite, &bytesWritten, NULL);
-            }
-            #endif
-        }
-        ', this, data);
-    }
-
-    private function setDTRState(state:Bool):Void
-    {
-        untyped __cpp__('
-        ComPortState* _cps_stPtr = nullptr;
-        {
-            std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
-            auto _cps_it = _com_states_map.find((void*){0}.mPtr);
-            if (_cps_it != _com_states_map.end()) {
-                _cps_stPtr = _cps_it->second;
-            }
-        }
-        if (_cps_stPtr) {
-            #ifdef _WIN32
-            if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
-                if ({1}) {
-                    EscapeCommFunction(_cps_stPtr->hComm, SETDTR);
-                } else {
-                    EscapeCommFunction(_cps_stPtr->hComm, CLRDTR);
-                }
-            }
-            #endif
-        }
-        ', this, state);
-    }
-    #end
-
-    // =========================================================================
-    // DEVICE OPERATION (HTML5 Web Serial API)
-    // =========================================================================
-    #if html5
-    /**
-     * Open serial port using Web Serial API.
-     *
-     * NOTE: Web Serial API requires user gesture to request port.
-     * The first open() call will show a browser dialog to select port.
-     * Subsequent calls will reuse the granted permission.
-     *
-     * IMPORTANT: This method MUST be called from a user gesture context
-     * (e.g., button click in ComPortWidget). If called from update(),
-     * the browser will block the request.
-     *
-     * v2.1 FIX: All Promise callbacks now use arrow functions (x) => {}
-     * to preserve lexical `this` binding. Previously, regular function(x) {}
-     * created its own `this` (undefined in strict mode), causing
-     * "Cannot read properties of undefined (reading 'onPortRequested')".
-     */
-    private function openDevice():Void
-    {
-        if (_isOpenFlag) closeDevice();
-        clearBuffer();
-
-        // Get navigator.serial
-        var serial:Dynamic = untyped __js__("navigator.serial");
-        if (serial == null)
-        {
-            setError("Web Serial API not supported in this browser");
-            return;
-        }
-
-        // v2.1 FIX: Arrow functions preserve lexical `this`
-        untyped __js__("{0}.requestPort().then((port) => { {1}.onPortRequested(port); }, (err) => { {1}.onPortRequestError(err); })",
-        serial, this);
-    }
-
-    /**
-     * Callback: port selected by user.
-     */
-    public function onPortRequested(port:Dynamic):Void
-    {
-        _serialPort = port;
-
-        var baudRateInt:Int = 9600;
-        var baudC = getInput("baudRate");
-        if (baudC != null && baudC.value != null) baudRateInt = Std.int(baudC.value);
-
-        var options:Dynamic = {
-            baudRate: baudRateInt,
-            dataBits: 8,
-            stopBits: 1,
-            parity: "none",
-            bufferSize: 4096,
-            flowControl: "none"
-        };
-
-        // v2.1 FIX: Arrow functions preserve lexical `this`
-        untyped __js__("{0}.open({1}).then(() => { {2}.onPortOpened(); }, (err) => { {2}.onPortOpenError(err); })",
-                       _serialPort, options, this);
-    }
-
-    /**
-     * Callback: port opened successfully.
-     */
-    public function onPortOpened():Void
-    {
-        _isOpenFlag = true;
-        var outOpen = getOutput("isOpen");
-        if (outOpen != null) outOpen.value = true;
-        startReadLoop();
-        trace('ComPortAtom: Port opened');
-    }
-
-    /**
-     * Callback: port open failed.
-     */
-    public function onPortOpenError(err:Dynamic):Void
-    {
-        setError('Failed to open port: $err');
-    }
-
-    /**
-     * Callback: port request failed (user cancelled or API error).
-     */
-    public function onPortRequestError(err:Dynamic):Void
-    {
-        setError('Failed to request port: $err');
-    }
-
-    /**
-     * Close serial port and release all streams.
-     */
-    private function closeDevice():Void
-    {
-        if (!_isOpenFlag) return;
-
-        _isReading = false;
-
-        // Close reader
-        if (_reader != null)
-        {
-            untyped __js__("{0}.cancel().catch((err) => {}); {0}.releaseLock();", _reader);
-            _reader = null;
-        }
-
-        // Close writer
-        if (_writer != null)
-        {
-            untyped __js__("{0}.close().catch((err) => {}); {0}.releaseLock();", _writer);
-            _writer = null;
-        }
-
-        // Close port
-        if (_serialPort != null)
-        {
-            // v2.1 FIX: Arrow functions preserve lexical `this`
-            untyped __js__("{0}.close().then(() => { {1}.onPortClosed(); }, (err) => { {1}.onPortCloseError(err); })",
-            _serialPort, this);
-            _serialPort = null;
-        }
-    }
-
-    /**
-     * Callback: port closed successfully.
-     */
-    public function onPortClosed():Void
-    {
-        _isOpenFlag = false;
-        var outOpen = getOutput("isOpen");
-        if (outOpen != null) outOpen.value = false;
-        trace('ComPortAtom: Port closed');
-    }
-
-    /**
-     * Callback: port close failed.
-     */
-    public function onPortCloseError(err:Dynamic):Void
-    {
-        setError('Failed to close port: $err');
-    }
-
-    /**
-     * Start asynchronous read loop.
-     *
-     * Reads chunks from serial port and writes to ring buffer.
-     * Runs continuously until _isReading is set to false.
-     */
-    private function startReadLoop():Void
-    {
-        _isReading = true;
-        if (_serialPort == null) return;
-
-        var readable:Dynamic = untyped __js__("{0}.readable", _serialPort);
-        if (readable == null)
-        {
-            setError("Port has no readable stream");
-            return;
-        }
-
-        _reader = untyped __js__("{0}.getReader()", readable);
-        readChunk();
-    }
-
-    /**
-     * Recursive read loop.
-     */
-    private function readChunk():Void
-    {
-        if (!_isReading || _isDisposed) return;
-
-        // v2.1 FIX: Arrow functions preserve lexical `this`
-        untyped __js__("{0}.read().then((result) => { {1}.onReadResult(result); }, (err) => { {1}.onReadError(err); })",
-        _reader, this);
-    }
-
-    /**
-     * Callback: read result received.
-     */
-    public function onReadResult(result:Dynamic):Void
-    {
-        if (result.done)
-        {
-            _isReading = false;
-            return;
-        }
-
-        // Convert Uint8Array to Array<Int>
-        var bytes:Array<Int> = [];
-        var value:Dynamic = result.value;
-        var len:Int = untyped __js__("{0}.length", value);
-        for (i in 0...len)
-        {
-            bytes.push(untyped __js__("{0}[{1}]", value, i));
-        }
-
-        writeToBuffer(bytes);
-        _hasPendingRx = true;
-
-        // Continue reading
-        readChunk();
-    }
-
-    /**
-     * Callback: read error.
-     */
-    public function onReadError(err:Dynamic):Void
-    {
-        if (_isReading && !_isDisposed)
-        {
-            setError('Read error: $err');
-        }
-    }
-
-    /**
-     * Send data to serial port.
-     *
-     * @param data String data to send (will be encoded as UTF-8)
-     */
-    private function sendToDevice(data:String):Void
-    {
-        if (_serialPort == null || !_isOpenFlag) return;
-
-        var writable:Dynamic = untyped __js__("{0}.writable", _serialPort);
-        if (writable == null)
-        {
-            setError("Port has no writable stream");
-            return;
-        }
-
-        _writer = untyped __js__("{0}.getWriter()", writable);
-        var encoder:Dynamic = untyped __js__("new TextEncoder()");
-        var encoded:Dynamic = untyped __js__("{0}.encode({1})", encoder, data);
-
-        // v2.1 FIX: Arrow functions preserve lexical `this`
-        untyped __js__("{0}.write({1}).then(() => { {2}.onWriteSuccess(); }, (err) => { {2}.onWriteError(err); })",
-        _writer, encoded, this);
-    }
-
-    /**
-     * Callback: write successful.
-     */
-    public function onWriteSuccess():Void
-    {
-        if (_writer != null)
-        {
-            untyped __js__("{0}.releaseLock()", _writer);
-            _writer = null;
-        }
-    }
-
-    /**
-     * Callback: write error.
-     */
-    public function onWriteError(err:Dynamic):Void
-    {
-        setError('Write error: $err');
-        if (_writer != null)
-        {
-            untyped __js__("{0}.releaseLock()", _writer);
-            _writer = null;
-        }
-    }
-
-    /**
-     * Set DTR state.
-     *
-     * NOTE: Web Serial API does not directly support DTR control.
-     * This is a placeholder for future implementation if needed.
-     *
-     * @param state true = DTR high, false = DTR low
-     */
-    private function setDTRState(state:Bool):Void
-    {
-        trace('ComPortAtom: DTR control not supported in Web Serial API');
-    }
-
-    /**
-     * Set error state.
-     *
-     * @param msg Error message
-     */
-    private function setError(msg:String):Void
-    {
-        _pendingErrStr = msg;
-        _hasPendingErr = true;
-    }
-    #end
-
-    // =========================================================================
-    // PULSE TIMERS (COMMON)
-    // =========================================================================
-    private function updatePulseTimers(dt:Float):Void
-    {
-        if (_rxTimer > 0)
-        {
-            _rxTimer -= dt;
-            if (_rxTimer <= 0) { var c = getOutput("rxTick"); if (c != null) c.value = false; }
-        }
-        if (_txTimer > 0)
-        {
-            _txTimer -= dt;
-            if (_txTimer <= 0) { var c = getOutput("txTick"); if (c != null) c.value = false; }
-        }
-        if (_errTimer > 0)
-        {
-            _errTimer -= dt;
-            if (_errTimer <= 0) { var c = getOutput("errorTick"); if (c != null) c.value = false; }
-        }
-    }
+// =========================================================================
+// CONSTANTS
+// =========================================================================
+	/** Duration of tick pulses (rxTick, txTick, errorTick) in seconds. */
+	private static inline var PULSE_DURATION:Float = 0.05;
+	/** Default ring buffer capacity in bytes. */
+	private static inline var DEFAULT_BUFFER_SIZE:Int = 4096;
+	/** Default maximum bytes emitted per rxData update cycle. */
+	private static inline var DEFAULT_CHUNK_SIZE:Int = 256;
+	/** Minimum allowed ring buffer size. */
+	private static inline var MIN_BUFFER_SIZE:Int = 256;
+	/** Maximum allowed ring buffer size. */
+	private static inline var MAX_BUFFER_SIZE:Int = 65536;
+	/** Minimum allowed chunk size. */
+	private static inline var MIN_CHUNK_SIZE:Int = 1;
+	/** Maximum allowed chunk size. */
+	private static inline var MAX_CHUNK_SIZE:Int = 4096;
+// =========================================================================
+// RING BUFFER (COMMON)
+// =========================================================================
+	/**
+	* Pre-allocated circular byte buffer.
+	* Stores raw received bytes before they are emitted as String chunks.
+	* Indexed via modulo arithmetic: _ringBuffer[pos % _bufferSize].
+	*/
+	private var _ringBuffer:Array<Int>;
+	/** Consumer position: next byte to read from ring buffer. */
+	private var _readPos:Int = 0;
+	/** Producer position: next byte to write into ring buffer. */
+	private var _writePos:Int = 0;
+	/** Total number of bytes lost due to buffer overflow (diagnostics). */
+	private var _overflowCount:Int = 0;
+	/** Current ring buffer capacity in bytes (configurable at runtime). */
+	private var _bufferSize:Int = DEFAULT_BUFFER_SIZE;
+	/** Maximum bytes emitted per rxData update (configurable at runtime). */
+	private var _chunkSize:Int = DEFAULT_CHUNK_SIZE;
+	/** Master enable flag. When false, update() skips all I/O processing. */
+	private var _enabled:Bool = true;
+// =========================================================================
+// PARAMETERS AND INPUTS (COMMON)
+// =========================================================================
+	/** Last transmitted data string (for diagnostics / deduplication). */
+	private var _lastTxData:String = "";
+	/** Last known DTR line state (prevents redundant EscapeCommFunction calls). */
+	private var _lastDTR:Bool = false;
+	/** Current port open/closed state (mirrors isOpen output contact). */
+	private var _isOpenFlag:Bool = false;
+// =========================================================================
+// PENDING FIELDS (COMMON)
+// =========================================================================
+	/**
+	* Volatile flag: new RX data is pending from the platform backend.
+	* Set by C++ reader thread (via mutex-protected copy) or by
+	* HTML5 read callbacks. Consumed by update(dt) on the main thread.
+	*
+	* @:volatile ensures visibility across threads on C++ target.
+	*/
+	@:volatile private var _hasPendingRx:Bool = false;
+	/**
+	* Volatile flag: a new error message is pending from the platform backend.
+	* Same cross-thread visibility guarantees as _hasPendingRx.
+	*/
+	@:volatile private var _hasPendingErr:Bool = false;
+	/** Pending RX data string (populated by backend, consumed by update). */
+	private var _pendingRxStr:String = "";
+	/** Pending error message string (populated by backend, consumed by update). */
+	private var _pendingErrStr:String = "";
+// =========================================================================
+// PULSE TIMERS (COMMON)
+// =========================================================================
+	/** Countdown timer for rxTick pulse auto-reset. */
+	private var _rxTimer:Float = 0.0;
+	/** Countdown timer for txTick pulse auto-reset. */
+	private var _txTimer:Float = 0.0;
+	/** Countdown timer for errorTick pulse auto-reset. */
+	private var _errTimer:Float = 0.0;
+// =========================================================================
+// PLATFORM-SPECIFIC FIELDS
+// =========================================================================
+	#if cpp
+	// C++ fields are managed via __cpp__() — no Haxe fields needed.
+	// ComPortState struct lives in the global _com_states_map,
+	// keyed by this object's mPtr (Haxe object pointer).
+	#elseif html5
+	/** Native browser SerialPort instance (Web Serial API). */
+	private var _serialPort:Dynamic = null;
+	/** Readable stream reader (Web Serial). */
+	private var _reader:Dynamic = null;
+	/** Writable stream writer (Web Serial). */
+	private var _writer:Dynamic = null;
+
+	/** Native browser USBDevice instance (WebUSB Fallback). */
+	private var _usbDevice:Dynamic = null;
+	/** Claimed USB data interface number. */
+	private var _usbInterfaceNumber:Int = -1;
+	/** USB bulk IN endpoint number for receiving data. */
+	private var _usbEndpointIn:Int = -1;
+	/** USB bulk OUT endpoint number for transmitting data. */
+	private var _usbEndpointOut:Int = -1;
+	/** USB CDC control interface number (for SET_LINE_CODING etc.). */
+	private var _usbControlInterface:Int = -1;
+
+	/** Read loop active flag (controls recursive read chain). */
+	private var _isReading:Bool = false;
+	/** Connection type: "serial" (Web Serial) or "usb" (WebUSB fallback). */
+	private var _connectionType:String = "none";
+	#end
+// =========================================================================
+// CONSTRUCTOR (COMMON)
+// =========================================================================
+	/**
+	* Create a new ComPortAtom driver instance.
+	*
+	* Registers as an active driver (isActive=true) so DriverManager
+	* calls update(dt) every simulation tick.
+	*
+	* Contact layout:
+	* ┌─────────────────────────────────────────────────────────────────┐
+	* │  INPUTS (11):  portName, baudRate, bufferSize, chunkSize,       │
+	* │                enabled, open, close, send, txData, setDTR,      │
+	* │                testRxData                                       │
+	* │                                                                 │
+	* │  OUTPUTS (6):  isOpen, rxData, rxTick, txTick, error, errorTick │
+	* └─────────────────────────────────────────────────────────────────┘
+	*
+	* @param id Unique runtime instance ID
+	*/
+	public function new(id:String)
+	{
+		super(
+			[
+				new Contact("COM1", ContactType.INPUT, "portName"),
+				new Contact(9600, ContactType.INPUT, "baudRate"),
+				new Contact(DEFAULT_BUFFER_SIZE, ContactType.INPUT, "bufferSize"),
+				new Contact(DEFAULT_CHUNK_SIZE, ContactType.INPUT, "chunkSize"),
+				new Contact(true, ContactType.INPUT, "enabled"),
+				new Contact(false, ContactType.INPUT, "open"),
+				new Contact(false, ContactType.INPUT, "close"),
+				new Contact(false, ContactType.INPUT, "send"),
+				new Contact("", ContactType.INPUT, "txData"),
+				new Contact(false, ContactType.INPUT, "setDTR"),
+				new Contact("", ContactType.INPUT, "testRxData")
+			],
+			[
+				new Contact(false, ContactType.OUTPUT, "isOpen"),
+				new Contact("", ContactType.OUTPUT, "rxData"),
+				new Contact(false, ContactType.OUTPUT, "rxTick"),
+				new Contact(false, ContactType.OUTPUT, "txTick"),
+				new Contact("", ContactType.OUTPUT, "error"),
+				new Contact(false, ContactType.OUTPUT, "errorTick")
+			],
+			null,
+			id,
+			"ComPortAtom",
+			true
+		);
+		initRingBuffer(DEFAULT_BUFFER_SIZE);
+		init();
+	}
+// =========================================================================
+// RING BUFFER MANAGEMENT (COMMON)
+// =========================================================================
+	/**
+	* Initialize (or reinitialize) the ring buffer with a new size.
+	* Resets read/write positions and overflow counter.
+	*
+	* Called at construction and when bufferSize input changes at runtime.
+	*
+	* @param size New buffer capacity in bytes (clamped by caller)
+	*/
+	private function initRingBuffer(size:Int):Void
+	{
+		_bufferSize = size;
+		_ringBuffer = new Array<Int>();
+		for (i in 0..._bufferSize) _ringBuffer.push(0);
+		_readPos = 0;
+		_writePos = 0;
+		_overflowCount = 0;
+	}
+	/**
+	* Write an array of bytes into the ring buffer.
+	*
+	* Overflow policy: when the buffer is full, the oldest data is
+	* overwritten by advancing _readPos. This ensures the most recent
+	* data is always preserved at the cost of losing old data.
+	*
+	* @param data Array of byte values (0-255) to write
+	* @return Number of bytes written
+	*/
+	private function writeToBuffer(data:Array<Int>):Int
+	{
+		var written = 0;
+		for (byte in data)
+		{
+			var idx = _writePos % _bufferSize;
+			_ringBuffer[idx] = byte;
+			_writePos++;
+			written++;
+			if (getBufferCount() > _bufferSize)
+			{
+				_readPos = _writePos - _bufferSize;
+				_overflowCount++;
+				if (_overflowCount % 100 == 0) trace('ComPortAtom: Ring buffer overflow! Lost $_overflowCount bytes total');
+			}
+		}
+		return written;
+	}
+	/**
+	* Get the number of unread bytes currently in the ring buffer.
+	*
+	* @return Byte count available for reading
+	*/
+	private function getBufferCount():Int { return _writePos - _readPos; }
+	/**
+	* Clear the ring buffer, resetting all positions and counters.
+	* Called on port open to discard stale data from previous session.
+	*/
+	private function clearBuffer():Void { _readPos = 0; _writePos = 0; _overflowCount = 0; }
+
+	/**
+	* Emit pending RX data from the ring buffer to the rxData output contact.
+	*
+	* Reads up to _chunkSize bytes per call, converts them to a String
+	* via String.fromCharCode(), and pushes to the output using the
+	* batched driver update pattern (setValueSilent + propagateCurrentValue).
+	*
+	* Also triggers the rxTick pulse to notify downstream atoms of new data.
+	*
+	* Called from update(dt) on HTML5 target. On C++ target, data is
+	* emitted directly from the pending fields (already converted to String
+	* by the reader thread copy in update()).
+	*/
+	private function emitRxData():Void
+	{
+		var availableBytes = getBufferCount();
+		if (availableBytes == 0) return;
+		var bytesToRead:Int = availableBytes < _chunkSize ? availableBytes : _chunkSize;
+		var rxString = "";
+		for (i in 0...bytesToRead)
+		{
+			var idx = _readPos % _bufferSize;
+			rxString += String.fromCharCode(_ringBuffer[idx]);
+			_readPos++;
+		}
+		var rxOut = getOutput("rxData");
+		if (rxOut != null) { rxOut.setValueSilent(rxString); rxOut.propagateCurrentValue(); }
+		var rxTick = getOutput("rxTick");
+		if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
+	}
+// =========================================================================
+// DRIVER INTERFACE
+// =========================================================================
+	/**
+	* Driver initialization hook.
+	* Called once when the driver is registered with DriverManager.
+	* ComPortAtom requires no special initialization beyond the constructor.
+	*/
+	override public function init():Void {}
+
+	/**
+	* Main driver update loop. Called every simulation tick by DriverManager.
+	*
+	* Execution order within a single tick:
+	* ┌─────────────────────────────────────────────────────────────────┐
+	* │  1. Guard: skip if disposed or disabled                         │
+	* │  2. readConfiguration(): hot-reload bufferSize/chunkSize/enabled│
+	* │  3. Test injection: if testRxData is set, emit it directly      │
+	* │  4. Platform poll:                                              │
+	* │     C++:   copy rxBuffer/errBuffer from ComPortState via mutex  │
+	* │     HTML5: (data arrives via async callbacks, sets _hasPendingRx)│
+	* │  5. Emit pending RX data (batched: setValueSilent + propagate)  │
+	* │  6. Emit pending error (batched: setValueSilent + propagate)    │
+	* │  7. HTML5: emitRxData() from ring buffer                        │
+	* │  8. readInputs(): process open/close/send/DTR commands          │
+	* │  9. updatePulseTimers(dt): auto-reset tick contacts             │
+	* └─────────────────────────────────────────────────────────────────┘
+	*
+	* @param dt Delta time in seconds since last tick
+	*/
+	override public function update(dt:Float):Void
+	{
+		if (_isDisposed) return;
+		readConfiguration();
+		if (!_enabled) return;
+
+		// === Test data injection (for debugging without hardware) ===
+		var testRxC = getInput("testRxData");
+		if (testRxC != null && testRxC.value != null && testRxC.value != "")
+		{
+			var testData:String = Std.string(testRxC.value);
+			var rxOut = getOutput("rxData");
+			if (rxOut != null) { rxOut.setValueSilent(testData); rxOut.propagateCurrentValue(); }
+			var rxTick = getOutput("rxTick");
+			if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
+			testRxC.value = "";
+		}
+		else
+		{
+			// === C++ PLATFORM: Poll reader thread data via mutex ===
+			#if cpp
+			untyped __cpp__('
+			ComPortState* _cps_stPtr = nullptr;
+		{
+			std::lock_guard<std::mutex> _cps_mapLock(_com_map_mutex);
+			auto _cps_it = _com_states_map.find((void*){0}.mPtr);
+			if (_cps_it != _com_states_map.end()) {
+			_cps_stPtr = _cps_it->second;
+		}
+		}
+			if (_cps_stPtr != nullptr) {
+		{
+			std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
+			if (_cps_stPtr->hasRxData) {
+		{0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer);
+		{0}->_hasPendingRx = true;
+			_cps_stPtr->hasRxData = false;
+			_cps_stPtr->rxBuffer[0] = 0;
+		}
+		}
+		{
+			std::lock_guard<std::mutex> _cps_errLock(_cps_stPtr->errMutex);
+			if (_cps_stPtr->hasError) {
+		{0}->_pendingErrStr = ::String(_cps_stPtr->errBuffer);
+		{0}->_hasPendingErr = true;
+			_cps_stPtr->hasError = false;
+		}
+		}
+		}
+			', this);
+			#end
+		}
+
+		// === Emit pending RX data (common path for both platforms) ===
+		if (_hasPendingRx)
+		{
+			_hasPendingRx = false;
+			var rxOut = getOutput("rxData");
+			if (rxOut != null) { rxOut.setValueSilent(_pendingRxStr); rxOut.propagateCurrentValue(); }
+			var rxTick = getOutput("rxTick");
+			if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
+		}
+		// === Emit pending error (common path for both platforms) ===
+		if (_hasPendingErr)
+		{
+			_hasPendingErr = false;
+			var errOut = getOutput("error");
+			if (errOut != null) { errOut.setValueSilent(_pendingErrStr); errOut.propagateCurrentValue(); }
+			var errTick = getOutput("errorTick");
+			if (errTick != null) { errTick.value = true; _errTimer = PULSE_DURATION; }
+		}
+
+		// === HTML5: Emit data from ring buffer ===
+		#if html5
+		emitRxData();
+		#end
+		readInputs();
+		updatePulseTimers(dt);
+	}
+
+	/**
+	* Dispose the driver and release all resources.
+	*
+	* Closes the serial port (platform-specific), unregisters from
+	* DriverManager, and calls super.dispose() to release contacts
+	* and NamingService slot.
+	*
+	* C++ path: closeDevice() sets isRunning=false, CancelIoEx,
+	*           joins reader thread, closes HANDLE.
+	* HTML5 path: closeDevice() cancels reader, releases locks,
+	*             closes port/device via Promise chain.
+	*/
+	override public function dispose():Void
+	{
+		#if cpp
+		closeDevice();
+		#elseif html5
+		if (_isOpenFlag) closeDevice();
+		#end
+		DriverManager.getInstance().unregister(this.id);
+		super.dispose();
+	}
+// =========================================================================
+// CONFIGURATION & INPUT READING (COMMON)
+// =========================================================================
+	/**
+	* Read and apply runtime configuration from input contacts.
+	*
+	* Supports hot-reload of:
+	* - bufferSize: reinitializes ring buffer if changed (256..65536)
+	* - chunkSize: updates emit chunk size (1..4096)
+	* - enabled: master on/off switch for all I/O processing
+	*
+	* Called at the beginning of every update(dt) cycle.
+	*/
+	private function readConfiguration():Void
+	{
+		var bufSizeC = getInput("bufferSize");
+		if (bufSizeC != null && bufSizeC.value != null)
+		{
+			var newSize:Int = cast bufSizeC.value;
+			if (newSize >= MIN_BUFFER_SIZE && newSize <= MAX_BUFFER_SIZE && newSize != _bufferSize)
+			{
+				trace('ComPortAtom: Buffer size changed from $_bufferSize to $newSize');
+				initRingBuffer(newSize);
+			}
+		}
+		var chunkC = getInput("chunkSize");
+		if (chunkC != null && chunkC.value != null)
+		{
+			var newChunk:Int = cast chunkC.value;
+			if (newChunk >= MIN_CHUNK_SIZE && newChunk <= MAX_CHUNK_SIZE) _chunkSize = newChunk;
+		}
+		var enabledC = getInput("enabled");
+		if (enabledC != null && enabledC.value != null) _enabled = (enabledC.value == true);
+	}
+
+	/**
+	* Read and dispatch command inputs (open, close, send, DTR).
+	*
+	* Pulse-based commands (open, close, send) are auto-reset to false
+	* after processing to prevent re-triggering on the next tick.
+	*
+	* DTR is edge-detected: only acts when the value changes from
+	* the last known state (_lastDTR) and the port is open.
+	*
+	* ┌─────────────────────────────────────────────────────────────────┐
+	* │  Command Processing:                                            │
+	* │                                                                 │
+	* │  open=true  → openDevice()  → open=false                        │
+	* │  close=true → closeDevice() → close=false                       │
+	* │  send=true  → sendToDevice(txData) → send=false + txTick pulse  │
+	* │  setDTR     → edge-detect → setDTRState(newDTR)                 │
+	* └─────────────────────────────────────────────────────────────────┘
+	*/
+	private function readInputs():Void
+	{
+		var openC  = getInput("open");
+		var closeC = getInput("close");
+		var sendC  = getInput("send");
+		var txC    = getInput("txData");
+		var dtrC   = getInput("setDTR");
+
+		if (openC != null && openC.value == true) { openDevice(); openC.value = false; }
+		if (closeC != null && closeC.value == true) { closeDevice(); closeC.value = false; }
+		if (sendC != null && sendC.value == true && _isOpenFlag)
+		{
+			if (txC != null && txC.value != null && txC.value != "")
+			{
+				sendToDevice(txC.value);
+				var txTick = getOutput("txTick");
+				if (txTick != null) { txTick.value = true; _txTimer = PULSE_DURATION; }
+			}
+			sendC.value = false;
+		}
+		if (dtrC != null && dtrC.value != null)
+		{
+			var newDTR:Bool = dtrC.value == true;
+			if (newDTR != _lastDTR && _isOpenFlag) { _lastDTR = newDTR; setDTRState(newDTR); }
+		}
+	}
+// =========================================================================
+// DEVICE OPERATION (C++ WinAPI)
+// =========================================================================
+	#if cpp
+	/**
+	* Open the serial port using WinAPI CreateFileA.
+	*
+	* Sequence:
+	* 1. Close existing port if already open
+	* 2. Create ComPortState struct and register in _com_states_map
+	* 3. Build \\.\COMx path (handles both "COM1" and "\\.\COM1" input)
+	* 4. CreateFileA with GENERIC_READ | GENERIC_WRITE
+	* 5. SetupComm(4096, 4096) for internal driver buffers
+	* 6. Configure DCB: baud rate, 8N1, DTR/RTS enable
+	* 7. Set COMMTIMEOUTS: non-blocking read, 100ms write timeout
+	* 8. PurgeComm to clear stale data
+	* 9. Spawn std::thread for background ReadFile loop
+	*
+	* On failure, error is stored in ComPortState.errBuffer and
+	* surfaced via the error output contact on the next update(dt).
+	*/
+	private function openDevice():Void
+	{
+		if (_isOpenFlag) closeDevice();
+		var portNameStr:String = getInput("portName").value;
+		var baudRateInt:Int = cast getInput("baudRate").value;
+		untyped __cpp__('
+		ComPortState* st = new ComPortState();
+		st->hComm = INVALID_HANDLE_VALUE;
+		st->readThread = nullptr;
+		st->isRunning = false;
+		st->hasRxData = false;
+		st->hasError = false;
+		st->rxBuffer[0] = 0;
+		st->errBuffer[0] = 0;
+		#ifdef _WIN32
+		char fullPortName[20] = "";
+		::String portStr = {1};
+		const char* _cps_rawName = portStr.c_str();
+		if (_cps_rawName[0] == (char)92) {
+		strncpy(fullPortName, _cps_rawName, sizeof(fullPortName) - 1);
+	} else {
+		fullPortName[0] = (char)92;
+		fullPortName[1] = (char)92;
+		fullPortName[2] = (char)46;
+		fullPortName[3] = (char)92;
+		strncpy(fullPortName + 4, _cps_rawName, sizeof(fullPortName) - 5);
+	}
+		fullPortName[sizeof(fullPortName) - 1] = 0;
+		st->hComm = CreateFileA(fullPortName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+		if (st->hComm == INVALID_HANDLE_VALUE) {
+		DWORD err = GetLastError();
+		sprintf(st->errBuffer, "Open Failed:%lu", err);
+		st->hasError = true;
+	} else {
+		SetupComm(st->hComm, 4096, 4096);
+		DCB dcbSerialParams;
+		memset(&dcbSerialParams, 0, sizeof(DCB));
+		dcbSerialParams.DCBlength = sizeof(DCB);
+		GetCommState(st->hComm, &dcbSerialParams);
+		dcbSerialParams.BaudRate = (DWORD){2};
+		dcbSerialParams.ByteSize = 8;
+		dcbSerialParams.StopBits = ONESTOPBIT;
+		dcbSerialParams.Parity = NOPARITY;
+		dcbSerialParams.fDtrControl = DTR_CONTROL_ENABLE;
+		dcbSerialParams.fRtsControl = RTS_CONTROL_ENABLE;
+		if (!SetCommState(st->hComm, &dcbSerialParams)) {
+		DWORD err = GetLastError();
+		sprintf(st->errBuffer, "SetCommState:%lu", err);
+		st->hasError = true;
+		CloseHandle(st->hComm);
+		st->hComm = INVALID_HANDLE_VALUE;
+	} else {
+		COMMTIMEOUTS timeouts;
+		memset(&timeouts, 0, sizeof(COMMTIMEOUTS));
+		timeouts.ReadIntervalTimeout = MAXDWORD;
+		timeouts.ReadTotalTimeoutMultiplier = 0;
+		timeouts.ReadTotalTimeoutConstant = 0;
+		timeouts.WriteTotalTimeoutMultiplier = 10;
+		timeouts.WriteTotalTimeoutConstant = 100;
+		SetCommTimeouts(st->hComm, &timeouts);
+		PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
+		st->readThread = new std::thread(_altauri_com_reader_loop, (void*){0}.mPtr);
+	}
+	}
+		#endif
+		{
+		std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
+		_com_states_map[(void*){0}.mPtr] = st;
+		{0}->_isOpenFlag = (st->hComm != INVALID_HANDLE_VALUE);
+	}
+		', this, portNameStr, baudRateInt);
+		var outOpen = getOutput("isOpen");
+		if (outOpen != null) outOpen.value = _isOpenFlag;
+	}
+
+	/**
+	* Close the serial port and clean up the reader thread.
+	*
+	* Sequence:
+	* 1. Remove ComPortState from _com_states_map (under mutex)
+	* 2. Set isRunning = false (signals reader thread to exit)
+	* 3. CancelIoEx to unblock any pending ReadFile
+	* 4. Join reader thread (waits for clean exit)
+	* 5. PurgeComm + CloseHandle
+	* 6. Delete ComPortState struct
+	* 7. Update isOpen output to false
+	*/
+	private function closeDevice():Void
+	{
+		if (!_isOpenFlag) return;
+		untyped __cpp__('
+		ComPortState* st = nullptr;
+		{
+		std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
+		auto _cps_it = _com_states_map.find((void*){0}.mPtr);
+		if (_cps_it != _com_states_map.end()) {
+		st = _cps_it->second;
+		_com_states_map.erase(_cps_it);
+	}
+	}
+		if (st != nullptr) {
+		#ifdef _WIN32
+		st->isRunning = false;
+		if (st->hComm != INVALID_HANDLE_VALUE) {
+		CancelIoEx(st->hComm, NULL);
+	}
+		if (st->readThread && st->readThread->joinable()) {
+		st->readThread->join();
+	}
+		delete st->readThread;
+		if (st->hComm != INVALID_HANDLE_VALUE) {
+		PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
+		CloseHandle(st->hComm);
+	}
+		#endif
+		delete st;
+	}
+		', this);
+		_isOpenFlag = false;
+		var outOpen = getOutput("isOpen");
+		if (outOpen != null) outOpen.value = false;
+	}
+
+	/**
+	* Transmit a string to the serial port via WinAPI WriteFile.
+	*
+	* Looks up ComPortState from _com_states_map, then calls
+	* WriteFile with the string's c_str() representation.
+	*
+	* @param data String data to transmit
+	*/
+	private function sendToDevice(data:String):Void
+	{
+		untyped __cpp__('
+		ComPortState* _cps_stPtr = nullptr;
+		{
+		std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
+		auto _cps_it = _com_states_map.find((void*){0}.mPtr);
+		if (_cps_it != _com_states_map.end()) {
+		_cps_stPtr = _cps_it->second;
+	}
+	}
+		if (_cps_stPtr != nullptr) {
+		#ifdef _WIN32
+		if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
+		const char* buffer = {1}.c_str();
+		DWORD bytesToWrite = (DWORD)strlen(buffer);
+		DWORD bytesWritten;
+		WriteFile(_cps_stPtr->hComm, buffer, bytesToWrite, &bytesWritten, NULL);
+	}
+		#endif
+	}
+		', this, data);
+	}
+
+	/**
+	* Set the DTR (Data Terminal Ready) line state via EscapeCommFunction.
+	*
+	* @param state true = SETDTR (assert), false = CLRDTR (deassert)
+	*/
+	private function setDTRState(state:Bool):Void
+	{
+		untyped __cpp__('
+		ComPortState* _cps_stPtr = nullptr;
+		{
+		std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
+		auto _cps_it = _com_states_map.find((void*){0}.mPtr);
+		if (_cps_it != _com_states_map.end()) {
+		_cps_stPtr = _cps_it->second;
+	}
+	}
+		if (_cps_stPtr != nullptr) {
+		#ifdef _WIN32
+		if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
+		if ({1}) {
+		EscapeCommFunction(_cps_stPtr->hComm, SETDTR);
+	} else {
+		EscapeCommFunction(_cps_stPtr->hComm, CLRDTR);
+	}
+	}
+		#endif
+	}
+		', this, state);
+	}
+	#end
+// =========================================================================
+// DEVICE OPERATION (HTML5: Web Serial + WebUSB Fallback)
+// =========================================================================
+	#if html5
+
+	/**
+	* Open a serial port via Web Serial API or WebUSB fallback.
+	*
+	* Detection logic:
+	* ┌─────────────────────────────────────────────────────────────────┐
+	* │  1. Check navigator.serial → Web Serial API (desktop Chrome)    │
+	* │     └─► requestPort() → user picks port from browser dialog     │
+	* │                                                                 │
+	* │  2. Else check navigator.usb → WebUSB API (Android Chrome)      │
+	* │     └─► requestDevice() with vendor ID filters:                 │
+	* │         0x303A (Espressif), 0x0403 (FTDI),                      │
+	* │         0x1A86 (CH340), 0x10C4 (CP2102), 0x067B (Prolific)     │
+	* │                                                                 │
+	* │  3. Else → setError("Neither API supported")                    │
+	* └─────────────────────────────────────────────────────────────────┘
+	*
+	* Both paths are async (Promise-based). The port is not considered
+	* open until onPortOpened() fires.
+	*/
+	private function openDevice():Void
+	{
+		if (_isOpenFlag) closeDevice();
+		clearBuffer();
+
+		var hasSerial:Bool = untyped js.Syntax.code("typeof navigator !== 'undefined' && 'serial' in navigator");
+		var hasUSB:Bool = untyped js.Syntax.code("typeof navigator !== 'undefined' && 'usb' in navigator");
+
+		if (hasSerial)
+		{
+			_connectionType = "serial";
+			var self = this;
+			untyped js.Syntax.code("navigator.serial").requestPort().then(function(port:Dynamic) { self.onSerialPortRequested(port); })
+			['catch'](function(err:Dynamic) { self.onPortRequestError(err); });
+		}
+		else if (hasUSB)
+		{
+			_connectionType = "usb";
+			var self = this;
+			var filters:Array<Dynamic> = [
+			{ vendorId: 0x303A }, { vendorId: 0x0403 }, { vendorId: 0x1A86 }, { vendorId: 0x10C4 }, { vendorId: 0x067B }
+			];
+			untyped js.Syntax.code("navigator.usb").requestDevice({ filters: filters }).then(function(device:Dynamic)
+			{
+				self.onUsbDeviceRequested(device);
+			})['catch'](function(err:Dynamic)
+			{
+				self.onPortRequestError(err);
+			});
+		}
+		else
+		{
+			setError("Neither Web Serial API nor WebUSB is supported in this browser.");
+		}
+	}
+
+// --- WEB SERIAL CALLBACKS ---
+	/**
+	* Web Serial: port selected by user via browser dialog.
+	* Opens the port with configured baud rate and standard 8N1 settings.
+	*
+	* @param port Native SerialPort object from navigator.serial.requestPort()
+	*/
+	@:keep public function onSerialPortRequested(port:Dynamic):Void
+	{
+		_serialPort = port;
+		var baudRateInt:Int = 9600;
+		var baudC = getInput("baudRate");
+		if (baudC != null && baudC.value != null) baudRateInt = cast baudC.value;
+		var options:Dynamic = { baudRate: baudRateInt, dataBits: 8, stopBits: 1, parity: "none", bufferSize: 4096, flowControl: "none" };
+		var self = this;
+		untyped _serialPort.open(options).then(function() { self.onPortOpened(); })
+		['catch'](function(err:Dynamic) { self.onPortOpenError(err); });
+	}
+
+// --- WEB USB CALLBACKS ---
+	/**
+	* WebUSB: device selected by user via browser dialog.
+	* Opens the device, selects configuration 1, then claims interfaces
+	* and runs chip-specific initialization.
+	*
+	* @param device Native USBDevice object from navigator.usb.requestDevice()
+	*/
+	@:keep public function onUsbDeviceRequested(device:Dynamic):Void
+	{
+		_usbDevice = device;
+		var baudRateInt:Int = 9600;
+		var baudC = getInput("baudRate");
+		if (baudC != null && baudC.value != null) baudRateInt = cast baudC.value;
+
+		var self = this;
+		untyped _usbDevice.open().then(function()
+		{
+			return untyped _usbDevice.selectConfiguration(1);
+		}).then(function()
+		{
+			return self.claimUsbInterfaces(baudRateInt);
+		}).then(function()
+		{
+			self.onPortOpened();
+		})['catch'](function(err:Dynamic)
+		{
+			self.onPortOpenError(err);
+		});
+	}
+
+	/**
+	* WebUSB: Claim USB interfaces and run chip-specific baud rate init.
+	*
+	* Algorithm:
+	* 1. Find CDC control interface (class 0x02) for ctrlIface
+	* 2. Score all interfaces with bulk IN + bulk OUT endpoints
+	*    - CDC data interface (class 0x0A) gets score 0 (preferred)
+	*    - All others get score 1
+	* 3. Sort candidates by score (ascending)
+	* 4. Try claimInterface + selectAlternateInterface in order
+	* 5. Run chip-specific init based on vendorId:
+	*    - 0x10C4 (CP2102): vendor requests 0x00, 0x03, 0x07, 0x1E
+	*    - 0x0403 (FTDI):   vendor requests 0x00, 0x02, 0x04, 0x03, 0x01
+	*    - 0x1A86 (CH340):  vendor requests 0xA1, 0x9A, 0x9A, 0xA4
+	*    - default (CDC):   class requests 0x20 (SET_LINE_CODING), 0x22
+	* 6. On failure, recursively try next candidate
+	*
+	* @param baudRate Target baud rate for chip initialization
+	* @return Promise that resolves when init is complete
+	*/
+	@:keep private function claimUsbInterfaces(baudRate:Int):Dynamic
+	{
+		var self = this;
+		var dev:Dynamic = _usbDevice;
+		var config:Dynamic = dev.configuration;
+		var ifaceNum:Int = -1;
+		var ctrlIface:Int = -1;
+		var epIn:Int = -1;
+		var epOut:Int = -1;
+
+		var interfaces:Dynamic = config.interfaces;
+		for (i in 0...interfaces.length)
+		{
+			var iface:Dynamic = interfaces[i];
+			if (iface.alternates != null && iface.alternates.length > 0 && iface.alternates[0].interfaceClass == 0x02)
+			{
+				ctrlIface = iface.interfaceNumber;
+				break;
+			}
+		}
+
+		var candidates:Array<Dynamic> = [];
+		for (i in 0...interfaces.length)
+		{
+			var iface:Dynamic = interfaces[i];
+			for (a in 0...iface.alternates.length)
+			{
+				var alt:Dynamic = iface.alternates[a];
+				var hasIn:Bool = false;
+				var hasOut:Bool = false;
+				for (e in 0...alt.endpoints.length)
+				{
+					var ep:Dynamic = alt.endpoints[e];
+					if (ep.type == 'bulk' && ep.direction == 'in') hasIn = true;
+					if (ep.type == 'bulk' && ep.direction == 'out') hasOut = true;
+				}
+				if (hasIn && hasOut)
+				{
+					var score:Int = (alt.interfaceClass == 0x0a) ? 0 : 1;
+					candidates.push({ iface: iface, altIndex: a, alt: alt, score: score });
+					break;
+				}
+			}
+		}
+
+		candidates.sort(function(a:Dynamic, b:Dynamic):Int {
+			var sa:Int = a.score;
+			var sb:Int = b.score;
+			return sa - sb;
+		});
+
+		if (candidates.length == 0) return untyped Promise.reject('No suitable USB interface found');
+
+		var tryClaim:Dynamic = null;
+		tryClaim = function(idx:Int):Dynamic
+		{
+			if (idx >= candidates.length) return untyped Promise.reject('Unable to claim any USB interface');
+			var cand:Dynamic = candidates[idx];
+
+			return untyped dev.claimInterface(cand.iface.interfaceNumber).then(function()
+			{
+				return untyped dev.selectAlternateInterface(cand.iface.interfaceNumber, cand.altIndex)['catch'](function(e:Dynamic) { return null; });
+			}).then(function()
+			{
+				ifaceNum = cand.iface.interfaceNumber;
+				for (e in 0...cand.alt.endpoints.length)
+				{
+					var ep:Dynamic = cand.alt.endpoints[e];
+					if (ep.type == 'bulk' && ep.direction == 'in') epIn = ep.endpointNumber;
+					else if (ep.type == 'bulk' && ep.direction == 'out') epOut = ep.endpointNumber;
+				}
+				if (ctrlIface == -1 || ctrlIface == ifaceNum) ctrlIface = ifaceNum;
+
+				var vid:Int = dev.vendorId;
+				var initPromise:Dynamic = untyped Promise.resolve();
+
+				if (vid == 0x10c4)   // CP2102
+				{
+					initPromise = untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x00, value:0x01, index:0x00})
+					.then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x03, value:0x0800, index:0x00}); })
+					.then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x07, value:0x0303, index:0x00}); })
+					.then(function()
+					{
+						var buf:ArrayBuffer = new ArrayBuffer(4);
+						var view:DataView = new DataView(buf);
+						view.setUint32(0, baudRate, true);
+						return untyped dev.controlTransferOut({requestType:'vendor', recipient:'interface', request:0x1E, value:0, index:0}, buf);
+					});
+				}
+				else if (vid == 0x0403)   // FTDI
+				{
+					var divisor:Float = 3000000.0 / baudRate;
+					var intPart:Int = cast Math.floor(divisor);
+					var fracPart:Float = divisor - intPart;
+					var subInt:Int = 0;
+					if (fracPart >= 0.0625 && fracPart < 0.1875) subInt = 1;
+					else if (fracPart >= 0.1875 && fracPart < 0.3125) subInt = 2;
+					else if (fracPart >= 0.3125 && fracPart < 0.4375) subInt = 3;
+					else if (fracPart >= 0.4375 && fracPart < 0.5625) subInt = 4;
+					else if (fracPart >= 0.5625 && fracPart < 0.6875) subInt = 5;
+					else if (fracPart >= 0.6875 && fracPart < 0.8125) subInt = 6;
+					else if (fracPart >= 0.8125) subInt = 7;
+
+					var val:Int = (intPart & 0xFF) | ((subInt & 0x07) << 14) | (((intPart >> 8) & 0x3F) << 8);
+					var idx_val:Int = (intPart >> 14) & 0x03;
+					initPromise = untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x00, value:0x00, index:0x00})
+					.then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x02, value:0x00, index:0x00}); })
+					.then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x04, value:0x0008, index:0x00}); })
+					.then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x03, value:val, index:idx_val}); })
+					.then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0303, index:0x00}); });
+				}
+				else if (vid == 0x1a86)   // CH340
+				{
+					var factor:Float = 1532620800.0 / baudRate;
+					var factorInt:Int = cast Math.floor(factor);
+					var div:Int = 3;
+					while (factorInt > 0xfff0 && div > 0) { factorInt >>= 3; div--; }
+					if (factorInt > 0xfff0) return untyped Promise.reject('Baudrate not supported by CH340');
+					factorInt = 0x10000 - factorInt;
+					var a_val:Int = (factorInt & 0xff00) | div;
+					var b_val:Int = factorInt & 0xff;
+					initPromise = untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0xA1, value:0x0000, index:0x0000})
+					.then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x9A, value:0x1312, index:a_val}); })
+					.then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x9A, value:0x0f2c, index:b_val}); })
+					.then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0xA4, value:(~((1<<5)|(1<<6)))&0xffff, index:0x0000}); });
+				}
+				else   // Standard CDC/ACM
+				{
+					var lineCoding:Uint8Array = new Uint8Array([baudRate & 0xFF, (baudRate >> 8) & 0xFF, (baudRate >> 16) & 0xFF, (baudRate >> 24) & 0xFF, 0x00, 0x00, 0x08]);
+					initPromise = untyped dev.controlTransferOut({requestType:'class', recipient:'interface', request:0x20, value:0, index:ctrlIface}, lineCoding)
+					.then(function() { return untyped dev.controlTransferOut({requestType:'class', recipient:'interface', request:0x22, value:0x03, index:ctrlIface}); });
+				}
+
+				return initPromise;
+			}).then(function()
+			{
+				self._usbInterfaceNumber = ifaceNum;
+				self._usbControlInterface = ctrlIface;
+				self._usbEndpointIn = epIn;
+				self._usbEndpointOut = epOut;
+				return untyped Promise.resolve();
+			})['catch'](function(err:Dynamic)
+			{
+				return untyped tryClaim(idx + 1);
+			});
+		};
+
+		return untyped tryClaim(0);
+	}
+
+// --- COMMON CALLBACKS ---
+	/**
+	* Called when the port is successfully opened (both Serial and USB paths).
+	* Sets _isOpenFlag, updates isOpen output, and starts the read loop.
+	*/
+	@:keep public function onPortOpened():Void
+	{
+		_isOpenFlag = true;
+		var outOpen = getOutput("isOpen");
+		if (outOpen != null) outOpen.value = true;
+
+		if (_connectionType == "serial") startSerialReadLoop();
+		else if (_connectionType == "usb") startUsbReadLoop();
+
+		trace('ComPortAtom: Port opened via $_connectionType');
+	}
+
+	/** Port open failed — surface error to output contact. */
+	@:keep public function onPortOpenError(err:Dynamic):Void { setError('Failed to open port: $err'); }
+	/** User cancelled the port/device selection dialog. */
+	@:keep public function onPortRequestError(err:Dynamic):Void { trace('ComPortAtom: Port request cancelled or failed: $err'); }
+
+	/**
+	* Close the serial port (Web Serial or WebUSB).
+	*
+	* Web Serial close sequence:
+	* 1. reader.cancel() → reader.releaseLock()
+	* 2. writer.close() → writer.releaseLock()
+	* 3. port.close()
+	*
+	* WebUSB close sequence:
+	* 1. releaseInterface(dataInterface)
+	* 2. releaseInterface(controlInterface) if different
+	* 3. device.close()
+	*
+	* All steps are chained via Promises to ensure proper ordering.
+	* Errors in individual steps are swallowed (port must close regardless).
+	*/
+	private function closeDevice():Void
+	{
+		if (!_isOpenFlag) return;
+		_isOpenFlag = false;
+		_isReading = false;
+
+		if (_connectionType == "serial")
+		{
+			var self = this;
+			var port:Dynamic = _serialPort;
+
+			var closeSequence:Dynamic = untyped Promise.resolve();
+
+			if (_reader != null)
+			{
+				var reader:Dynamic = _reader;
+				_reader = null;
+				closeSequence = closeSequence.then(function()
+				{
+					return untyped reader.cancel().then(function() {}, function(err:Dynamic) { return null; });
+				}).then(function()
+				{
+					untyped reader.releaseLock();
+				});
+			}
+
+			if (_writer != null)
+			{
+				var writer:Dynamic = _writer;
+				_writer = null;
+				closeSequence = closeSequence.then(function()
+				{
+					return untyped writer.close().then(function() {}, function(err:Dynamic) { return null; });
+				}).then(function()
+				{
+					untyped writer.releaseLock();
+				});
+			}
+
+			if (port != null)
+			{
+				closeSequence = closeSequence.then(function()
+				{
+					return untyped port.close();
+				}).then(function()
+				{
+					self.onPortClosed();
+				}, function(err:Dynamic)
+				{
+					self.onPortCloseError(err);
+				});
+			}
+			else
+			{
+				closeSequence = closeSequence.then(function()
+				{
+					self.onPortClosed();
+				});
+			}
+
+			_serialPort = null;
+		}
+		else if (_connectionType == "usb")
+		{
+			var self = this;
+			var dev:Dynamic = _usbDevice;
+			var p:Dynamic = untyped Promise.resolve();
+
+			if (_usbInterfaceNumber != -1)
+			{
+				p = p.then(function()
+				{
+					return untyped dev.releaseInterface(_usbInterfaceNumber).then(function() {}, function(e:Dynamic) { return null; });
+				});
+			}
+			if (_usbControlInterface != -1 && _usbControlInterface != _usbInterfaceNumber)
+			{
+				p = p.then(function()
+				{
+					return untyped dev.releaseInterface(_usbControlInterface).then(function() {}, function(e:Dynamic) { return null; });
+				});
+			}
+
+			p = p.then(function()
+			{
+				return untyped dev.close().then(function() {}, function(e:Dynamic) { return null; });
+			}).then(function()
+			{
+				self.onPortClosed();
+			}, function(err:Dynamic)
+			{
+				self.onPortCloseError(err);
+			});
+
+			_usbDevice = null;
+		}
+	}
+
+	/** Port closed successfully — update isOpen output. */
+	@:keep public function onPortClosed():Void
+	{
+		_isOpenFlag = false;
+		var outOpen = getOutput("isOpen");
+		if (outOpen != null) outOpen.value = false;
+		trace('ComPortAtom: Port closed');
+	}
+	/** Port close failed — surface error. */
+	@:keep public function onPortCloseError(err:Dynamic):Void { setError('Failed to close port: $err'); }
+
+// --- READ LOOPS ---
+	/**
+	* Start the Web Serial read loop.
+	* Acquires a reader from port.readable and begins recursive read chain.
+	*/
+	private function startSerialReadLoop():Void
+	{
+		_isReading = true;
+		if (_serialPort == null) return;
+		var readable:Dynamic = untyped js.Syntax.code("{0}.readable", _serialPort);
+		if (readable == null) { setError("Port has no readable stream"); return; }
+		_reader = untyped js.Syntax.code("{0}.getReader()", readable);
+		readSerialChunk();
+	}
+
+	/**
+	* Read one chunk from the Web Serial reader (recursive Promise chain).
+	* Each call reads one chunk, processes it, then schedules the next read.
+	* Stops when _isReading is false or the stream is done.
+	*/
+	private function readSerialChunk():Void
+	{
+		if (!_isReading || _isDisposed) return;
+		var self = this;
+		untyped _reader.read().then(function(result:Dynamic) { self.onReadResult(result); })
+		['catch'](function(err:Dynamic) { self.onReadError(err); });
+	}
+
+	/**
+	* Start the WebUSB read loop.
+	* Begins recursive transferIn chain on the bulk IN endpoint.
+	*/
+	private function startUsbReadLoop():Void
+	{
+		_isReading = true;
+		if (_usbDevice == null || _usbEndpointIn == -1) return;
+		readUsbChunk();
+	}
+
+	/**
+	* Read one chunk via WebUSB transferIn (recursive Promise chain).
+	* Reads 64 bytes per transfer from the bulk IN endpoint.
+	*/
+	private function readUsbChunk():Void
+	{
+		if (!_isReading || _isDisposed) return;
+		var self = this;
+		untyped _usbDevice.transferIn(_usbEndpointIn, 64).then(function(result:Dynamic) { self.onUsbReadResult(result); })
+		['catch'](function(err:Dynamic) { self.onUsbReadError(err); });
+	}
+
+// --- READ RESULTS ---
+	/**
+	* Web Serial: process a read result chunk.
+	* Converts Uint8Array to byte array, writes to ring buffer,
+	* sets _hasPendingRx flag, and schedules next read.
+	*
+	* @param result {done: Bool, value: Uint8Array}
+	*/
+	@:keep public function onReadResult(result:Dynamic):Void
+	{
+		if (result.done) { _isReading = false; return; }
+		var bytes:Array<Int> = [];
+		var value:Dynamic = result.value;
+		var len:Int = untyped js.Syntax.code("{0}.length", value);
+		for (i in 0...len) bytes.push(untyped js.Syntax.code("{0}[{1}]", value, i));
+		writeToBuffer(bytes);
+		_hasPendingRx = true;
+		readSerialChunk();
+	}
+	/** Web Serial: read error handler. */
+	@:keep public function onReadError(err:Dynamic):Void { if (_isReading && !_isDisposed) setError('Read error: $err'); }
+
+	/**
+	* WebUSB: process a transferIn result.
+	* Handles 'stall' status by clearing halt and retrying.
+	* On 'ok' status, extracts bytes from DataView and writes to ring buffer.
+	*
+	* @param result {status: String, data: DataView}
+	*/
+	@:keep public function onUsbReadResult(result:Dynamic):Void
+	{
+		if (result.status == 'stall')
+		{
+			var self = this;
+			untyped _usbDevice.clearHalt('in', _usbEndpointIn).then(function() { self.readUsbChunk(); });
+			return;
+		}
+		if (result.status == 'ok' && result.data != null)
+		{
+			var bytes:Array<Int> = [];
+			var view:Uint8Array = untyped result.data;
+			for (i in 0...view.length) bytes.push(view[i]);
+			writeToBuffer(bytes);
+			_hasPendingRx = true;
+		}
+		readUsbChunk();
+	}
+	/**
+	* WebUSB: read error handler.
+	* Ignores "device unavailable" and "disconnected" errors (normal on unplug).
+	* All other errors are surfaced via the error output contact.
+	*/
+	@:keep public function onUsbReadError(err:Dynamic):Void
+	{
+		if (_isReading && !_isDisposed)
+		{
+			var errMsg = Std.string(err);
+			if (errMsg.indexOf('device unavailable') == -1 && errMsg.indexOf('disconnected') == -1)
+			{
+				setError('USB Read error: $err');
+			}
+			else
+			{
+				_isReading = false;
+			}
+		}
+	}
+
+// --- WRITE OPERATIONS ---
+	/**
+	* Transmit a string to the serial port.
+	*
+	* Web Serial: acquires a writer from port.writable, encodes via
+	* TextEncoder, writes, then releases the writer lock.
+	*
+	* WebUSB: encodes via TextEncoder, calls transferOut on bulk OUT endpoint.
+	*
+	* @param data String data to transmit
+	*/
+	private function sendToDevice(data:String):Void
+	{
+		if (_connectionType == "serial")
+		{
+			if (_serialPort == null || !_isOpenFlag) return;
+			var writable:Dynamic = untyped js.Syntax.code("{0}.writable", _serialPort);
+			if (writable == null) { setError("Port has no writable stream"); return; }
+			_writer = untyped js.Syntax.code("{0}.getWriter()", writable);
+			var encoder:Dynamic = untyped js.Syntax.code("new TextEncoder()");
+			var encoded:Dynamic = untyped js.Syntax.code("{0}.encode({1})", encoder, data);
+			var self = this;
+			untyped _writer.write(encoded).then(function() { self.onWriteSuccess(); })
+			['catch'](function(err:Dynamic) { self.onWriteError(err); });
+		}
+		else if (_connectionType == "usb")
+		{
+			if (_usbDevice == null || _usbEndpointOut == -1) return;
+			var encoder:Dynamic = untyped js.Syntax.code("new TextEncoder()");
+			var encoded:Uint8Array = untyped encoder.encode(data);
+			var self = this;
+			untyped _usbDevice.transferOut(_usbEndpointOut, encoded).then(function() { self.onWriteSuccess(); })
+			['catch'](function(err:Dynamic) { self.onWriteError(err); });
+		}
+	}
+
+	/** Write completed successfully — release writer lock (Web Serial only). */
+	@:keep public function onWriteSuccess():Void
+	{
+		if (_connectionType == "serial" && _writer != null) { untyped js.Syntax.code("{0}.releaseLock()", _writer); _writer = null; }
+	}
+	/** Write failed — surface error and release writer lock. */
+	@:keep public function onWriteError(err:Dynamic):Void
+	{
+		setError('Write error: $err');
+		if (_connectionType == "serial" && _writer != null) { untyped js.Syntax.code("{0}.releaseLock()", _writer); _writer = null; }
+	}
+
+	/**
+	* Set DTR line state (HTML5 implementation).
+	*
+	* Web Serial: DTR control is not directly supported in the standard
+	* Web Serial API without vendor-specific extensions. Logs a warning.
+	*
+	* WebUSB: sends chip-specific control transfer:
+	* ┌──────────┬──────────────────────────────────────────────────────┐
+	* │ Chip     │ DTR Control Transfer                                 │
+	* ├──────────┼──────────────────────────────────────────────────────┤
+	* │ CP2102   │ vendor req 0x07, value = MHS bitmask                 │
+	* │ CH340    │ vendor req 0xA4, value = ~((DTR<<5)|(RTS<<6))       │
+	* │ CDC/ACM  │ class req 0x22, value = 0x03 (DTR+RTS) or 0x00     │
+	* └──────────┴──────────────────────────────────────────────────────┘
+	*
+	* @param state true = assert DTR, false = deassert DTR
+	*/
+	private function setDTRState(state:Bool):Void
+	{
+		if (_connectionType == "serial")
+		{
+			trace('ComPortAtom: DTR control not directly supported in standard Web Serial API without extensions.');
+		}
+		else if (_connectionType == "usb")
+		{
+			var vid:Int = untyped _usbDevice.vendorId;
+			var val:Int = state ? 0x03 : 0x00;
+
+			if (vid == 0x10c4)   // CP2102
+			{
+				var maskVal:Int = (state ? 1 : 0) | 0x100 | (state ? 2 : 0) | 0x200;
+				untyped _usbDevice.controlTransferOut({requestType:'vendor', recipient:'device', request:0x07, value:maskVal, index:0x00});
+			}
+			else if (vid == 0x1a86)     // CH340
+			{
+				var ch340Val:Int = (~((state ? 1<<5 : 0) | (state ? 1<<6 : 0))) & 0xffff;
+				untyped _usbDevice.controlTransferOut({requestType:'vendor', recipient:'device', request:0xA4, value:ch340Val, index:0x00});
+			}
+			else     // CDC
+			{
+				untyped _usbDevice.controlTransferOut({requestType:'class', recipient:'interface', request:0x22, value:val, index:_usbControlInterface});
+			}
+		}
+	}
+
+	/**
+	* Set a pending error message to be emitted on the next update(dt).
+	* Uses the same pending mechanism as RX data for thread safety.
+	*
+	* @param msg Error message string
+	*/
+	private function setError(msg:String):Void
+	{
+		_pendingErrStr = msg;
+		_hasPendingErr = true;
+	}
+	#end
+// =========================================================================
+// PULSE TIMERS (COMMON)
+// =========================================================================
+	/**
+	* Update pulse timers and auto-reset tick contacts.
+	*
+	* Each tick contact (rxTick, txTick, errorTick) is set to true when
+	* an event occurs, then auto-resets to false after PULSE_DURATION
+	* seconds. This method decrements the timers each frame and resets
+	* the contact when the timer expires.
+	*
+	* ┌─────────────────────────────────────────────────────────────────┐
+	* │  Timer Lifecycle:                                               │
+	* │                                                                 │
+	* │  Event occurs → tick.value = true, timer = PULSE_DURATION       │
+	* │                                                                 │
+	* │  update(dt):  timer -= dt                                       │
+	* │               if timer <= 0: tick.value = false                 │
+	* │                                                                 │
+	* │  Result: downstream atoms see a brief TRUE pulse (50ms)         │
+	* │  that can trigger one-shot actions (LED blink, counter incr.)   │
+	* └─────────────────────────────────────────────────────────────────┘
+	*
+	* @param dt Delta time in seconds since last tick
+	*/
+	private function updatePulseTimers(dt:Float):Void
+	{
+		if (_rxTimer > 0) { _rxTimer -= dt; if (_rxTimer <= 0) { var c = getOutput("rxTick"); if (c != null) c.value = false; } }
+		if (_txTimer > 0) { _txTimer -= dt; if (_txTimer <= 0) { var c = getOutput("txTick"); if (c != null) c.value = false; } }
+		if (_errTimer > 0) { _errTimer -= dt; if (_errTimer <= 0) { var c = getOutput("errorTick"); if (c != null) c.value = false; } }
+	}
 }
 
 ================================================================================
@@ -32757,7 +33671,7 @@ class RelayAtom extends Atom
 
 ================================================================================
 // FILE: library\electro\TextAreaAtom.hx
-// Lines: 304 | Chars: 11379
+// Lines: 372 | Chars: 15428
 ================================================================================
 
 // FILE: library/electro/TextAreaAtom.hx
@@ -32768,7 +33682,7 @@ import core.base.Contact;
 import core.types.ContactType;
 
 /**
- * TEXT AREA ATOM v1.1 (Fixed Append Logic)
+ * TEXT AREA ATOM v1.2 (Contact Name Consistency + Silent Append Reset)
  *
  * Passive atom for multi-line text display and editing.
  * Extends the concept of TextInputAtom with full textarea configuration.
@@ -32779,7 +33693,7 @@ import core.types.ContactType;
  * │                                                                         │
  * │   ┌─────────────────────────────────────────────────────────────────┐   │
  * │   │  CONFIGURATION INPUTS:                                          │   │
- * │   │  - text       (String)  → Full text content                     │   │
+ * │   │  - textIn     (String)  → Full text content (replaces all)      │   │
  * │   │  - append     (String)  → Append text to existing content       │   │
  * │   │  - clear      (Bool)    → Clear all text on true                │   │
  * │   │  - editable   (Bool)    → Enable/disable user editing           │   │
@@ -32791,15 +33705,24 @@ import core.types.ContactType;
  * │   │  - numLines   (Int)     → Number of visible lines (height)      │   │
  * │   │                                                                 │   │
  * │   │  OUTPUTS:                                                       │   │
- * │   │  - text       (String)  → Current text content                  │   │
+ * │   │  - textOut    (String)  → Current text content                  │   │
  * │   │  - changed    (Bool)    → Pulse on text change                  │   │
  * │   │  - lineCount  (Int)     → Current number of lines               │   │
  * │   │  - cursorLine (Int)     → Current cursor line number            │   │
  * │   └─────────────────────────────────────────────────────────────────┘   │
  * │                                                                         │
  * │   Widget (TextAreaWidget) reads config from atom's contacts.            │
- * │   Widget writes to "text" contact on user input.                        │
+ * │   Widget writes to "textIn" contact or setTextFromWidget() on input.    │
  * │   Atom is the Databank — single source of truth.                        │
+ * │                                                                         │
+ * │   v1.2 CONTACT NAME CONTRACT (CRITICAL):                                │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  Input:  "textIn"   ← Widget and external atoms write HERE      │   │
+ * │   │  Output: "textOut"  ← Widget subscribes to THIS for updates     │   │
+ * │   │                                                                 │   │
+ * │   │  Both Widget and Atom MUST use these EXACT names.               │   │
+ * │   │  Never use "text" as a contact name — it's ambiguous.           │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
@@ -32815,6 +33738,13 @@ import core.types.ContactType;
  * │ hScroll          │ false         │
  * │ vScroll          │ true          │
  * └──────────────────┴───────────────┘
+ *
+ * v1.2 Changes:
+ * - FIXED: append reset uses setValueSilent() instead of c.value = ""
+ *   to prevent parasitic propagate cycle on every append operation.
+ * - FIXED: restoreState() uses setValueSilent() for textIn to prevent
+ *   double propagate wave during Load-Symmetric Reconstruction.
+ * - ADDED: Explicit contact name contract documentation.
  */
 class TextAreaAtom extends Atom
 {
@@ -32838,7 +33768,7 @@ class TextAreaAtom extends Atom
         super(
             // === INPUTS ===
             [
-                new Contact("", INPUT, "text"),
+                new Contact("", INPUT, "textIn"),
                 new Contact("", INPUT, "append"),
                 new Contact(false, INPUT, "clear"),
                 new Contact(true, INPUT, "editable"),
@@ -32851,7 +33781,7 @@ class TextAreaAtom extends Atom
             ],
             // === OUTPUTS ===
             [
-                new Contact("", OUTPUT, "text"),
+                new Contact("", OUTPUT, "textOut"),
                 new Contact(false, OUTPUT, "changed"),
                 new Contact(1, OUTPUT, "lineCount"),
                 new Contact(1, OUTPUT, "cursorLine")
@@ -32868,6 +33798,15 @@ class TextAreaAtom extends Atom
     /**
      * Called when any contact value changes.
      * Routes configuration changes and text operations.
+     *
+     * Data flow for text operations:
+     * ┌─────────────────────────────────────────────────────────────────┐
+     * │  textIn changed → _text = newValue → pushTextToOutput()         │
+     * │  append changed → _text += newValue → pushTextToOutput()        │
+     * │                   → setValueSilent("") to reset (no propagate)  │
+     * │  clear == true  → _text = "" → pushTextToOutput()               │
+     * │                   → setValueSilent(false) to reset              │
+     * └─────────────────────────────────────────────────────────────────┘
      */
     override public function onContactChanged(c:Contact):Void
     {
@@ -32875,7 +33814,7 @@ class TextAreaAtom extends Atom
 
         switch (c.name)
         {
-            case "text":
+            case "textIn":
                 var newText = Std.string(c.value);
                 if (newText != _text)
                 {
@@ -32887,13 +33826,20 @@ class TextAreaAtom extends Atom
                 var appendStr = Std.string(c.value);
                 if (appendStr != "" && appendStr != "null")
                 {
-                    // FIX: Removed "\n" + to prevent unwanted line breaks on every append.
-                    // Data is appended exactly as received, allowing the sender to control formatting.
+                    // Data is appended exactly as received,
+                    // allowing the sender to control formatting.
                     _text += appendStr;
-                    
+
                     pushTextToOutput();
-                    // Reset append input to prevent re-trigger
-                    c.value = "";
+
+                    // v1.2 FIX: Use setValueSilent to reset append input.
+                    // Previous code used c.value = "" which triggered a
+                    // parasitic propagate cycle:
+                    //   c.value="" → propagate → onContactChanged("append")
+                    //   → appendStr=="" → exit (wasted cycle)
+                    // setValueSilent writes directly to _value without
+                    // scheduling propagation, breaking the cycle cleanly.
+                    c.setValueSilent("");
                 }
 
             case "clear":
@@ -32901,7 +33847,8 @@ class TextAreaAtom extends Atom
                 {
                     _text = "";
                     pushTextToOutput();
-                    c.value = false;
+                    // v1.2: Silent reset to prevent re-trigger
+                    c.setValueSilent(false);
                 }
 
             case "editable":
@@ -32933,10 +33880,23 @@ class TextAreaAtom extends Atom
 
     /**
      * Push current text to output and fire changed pulse.
+     *
+     * ┌─────────────────────────────────────────────────────────────────┐
+     * │  pushTextToOutput()                                             │
+     * │       │                                                         │
+     * │       ├──► textOut.value = _text                                │
+     * │       │                                                         │
+     * │       ├──► lineCount.value = _text.split("\n").length           │
+     * │       │                                                         │
+     * │       └──► changed.value = true                                 │
+     * │              │                                                  │
+     * │              └──► scheduleNextTick ×3 → changed.value = false   │
+     * │                   (pulse reset after ~50ms at 60Hz)             │
+     * └─────────────────────────────────────────────────────────────────┘
      */
     private function pushTextToOutput():Void
     {
-        var textOut = getOutput("text");
+        var textOut = getOutput("textOut");
         if (textOut != null) textOut.value = _text;
 
         var lineCountOut = getOutput("lineCount");
@@ -32957,7 +33917,10 @@ class TextAreaAtom extends Atom
                 {
                     core.logic.TickGenerator.getInstance().scheduleNextTick(function()
                     {
-                        if (changedOut != null) changedOut.value = false;
+                        if (changedOut != null && !changedOut.isDisposed)
+                        {
+                            changedOut.value = false;
+                        }
                     });
                 });
             });
@@ -32979,14 +33942,19 @@ class TextAreaAtom extends Atom
     /**
      * Called by widget when user edits text.
      * Updates internal state and output contacts.
+     *
+     * v1.2: Uses setValueSilent for textIn sync to prevent
+     * feedback loop (textIn.value = _text would re-trigger
+     * onContactChanged → case "textIn" → pushTextToOutput again).
      */
     public function setTextFromWidget(newText:String):Void
     {
         if (newText != _text)
         {
             _text = newText;
-            // Sync input contact silently
-            var textIn = getInput("text");
+            // Sync input contact silently — no propagate needed
+            // because we already call pushTextToOutput() below.
+            var textIn = getInput("textIn");
             if (textIn != null) textIn.setValueSilent(_text);
             pushTextToOutput();
         }
@@ -33027,6 +33995,14 @@ class TextAreaAtom extends Atom
         return result;
     }
 
+    /**
+     * v1.2 FIX: Uses setValueSilent for both textIn and textOut
+     * during restore to prevent propagate waves during loading.
+     *
+     * Load-Symmetric Reconstruction principle:
+     * restoreState() must NOT trigger side-effect propagate chains.
+     * The Assembly._processPendingSignals() handles final sync wave.
+     */
     override public function restoreState(state:Dynamic):Void
     {
         if (state == null) return;
@@ -33035,10 +34011,16 @@ class TextAreaAtom extends Atom
         if (state.text != null)
         {
             _text = Std.string(state.text);
-            var textOut = getOutput("text");
-            if (textOut != null) textOut.value = _text;
-            var textIn = getInput("text");
-            if (textIn != null) textIn.value = _text;
+
+            // v1.2 FIX: Silent writes — no propagate during load.
+            // Previous code used .value = which triggered:
+            //   textIn.value → onContactChanged → pushTextToOutput
+            //   → textOut.value (double write + propagate wave)
+            var textOut = getOutput("textOut");
+            if (textOut != null) textOut.setValueSilent(_text);
+
+            var textIn = getInput("textIn");
+            if (textIn != null) textIn.setValueSilent(_text);
         }
         if (state.editable != null) _editable = state.editable;
         if (state.wordWrap != null) _wordWrap = state.wordWrap;
@@ -33056,11 +34038,11 @@ class TextAreaAtom extends Atom
             if (v >= 1 && v <= 100) _numLines = v;
         }
 
-        // Update line count output
+        // Update line count output (silent — no propagate during load)
         var lineCountOut = getOutput("lineCount");
         if (lineCountOut != null)
         {
-            lineCountOut.value = _text.split("\n").length;
+            lineCountOut.setValueSilent(_text.split("\n").length);
         }
     }
 }
@@ -33430,7 +34412,7 @@ class ToggleAtom extends Atom
 
 ================================================================================
 // FILE: Main.hx
-// Lines: 1794 | Chars: 52979
+// Lines: 1805 | Chars: 53746
 ================================================================================
 
 package;
@@ -33735,19 +34717,30 @@ class Main extends Sprite
 		var editor = _editorContext.currentEditor;
 		
 		// === Generate IDs for connections ===
-		var buttonId = UID.generate();
-		var ledId = UID.generate();
+		var openPortButtonId = UID.generate();
+		var closePortButtonId = UID.generate();
+		var sendTxDataButtonId = UID.generate();
+		var textInputTxDataId = UID.generate();
+		var statusLedId = UID.generate();
+		var comport1AtomId = UID.generate();
 		
 		// === Create atoms ===
-		
-		editor.createAtomWithId("Button", buttonId, 200, 400);
-		editor.createAtomWithId("LED", ledId, 450, 400);
+		editor.createAtomWithId("ComPortAtom", comport1AtomId, 500, 20);
+		editor.createAtomWithId("Button", openPortButtonId, 200, 50);
+		editor.createAtomWithId("Button", closePortButtonId, 200, 150);
+		editor.createAtomWithId("Button", sendTxDataButtonId, 200, 250);
+		editor.createAtomWithId("TextInput", textInputTxDataId, 200, 350);
+		editor.createAtomWithId("LED", statusLedId, 750, 70);
 	
 		// === Connect them! ===
 		// Button.out → LED.in
-		editor.connectAtoms(buttonId, "out", ledId, "in");
+		editor.connectAtoms(comport1AtomId, "isOpen", statusLedId, "in");
+		editor.connectAtoms(openPortButtonId, "out", comport1AtomId, "open");
+		editor.connectAtoms(closePortButtonId, "out", comport1AtomId, "close");
+		editor.connectAtoms(sendTxDataButtonId, "out", comport1AtomId, "send");
+		editor.connectAtoms(textInputTxDataId, "out", comport1AtomId, "txData");
 		
-		trace("MainHTML5: Demo project created with 2 atoms and 1 connections");
+		trace("MainHTML5: Demo project created with 2 atoms and 1 connection");
 		
 		// Force redraw after a short delay
 		haxe.Timer.delay(function() {

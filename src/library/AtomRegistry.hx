@@ -223,7 +223,7 @@ class AtomRegistry
         ], null, "relay", true, false, "relay");
 
         reg("TextArea", "Text Area", [
-            {name: "text",       type: INPUT,  dataType: "string", priority: CRITICAL, label: "Text"},
+            {name: "textIn",       type: INPUT,  dataType: "string", priority: CRITICAL, label: "TextIn"},
             {name: "append",     type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Append"},
             {name: "clear",      type: INPUT,  dataType: "bool",   priority: OPTIONAL, label: "Clear"},
             {name: "editable",   type: INPUT,  defaultValue: true, dataType: "bool",   priority: IMPORTANT, label: "Editable", visibleInEditor: true},
@@ -233,6 +233,7 @@ class AtomRegistry
             {name: "vScroll",    type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL, label: "VScroll", visibleInEditor: true},
             {name: "maxChars",   type: INPUT,  defaultValue: 40,   dataType: "int",    priority: IMPORTANT, label: "Width", visibleInEditor: true},
             {name: "numLines",   type: INPUT,  defaultValue: 8,    dataType: "int",    priority: IMPORTANT, label: "Lines", visibleInEditor: true},
+            {name: "textOut",    type: OUTPUT, dataType: "bool",   priority: CRITICAL, label: "TextOut"},
             {name: "changed",    type: OUTPUT, dataType: "bool",   priority: OPTIONAL},
             {name: "lineCount",  type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Lines"},
             {name: "cursorLine", type: OUTPUT, dataType: "int",    priority: OPTIONAL, label: "Cursor"}

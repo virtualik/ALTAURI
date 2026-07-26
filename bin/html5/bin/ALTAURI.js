@@ -913,14 +913,14 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "164";
+	app.meta.h["build"] = "165";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
 	app.meta.h["packageName"] = "com.virtualik.altauri";
 	app.meta.h["version"] = "1.0.0";
-	var attributes = { allowHighDPI : false, alwaysOnTop : false, borderless : false, element : null, frameRate : 60, height : 0, hidden : false, maximized : false, minimized : false, parameters : { }, resizable : true, title : "ALTAURI", width : 0, x : null, y : null};
-	attributes.context = { antialiasing : 0, background : 16777215, colorDepth : 32, depth : true, hardware : true, stencil : true, type : null, vsync : true};
+	var attributes = { allowHighDPI : true, alwaysOnTop : false, borderless : false, element : null, frameRate : 60, height : 600, hidden : false, maximized : false, minimized : false, parameters : { }, resizable : true, title : "ALTAURI", width : 1024, x : null, y : null};
+	attributes.context = { antialiasing : 0, background : 1973790, colorDepth : 32, depth : true, hardware : true, stencil : true, type : null, vsync : true};
 	if(app.__window == null) {
 		if(config != null) {
 			var _g = 0;
@@ -3545,12 +3545,24 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		var rootAssembly = new core_base_Assembly("main_asm",demoBlueprint);
 		this._editorContext.push(rootAssembly,true);
 		var editor = this._editorContext.currentEditor;
-		var buttonId = utils_UID.generate();
-		var ledId = utils_UID.generate();
-		editor.createAtomWithId("Button",buttonId,200,400);
-		editor.createAtomWithId("LED",ledId,450,400);
-		editor.connectAtoms(buttonId,"out",ledId,"in");
-		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 315, className : "Main", methodName : "createDemoProject"});
+		var openPortButtonId = utils_UID.generate();
+		var closePortButtonId = utils_UID.generate();
+		var sendTxDataButtonId = utils_UID.generate();
+		var textInputTxDataId = utils_UID.generate();
+		var statusLedId = utils_UID.generate();
+		var comport1AtomId = utils_UID.generate();
+		editor.createAtomWithId("ComPortAtom",comport1AtomId,500,20);
+		editor.createAtomWithId("Button",openPortButtonId,200,50);
+		editor.createAtomWithId("Button",closePortButtonId,200,150);
+		editor.createAtomWithId("Button",sendTxDataButtonId,200,250);
+		editor.createAtomWithId("TextInput",textInputTxDataId,200,350);
+		editor.createAtomWithId("LED",statusLedId,750,70);
+		editor.connectAtoms(comport1AtomId,"isOpen",statusLedId,"in");
+		editor.connectAtoms(openPortButtonId,"out",comport1AtomId,"open");
+		editor.connectAtoms(closePortButtonId,"out",comport1AtomId,"close");
+		editor.connectAtoms(sendTxDataButtonId,"out",comport1AtomId,"send");
+		editor.connectAtoms(textInputTxDataId,"out",comport1AtomId,"txData");
+		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 326, className : "Main", methodName : "createDemoProject"});
 		haxe_Timer.delay(function() {
 			if(editor != null && !editor.isDisposed) {
 				editor.forceFullRedraw();
@@ -4243,7 +4255,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				HxOverrides.remove(bp.internalConnections,conn);
 			}
 			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
-			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1445, className : "Main", methodName : "onPortRemoved"});
+			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1456, className : "Main", methodName : "onPortRemoved"});
 		}
 	}
 	,hardReset: function() {
@@ -4392,8 +4404,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		var nodeCount = this._editorContext.currentEditor.getSelectedNodeCount();
 		var wireIds = this._editorContext.currentEditor.getSelectedWireIds();
-		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1614, className : "Main", methodName : "deleteSelectedOnCanvas"});
-		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1615, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1625, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1626, className : "Main", methodName : "deleteSelectedOnCanvas"});
 		if(nodeCount > 0) {
 			this._editorContext.currentEditor.deleteSelectedNodes();
 			this.updateSettingsStats();
@@ -11479,6 +11491,7 @@ core_view_TextAreaWidget.prototype = $extend(core_view_DeviceView.prototype,{
 		this._statusBar.set_selectable(false);
 		this._statusBar.mouseEnabled = false;
 		this.addChild(this._statusBar);
+		this.addEventListener("mouseWheel",$bind(this,this.onMouseWheel));
 	}
 	,buildScrollbars: function() {
 		if(this._vScroll) {
@@ -11549,6 +11562,7 @@ core_view_TextAreaWidget.prototype = $extend(core_view_DeviceView.prototype,{
 			this._hScrollThumb.removeEventListener("mouseOver",$bind(this,this.onHThumbOver));
 			this._hScrollThumb.removeEventListener("mouseOut",$bind(this,this.onHThumbOut));
 		}
+		this.removeEventListener("mouseWheel",$bind(this,this.onMouseWheel));
 		this.buildUI();
 	}
 	,drawBackground: function() {
@@ -11574,6 +11588,41 @@ core_view_TextAreaWidget.prototype = $extend(core_view_DeviceView.prototype,{
 			this._textField.set_borderColor(2763322);
 			this._textField.set_backgroundColor(1118488);
 		}
+	}
+	,onMouseWheel: function(e) {
+		if(this._textField == null || this.isDisposed) {
+			return;
+		}
+		e.stopPropagation();
+		if(e.shiftKey && this._hScroll && !this._wordWrap) {
+			var maxH = this._textField.get_maxScrollH();
+			if(maxH > 0) {
+				var deltaH = -e.delta * 3 * 4;
+				var newH = this._textField.get_scrollH() + (deltaH | 0);
+				if(newH < 0) {
+					newH = 0;
+				}
+				if(newH > maxH) {
+					newH = maxH;
+				}
+				this._textField.set_scrollH(newH);
+			}
+		} else {
+			var maxV = this._textField.get_maxScrollV();
+			if(maxV > 1) {
+				var deltaV = -e.delta * 3;
+				var newV = this._textField.get_scrollV() + (deltaV | 0);
+				if(newV < 1) {
+					newV = 1;
+				}
+				if(newV > maxV) {
+					newV = maxV;
+				}
+				this._textField.set_scrollV(newV);
+			}
+		}
+		this.updateScrollbarThumbs();
+		this.updateStatusBar();
 	}
 	,updateScrollbarThumbs: function() {
 		if(this._textField == null) {
@@ -11724,13 +11773,25 @@ core_view_TextAreaWidget.prototype = $extend(core_view_DeviceView.prototype,{
 		if(this.atom == null || this._textField == null) {
 			return;
 		}
-		var textOut = this.atom.getOutput("text");
+		var textOut = this.atom.getOutput("textOut");
 		if(textOut != null && textOut.get_value() != null) {
 			var newText = Std.string(textOut.get_value());
 			if(newText != this._textField.get_text()) {
 				this._suppressUpdate = true;
 				this._textField.set_text(newText);
 				this._lastText = newText;
+				this._suppressUpdate = false;
+				if(this._autoScroll) {
+					this._textField.set_scrollV(this._textField.get_maxScrollV());
+				}
+				this.updateScrollbarThumbs();
+			}
+		} else if(this._textAreaAtom != null) {
+			var databankText = this._textAreaAtom.getText();
+			if(databankText != this._textField.get_text()) {
+				this._suppressUpdate = true;
+				this._textField.set_text(databankText);
+				this._lastText = databankText;
 				this._suppressUpdate = false;
 				if(this._autoScroll) {
 					this._textField.set_scrollV(this._textField.get_maxScrollV());
@@ -11789,7 +11850,7 @@ core_view_TextAreaWidget.prototype = $extend(core_view_DeviceView.prototype,{
 				this.syncFromAtom();
 			}
 			break;
-		case "text":
+		case "textOut":
 			if(!this._isEditing) {
 				var newText = newValue != null ? Std.string(newValue) : "";
 				if(newText != this._textField.get_text()) {
@@ -11828,9 +11889,9 @@ core_view_TextAreaWidget.prototype = $extend(core_view_DeviceView.prototype,{
 			if(this._textAreaAtom != null) {
 				this._textAreaAtom.setTextFromWidget(currentText);
 			} else {
-				var textOut = this.atom.getOutput("text");
-				if(textOut != null) {
-					textOut.set_value(currentText);
+				var textIn = this.atom.getInput("textIn");
+				if(textIn != null) {
+					textIn.set_value(currentText);
 				}
 			}
 			this.updateStatusBar();
@@ -11914,6 +11975,7 @@ core_view_TextAreaWidget.prototype = $extend(core_view_DeviceView.prototype,{
 			this._hScrollThumb.removeEventListener("mouseOver",$bind(this,this.onHThumbOver));
 			this._hScrollThumb.removeEventListener("mouseOut",$bind(this,this.onHThumbOut));
 		}
+		this.removeEventListener("mouseWheel",$bind(this,this.onMouseWheel));
 		if(this.stage != null) {
 			this.stage.removeEventListener("mouseMove",$bind(this,this.onVThumbDrag));
 			this.stage.removeEventListener("mouseUp",$bind(this,this.onVThumbMouseUp));
@@ -20544,7 +20606,7 @@ library_AtomRegistry.initialize = function() {
 	library_AtomRegistry.reg("Toggle","Toggle Switch",[{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "bool"}],null,"toggle",true,false,"toggle");
 	library_AtomRegistry.reg("TextInput","Text Input",[{ name : "set", type : core_types_ContactType.INPUT, dataType : "string"},{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "string"}],null,"textinput",true,false,"textinput");
 	library_AtomRegistry.reg("Relay","Relay",[{ name : "signal", type : core_types_ContactType.INPUT, dataType : "any"},{ name : "control", type : core_types_ContactType.INPUT, dataType : "bool"},{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "any"}],null,"relay",true,false,"relay");
-	library_AtomRegistry.reg("TextArea","Text Area",[{ name : "text", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL, label : "Text"},{ name : "append", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Append"},{ name : "clear", type : core_types_ContactType.INPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Clear"},{ name : "editable", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.IMPORTANT, label : "Editable", visibleInEditor : true},{ name : "wordWrap", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "WordWrap", visibleInEditor : true},{ name : "autoScroll", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "AutoScroll", visibleInEditor : true},{ name : "hScroll", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "HScroll", visibleInEditor : true},{ name : "vScroll", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "VScroll", visibleInEditor : true},{ name : "maxChars", type : core_types_ContactType.INPUT, defaultValue : 40, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Width", visibleInEditor : true},{ name : "numLines", type : core_types_ContactType.INPUT, defaultValue : 8, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Lines", visibleInEditor : true},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "lineCount", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Lines"},{ name : "cursorLine", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "Cursor"}],null,"textarea",true,false,"textarea");
+	library_AtomRegistry.reg("TextArea","Text Area",[{ name : "textIn", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL, label : "TextIn"},{ name : "append", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Append"},{ name : "clear", type : core_types_ContactType.INPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Clear"},{ name : "editable", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.IMPORTANT, label : "Editable", visibleInEditor : true},{ name : "wordWrap", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "WordWrap", visibleInEditor : true},{ name : "autoScroll", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "AutoScroll", visibleInEditor : true},{ name : "hScroll", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "HScroll", visibleInEditor : true},{ name : "vScroll", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "VScroll", visibleInEditor : true},{ name : "maxChars", type : core_types_ContactType.INPUT, defaultValue : 40, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Width", visibleInEditor : true},{ name : "numLines", type : core_types_ContactType.INPUT, defaultValue : 8, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Lines", visibleInEditor : true},{ name : "textOut", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, label : "TextOut"},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "lineCount", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Lines"},{ name : "cursorLine", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "Cursor"}],null,"textarea",true,false,"textarea");
 	library_AtomRegistry.reg("SignalGenerator","Signal Generator",[{ name : "freq", type : core_types_ContactType.INPUT, defaultValue : 1.0, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Freq", visibleInEditor : true},{ name : "quantum", type : core_types_ContactType.INPUT, defaultValue : 0.1, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL, visibleInEditor : false},{ name : "mode", type : core_types_ContactType.INPUT, defaultValue : 3, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Mode", visibleInEditor : true},{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL}],null,"panel",true,true,"signal_generator");
 	library_AtomRegistry.reg("BufferingAtom","Audio Buffer",[{ name : "bufferSize", type : core_types_ContactType.INPUT, defaultValue : 512, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Size", visibleInEditor : true},{ name : "quantum", type : core_types_ContactType.INPUT, defaultValue : 0.1, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL, visibleInEditor : false},{ name : "mode", type : core_types_ContactType.INPUT, defaultValue : 0, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Mode", visibleInEditor : true},{ name : "in", type : core_types_ContactType.INPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL},{ name : "buffer", type : core_types_ContactType.OUTPUT, dataType : "array", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "count", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Count"},{ name : "full", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.IMPORTANT, label : "Full"}],null,"buffer",true,true,"buffering");
 	library_AtomRegistry.reg("ComPortAtom","COM Port",[{ name : "portName", type : core_types_ContactType.INPUT, defaultValue : "COM13", dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Port"},{ name : "baudRate", type : core_types_ContactType.INPUT, defaultValue : 9600, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Baud"},{ name : "bufferSize", type : core_types_ContactType.INPUT, defaultValue : 4096, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "BufSize"},{ name : "chunkSize", type : core_types_ContactType.INPUT, defaultValue : 256, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "Chunk"},{ name : "enabled", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Enabled"},{ name : "open", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "close", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "send", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "txData", type : core_types_ContactType.INPUT, defaultValue : "", dataType : "string", priority : core_data_ParameterPriority.OPTIONAL},{ name : "setDTR", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "isOpen", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL},{ name : "rxData", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "RX"},{ name : "rxTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL},{ name : "txTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Error"},{ name : "errorTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL}],null,"comport",true,true,"comport",["cpp","html5"]);
@@ -20568,10 +20630,10 @@ library_AtomRegistry.remove = function(id) {
 		if(Object.prototype.hasOwnProperty.call(_this.h,id)) {
 			delete(_this.h[id]);
 		}
-		haxe_Log.trace("AtomRegistry: Removed " + id,{ fileName : "src/library/AtomRegistry.hx", lineNumber : 422, className : "library.AtomRegistry", methodName : "remove"});
+		haxe_Log.trace("AtomRegistry: Removed " + id,{ fileName : "src/library/AtomRegistry.hx", lineNumber : 423, className : "library.AtomRegistry", methodName : "remove"});
 		return true;
 	}
-	haxe_Log.trace("AtomRegistry: " + id + " not found for removal",{ fileName : "src/library/AtomRegistry.hx", lineNumber : 425, className : "library.AtomRegistry", methodName : "remove"});
+	haxe_Log.trace("AtomRegistry: " + id + " not found for removal",{ fileName : "src/library/AtomRegistry.hx", lineNumber : 426, className : "library.AtomRegistry", methodName : "remove"});
 	return false;
 };
 library_AtomRegistry.exists = function(id) {
@@ -20675,7 +20737,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 				this._readPos = this._writePos - this._bufferSize;
 				this._overflowCount++;
 				if(this._overflowCount % 100 == 0) {
-					haxe_Log.trace("ComPortAtom: Ring buffer overflow! Lost " + this._overflowCount + " bytes total",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 241, className : "library.drivers.ComPortAtom", methodName : "writeToBuffer"});
+					haxe_Log.trace("ComPortAtom: Ring buffer overflow! Lost " + this._overflowCount + " bytes total",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 621, className : "library.drivers.ComPortAtom", methodName : "writeToBuffer"});
 				}
 			}
 		}
@@ -20783,7 +20845,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(bufSizeC != null && bufSizeC.get_value() != null) {
 			var newSize = bufSizeC.get_value();
 			if(newSize >= 256 && newSize <= 65536 && newSize != this._bufferSize) {
-				haxe_Log.trace("ComPortAtom: Buffer size changed from " + this._bufferSize + " to " + newSize,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 367, className : "library.drivers.ComPortAtom", methodName : "readConfiguration"});
+				haxe_Log.trace("ComPortAtom: Buffer size changed from " + this._bufferSize + " to " + newSize,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 821, className : "library.drivers.ComPortAtom", methodName : "readConfiguration"});
 				this.initRingBuffer(newSize);
 			}
 		}
@@ -20805,7 +20867,6 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		var sendC = this.getInput("send");
 		var txC = this.getInput("txData");
 		var dtrC = this.getInput("setDTR");
-		var baudC = this.getInput("baudRate");
 		if(openC != null && openC.get_value() == true) {
 			this.openDevice();
 			openC.set_value(false);
@@ -20842,9 +20903,8 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		var hasUSB = typeof navigator !== 'undefined' && 'usb' in navigator;
 		if(hasSerial) {
 			this._connectionType = "serial";
-			var serial = navigator.serial;
 			var self = this;
-			serial.requestPort().then(function(port) {
+			navigator.serial.requestPort().then(function(port) {
 				self.onSerialPortRequested(port);
 			})["catch"](function(err) {
 				self.onPortRequestError(err);
@@ -21076,13 +21136,13 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		} else if(this._connectionType == "usb") {
 			this.startUsbReadLoop();
 		}
-		haxe_Log.trace("ComPortAtom: Port opened via " + this._connectionType,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 811, className : "library.drivers.ComPortAtom", methodName : "onPortOpened"});
+		haxe_Log.trace("ComPortAtom: Port opened via " + this._connectionType,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1379, className : "library.drivers.ComPortAtom", methodName : "onPortOpened"});
 	}
 	,onPortOpenError: function(err) {
 		this.setError("Failed to open port: " + Std.string(err));
 	}
 	,onPortRequestError: function(err) {
-		haxe_Log.trace("ComPortAtom: Port request cancelled or failed: " + Std.string(err),{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 815, className : "library.drivers.ComPortAtom", methodName : "onPortRequestError"});
+		haxe_Log.trace("ComPortAtom: Port request cancelled or failed: " + Std.string(err),{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1385, className : "library.drivers.ComPortAtom", methodName : "onPortRequestError"});
 	}
 	,closeDevice: function() {
 		var _gthis = this;
@@ -21172,7 +21232,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(outOpen != null) {
 			outOpen.set_value(false);
 		}
-		haxe_Log.trace("ComPortAtom: Port closed",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 928, className : "library.drivers.ComPortAtom", methodName : "onPortClosed"});
+		haxe_Log.trace("ComPortAtom: Port closed",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1507, className : "library.drivers.ComPortAtom", methodName : "onPortClosed"});
 	}
 	,onPortCloseError: function(err) {
 		this.setError("Failed to close port: " + Std.string(err));
@@ -21322,7 +21382,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 	}
 	,setDTRState: function(state) {
 		if(this._connectionType == "serial") {
-			haxe_Log.trace("ComPortAtom: DTR control not directly supported in standard Web Serial API without extensions.",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1054, className : "library.drivers.ComPortAtom", methodName : "setDTRState"});
+			haxe_Log.trace("ComPortAtom: DTR control not directly supported in standard Web Serial API without extensions.",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1700, className : "library.drivers.ComPortAtom", methodName : "setDTRState"});
 		} else if(this._connectionType == "usb") {
 			var vid = this._usbDevice.vendorId;
 			var val = state ? 3 : 0;
@@ -22656,7 +22716,7 @@ var library_electro_TextAreaAtom = function(id) {
 	this._wordWrap = true;
 	this._editable = true;
 	this._text = "";
-	core_base_Atom.call(this,[new core_base_Contact("",core_types_ContactType.INPUT,"text"),new core_base_Contact("",core_types_ContactType.INPUT,"append"),new core_base_Contact(false,core_types_ContactType.INPUT,"clear"),new core_base_Contact(true,core_types_ContactType.INPUT,"editable"),new core_base_Contact(true,core_types_ContactType.INPUT,"wordWrap"),new core_base_Contact(true,core_types_ContactType.INPUT,"autoScroll"),new core_base_Contact(false,core_types_ContactType.INPUT,"hScroll"),new core_base_Contact(true,core_types_ContactType.INPUT,"vScroll"),new core_base_Contact(40,core_types_ContactType.INPUT,"maxChars"),new core_base_Contact(8,core_types_ContactType.INPUT,"numLines")],[new core_base_Contact("",core_types_ContactType.OUTPUT,"text"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"changed"),new core_base_Contact(1,core_types_ContactType.OUTPUT,"lineCount"),new core_base_Contact(1,core_types_ContactType.OUTPUT,"cursorLine")],null,id,"TextArea");
+	core_base_Atom.call(this,[new core_base_Contact("",core_types_ContactType.INPUT,"textIn"),new core_base_Contact("",core_types_ContactType.INPUT,"append"),new core_base_Contact(false,core_types_ContactType.INPUT,"clear"),new core_base_Contact(true,core_types_ContactType.INPUT,"editable"),new core_base_Contact(true,core_types_ContactType.INPUT,"wordWrap"),new core_base_Contact(true,core_types_ContactType.INPUT,"autoScroll"),new core_base_Contact(false,core_types_ContactType.INPUT,"hScroll"),new core_base_Contact(true,core_types_ContactType.INPUT,"vScroll"),new core_base_Contact(40,core_types_ContactType.INPUT,"maxChars"),new core_base_Contact(8,core_types_ContactType.INPUT,"numLines")],[new core_base_Contact("",core_types_ContactType.OUTPUT,"textOut"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"changed"),new core_base_Contact(1,core_types_ContactType.OUTPUT,"lineCount"),new core_base_Contact(1,core_types_ContactType.OUTPUT,"cursorLine")],null,id,"TextArea");
 };
 $hxClasses["library.electro.TextAreaAtom"] = library_electro_TextAreaAtom;
 library_electro_TextAreaAtom.__name__ = "library.electro.TextAreaAtom";
@@ -22672,7 +22732,7 @@ library_electro_TextAreaAtom.prototype = $extend(core_base_Atom.prototype,{
 			if(appendStr != "" && appendStr != "null") {
 				this._text += appendStr;
 				this.pushTextToOutput();
-				c.set_value("");
+				c.setValueSilent("");
 			}
 			break;
 		case "autoScroll":
@@ -22682,7 +22742,7 @@ library_electro_TextAreaAtom.prototype = $extend(core_base_Atom.prototype,{
 			if(c.get_value() == true) {
 				this._text = "";
 				this.pushTextToOutput();
-				c.set_value(false);
+				c.setValueSilent(false);
 			}
 			break;
 		case "editable":
@@ -22703,7 +22763,7 @@ library_electro_TextAreaAtom.prototype = $extend(core_base_Atom.prototype,{
 				this._numLines = v;
 			}
 			break;
-		case "text":
+		case "textIn":
 			var newText = Std.string(c.get_value());
 			if(newText != this._text) {
 				this._text = newText;
@@ -22720,7 +22780,7 @@ library_electro_TextAreaAtom.prototype = $extend(core_base_Atom.prototype,{
 		core_base_Atom.prototype.onContactChanged.call(this,c);
 	}
 	,pushTextToOutput: function() {
-		var textOut = this.getOutput("text");
+		var textOut = this.getOutput("textOut");
 		if(textOut != null) {
 			textOut.set_value(this._text);
 		}
@@ -22735,7 +22795,7 @@ library_electro_TextAreaAtom.prototype = $extend(core_base_Atom.prototype,{
 			core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
 				core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
 					core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
-						if(changedOut != null) {
+						if(changedOut != null && !changedOut.isDisposed) {
 							changedOut.set_value(false);
 						}
 					});
@@ -22770,7 +22830,7 @@ library_electro_TextAreaAtom.prototype = $extend(core_base_Atom.prototype,{
 	,setTextFromWidget: function(newText) {
 		if(newText != this._text) {
 			this._text = newText;
-			var textIn = this.getInput("text");
+			var textIn = this.getInput("textIn");
 			if(textIn != null) {
 				textIn.setValueSilent(this._text);
 			}
@@ -22804,13 +22864,13 @@ library_electro_TextAreaAtom.prototype = $extend(core_base_Atom.prototype,{
 		core_base_Atom.prototype.restoreState.call(this,state);
 		if(state.text != null) {
 			this._text = Std.string(state.text);
-			var textOut = this.getOutput("text");
+			var textOut = this.getOutput("textOut");
 			if(textOut != null) {
-				textOut.set_value(this._text);
+				textOut.setValueSilent(this._text);
 			}
-			var textIn = this.getInput("text");
+			var textIn = this.getInput("textIn");
 			if(textIn != null) {
-				textIn.set_value(this._text);
+				textIn.setValueSilent(this._text);
 			}
 		}
 		if(state.editable != null) {
@@ -22842,7 +22902,7 @@ library_electro_TextAreaAtom.prototype = $extend(core_base_Atom.prototype,{
 		}
 		var lineCountOut = this.getOutput("lineCount");
 		if(lineCountOut != null) {
-			lineCountOut.set_value(this._text.split("\n").length);
+			lineCountOut.setValueSilent(this._text.split("\n").length);
 		}
 	}
 	,__class__: library_electro_TextAreaAtom
@@ -40196,7 +40256,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 810640;
+	this.version = 611751;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
@@ -102018,6 +102078,7 @@ core_view_TextAreaWidget.MIN_CHARS = 5;
 core_view_TextAreaWidget.MAX_CHARS = 200;
 core_view_TextAreaWidget.MIN_LINES = 1;
 core_view_TextAreaWidget.MAX_LINES = 100;
+core_view_TextAreaWidget.WHEEL_SCROLL_LINES = 3;
 core_view_TextAreaWidget.SCROLL_BG_COLOR = 1710628;
 core_view_TextAreaWidget.SCROLL_TRACK_COLOR = 2763322;
 core_view_TextAreaWidget.SCROLL_THUMB_COLOR = 4868714;

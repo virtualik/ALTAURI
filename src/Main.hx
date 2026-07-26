@@ -300,17 +300,28 @@ class Main extends Sprite
 		var editor = _editorContext.currentEditor;
 		
 		// === Generate IDs for connections ===
-		var buttonId = UID.generate();
-		var ledId = UID.generate();
+		var openPortButtonId = UID.generate();
+		var closePortButtonId = UID.generate();
+		var sendTxDataButtonId = UID.generate();
+		var textInputTxDataId = UID.generate();
+		var statusLedId = UID.generate();
+		var comport1AtomId = UID.generate();
 		
 		// === Create atoms ===
-		
-		editor.createAtomWithId("Button", buttonId, 200, 400);
-		editor.createAtomWithId("LED", ledId, 450, 400);
+		editor.createAtomWithId("ComPortAtom", comport1AtomId, 500, 20);
+		editor.createAtomWithId("Button", openPortButtonId, 200, 50);
+		editor.createAtomWithId("Button", closePortButtonId, 200, 150);
+		editor.createAtomWithId("Button", sendTxDataButtonId, 200, 250);
+		editor.createAtomWithId("TextInput", textInputTxDataId, 200, 350);
+		editor.createAtomWithId("LED", statusLedId, 750, 70);
 	
 		// === Connect them! ===
 		// Button.out → LED.in
-		editor.connectAtoms(buttonId, "out", ledId, "in");
+		editor.connectAtoms(comport1AtomId, "isOpen", statusLedId, "in");
+		editor.connectAtoms(openPortButtonId, "out", comport1AtomId, "open");
+		editor.connectAtoms(closePortButtonId, "out", comport1AtomId, "close");
+		editor.connectAtoms(sendTxDataButtonId, "out", comport1AtomId, "send");
+		editor.connectAtoms(textInputTxDataId, "out", comport1AtomId, "txData");
 		
 		trace("MainHTML5: Demo project created with 2 atoms and 1 connection");
 		

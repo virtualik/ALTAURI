@@ -33,10 +33,12 @@
 			transparent="true" />
 	
 	<!-- Специфичные настройки для HTML5 -->
-	<!-- ВАЖНО: Не задаём width и height, чтобы браузер сам подогнал canvas 1:1 -->
-	<window if="html5" 
-			background="#FFFFFF"
-			allow-high-dpi="false" />
+	<!-- СЛУЧАЙ 1 НА ВЕСЬ БРАУЗЕР: Не задаём width и height, чтобы браузер сам подогнал canvas 1:1 -->
+	<!-- window if="html5" background="#FFFFFF"	allow-high-dpi="false" -->
+
+	<!-- СЛУЧАЙ 2 ДЛЯ ОБЛАСТИ DIV:Фиксированный размер для демо-виджета, например 800x400 -->
+	<window if="html5" width="1024" height="600" background="#1E1E1E" />
+	<template path="templates/html5/index.html" rename="index.html" />
 
 	<!-- ========================================================================= -->
 	<!-- ENVIRONMENT VARIABLES (C++ Only)                                          -->

@@ -20,6 +20,18 @@ if (Test-Path "$rootSource\assets") {
     }
 }
 
+# 2.5. Синхронизация папки templates (с вложенной html5 и содержимым)
+# Копируется рекурсивно через /MIR — подпапка html5 и все файлы внутри переносятся автоматически
+Write-Host "  -> Copying templates folder..." -ForegroundColor Cyan
+if (Test-Path "$rootSource\templates") {
+    robocopy "$rootSource\templates" "$rootTarget\templates" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
+} else {
+    Write-Host "     Warning: templates folder not found in ALTAURI root. Creating empty one." -ForegroundColor Yellow
+    if (-Not (Test-Path "$rootTarget\templates")) {
+        New-Item -ItemType Directory -Path "$rootTarget\templates" -Force | Out-Null
+    }
+}
+
 # 3. Синхронизация папки src
 $sourceSrc = "$rootSource\src"
 $targetSrc = "$rootTarget\src"
