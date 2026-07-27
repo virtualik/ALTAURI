@@ -294,6 +294,28 @@ class AtomRegistry
             {name: "ports", type: OUTPUT, dataType: "string", priority: CRITICAL}
         ], null, "comenumerator", true, true, "comenumerator", ["cpp"]);
 
+		// =========================================================================
+		// FILE WRITER — HTML5 File System Access API
+		// =========================================================================
+		#if html5
+		reg("FileWriterAtom", "File Writer", [
+			{name: "open",      type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Open"},
+			{name: "close",     type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Close"},
+			{name: "write",     type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Write"},
+			{name: "append",    type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Append"},
+			{name: "clear",     type: INPUT,  dataType: "bool",   priority: OPTIONAL,  label: "Clear"},
+			{name: "flush",     type: INPUT,  dataType: "bool",   priority: OPTIONAL,  label: "Flush"},
+			{name: "enabled",   type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL,  label: "Enabled"},
+			{name: "mode",      type: INPUT,  defaultValue: 1,    dataType: "int",    priority: IMPORTANT, label: "Mode"},
+			{name: "fileName",  type: INPUT,  defaultValue: "output.txt", dataType: "string", priority: OPTIONAL, label: "File Name"},
+			{name: "isOpen",    type: OUTPUT, dataType: "bool",   priority: CRITICAL},
+			{name: "written",   type: OUTPUT, dataType: "bool",   priority: IMPORTANT, label: "Written"},
+			{name: "writeCount",type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Writes"},
+			{name: "fileSize",  type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Size"},
+			{name: "error",     type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
+			{name: "errorTick", type: OUTPUT, dataType: "bool",   priority: INTERNAL}
+		], null, "filewriter", true, true, "filewriter", ["html5"]);
+		#end
         #if cpp
         reg("MiniAudioAtom", "Mini Audio Capture", [
             {name: "mode",     type: INPUT,  defaultValue: 1,    dataType: "int",     priority: IMPORTANT, label: "Mode"},

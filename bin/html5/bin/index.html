@@ -1,85 +1,249 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ALTAURI</title>
+    <title>ALTAURI | ALTAURI Demonstration</title>
+    
+    <!-- Premium Tech Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
     <style>
+        /* ==========================================================================
+           DESIGN SYSTEM & VARIABLES
+           ========================================================================== */
+        :root {
+            --color-bg: #f8fafc;
+            --color-surface: #ffffff;
+            --color-text-primary: #0f172a;
+            --color-text-secondary: #475569;
+            --color-accent: #4f46e5;       /* Indigo 600 */
+            --color-accent-light: #eef2ff; /* Indigo 50 */
+            --color-border: #e2e8f0;
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
+            --radius-md: 8px;
+            --radius-lg: 12px;
+        }
+
+        /* ==========================================================================
+           BASE LAYOUT
+           ========================================================================== */
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f4f4f9;
-            color: #333;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--color-bg);
+            color: var(--color-text-primary);
             margin: 0;
-            padding: 20px;
+            padding: 40px 20px;
             display: flex;
             flex-direction: column;
             align-items: center;
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
+
+        /* ==========================================================================
+           COMPONENTS
+           ========================================================================== */
         .demo-section {
             max-width: 1024px;
             width: 100%;
-            background: #fff;
-            padding: 24px;
-            margin: 20px 0;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            background: var(--color-surface);
+            padding: 32px 40px;
+            margin: 24px 0;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--color-border);
+            box-shadow: var(--shadow-md);
             box-sizing: border-box;
+            transition: box-shadow 0.3s ease, transform 0.3s ease;
         }
+
+        .demo-section:hover {
+            box-shadow: var(--shadow-lg);
+        }
+
         .demo-title {
-            color: #2c3e50;
-            border-bottom: 2px solid #3498db;
-            padding-bottom: 8px;
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--color-text-primary);
+            border-bottom: 2px solid var(--color-accent);
+            padding-bottom: 12px;
             margin-top: 0;
+            margin-bottom: 24px;
+            letter-spacing: -0.025em;
         }
-        /* Контейнер для OpenFL — div, а не canvas! */
+
+        .demo-description {
+            font-size: 1.05rem;
+            color: var(--color-text-secondary);
+            margin-bottom: 16px;
+        }
+
+        .demo-description strong {
+            color: var(--color-text-primary);
+            font-weight: 600;
+        }
+
+        /* OpenFL Container (Terminal/App Window Aesthetic) */
         #openfl-content {
             display: block;
             width: 1024px;
             height: 600px;
             max-width: 100%;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-            background-color: #1E1E1E;
-            margin: 20px auto;
+            border: 1px solid #334155;
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-lg), 0 0 0 1px rgba(0,0,0,0.05);
+            background-color: #0f172a; /* Deep slate for premium terminal look */
+            margin: 0 auto 32px auto; /* Removed top margin since it's now higher up */
             position: relative;
             overflow: hidden;
-            /* Разрешаем текстовый ввод внутри контейнера */
             -webkit-user-select: text;
             user-select: text;
+        }
+
+        /* ALTAURI Architecture Block */
+        .altauri-block {
+            background-color: var(--color-accent-light);
+            border-left: 4px solid var(--color-accent);
+            padding: 20px 24px;
+            margin: 24px 0;
+            border-radius: 0 var(--radius-md) var(--radius-md) 0;
+        }
+
+        .altauri-block h3 {
+            color: var(--color-accent);
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-top: 0;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .altauri-block p {
+            color: var(--color-text-secondary);
+            margin: 0;
+            font-size: 0.95rem;
+        }
+
+        /* How It Works Block */
+        .how-it-works-block h3 {
+            color: var(--color-text-primary);
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-top: 32px;
+            margin-bottom: 16px;
+        }
+
+        .how-it-works-block ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+        }
+
+        .how-it-works-block li {
+            background: var(--color-bg);
+            padding: 16px 20px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--color-border);
+            font-size: 0.95rem;
+            color: var(--color-text-secondary);
+            transition: border-color 0.2s ease, background-color 0.2s ease;
+        }
+
+        .how-it-works-block li:hover {
+            border-color: var(--color-accent);
+            background-color: #ffffff;
+        }
+
+        .how-it-works-block strong {
+            color: var(--color-text-primary);
+            font-weight: 600;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        /* Responsive Adjustments */
+        @media (max-width: 768px) {
+            body { padding: 20px 16px; }
+            .demo-section { padding: 24px 20px; }
+            .demo-title { font-size: 1.5rem; }
+            .how-it-works-block ul { grid-template-columns: 1fr; }
+            #openfl-content { height: 400px; }
         }
     </style>
 </head>
 <body>
 
+    <!-- 1) Main Heading & 2) Core Description -->
     <div class="demo-section">
-        <h2 class="demo-title">Демонстрация: Монитор последовательного канала связи</h2>
-        <p>
-            Этот интерактивный образец демонстрирует способность системы <strong>ALTAURI</strong>
-            управлять аппаратными абстракциями. Ниже представлен COM-порт,
-            который можно активировать на локальной рабочей станции.
+        <h2 class="demo-title">Demo: COM Port Control via Web Interface</h2>
+        
+        <p class="demo-description">
+            This interactive demonstration showcases how the <strong>ALTAURI</strong> system provides direct, low-latency access to a computer's hardware resources through a standard web browser.
+        </p>
+        <p class="demo-description">
+            You are looking at a virtual control panel for a COM port—a standard serial communication interface. Despite operating entirely within a browser sandbox, ALTAURI grants you full, real-time, deterministic control over the physical hardware of your workstation. Furthermore, leveraging modern standards like the Web Serial API, this web-based COM port functionality extends seamlessly to <strong>Android platforms</strong>, enabling powerful mobile hardware integration.
         </p>
     </div>
 
-    <div class="demo-section">
-        <p>
-            <strong>Как это работает:</strong> Система использует единый Event Bus и WebApi драйверы для 
-			доступа к железу.
-        </p>
-    </div>
-
-    <!-- DIV-контейнер вместо CANVAS -->
-    <!-- Lime создаст внутри: canvas для рендеринга + скрытый input для текстового ввода -->
+    <!-- 3) OpenFL Container (Moved up for immediate interaction) -->
+    <!-- Lime will dynamically inject: a canvas for rendering + a hidden input for text entry -->
     <div id="openfl-content"></div>
 
-    <!-- Подключаем скрипт приложения -->
+    <!-- 4) ALTAURI Architecture & Operational Mechanics -->
+    <div class="demo-section">
+        <!-- ALTAURI Architecture Block -->
+        <div class="altauri-block">
+            <h3>The ALTAURI Architecture</h3>
+            <p>
+                ALTAURI bridges the gap between modern web applications and system-level software. It utilizes a centralized, high-performance Event Bus for seamless communication between UI components and specialized WebAPI drivers that interact directly with the hardware, ensuring robust data exchange without compromising security or execution speed.
+            </p>
+        </div>
+
+        <!-- Operational Mechanics Block -->
+        <div class="how-it-works-block">
+            <h3>Operational Mechanics</h3>
+            <ul>
+                <li>
+                    <strong>Port Management</strong>
+                    Open, configure, and close the COM port directly from the browser interface.
+                </li>
+                <li>
+                    <strong>Real-time Monitoring</strong>
+                    Track connection status, baud rates, and data flow with zero observable latency.
+                </li>
+                <li>
+                    <strong>Bi-directional Transmission</strong>
+                    Send and receive binary or text information through the serial channel reliably.
+                </li>
+                <li>
+                    <strong>Advanced Data Routing</strong>
+                    Seamlessly bridge serial data with other endpoints. Route incoming COM port streams directly to local files or WebSockets, and inject data from files or WebSockets back into the serial channel.
+                </li>
+                <li>
+                    <strong>Visual Telemetry</strong>
+                    Observe the live data exchange process in an integrated, scrollable text console.
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Include Application Script -->
     <script src="ALTAURI.js"></script>
 
-    <!-- Запускаем приложение -->
+    <!-- Initialize Application -->
     <script>
     window.addEventListener('load', function() {
         if (typeof lime !== 'undefined' && typeof lime.embed === 'function') {
-            // Передаём ID строкой — Lime найдёт div и создаст полную DOM-структуру
+            // Pass ID as string — Lime will locate the div and construct the full DOM structure
             lime.embed("ALTAURI", "openfl-content", 1024, 600);
         }
     });

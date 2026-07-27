@@ -123,6 +123,14 @@ class AssemblyFactory
                                 case "COM ENUMERATOR":
                                 case "COMENUMERATOR":
                                         normalizedTypeId = "ComEnumeratorAtom";
+										
+// ─────────────────────────────────────────────────────────────
+// FILE WRITER ATOM — File i/o exchange HTML% version
+// ─────────────────────────────────────────────────────────────
+								case "FILEWRITERATOM":
+								case "FILEWRITER":
+								case "FILE WRITER":
+									normalizedTypeId = "FileWriterAtom";
 // ─────────────────────────────────────────────────────────────
 // WEBSOCKET — WEBSocket client
 // ─────────────────────────────────────────────────────────────
@@ -210,6 +218,13 @@ class AssemblyFactory
                                 atom = new library.drivers.ComEnumeratorAtom(id);
                                 trace('🔍 AssemblyFactory: Created ComEnumeratorAtom...');
                                 #end
+						case "FileWriterAtom":
+							#if html5
+							atom = new library.drivers.FileWriterAtom(id);
+							trace('📝 AssemblyFactory: Created FileWriterAtom...');
+							#else
+							trace('⚠️ FileWriterAtom requires HTML5 target');
+							#end
 // =============================================================
 // WEB SOCKET — Web Socket port
 // =============================================================

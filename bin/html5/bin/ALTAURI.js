@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "166";
+	app.meta.h["build"] = "167";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
@@ -3551,29 +3551,45 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		var sendTxDataButtonId = utils_UID.generate();
 		var textInputTxDataId = utils_UID.generate();
 		var textAreaRxDataId = utils_UID.generate();
-		var statusLedId = utils_UID.generate();
+		var comportStatusLedId = utils_UID.generate();
 		var comport1AtomId = utils_UID.generate();
+		var fileWriterId = utils_UID.generate();
+		var openFileButtonId = utils_UID.generate();
+		var closeFileButtonId = utils_UID.generate();
+		var fileWriterStatusLedId = utils_UID.generate();
 		editor.createAtomWithId("ComPortAtom",comport1AtomId,500,20);
 		editor.createAtomWithId("Button",openPortButtonId,200,50);
 		editor.createAtomWithId("Button",closePortButtonId,200,150);
 		editor.createAtomWithId("Button",sendTxDataButtonId,200,250);
 		editor.createAtomWithId("TextInput",textInputTxDataId,200,350);
 		editor.createAtomWithId("TextArea",textAreaRxDataId,850,350);
-		editor.createAtomWithId("LED",statusLedId,750,70);
-		editor.connectAtoms(comport1AtomId,"isOpen",statusLedId,"in");
+		editor.createAtomWithId("LED",comportStatusLedId,750,70);
+		editor.createAtomWithId("FileWriterAtom",fileWriterId,1100,20);
+		editor.createAtomWithId("Button",openFileButtonId,900,50);
+		editor.createAtomWithId("Button",closeFileButtonId,900,150);
+		editor.createAtomWithId("LED",fileWriterStatusLedId,1300,70);
+		editor.connectAtoms(comport1AtomId,"isOpen",comportStatusLedId,"in");
 		editor.connectAtoms(comport1AtomId,"rxData",textAreaRxDataId,"append");
 		editor.connectAtoms(openPortButtonId,"out",comport1AtomId,"open");
 		editor.connectAtoms(closePortButtonId,"out",comport1AtomId,"close");
 		editor.connectAtoms(sendTxDataButtonId,"out",comport1AtomId,"send");
 		editor.connectAtoms(textInputTxDataId,"out",comport1AtomId,"txData");
-		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 331, className : "Main", methodName : "createDemoProject"});
+		editor.connectAtoms(openFileButtonId,"out",fileWriterId,"open");
+		editor.connectAtoms(closeFileButtonId,"out",fileWriterId,"close");
+		editor.connectAtoms(comport1AtomId,"rxData",fileWriterId,"append");
+		editor.connectAtoms(fileWriterId,"isOpen",fileWriterStatusLedId,"in");
+		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 344, className : "Main", methodName : "createDemoProject"});
 		this.renameAtom(rootAssembly,openPortButtonId,"Open Port");
 		this.renameAtom(rootAssembly,closePortButtonId,"Close Port");
 		this.renameAtom(rootAssembly,sendTxDataButtonId,"Send TX");
 		this.renameAtom(rootAssembly,textInputTxDataId,"TX Payload");
-		this.renameAtom(rootAssembly,statusLedId,"Is Open?");
+		this.renameAtom(rootAssembly,comportStatusLedId,"COMPort Open?");
 		this.renameAtom(rootAssembly,comport1AtomId,"COM1 Interface");
-		this.injectTextInputData(rootAssembly,textInputTxDataId,"ALTAURI Ready\r");
+		this.renameAtom(rootAssembly,fileWriterId,"File Writer");
+		this.renameAtom(rootAssembly,openFileButtonId,"Open File");
+		this.renameAtom(rootAssembly,closeFileButtonId,"Close File");
+		this.renameAtom(rootAssembly,fileWriterStatusLedId,"FileWriter Open?");
+		this.injectTextInputData(rootAssembly,textInputTxDataId,"ALTAURI Data 1234567890\r");
 		haxe_Timer.delay(function() {
 			if(editor != null && !editor.isDisposed) {
 				editor.forceFullRedraw();
@@ -3582,7 +3598,54 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				_gthis.onToggleView();
 			}
 		},10);
-		this.setupDemoDevicePanel(rootAssembly,textInputTxDataId,textAreaRxDataId,statusLedId,openPortButtonId,closePortButtonId,sendTxDataButtonId);
+		haxe_Timer.delay(function() {
+			if(!_gthis._isPanelMode) {
+				_gthis.onToggleView();
+			}
+			if(_gthis._devicePanel == null) {
+				return;
+			}
+			var txAtom = rootAssembly.internalAtoms.h[textInputTxDataId];
+			var textArea = rootAssembly.internalAtoms.h[textAreaRxDataId];
+			var comportledAtom = rootAssembly.internalAtoms.h[comportStatusLedId];
+			var openPortBtAtom = rootAssembly.internalAtoms.h[openPortButtonId];
+			var closePortBtAtom = rootAssembly.internalAtoms.h[closePortButtonId];
+			var sendBtAtom = rootAssembly.internalAtoms.h[sendTxDataButtonId];
+			var openFileBtAtom = rootAssembly.internalAtoms.h[openFileButtonId];
+			var closeFileBtAtom = rootAssembly.internalAtoms.h[closeFileButtonId];
+			var fileLedAtom = rootAssembly.internalAtoms.h[fileWriterStatusLedId];
+			if(txAtom != null) {
+				_gthis._devicePanel.addDevice(txAtom,350,50);
+			}
+			if(textArea != null) {
+				_gthis._devicePanel.addDevice(textArea,550,250);
+			}
+			if(comportledAtom != null) {
+				_gthis._devicePanel.addDevice(comportledAtom,300,270);
+			}
+			if(openPortBtAtom != null) {
+				_gthis._devicePanel.addDevice(openPortBtAtom,100,280);
+			}
+			if(closePortBtAtom != null) {
+				_gthis._devicePanel.addDevice(closePortBtAtom,200,280);
+			}
+			if(sendBtAtom != null) {
+				_gthis._devicePanel.addDevice(sendBtAtom,500,50);
+			}
+			if(openFileBtAtom != null) {
+				_gthis._devicePanel.addDevice(openFileBtAtom,100,450);
+			}
+			if(closeFileBtAtom != null) {
+				_gthis._devicePanel.addDevice(closeFileBtAtom,200,450);
+			}
+			if(fileLedAtom != null) {
+				_gthis._devicePanel.addDevice(fileLedAtom,300,440);
+			}
+			_gthis.syncDevicePanelToCache();
+			if(!_gthis._isPanelMode) {
+				_gthis.onToggleView();
+			}
+		},10);
 		this.updateNavigationUI();
 		this.updateButtonStates();
 	}
@@ -3603,45 +3666,6 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				setContact.set_value(text);
 			}
 		}
-	}
-	,setupDemoDevicePanel: function(asm,textId,textAreaId,ledId,openPortButtonId,closePortButtonId,sendTxDataButtonId) {
-		var _gthis = this;
-		haxe_Timer.delay(function() {
-			if(!_gthis._isPanelMode) {
-				_gthis.onToggleView();
-			}
-			if(_gthis._devicePanel == null) {
-				return;
-			}
-			var txAtom = asm.internalAtoms.h[textId];
-			var textArea = asm.internalAtoms.h[textAreaId];
-			var ledAtom = asm.internalAtoms.h[ledId];
-			var openBtAtom = asm.internalAtoms.h[openPortButtonId];
-			var closeBtAtom = asm.internalAtoms.h[closePortButtonId];
-			var sendBtAtom = asm.internalAtoms.h[sendTxDataButtonId];
-			if(txAtom != null) {
-				_gthis._devicePanel.addDevice(txAtom,350,50);
-			}
-			if(textArea != null) {
-				_gthis._devicePanel.addDevice(textArea,550,250);
-			}
-			if(ledAtom != null) {
-				_gthis._devicePanel.addDevice(ledAtom,300,280);
-			}
-			if(openBtAtom != null) {
-				_gthis._devicePanel.addDevice(openBtAtom,100,280);
-			}
-			if(closeBtAtom != null) {
-				_gthis._devicePanel.addDevice(closeBtAtom,200,280);
-			}
-			if(sendBtAtom != null) {
-				_gthis._devicePanel.addDevice(sendBtAtom,500,50);
-			}
-			_gthis.syncDevicePanelToCache();
-			if(!_gthis._isPanelMode) {
-				_gthis.onToggleView();
-			}
-		},50);
 	}
 	,loadProject: function() {
 		var _gthis = this;
@@ -3691,7 +3715,6 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		if(asm == null || asm.internalAtoms == null || depth > 10) {
 			return;
 		}
-		var indent = StringTools.lpad("","  ",depth);
 		var h = asm.internalAtoms.h;
 		var id_h = h;
 		var id_keys = Object.keys(h);
@@ -3701,7 +3724,6 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			var id = id_keys[id_current++];
 			var atom = asm.internalAtoms.h[id];
 			if(atom != null) {
-				var logicStatus = atom.isLogic ? "DIGITAL" : "ANALOG";
 				if(((atom) instanceof core_base_Assembly)) {
 					this.checkIsLogicRecursive(js_Boot.__cast(atom , core_base_Assembly),depth + 1);
 				}
@@ -4242,10 +4264,6 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		return count;
 	}
 	,onNewAssembly: function() {
-		if(!this._settingsPanel.get_allowAssembly()) {
-			this.log("Assembly disabled");
-			return;
-		}
 		var cmd = new system_commands_editor_CreateNewAssemblyCommand();
 		system_managers_UndoManager.getInstance().executeAndStore(cmd);
 	}
@@ -4327,7 +4345,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				HxOverrides.remove(bp.internalConnections,conn);
 			}
 			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
-			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1567, className : "Main", methodName : "onPortRemoved"});
+			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1584, className : "Main", methodName : "onPortRemoved"});
 		}
 	}
 	,hardReset: function() {
@@ -4476,8 +4494,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		var nodeCount = this._editorContext.currentEditor.getSelectedNodeCount();
 		var wireIds = this._editorContext.currentEditor.getSelectedWireIds();
-		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1736, className : "Main", methodName : "deleteSelectedOnCanvas"});
-		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1737, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1753, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1754, className : "Main", methodName : "deleteSelectedOnCanvas"});
 		if(nodeCount > 0) {
 			this._editorContext.currentEditor.deleteSelectedNodes();
 			this.updateSettingsStats();
@@ -5066,16 +5084,6 @@ StringTools.rtrim = function(s) {
 };
 StringTools.trim = function(s) {
 	return StringTools.ltrim(StringTools.rtrim(s));
-};
-StringTools.lpad = function(s,c,l) {
-	if(c.length <= 0) {
-		return s;
-	}
-	var buf_b = "";
-	l -= s.length;
-	while(buf_b.length < l) buf_b += c == null ? "null" : "" + c;
-	buf_b += s == null ? "null" : "" + s;
-	return buf_b;
 };
 StringTools.replace = function(s,sub,by) {
 	return s.split(sub).join(by);
@@ -7131,6 +7139,13 @@ core_base_AssemblyFactory.createAtom = function(typeId,forcedId,initialState) {
 			break;
 		case "FFTATOM":
 			break;
+		case "FILE WRITER":
+			normalizedTypeId = "FileWriterAtom";
+			break;
+		case "FILEWRITER":
+			break;
+		case "FILEWRITERATOM":
+			break;
 		case "LED":
 			break;
 		case "LEDINDICATOR":
@@ -7208,19 +7223,23 @@ core_base_AssemblyFactory.createAtom = function(typeId,forcedId,initialState) {
 		break;
 	case "ComPortAtom":
 		atom = new library_drivers_ComPortAtom(id);
-		haxe_Log.trace(" AssemblyFactory: Created ComPortAtom...",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 206, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		haxe_Log.trace(" AssemblyFactory: Created ComPortAtom...",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 214, className : "core.base.AssemblyFactory", methodName : "createAtom"});
 		break;
 	case "FFTAtom":
 		atom = new library_electro_FFTAtom(id);
+		break;
+	case "FileWriterAtom":
+		atom = new library_drivers_FileWriterAtom(id);
+		haxe_Log.trace("📝 AssemblyFactory: Created FileWriterAtom...",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 224, className : "core.base.AssemblyFactory", methodName : "createAtom"});
 		break;
 	case "LED":
 		atom = new library_electro_LedAtom(id);
 		break;
 	case "MiniAudioAtom":
-		haxe_Log.trace("⚠️ MiniAudioAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 201, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		haxe_Log.trace("⚠️ MiniAudioAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 209, className : "core.base.AssemblyFactory", methodName : "createAtom"});
 		break;
 	case "NETRadioPlayerAtom":
-		haxe_Log.trace("⚠️ NETRadioPlayerAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 229, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		haxe_Log.trace("⚠️ NETRadioPlayerAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 244, className : "core.base.AssemblyFactory", methodName : "createAtom"});
 		break;
 	case "Oscilloscope":
 		atom = new library_electro_OscilloscopeAtom(id);
@@ -7244,8 +7263,8 @@ core_base_AssemblyFactory.createAtom = function(typeId,forcedId,initialState) {
 		atom = new library_electro_ToggleAtom(id);
 		break;
 	case "URLAudioStreamPlayerAtom":
-		haxe_Log.trace("⚠️ URLAudioStreamPlayerAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 239, className : "core.base.AssemblyFactory", methodName : "createAtom"});
-		haxe_Log.trace("⚠️ SystemVUMeterAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 249, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		haxe_Log.trace("⚠️ URLAudioStreamPlayerAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 254, className : "core.base.AssemblyFactory", methodName : "createAtom"});
+		haxe_Log.trace("⚠️ SystemVUMeterAtom requires C++ target",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 264, className : "core.base.AssemblyFactory", methodName : "createAtom"});
 		break;
 	case "WEBSocketAtom":
 		break;
@@ -7312,7 +7331,7 @@ core_base_AssemblyFactory.createAssembly = function(typeId) {
 	if(((atom) instanceof core_base_Assembly)) {
 		return atom;
 	} else {
-		haxe_Log.trace("WARN: " + typeId + " is a native Atom, not an Assembly.",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 440, className : "core.base.AssemblyFactory", methodName : "createAssembly"});
+		haxe_Log.trace("WARN: " + typeId + " is a native Atom, not an Assembly.",{ fileName : "src/core/base/AssemblyFactory.hx", lineNumber : 455, className : "core.base.AssemblyFactory", methodName : "createAssembly"});
 		return null;
 	}
 };
@@ -9604,7 +9623,8 @@ core_view_DeviceWidgetFactory.createForAssembly = function(asm) {
 	case "oscilloscope":case "scope":
 		return new core_view_OscilloscopeWidget(asm,"in");
 	case "signalgenerator":
-		return new core_view_SignalGeneratorWidget(asm);
+		new core_view_SignalGeneratorWidget(asm);
+		return new core_view_FileWriterWidget(asm);
 	case "switch":case "toggle":
 		return new core_view_ToggleWidget(asm,core_view_DeviceWidgetFactory.getContactName(bp,"out"));
 	case "textarea":
@@ -9625,6 +9645,8 @@ core_view_DeviceWidgetFactory.createByAtomType = function(atom) {
 		return new core_view_ComPortWidget(atom);
 	case "fft spectrum":case "fftatom":
 		return new core_view_FFTWidget(atom);
+	case "file writer":case "filewriteratom":
+		return new core_view_FileWriterWidget(atom);
 	case "led":case "led indicator":
 		return new core_view_LEDWidget(atom,"in");
 	case "oscilloscope":
@@ -9968,6 +9990,423 @@ core_view_FFTWidget.prototype = $extend(core_view_DeviceView.prototype,{
 		core_view_DeviceView.prototype.dispose.call(this);
 	}
 	,__class__: core_view_FFTWidget
+});
+var core_view_FileWriterWidget = function(atom) {
+	this._colorInputBg = 855320;
+	this._colorMuted = 8947865;
+	this._colorText = 16777215;
+	this._colorInactive = 3355460;
+	this._colorWarning = 16755200;
+	this._colorDanger = 16729156;
+	this._colorActive = 65416;
+	this._colorAccent = 43775;
+	this._colorHeader = 2763322;
+	this._colorBg = 1710628;
+	this.widgetHeight = 220;
+	this.widgetWidth = 280;
+	this._lastError = "";
+	this._currentMode = 1;
+	this._fileSize = 0;
+	this._writeCount = 0;
+	this._isOpen = false;
+	this._suggestedFileName = "output.txt";
+	core_view_DeviceView.call(this,atom);
+	this.findContacts();
+	this.buildUI();
+	this.syncFromAtom();
+};
+$hxClasses["core.view.FileWriterWidget"] = core_view_FileWriterWidget;
+core_view_FileWriterWidget.__name__ = "core.view.FileWriterWidget";
+core_view_FileWriterWidget._toFixed = function(value,decimals) {
+	if(decimals == null) {
+		decimals = 1;
+	}
+	if(isNaN(value) || !isFinite(value)) {
+		return "0.0";
+	}
+	var multiplier = Math.pow(10,decimals);
+	var rounded = Math.round(value * multiplier) / multiplier;
+	var s = rounded == null ? "null" : "" + rounded;
+	if(s.indexOf(".") == -1) {
+		s += ".";
+		var _g = 0;
+		var _g1 = decimals;
+		while(_g < _g1) {
+			var _ = _g++;
+			s += "0";
+		}
+		return s;
+	}
+	var parts = s.split(".");
+	var frac = parts[1];
+	while(frac.length < decimals) frac += "0";
+	return parts[0] + "." + frac;
+};
+core_view_FileWriterWidget.__super__ = core_view_DeviceView;
+core_view_FileWriterWidget.prototype = $extend(core_view_DeviceView.prototype,{
+	getWidgetSize: function() {
+		return { width : this.widgetWidth, height : this.widgetHeight};
+	}
+	,findContacts: function() {
+		if(this.atom == null) {
+			return;
+		}
+		this._openContact = this.atom.getInput("open");
+		this._closeContact = this.atom.getInput("close");
+		this._flushContact = this.atom.getInput("flush");
+		this._clearContact = this.atom.getInput("clear");
+		this._fileNameContact = this.atom.getInput("fileName");
+		this._modeContact = this.atom.getInput("mode");
+		this._isOpenContact = this.atom.getOutput("isOpen");
+		this._writeCountContact = this.atom.getOutput("writeCount");
+		this._fileSizeContact = this.atom.getOutput("fileSize");
+		this._errorContact = this.atom.getOutput("error");
+		this._errorTickContact = this.atom.getOutput("errorTick");
+	}
+	,onActivate: function() {
+		this.findContacts();
+		this.syncFromAtom();
+	}
+	,buildUI: function() {
+		var yPos = 0;
+		this._bg = new openfl_display_Sprite();
+		this.addChild(this._bg);
+		this._header = new openfl_display_Sprite();
+		this._header.set_y(yPos);
+		this.addChild(this._header);
+		this._titleLabel = new openfl_text_TextField();
+		this._titleLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",13,this._colorText,true));
+		this._titleLabel.set_text("  FILE WRITER");
+		this._titleLabel.set_width(this.widgetWidth - 40);
+		this._titleLabel.set_height(28);
+		this._titleLabel.set_selectable(false);
+		this._titleLabel.mouseEnabled = false;
+		this._header.addChild(this._titleLabel);
+		this._statusGlow = new openfl_display_Sprite();
+		this._statusGlow.get_graphics().beginFill(this._colorDanger,0.2);
+		this._statusGlow.get_graphics().drawCircle(0,0,12);
+		this._statusGlow.get_graphics().endFill();
+		this._statusGlow.set_x(this.widgetWidth - 18);
+		this._statusGlow.set_y(14);
+		this._statusGlow.set_visible(false);
+		this._header.addChild(this._statusGlow);
+		this._statusLed = new openfl_display_Sprite();
+		this._statusLed.get_graphics().beginFill(4456448);
+		this._statusLed.get_graphics().drawCircle(0,0,6);
+		this._statusLed.get_graphics().endFill();
+		this._statusLed.set_x(this.widgetWidth - 18);
+		this._statusLed.set_y(14);
+		this._header.addChild(this._statusLed);
+		yPos += 32;
+		this._fileNameLabel = this.createLabel("File:");
+		this._fileNameLabel.set_y(yPos);
+		this.addChild(this._fileNameLabel);
+		this._fileNameInput = this.createInputField("output.txt",140);
+		this._fileNameInput.set_x(50);
+		this._fileNameInput.set_y(yPos);
+		this._fileNameInput.addEventListener("change",$bind(this,this.onFileNameChanged));
+		this.addChild(this._fileNameInput);
+		this._selectBtn = this.createActionButton("Select",2245734,$bind(this,this.onSelectClick));
+		this._selectBtn.set_x(195);
+		this._selectBtn.set_y(yPos);
+		this.addChild(this._selectBtn);
+		yPos += 30;
+		this._modeLabel = this.createLabel("Mode:");
+		this._modeLabel.set_y(yPos);
+		this.addChild(this._modeLabel);
+		this._modeBtn = new openfl_display_Sprite();
+		this._modeBtn.get_graphics().beginFill(this._colorInactive);
+		this._modeBtn.get_graphics().drawRoundRect(0,0,100,26,4,4);
+		this._modeBtn.get_graphics().endFill();
+		this._modeBtn.set_x(50);
+		this._modeBtn.set_y(yPos);
+		this._modeBtn.set_buttonMode(true);
+		this._modeBtn.useHandCursor = true;
+		this._modeBtn.addEventListener("click",$bind(this,this.onModeClick));
+		this.addChild(this._modeBtn);
+		this._modeText = new openfl_text_TextField();
+		this._modeText.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",11,this._colorText,true,null,null,null,null,0));
+		this._modeText.set_text("Append");
+		this._modeText.set_width(100);
+		this._modeText.set_height(26);
+		this._modeText.set_selectable(false);
+		this._modeText.mouseEnabled = false;
+		this._modeBtn.addChild(this._modeText);
+		yPos += 36;
+		this._openBtn = this.createActionButton("OPEN",2250035,$bind(this,this.onOpenClick));
+		this._openBtn.set_x(10);
+		this._openBtn.set_y(yPos);
+		this.addChild(this._openBtn);
+		this._closeBtn = this.createActionButton("CLOSE",5583650,$bind(this,this.onCloseClick));
+		this._closeBtn.set_x(75);
+		this._closeBtn.set_y(yPos);
+		this.addChild(this._closeBtn);
+		this._flushBtn = this.createActionButton("FLUSH",3359829,$bind(this,this.onFlushClick));
+		this._flushBtn.set_x(140);
+		this._flushBtn.set_y(yPos);
+		this.addChild(this._flushBtn);
+		this._clearBtn = this.createActionButton("CLEAR",5583667,$bind(this,this.onClearClick));
+		this._clearBtn.set_x(205);
+		this._clearBtn.set_y(yPos);
+		this.addChild(this._clearBtn);
+		yPos += 36;
+		this._statsLabel = new openfl_text_TextField();
+		this._statsLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",10,this._colorMuted));
+		this._statsLabel.set_text("Writes: 0    Size: 0 B");
+		this._statsLabel.set_width(this.widgetWidth - 20);
+		this._statsLabel.set_height(16);
+		this._statsLabel.set_x(10);
+		this._statsLabel.set_y(yPos);
+		this._statsLabel.set_selectable(false);
+		this.addChild(this._statsLabel);
+		yPos += 22;
+		this._errorLabel = new openfl_text_TextField();
+		this._errorLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",9,this._colorDanger));
+		this._errorLabel.set_text("");
+		this._errorLabel.set_width(this.widgetWidth - 20);
+		this._errorLabel.set_height(15);
+		this._errorLabel.set_x(10);
+		this._errorLabel.set_y(yPos);
+		this._errorLabel.set_selectable(false);
+		this.addChild(this._errorLabel);
+		this.redrawBackground();
+	}
+	,redrawBackground: function() {
+		this._bg.get_graphics().clear();
+		this._bg.get_graphics().beginFill(this._colorBg,0.95);
+		this._bg.get_graphics().lineStyle(1,this._colorAccent);
+		this._bg.get_graphics().drawRoundRect(0,0,this.widgetWidth,this.widgetHeight,8,8);
+		this._bg.get_graphics().endFill();
+		this._header.get_graphics().clear();
+		this._header.get_graphics().beginFill(this._colorHeader);
+		this._header.get_graphics().drawRoundRectComplex(0,0,this.widgetWidth,28,8,8,0,0);
+		this._header.get_graphics().endFill();
+	}
+	,createLabel: function(text) {
+		var tf = new openfl_text_TextField();
+		tf.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",9,this._colorMuted));
+		tf.set_text(text);
+		tf.set_width(60);
+		tf.set_height(16);
+		tf.set_x(10);
+		tf.set_selectable(false);
+		tf.mouseEnabled = false;
+		return tf;
+	}
+	,createInputField: function(defaultText,width) {
+		var tf = new openfl_text_TextField();
+		tf.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",12,this._colorText));
+		tf.set_text(defaultText);
+		tf.set_width(width);
+		tf.set_height(22);
+		tf.set_background(true);
+		tf.set_backgroundColor(this._colorInputBg);
+		tf.set_border(true);
+		tf.set_borderColor(3355477);
+		tf.set_type(1);
+		tf.set_selectable(true);
+		tf.mouseEnabled = true;
+		return tf;
+	}
+	,createActionButton: function(label,color,callback) {
+		var btn = new openfl_display_Sprite();
+		btn.get_graphics().beginFill(color);
+		btn.get_graphics().drawRoundRect(0,0,60,26,4,4);
+		btn.get_graphics().endFill();
+		var tf = new openfl_text_TextField();
+		tf.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",10,this._colorText,true,null,null,null,null,0));
+		tf.set_text(label);
+		tf.set_width(60);
+		tf.set_height(26);
+		tf.set_selectable(false);
+		tf.mouseEnabled = false;
+		btn.addChild(tf);
+		btn.set_buttonMode(true);
+		btn.useHandCursor = true;
+		btn.addEventListener("click",callback);
+		return btn;
+	}
+	,syncFromAtom: function() {
+		if(this._fileNameContact != null && this._fileNameContact.get_value() != null) {
+			this._suggestedFileName = Std.string(this._fileNameContact.get_value());
+			this._fileNameInput.set_text(this._suggestedFileName);
+		}
+		if(this._modeContact != null && this._modeContact.get_value() != null) {
+			this._currentMode = this._modeContact.get_value() | 0;
+			this.updateModeDisplay();
+		}
+		if(this._isOpenContact != null && this._isOpenContact.get_value() != null) {
+			this._isOpen = this._isOpenContact.get_value() == true;
+			this.updateConnectionStatus(this._isOpen);
+		}
+		if(this._writeCountContact != null && this._writeCountContact.get_value() != null) {
+			this._writeCount = this._writeCountContact.get_value() | 0;
+		}
+		if(this._fileSizeContact != null && this._fileSizeContact.get_value() != null) {
+			this._fileSize = this._fileSizeContact.get_value() | 0;
+		}
+		this.updateStatsDisplay();
+		if(this._errorContact != null && this._errorContact.get_value() != null) {
+			var errStr = Std.string(this._errorContact.get_value());
+			if(errStr != "" && errStr != this._lastError) {
+				this._errorLabel.set_text("Error: " + errStr);
+				this._lastError = errStr;
+			}
+		}
+	}
+	,onContactChanged: function(contact,newValue) {
+		if(this.isDisposed) {
+			return;
+		}
+		if(contact == this._isOpenContact) {
+			this._isOpen = newValue == true;
+			this.updateConnectionStatus(this._isOpen);
+		} else if(contact == this._writeCountContact) {
+			this._writeCount = newValue | 0;
+			this.updateStatsDisplay();
+		} else if(contact == this._fileSizeContact) {
+			this._fileSize = newValue | 0;
+			this.updateStatsDisplay();
+		} else if(contact == this._errorContact) {
+			if(newValue != null && newValue != "") {
+				this._errorLabel.set_text("Error: " + Std.string(newValue));
+				this._lastError = Std.string(newValue);
+			} else {
+				this._errorLabel.set_text("");
+				this._lastError = "";
+			}
+		}
+	}
+	,updateConnectionStatus: function(isOpen) {
+		if(isOpen) {
+			this._statusLed.get_graphics().clear();
+			this._statusLed.get_graphics().beginFill(this._colorActive);
+			this._statusLed.get_graphics().drawCircle(0,0,6);
+			this._statusLed.get_graphics().endFill();
+			this._statusGlow.get_graphics().clear();
+			this._statusGlow.get_graphics().beginFill(this._colorActive,0.2);
+			this._statusGlow.get_graphics().drawCircle(0,0,12);
+			this._statusGlow.get_graphics().endFill();
+			this._statusGlow.set_visible(true);
+		} else {
+			this._statusLed.get_graphics().clear();
+			this._statusLed.get_graphics().beginFill(4456448);
+			this._statusLed.get_graphics().drawCircle(0,0,6);
+			this._statusLed.get_graphics().endFill();
+			this._statusGlow.set_visible(false);
+		}
+	}
+	,updateModeDisplay: function() {
+		if(this._modeText != null) {
+			this._modeText.set_text(this._currentMode == 0 ? "Write" : "Append");
+		}
+	}
+	,updateStatsDisplay: function() {
+		var sizeStr = this.formatFileSize(this._fileSize);
+		this._statsLabel.set_text("Writes: " + this._writeCount + "    Size: " + sizeStr);
+	}
+	,formatFileSize: function(bytes) {
+		if(bytes < 1024) {
+			return bytes + " B";
+		}
+		if(bytes < 1048576) {
+			return core_view_FileWriterWidget._toFixed(bytes / 1024,1) + " KB";
+		}
+		return core_view_FileWriterWidget._toFixed(bytes / 1048576,1) + " MB";
+	}
+	,onFileNameChanged: function(e) {
+		if(this._fileNameContact != null) {
+			this._fileNameContact.set_value(this._fileNameInput.get_text());
+		}
+	}
+	,onSelectClick: function(e) {
+		if(this._openContact != null) {
+			this._openContact.set_value(true);
+		}
+	}
+	,onModeClick: function(e) {
+		this._currentMode = this._currentMode == 0 ? 1 : 0;
+		this.updateModeDisplay();
+		if(this._modeContact != null) {
+			this._modeContact.set_value(this._currentMode);
+		}
+	}
+	,onOpenClick: function(e) {
+		if(this.atom != null && ((this.atom) instanceof library_drivers_FileWriterAtom)) {
+			var writerAtom = this.atom;
+			writerAtom.showFilePicker(this._suggestedFileName);
+		} else {
+			haxe_Log.trace("FileWriterWidget: Atom is not FileWriterAtom or is null",{ fileName : "src/core/view/FileWriterWidget.hx", lineNumber : 538, className : "core.view.FileWriterWidget", methodName : "onOpenClick"});
+		}
+	}
+	,onCloseClick: function(e) {
+		if(this._closeContact != null) {
+			this._closeContact.set_value(true);
+		}
+	}
+	,onFlushClick: function(e) {
+		if(this._flushContact != null) {
+			this._flushContact.set_value(true);
+		}
+	}
+	,onClearClick: function(e) {
+		if(this._clearContact != null) {
+			this._clearContact.set_value(true);
+		}
+	}
+	,dispose: function() {
+		if(this._fileNameInput != null) {
+			this._fileNameInput.removeEventListener("change",$bind(this,this.onFileNameChanged));
+		}
+		if(this._selectBtn != null) {
+			this._selectBtn.removeEventListener("click",$bind(this,this.onSelectClick));
+		}
+		if(this._modeBtn != null) {
+			this._modeBtn.removeEventListener("click",$bind(this,this.onModeClick));
+		}
+		if(this._openBtn != null) {
+			this._openBtn.removeEventListener("click",$bind(this,this.onOpenClick));
+		}
+		if(this._closeBtn != null) {
+			this._closeBtn.removeEventListener("click",$bind(this,this.onCloseClick));
+		}
+		if(this._flushBtn != null) {
+			this._flushBtn.removeEventListener("click",$bind(this,this.onFlushClick));
+		}
+		if(this._clearBtn != null) {
+			this._clearBtn.removeEventListener("click",$bind(this,this.onClearClick));
+		}
+		this._bg = null;
+		this._header = null;
+		this._titleLabel = null;
+		this._statusLed = null;
+		this._statusGlow = null;
+		this._fileNameLabel = null;
+		this._fileNameInput = null;
+		this._selectBtn = null;
+		this._modeLabel = null;
+		this._modeBtn = null;
+		this._modeText = null;
+		this._openBtn = null;
+		this._closeBtn = null;
+		this._flushBtn = null;
+		this._clearBtn = null;
+		this._statsLabel = null;
+		this._errorLabel = null;
+		this._openContact = null;
+		this._closeContact = null;
+		this._flushContact = null;
+		this._clearContact = null;
+		this._fileNameContact = null;
+		this._modeContact = null;
+		this._isOpenContact = null;
+		this._writeCountContact = null;
+		this._fileSizeContact = null;
+		this._errorContact = null;
+		this._errorTickContact = null;
+		core_view_DeviceView.prototype.dispose.call(this);
+	}
+	,__class__: core_view_FileWriterWidget
 });
 var core_view_InlineParameterEditor = function(contact,pinDef) {
 	this._isEditing = false;
@@ -20683,6 +21122,7 @@ library_AtomRegistry.initialize = function() {
 	library_AtomRegistry.reg("BufferingAtom","Audio Buffer",[{ name : "bufferSize", type : core_types_ContactType.INPUT, defaultValue : 512, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Size", visibleInEditor : true},{ name : "quantum", type : core_types_ContactType.INPUT, defaultValue : 0.1, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL, visibleInEditor : false},{ name : "mode", type : core_types_ContactType.INPUT, defaultValue : 0, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Mode", visibleInEditor : true},{ name : "in", type : core_types_ContactType.INPUT, dataType : "float", priority : core_data_ParameterPriority.CRITICAL},{ name : "buffer", type : core_types_ContactType.OUTPUT, dataType : "array", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "count", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Count"},{ name : "full", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.IMPORTANT, label : "Full"}],null,"buffer",true,true,"buffering");
 	library_AtomRegistry.reg("ComPortAtom","COM Port",[{ name : "portName", type : core_types_ContactType.INPUT, defaultValue : "COM13", dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Port"},{ name : "baudRate", type : core_types_ContactType.INPUT, defaultValue : 9600, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Baud"},{ name : "bufferSize", type : core_types_ContactType.INPUT, defaultValue : 4096, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "BufSize"},{ name : "chunkSize", type : core_types_ContactType.INPUT, defaultValue : 256, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "Chunk"},{ name : "enabled", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Enabled"},{ name : "open", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "close", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "send", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "txData", type : core_types_ContactType.INPUT, defaultValue : "", dataType : "string", priority : core_data_ParameterPriority.OPTIONAL},{ name : "setDTR", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "isOpen", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL},{ name : "rxData", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "RX"},{ name : "rxTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL},{ name : "txTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Error"},{ name : "errorTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL}],null,"comport",true,true,"comport",["cpp","html5"]);
 	library_AtomRegistry.reg("ComEnumeratorAtom","COM Enumerator",[{ name : "ports", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL}],null,"comenumerator",true,true,"comenumerator",["cpp"]);
+	library_AtomRegistry.reg("FileWriterAtom","File Writer",[{ name : "open", type : core_types_ContactType.INPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, label : "Open"},{ name : "close", type : core_types_ContactType.INPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, label : "Close"},{ name : "write", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Write"},{ name : "append", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Append"},{ name : "clear", type : core_types_ContactType.INPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Clear"},{ name : "flush", type : core_types_ContactType.INPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Flush"},{ name : "enabled", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Enabled"},{ name : "mode", type : core_types_ContactType.INPUT, defaultValue : 1, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Mode"},{ name : "fileName", type : core_types_ContactType.INPUT, defaultValue : "output.txt", dataType : "string", priority : core_data_ParameterPriority.OPTIONAL, label : "File Name"},{ name : "isOpen", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL},{ name : "written", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.IMPORTANT, label : "Written"},{ name : "writeCount", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Writes"},{ name : "fileSize", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Size"},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Error"},{ name : "errorTick", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.INTERNAL}],null,"filewriter",true,true,"filewriter",["html5"]);
 	library_AtomRegistry.reg("NETRadioPlayerAtom","NET Radio Player",[{ name : "stream_url", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "URL"},{ name : "poll_interval", type : core_types_ContactType.INPUT, defaultValue : 5.0, dataType : "float", priority : core_data_ParameterPriority.OPTIONAL, label : "Poll (s)"},{ name : "playCtrl", type : core_types_ContactType.INPUT, defaultValue : false, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, label : "Play"},{ name : "volume", type : core_types_ContactType.INPUT, defaultValue : 1.0, dataType : "float", priority : core_data_ParameterPriority.IMPORTANT, label : "Volume"},{ name : "title", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Title"},{ name : "artist", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Artist"},{ name : "track", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Track"},{ name : "raw_metadata", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.INTERNAL},{ name : "updated", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "state", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Error"},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.OPTIONAL, label : "Error Msg"}],null,"netradio",true,true,"netradio",["cpp"]);
 	library_AtomRegistry.reg("URLAudioStreamPlayer","URL Audio Player",[{ name : "url", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL, visibleInEditor : true, label : "URL"},{ name : "play", type : core_types_ContactType.INPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, visibleInEditor : true, label : "Play"},{ name : "volume", type : core_types_ContactType.INPUT, dataType : "float", defaultValue : 1.0, priority : core_data_ParameterPriority.OPTIONAL, visibleInEditor : true, label : "Vol"},{ name : "isPlaying", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.CRITICAL, label : "Playing"},{ name : "isBuffering", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.IMPORTANT, label : "Buffering"},{ name : "error", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Error"},{ name : "state", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "State"}],null,"urlplayer",true,true,"urlplayer",["cpp"]);
 	library_AtomRegistry.reg("PassThrough","Pass Through",[{ name : "in", type : core_types_ContactType.INPUT, dataType : "any", priority : core_data_ParameterPriority.CRITICAL},{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "any", priority : core_data_ParameterPriority.CRITICAL},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL}],null,"wire",true,false,"passthrough");
@@ -20702,10 +21142,10 @@ library_AtomRegistry.remove = function(id) {
 		if(Object.prototype.hasOwnProperty.call(_this.h,id)) {
 			delete(_this.h[id]);
 		}
-		haxe_Log.trace("AtomRegistry: Removed " + id,{ fileName : "src/library/AtomRegistry.hx", lineNumber : 423, className : "library.AtomRegistry", methodName : "remove"});
+		haxe_Log.trace("AtomRegistry: Removed " + id,{ fileName : "src/library/AtomRegistry.hx", lineNumber : 445, className : "library.AtomRegistry", methodName : "remove"});
 		return true;
 	}
-	haxe_Log.trace("AtomRegistry: " + id + " not found for removal",{ fileName : "src/library/AtomRegistry.hx", lineNumber : 426, className : "library.AtomRegistry", methodName : "remove"});
+	haxe_Log.trace("AtomRegistry: " + id + " not found for removal",{ fileName : "src/library/AtomRegistry.hx", lineNumber : 448, className : "library.AtomRegistry", methodName : "remove"});
 	return false;
 };
 library_AtomRegistry.exists = function(id) {
@@ -21503,6 +21943,351 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		}
 	}
 	,__class__: library_drivers_ComPortAtom
+});
+var library_drivers_FileWriterAtom = function(id) {
+	this._errorTimer = 0.0;
+	this._writtenTimer = 0.0;
+	this._stream = null;
+	this._fileHandle = null;
+	this._pendingOpen = false;
+	this._lastError = "";
+	this._suggestedFileName = "output.txt";
+	this._enabled = true;
+	this._mode = 1;
+	this._writeCount = 0;
+	this._fileSize = 0;
+	this._isOpenFlag = false;
+	core_base_Atom.call(this,[new core_base_Contact(false,core_types_ContactType.INPUT,"open"),new core_base_Contact(false,core_types_ContactType.INPUT,"close"),new core_base_Contact("",core_types_ContactType.INPUT,"write"),new core_base_Contact("",core_types_ContactType.INPUT,"append"),new core_base_Contact(false,core_types_ContactType.INPUT,"clear"),new core_base_Contact(false,core_types_ContactType.INPUT,"flush"),new core_base_Contact(true,core_types_ContactType.INPUT,"enabled"),new core_base_Contact(1,core_types_ContactType.INPUT,"mode"),new core_base_Contact("output.txt",core_types_ContactType.INPUT,"fileName")],[new core_base_Contact(false,core_types_ContactType.OUTPUT,"isOpen"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"written"),new core_base_Contact(0,core_types_ContactType.OUTPUT,"writeCount"),new core_base_Contact(0,core_types_ContactType.OUTPUT,"fileSize"),new core_base_Contact("",core_types_ContactType.OUTPUT,"error"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"errorTick")],null,id,"FileWriterAtom",true);
+	this.init();
+};
+$hxClasses["library.drivers.FileWriterAtom"] = library_drivers_FileWriterAtom;
+library_drivers_FileWriterAtom.__name__ = "library.drivers.FileWriterAtom";
+library_drivers_FileWriterAtom.__interfaces__ = [system_managers_Driver];
+library_drivers_FileWriterAtom.__super__ = core_base_Atom;
+library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
+	init: function() {
+		haxe_Log.trace("FileWriterAtom: Initialized (Main Thread, no Worker)",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 201, className : "library.drivers.FileWriterAtom", methodName : "init"});
+	}
+	,update: function(dt) {
+		if(this._isDisposed) {
+			return;
+		}
+		this.readInputs();
+		this.updatePulseTimers(dt);
+	}
+	,dispose: function() {
+		if(this._isOpenFlag) {
+			this.closeFile();
+		}
+		this._fileHandle = null;
+		this._stream = null;
+		system_managers_DriverManager.getInstance().unregister(this.get_id());
+		core_base_Atom.prototype.dispose.call(this);
+	}
+	,showFilePicker: function(suggestedName) {
+		if(this._isDisposed) {
+			return;
+		}
+		var name = suggestedName != null ? suggestedName : this._suggestedFileName;
+		var pickerOptions = { suggestedName : name, types : [{ description : "Text Files", accept : { "text/plain" : [".txt",".log",".csv",".dat"]}}]};
+		var self = this;
+		window.showSaveFilePicker(pickerOptions).then(function(handle) {
+			self.onFileSelected(handle);
+		})["catch"](function(err) {
+			self.onFilePickerCancelled(err);
+		});
+	}
+	,onFileSelected: function(handle) {
+		if(this._isDisposed) {
+			return;
+		}
+		this._fileHandle = handle;
+		var self = this;
+		handle.createWritable().then(function(stream) {
+			self.onStreamOpened(stream);
+		})["catch"](function(err) {
+			self.onStreamOpenError(err);
+		});
+	}
+	,onStreamOpened: function(stream) {
+		if(this._isDisposed) {
+			return;
+		}
+		this._stream = stream;
+		this._isOpenFlag = true;
+		this._fileSize = 0;
+		this._writeCount = 0;
+		this.updateOutputs();
+		haxe_Log.trace("FileWriterAtom: File opened successfully",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 295, className : "library.drivers.FileWriterAtom", methodName : "onStreamOpened"});
+	}
+	,onStreamOpenError: function(err) {
+		if(this._isDisposed) {
+			return;
+		}
+		var errMsg = err != null && err.message != null ? Std.string(err.message) : "Unknown error";
+		this.setError("Failed to open stream: " + errMsg);
+	}
+	,onFilePickerCancelled: function(err) {
+		if(this._isDisposed) {
+			return;
+		}
+		this._pendingOpen = false;
+		haxe_Log.trace("FileWriterAtom: File picker cancelled",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 315, className : "library.drivers.FileWriterAtom", methodName : "onFilePickerCancelled"});
+	}
+	,writeData: function(data) {
+		var _gthis = this;
+		if(this._isDisposed || this._stream == null || !this._isOpenFlag) {
+			return;
+		}
+		if(data == null || data == "") {
+			return;
+		}
+		var self = this;
+		if(this._mode == 0) {
+			this._stream.seek(0).then(function() {
+				return _gthis._stream.truncate(0);
+			}).then(function() {
+				return _gthis._stream.write(data);
+			}).then(function() {
+				self.onWriteComplete(data.length);
+			})["catch"](function(err) {
+				self.onWriteError(err);
+			});
+		} else {
+			this._stream.seek(this._fileSize).then(function() {
+				return _gthis._stream.write(data);
+			}).then(function() {
+				self.onWriteComplete(data.length);
+			})["catch"](function(err) {
+				self.onWriteError(err);
+			});
+		}
+	}
+	,appendData: function(data) {
+		var _gthis = this;
+		if(this._isDisposed || this._stream == null || !this._isOpenFlag) {
+			return;
+		}
+		if(data == null || data == "") {
+			return;
+		}
+		var self = this;
+		this._stream.seek(this._fileSize).then(function() {
+			return _gthis._stream.write(data);
+		}).then(function() {
+			self.onWriteComplete(data.length);
+		})["catch"](function(err) {
+			self.onWriteError(err);
+		});
+	}
+	,flushBuffer: function() {
+		if(this._isDisposed || this._stream == null || !this._isOpenFlag) {
+			return;
+		}
+		var self = this;
+		this._stream.flush().then(function() {
+			haxe_Log.trace("FileWriterAtom: Stream flushed",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 387, className : "library.drivers.FileWriterAtom", methodName : "flushBuffer"});
+		})["catch"](function(err) {
+			self.onWriteError(err);
+		});
+	}
+	,clearFile: function() {
+		var _gthis = this;
+		if(this._isDisposed || this._stream == null || !this._isOpenFlag) {
+			return;
+		}
+		var self = this;
+		this._stream.seek(0).then(function() {
+			return _gthis._stream.truncate(0);
+		}).then(function() {
+			self._fileSize = 0;
+			self._writeCount = 0;
+			self.updateOutputs();
+			haxe_Log.trace("FileWriterAtom: File cleared",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 407, className : "library.drivers.FileWriterAtom", methodName : "clearFile"});
+		})["catch"](function(err) {
+			self.onWriteError(err);
+		});
+	}
+	,closeFile: function() {
+		if(this._isDisposed || this._stream == null || !this._isOpenFlag) {
+			return;
+		}
+		var self = this;
+		this._stream.close().then(function() {
+			self._stream = null;
+			self._isOpenFlag = false;
+			self.updateOutputs();
+			haxe_Log.trace("FileWriterAtom: File closed",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 425, className : "library.drivers.FileWriterAtom", methodName : "closeFile"});
+		})["catch"](function(err) {
+			self.onWriteError(err);
+		});
+	}
+	,onWriteComplete: function(bytesWritten) {
+		if(this._isDisposed) {
+			return;
+		}
+		this._fileSize += bytesWritten;
+		this._writeCount++;
+		this.updateOutputs();
+		var writtenOut = this.getOutput("written");
+		if(writtenOut != null) {
+			writtenOut.set_value(true);
+			this._writtenTimer = 0.05;
+		}
+	}
+	,onWriteError: function(err) {
+		if(this._isDisposed) {
+			return;
+		}
+		var errMsg = err != null && err.message != null ? Std.string(err.message) : "Unknown error";
+		this.setError("Write error: " + errMsg);
+	}
+	,readInputs: function() {
+		if(this._isDisposed) {
+			return;
+		}
+		var enabledC = this.getInput("enabled");
+		if(enabledC != null && enabledC.get_value() != null) {
+			this._enabled = enabledC.get_value() == true;
+		}
+		if(!this._enabled) {
+			return;
+		}
+		var modeC = this.getInput("mode");
+		if(modeC != null && modeC.get_value() != null) {
+			var newMode = modeC.get_value() | 0;
+			if(newMode == 0 || newMode == 1) {
+				this._mode = newMode;
+			}
+		}
+		var fileNameC = this.getInput("fileName");
+		if(fileNameC != null && fileNameC.get_value() != null) {
+			this._suggestedFileName = Std.string(fileNameC.get_value());
+		}
+		var openC = this.getInput("open");
+		if(openC != null && openC.get_value() == true) {
+			openC.set_value(false);
+			this._pendingOpen = true;
+			this.showFilePicker(this._suggestedFileName);
+		}
+		var writeC = this.getInput("write");
+		if(writeC != null && writeC.get_value() != null) {
+			var data = Std.string(writeC.get_value());
+			if(data != "") {
+				this.writeData(data);
+			}
+		}
+		var appendC = this.getInput("append");
+		if(appendC != null && appendC.get_value() != null) {
+			var data = Std.string(appendC.get_value());
+			if(data != "") {
+				this.appendData(data);
+				appendC.setValueSilent("");
+			}
+		}
+		var clearC = this.getInput("clear");
+		if(clearC != null && clearC.get_value() == true) {
+			clearC.set_value(false);
+			this.clearFile();
+		}
+		var flushC = this.getInput("flush");
+		if(flushC != null && flushC.get_value() == true) {
+			flushC.set_value(false);
+			this.flushBuffer();
+		}
+		var closeC = this.getInput("close");
+		if(closeC != null && closeC.get_value() == true) {
+			closeC.set_value(false);
+			this.closeFile();
+		}
+	}
+	,updateOutputs: function() {
+		var isOpenOut = this.getOutput("isOpen");
+		var writeCountOut = this.getOutput("writeCount");
+		var fileSizeOut = this.getOutput("fileSize");
+		if(isOpenOut != null) {
+			isOpenOut.setValueSilent(this._isOpenFlag);
+		}
+		if(writeCountOut != null) {
+			writeCountOut.setValueSilent(this._writeCount);
+		}
+		if(fileSizeOut != null) {
+			fileSizeOut.setValueSilent(this._fileSize);
+		}
+		if(isOpenOut != null) {
+			isOpenOut.propagateCurrentValue();
+		}
+		if(writeCountOut != null) {
+			writeCountOut.propagateCurrentValue();
+		}
+		if(fileSizeOut != null) {
+			fileSizeOut.propagateCurrentValue();
+		}
+	}
+	,setError: function(msg) {
+		if(this._isDisposed) {
+			return;
+		}
+		this._lastError = msg;
+		var errorOut = this.getOutput("error");
+		if(errorOut != null) {
+			errorOut.setValueSilent(msg);
+			errorOut.propagateCurrentValue();
+		}
+		var errorTickOut = this.getOutput("errorTick");
+		if(errorTickOut != null) {
+			errorTickOut.set_value(true);
+			this._errorTimer = 0.05;
+		}
+		haxe_Log.trace("FileWriterAtom ERROR: " + msg,{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 606, className : "library.drivers.FileWriterAtom", methodName : "setError"});
+	}
+	,updatePulseTimers: function(dt) {
+		if(this._isDisposed) {
+			return;
+		}
+		if(this._writtenTimer > 0) {
+			this._writtenTimer -= dt;
+			if(this._writtenTimer <= 0) {
+				var c = this.getOutput("written");
+				if(c != null) {
+					c.set_value(false);
+				}
+			}
+		}
+		if(this._errorTimer > 0) {
+			this._errorTimer -= dt;
+			if(this._errorTimer <= 0) {
+				var c = this.getOutput("errorTick");
+				if(c != null) {
+					c.set_value(false);
+				}
+			}
+		}
+	}
+	,isOpen: function() {
+		return this._isOpenFlag;
+	}
+	,getFileSize: function() {
+		return this._fileSize;
+	}
+	,getWriteCount: function() {
+		return this._writeCount;
+	}
+	,getMode: function() {
+		return this._mode;
+	}
+	,setMode: function(mode) {
+		if(mode == 0 || mode == 1) {
+			this._mode = mode;
+		}
+	}
+	,getSuggestedFileName: function() {
+		return this._suggestedFileName;
+	}
+	,hasPendingOpen: function() {
+		return this._pendingOpen;
+	}
+	,__class__: library_drivers_FileWriterAtom
 });
 var library_drivers_SignalGenerator = function(id) {
 	this._updateCount = 0;
@@ -40334,7 +41119,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 63437;
+	this.version = 509112;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
@@ -102211,6 +102996,9 @@ library_drivers_ComPortAtom.MIN_BUFFER_SIZE = 256;
 library_drivers_ComPortAtom.MAX_BUFFER_SIZE = 65536;
 library_drivers_ComPortAtom.MIN_CHUNK_SIZE = 1;
 library_drivers_ComPortAtom.MAX_CHUNK_SIZE = 4096;
+library_drivers_FileWriterAtom.PULSE_DURATION = 0.05;
+library_drivers_FileWriterAtom.MODE_WRITE = 0;
+library_drivers_FileWriterAtom.MODE_APPEND = 1;
 library_drivers_SignalGenerator.MIN_QUANTUM = 0.001;
 library_drivers_SignalGenerator.MAX_QUANTUM = 1.0;
 library_drivers_SignalGenerator.MIN_FREQUENCY = 0.1;

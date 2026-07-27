@@ -121,11 +121,20 @@ class DeviceWidgetFactory
 				new ComPortWidget(asm);
 			case "comenumerator", "com enumerator":
 				new ComEnumeratorWidget(asm);
+				#end
+				#if html5
+				return new core.view.FileWriterWidget(asm);
+				#else
+				return new TextWidget(asm);
+				#end
+				#if cpp
 			case "netradio", "netradioplayer":
 				new NETRadioPlayerWidget(asm);
 			case "urlplayer", "url audio player", "urlaudioplayer":
 				new URLAudioStreamPlayerWidget(asm);
-			#end
+			
+			case "filewriter", "file writer":
+				#end
 			default:
 // Try to find class by name
 				createByClassName(deviceType, asm);
@@ -179,6 +188,12 @@ class DeviceWidgetFactory
 				new MiniAudioWidget(atom);
 			case "urlaudioplayeratom", "url audio player":
 				new URLAudioStreamPlayerWidget(atom);
+				#end
+			case "filewriteratom", "file writer":
+				#if html5
+				return new core.view.FileWriterWidget(atom);
+				#else
+				return new TextWidget(atom);
 				#end
 			default:
 // Universal widget - text display

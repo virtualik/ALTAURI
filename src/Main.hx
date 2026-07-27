@@ -1,18 +1,17 @@
 package;
 
+import core.base.Atom;
 import core.logic.TickGenerator;
 import openfl.display.Sprite;
 import openfl.events.KeyboardEvent;
 import openfl.ui.Keyboard;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
-import lime.app.Application;
 import openfl.Lib;
 import openfl.events.Event;
 import openfl.system.System;
 import core.base.Assembly;
-import core.base.AssemblyFactory;
-import core.base.Atom;
+//import core.base.AssemblyFactory;
 import core.data.Blueprint;
 import core.logic.Impulsys;
 import core.logic.Impulse;
@@ -307,8 +306,12 @@ class Main extends Sprite
 		var sendTxDataButtonId = UID.generate();
 		var textInputTxDataId = UID.generate();
 		var textAreaRxDataId = UID.generate();
-		var statusLedId = UID.generate();
+		var comportStatusLedId = UID.generate();
 		var comport1AtomId = UID.generate();
+		var fileWriterId = UID.generate();
+		var openFileButtonId = UID.generate();
+		var closeFileButtonId = UID.generate();
+		var fileWriterStatusLedId = UID.generate();
 		
 		// === Create atoms ===
 		editor.createAtomWithId("ComPortAtom", comport1AtomId, 500, 20);
@@ -317,19 +320,29 @@ class Main extends Sprite
 		editor.createAtomWithId("Button", sendTxDataButtonId, 200, 250);
 		editor.createAtomWithId("TextInput", textInputTxDataId, 200, 350);
 		editor.createAtomWithId("TextArea", textAreaRxDataId, 850, 350);
-		editor.createAtomWithId("LED", statusLedId, 750, 70);
-	
+		editor.createAtomWithId("LED", comportStatusLedId, 750, 70);
+		editor.createAtomWithId("FileWriterAtom", fileWriterId, 1100, 20);
+		editor.createAtomWithId("Button", openFileButtonId, 900, 50);
+		editor.createAtomWithId("Button", closeFileButtonId, 900, 150);
+		editor.createAtomWithId("LED", fileWriterStatusLedId, 1300, 70);
+
 		// === Connect them! ===
 		// Button.out → LED.in
-		editor.connectAtoms(comport1AtomId, "isOpen", statusLedId, "in");
+		editor.connectAtoms(comport1AtomId, "isOpen", comportStatusLedId, "in");
 		editor.connectAtoms(comport1AtomId, "rxData", textAreaRxDataId, "append");
 		editor.connectAtoms(openPortButtonId, "out", comport1AtomId, "open");
 		editor.connectAtoms(closePortButtonId, "out", comport1AtomId, "close");
 		editor.connectAtoms(sendTxDataButtonId, "out", comport1AtomId, "send");
+		
 		editor.connectAtoms(textInputTxDataId, "out", comport1AtomId, "txData");
 		
-		trace("MainHTML5: Demo project created with 2 atoms and 1 connection");
+		editor.connectAtoms(openFileButtonId, "out", fileWriterId, "open");
+		editor.connectAtoms(closeFileButtonId, "out", fileWriterId, "close");
+		editor.connectAtoms(comport1AtomId, "rxData", fileWriterId, "append");
+		editor.connectAtoms(fileWriterId, "isOpen", fileWriterStatusLedId, "in");
 		
+		trace("MainHTML5: Demo project created with 2 atoms and 1 connection");
+
 		// ==========================================
 		// ALTAURI PROGRAMMATIC SETUP PIPELINE
 		// ==========================================
@@ -339,11 +352,15 @@ class Main extends Sprite
 		renameAtom(rootAssembly, closePortButtonId, "Close Port");
 		renameAtom(rootAssembly, sendTxDataButtonId, "Send TX");
 		renameAtom(rootAssembly, textInputTxDataId, "TX Payload");
-		renameAtom(rootAssembly, statusLedId, "Is Open?");
+		renameAtom(rootAssembly, comportStatusLedId, "COMPort Open?");
 		renameAtom(rootAssembly, comport1AtomId, "COM1 Interface");
+		renameAtom(rootAssembly, fileWriterId, "File Writer");
+		renameAtom(rootAssembly, openFileButtonId, "Open File");
+		renameAtom(rootAssembly, closeFileButtonId, "Close File");
+		renameAtom(rootAssembly, fileWriterStatusLedId, "FileWriter Open?");
 
 		// 2. Inject Data into Databank
-		injectTextInputData(rootAssembly, textInputTxDataId, "ALTAURI Ready\r");
+		injectTextInputData(rootAssembly, textInputTxDataId, "ALTAURI Data 1234567890\r");
 
 		// 3. Force initial redraw of the schematic
 		haxe.Timer.delay(function() {
@@ -357,7 +374,52 @@ class Main extends Sprite
 		}, 10);
 		
 		// 4. Setup Device Panel & Toggle View
-		setupDemoDevicePanel(rootAssembly, textInputTxDataId, textAreaRxDataId, statusLedId, openPortButtonId, closePortButtonId, sendTxDataButtonId);
+		haxe.Timer.delay(function() {
+			// 1. SWITCH MODE FIRST
+			// If we add devices before toggling, restoreDevicePanelFromCache() 
+			// will call clearDevices() and wipe our manual additions.
+			if (!_isPanelMode) {
+				onToggleView();
+			}
+			
+			if (_devicePanel == null) return;
+			
+			// 2. ADD WIDGETS
+			var txAtom:Atom = cast rootAssembly.internalAtoms.get(textInputTxDataId);
+			var textArea:Atom = cast rootAssembly.internalAtoms.get(textAreaRxDataId);
+			var comportledAtom:Atom = cast rootAssembly.internalAtoms.get(comportStatusLedId);
+			var openPortBtAtom:Atom = cast rootAssembly.internalAtoms.get(openPortButtonId);
+			var closePortBtAtom:Atom = cast rootAssembly.internalAtoms.get(closePortButtonId);
+			var sendBtAtom:Atom = cast rootAssembly.internalAtoms.get(sendTxDataButtonId);
+
+			var openFileBtAtom:Atom = cast rootAssembly.internalAtoms.get(openFileButtonId);
+			var closeFileBtAtom:Atom = cast rootAssembly.internalAtoms.get(closeFileButtonId);
+			var fileLedAtom:Atom = cast rootAssembly.internalAtoms.get(fileWriterStatusLedId);
+
+			
+			if (txAtom != null) _devicePanel.addDevice(txAtom, 350, 50);
+			if (textArea != null) _devicePanel.addDevice(textArea, 550, 250);
+			if (comportledAtom != null) _devicePanel.addDevice(comportledAtom, 300, 270);
+			if (openPortBtAtom != null) _devicePanel.addDevice(openPortBtAtom, 100, 280);
+			if (closePortBtAtom != null) _devicePanel.addDevice(closePortBtAtom, 200, 280);
+			if (sendBtAtom != null) _devicePanel.addDevice(sendBtAtom, 500, 50);
+			
+			if (openFileBtAtom != null) _devicePanel.addDevice(openFileBtAtom, 100, 450);
+			if (closeFileBtAtom != null) _devicePanel.addDevice(closeFileBtAtom, 200, 450);
+			if (fileLedAtom != null) _devicePanel.addDevice(fileLedAtom, 300, 440);
+			
+			// 3. SYNC CACHE
+			// Crucial: saves the current panel layout to _cachedDeviceWindowState.
+			// Without this, toggling back to Editor and then to Panel again would 
+			// result in an empty screen because the cache would be empty.
+			syncDevicePanelToCache();
+			if (!_isPanelMode) {
+				onToggleView();
+			}
+
+			//this.visible = true;
+			
+		}, 10); 
 
 		updateNavigationUI();
 		updateButtonStates();
@@ -400,51 +462,6 @@ class Main extends Sprite
 		}
 	}
 
-	/**
-	 * Switches to Device Panel mode and populates it with specific demo widgets.
-	 * Uses a delay to ensure NodeEditor completes its layout before UI layers are hidden.
-	 */
-	private function setupDemoDevicePanel(asm:Assembly, textId:String, textAreaId:String, ledId:String, openPortButtonId:String, closePortButtonId:String, sendTxDataButtonId:String):Void
-	{
-		haxe.Timer.delay(function() {
-			// 1. SWITCH MODE FIRST
-			// If we add devices before toggling, restoreDevicePanelFromCache() 
-			// will call clearDevices() and wipe our manual additions.
-			if (!_isPanelMode) {
-				onToggleView();
-			}
-			
-			if (_devicePanel == null) return;
-			
-			// 2. ADD WIDGETS
-			var txAtom:Atom = cast asm.internalAtoms.get(textId);
-			var textArea:Atom = cast asm.internalAtoms.get(textAreaId);
-			var ledAtom:Atom = cast asm.internalAtoms.get(ledId);
-			var openBtAtom:Atom = cast asm.internalAtoms.get(openPortButtonId);
-			var closeBtAtom:Atom = cast asm.internalAtoms.get(closePortButtonId);
-			var sendBtAtom:Atom = cast asm.internalAtoms.get(sendTxDataButtonId);
-			
-			
-			if (txAtom != null) _devicePanel.addDevice(txAtom, 350, 50);
-			if (textArea != null) _devicePanel.addDevice(textArea, 550, 250);
-			if (ledAtom != null) _devicePanel.addDevice(ledAtom, 300, 280);
-			if (openBtAtom != null) _devicePanel.addDevice(openBtAtom, 100, 280);
-			if (closeBtAtom != null) _devicePanel.addDevice(closeBtAtom, 200, 280);
-			if (sendBtAtom != null) _devicePanel.addDevice(sendBtAtom, 500, 50);
-			
-			// 3. SYNC CACHE
-			// Crucial: saves the current panel layout to _cachedDeviceWindowState.
-			// Without this, toggling back to Editor and then to Panel again would 
-			// result in an empty screen because the cache would be empty.
-			syncDevicePanelToCache();
-			if (!_isPanelMode) {
-				onToggleView();
-			}
-
-			//this.visible = true;
-			
-		}, 50); 
-	}
 
 	// =========================================================================
 	// LOADING v2.7
@@ -542,14 +559,14 @@ class Main extends Sprite
 	{
 		if (asm == null || asm.internalAtoms == null || depth > 10) return;
 
-		var indent = StringTools.lpad("", "  ", depth);
+		//var indent = StringTools.lpad("", "  ", depth);
 
 		for (id in asm.internalAtoms.keys())
 		{
 			var atom = asm.internalAtoms.get(id);
 			if (atom != null)
 			{
-				var logicStatus = atom.isLogic ? "DIGITAL" : "ANALOG";
+				//var logicStatus = atom.isLogic ? "DIGITAL" : "ANALOG";
 				//trace('${indent}Atom: ${atom.name} (${atom.id}) - ${logicStatus}');
 
 				if (Std.isOfType(atom, Assembly))
@@ -1468,7 +1485,7 @@ class Main extends Sprite
 	 */
 	private function onNewAssembly():Void
 	{
-		if (!_settingsPanel.allowAssembly) { log("Assembly disabled"); return; }
+	//	if (!_settingsPanel.allowAssembly) { log("Assembly disabled"); return; }
 
 		var cmd = new CreateNewAssemblyCommand();
 		UndoManager.getInstance().executeAndStore(cmd);
