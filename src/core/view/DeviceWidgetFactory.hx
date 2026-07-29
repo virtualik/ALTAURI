@@ -1,17 +1,41 @@
+// FILE: core/view/DeviceWidgetFactory.hx
 package core.view;
+
 import core.base.Atom;
 import core.base.Assembly;
 import core.data.Blueprint;
+
+// --- Native & Cross-platform Widgets ---
+import core.view.ButtonWidget;
+import core.view.ToggleWidget;
+import core.view.LEDWidget;
+import core.view.TextWidget;
+import core.view.TextInputWidget;
+import core.view.TextAreaWidget;
+import core.view.OscilloscopeWidget;
+import core.view.FFTWidget;
+import core.view.SignalGeneratorWidget;
+import core.view.PanelWidget;
+import core.view.DebugConsoleWidget;
+
+// --- C++ Specific Widgets ---
 #if cpp
-	import core.view.MiniAudioWidget;
-	import core.view.ComPortWidget;
-	import core.view.ComEnumeratorWidget;
-	import core.view.NETRadioPlayerWidget;
-	import core.view.SystemVUMeterWidget;
-	import core.view.FFTWidget;
+import core.view.MiniAudioWidget;
+import core.view.ComPortWidget;
+import core.view.ComEnumeratorWidget;
+import core.view.NETRadioPlayerWidget;
+import core.view.SystemVUMeterWidget;
+import core.view.WEBSocketWidget;
+import core.view.URLAudioStreamPlayerWidget;
 #end
+
+// --- HTML5 Specific Widgets ---
+#if html5
+import core.view.FileWriterWidget;
+#end
+
 /**
-* DEVICE WIDGET FACTORY v1.1
+* DEVICE WIDGET FACTORY v1.2 (Fixed Syntax & Imports)
 * Factory for creating DeviceView (Atom's Face).
 *
 * Completely separated from Atom logic.
@@ -60,36 +84,42 @@ class DeviceWidgetFactory
 	public static function create(atom:Atom):DeviceView
 	{
 		if (atom == null) return null;
+		
 		try {
-// 1. First check Assembly (this prevents recursion)
+			// 1. First check Assembly (this prevents recursion)
 			if (Std.isOfType(atom, Assembly))
 			{
 				var asm:Assembly = cast(atom, Assembly);
 				return createForAssembly(asm);
 			}
-// 2. Native atoms - by type
+			
+			// 2. Native atoms - by type
 			return createByAtomType(atom);
 		}
 		catch (e:Dynamic)
 		{
 			trace('DeviceWidgetFactory: Error creating widget for atom "${atom.name}": $e');
 			return null;
-		}
+	 }
 	}
+
 	/**
 	* Create widget for Assembly by blueprint.deviceType.
 	*/
 	private static function createForAssembly(asm:Assembly):DeviceView
 	{
 		if (asm == null || asm.blueprint == null) return null;
+		
 		var bp = asm.blueprint;
 		var deviceType:String = bp.deviceType;
-// If deviceType not specified - PanelWidget (container)
+		
+		// If deviceType not specified - PanelWidget (container)
 		if (deviceType == null || deviceType == "")
 		{
 			return new PanelWidget(asm);
 		}
-// Determine by deviceType
+		
+		// Determine by deviceType
 		return switch (deviceType.toLowerCase())
 		{
 			case "led", "indicator", "light":
@@ -110,45 +140,49 @@ class DeviceWidgetFactory
 				new TextInputWidget(asm);
 			case "textarea":
 				new TextAreaWidget(asm);
-				#if cpp
-			case "miniaudioatom", "mini audio capture":
-				new MiniAudioWidget(asm);
-				#end
 			case "signalgenerator":
 				new SignalGeneratorWidget(asm);
-				#if cpp
+				
+			#if cpp
+			case "miniaudioatom", "mini audio capture":
+				new MiniAudioWidget(asm);
 			case "comport", "com port":
 				new ComPortWidget(asm);
 			case "comenumerator", "com enumerator":
 				new ComEnumeratorWidget(asm);
-				#end
-				#if html5
-				return new core.view.FileWriterWidget(asm);
-				#else
-				return new TextWidget(asm);
-				#end
-				#if cpp
 			case "netradio", "netradioplayer":
 				new NETRadioPlayerWidget(asm);
 			case "urlplayer", "url audio player", "urlaudioplayer":
 				new URLAudioStreamPlayerWidget(asm);
+			#end
 			
+			#if html5
 			case "filewriter", "file writer":
-				#end
+				new FileWriterWidget(asm);
+			#else
+			case "filewriter", "file writer":
+				new TextWidget(asm); // Safe fallback for non-HTML5 targets
+			#end
+			
 			default:
-// Try to find class by name
+				// Try to find class by name
 				createByClassName(deviceType, asm);
 		}
 	}
+
 	/**
 	* Create widget by atom type (for native atoms).
 	*/
 	private static function createByAtomType(atom:Atom):DeviceView
 	{
 		if (atom == null) return null;
+		
 		var type = atom.type.toLowerCase();
+		
 		return switch (type)
 		{
+			case "debugconsole":
+				new DebugConsoleWidget(atom);
 			case "led", "led indicator":
 				new LEDWidget(atom, "in");
 			case "button", "push button":
@@ -163,22 +197,20 @@ class DeviceWidgetFactory
 				new OscilloscopeWidget(atom, "in");
 			case "fftatom", "fft spectrum":
 				new FFTWidget(atom);
-				#if cpp
-				case "audioin", "audioinput", "audio":
-				new OscilloscopeWidget(atom, "samples");
-			case "systemvumeteratom", "system vu meter", "vumeter":
-				new SystemVUMeterWidget(atom);
-				#end
 			case "relay":
-			// Show output "out"
+				// Show output "out"
 				new TextWidget(atom, "out", false);
 			case "signalgenerator":
 				new SignalGeneratorWidget(atom);
-
 			case "comportatom", "com port":
 				new ComPortWidget(atom);
+				
 			#if cpp
-				case "comenumeratoratom", "com enumerator":
+			case "audioin", "audioinput", "audio":
+				new OscilloscopeWidget(atom, "samples");
+			case "systemvumeteratom", "system vu meter", "vumeter":
+				new SystemVUMeterWidget(atom);
+			case "comenumeratoratom", "com enumerator":
 				new ComEnumeratorWidget(atom);
 			case "websocketatom", "websocket":
 				new WEBSocketWidget(atom);
@@ -188,18 +220,22 @@ class DeviceWidgetFactory
 				new MiniAudioWidget(atom);
 			case "urlaudioplayeratom", "url audio player":
 				new URLAudioStreamPlayerWidget(atom);
-				#end
+			#end
+			
+			#if html5
 			case "filewriteratom", "file writer":
-				#if html5
-				return new core.view.FileWriterWidget(atom);
-				#else
-				return new TextWidget(atom);
-				#end
+				new FileWriterWidget(atom);
+			#else
+			case "filewriteratom", "file writer":
+				new TextWidget(atom); // Safe fallback
+			#end
+			
 			default:
-// Universal widget - text display
+				// Universal widget - text display
 				new TextWidget(atom);
 		}
 	}
+
 	/**
 	* Attempt to create widget by class name.
 	* Allows extending system without changing Factory.
@@ -220,11 +256,13 @@ class DeviceWidgetFactory
 		}
 		catch (e:Dynamic)
 		{
-// Ignore errors - return fallback
+			// Ignore errors - return fallback
 		}
-// Fallback - universal widget
+		
+		// Fallback - universal widget
 		return new TextWidget(atom);
 	}
+
 	/**
 	* Find contact name in Blueprint.
 	* Used to determine contact for display.
@@ -232,33 +270,39 @@ class DeviceWidgetFactory
 	private static function getContactName(bp:Blueprint, defaultName:String):String
 	{
 		if (bp == null || bp.pins == null) return defaultName;
-// Search exact match
+		
+		// Search exact match
 		for (pin in bp.pins)
 		{
 			if (pin.name == defaultName) return pin.name;
 		}
-// Take first available
+		
+		// Take first available
 		for (pin in bp.pins)
 		{
 			if (pin.name != null) return pin.name;
 		}
+		
 		return defaultName;
 	}
+
 	/**
 	* Check if atom type is supported.
 	*/
 	public static function isSupported(atomType:String):Bool
 	{
 		if (atomType == null) return false;
+		
 		var type = atomType.toLowerCase();
 		return switch (type)
 		{
 			case "led" | "button" | "toggle" | "oscilloscope" | "fftatom" | "textinput" |
-					"audioin" | "audioinput" | "relay" | "conductor" |
-					"universalgen" | "signalgen" | "fpsmonitor" | "frametime":
+				 "audioin" | "audioinput" | "relay" | "conductor" |
+				 "universalgen" | "signalgen" | "fpsmonitor" | "frametime" |
+				 "textarea" | "debugconsole" | "comportatom" | "filewriteratom":
 				true;
 			default:
-// Check Assembly
+				// Check Assembly
 				true; // PanelWidget as fallback
 		}
 	}

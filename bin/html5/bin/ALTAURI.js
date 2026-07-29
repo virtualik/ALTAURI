@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "167";
+	app.meta.h["build"] = "168";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
@@ -3513,6 +3513,11 @@ Main.__super__ = openfl_display_Sprite;
 Main.prototype = $extend(openfl_display_Sprite.prototype,{
 	init: function(e) {
 		var _gthis = this;
+		var originalTrace = haxe_Log.trace;
+		haxe_Log.trace = function(v,infos) {
+			console.log(v);
+			library_electro_DebugConsoleAtom.log(Std.string(v));
+		};
 		this.log("System initialized");
 		this.removeEventListener("addedToStage",$bind(this,this.init));
 		openfl_Lib.get_current().stage.window.set_visible(true);
@@ -3578,7 +3583,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		editor.connectAtoms(closeFileButtonId,"out",fileWriterId,"close");
 		editor.connectAtoms(comport1AtomId,"rxData",fileWriterId,"append");
 		editor.connectAtoms(fileWriterId,"isOpen",fileWriterStatusLedId,"in");
-		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 344, className : "Main", methodName : "createDemoProject"});
+		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 355, className : "Main", methodName : "createDemoProject"});
 		this.renameAtom(rootAssembly,openPortButtonId,"Open Port");
 		this.renameAtom(rootAssembly,closePortButtonId,"Close Port");
 		this.renameAtom(rootAssembly,sendTxDataButtonId,"Send TX");
@@ -4345,7 +4350,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				HxOverrides.remove(bp.internalConnections,conn);
 			}
 			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
-			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1584, className : "Main", methodName : "onPortRemoved"});
+			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1595, className : "Main", methodName : "onPortRemoved"});
 		}
 	}
 	,hardReset: function() {
@@ -4494,8 +4499,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		var nodeCount = this._editorContext.currentEditor.getSelectedNodeCount();
 		var wireIds = this._editorContext.currentEditor.getSelectedWireIds();
-		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1753, className : "Main", methodName : "deleteSelectedOnCanvas"});
-		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1754, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1764, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1765, className : "Main", methodName : "deleteSelectedOnCanvas"});
 		if(nodeCount > 0) {
 			this._editorContext.currentEditor.deleteSelectedNodes();
 			this.updateSettingsStats();
@@ -5084,6 +5089,16 @@ StringTools.rtrim = function(s) {
 };
 StringTools.trim = function(s) {
 	return StringTools.ltrim(StringTools.rtrim(s));
+};
+StringTools.lpad = function(s,c,l) {
+	if(c.length <= 0) {
+		return s;
+	}
+	var buf_b = "";
+	l -= s.length;
+	while(buf_b.length < l) buf_b += c == null ? "null" : "" + c;
+	buf_b += s == null ? "null" : "" + s;
+	return buf_b;
 };
 StringTools.replace = function(s,sub,by) {
 	return s.split(sub).join(by);
@@ -9316,6 +9331,160 @@ core_view_ComPortWidget.prototype = $extend(core_view_DeviceView.prototype,{
 	}
 	,__class__: core_view_ComPortWidget
 });
+var core_view_DebugConsoleWidget = function(atom) {
+	this._colorMuted = 8947865;
+	this._colorText = 65416;
+	this._colorHeader = 2763322;
+	this._colorBg = 1710628;
+	this.widgetHeight = 220;
+	this.widgetWidth = 320;
+	this._lineCount = 0;
+	core_view_DeviceView.call(this,atom);
+	this.findContacts();
+	this.buildUI();
+	this.syncFromAtom();
+};
+$hxClasses["core.view.DebugConsoleWidget"] = core_view_DebugConsoleWidget;
+core_view_DebugConsoleWidget.__name__ = "core.view.DebugConsoleWidget";
+core_view_DebugConsoleWidget.__super__ = core_view_DeviceView;
+core_view_DebugConsoleWidget.prototype = $extend(core_view_DeviceView.prototype,{
+	getWidgetSize: function() {
+		return { width : this.widgetWidth, height : this.widgetHeight};
+	}
+	,findContacts: function() {
+		if(this.atom == null) {
+			return;
+		}
+		this._outputContact = this.atom.getOutput("output");
+		this._lineCountContact = this.atom.getOutput("lineCount");
+	}
+	,onActivate: function() {
+		this.findContacts();
+		this.syncFromAtom();
+	}
+	,buildUI: function() {
+		this._bg = new openfl_display_Sprite();
+		this._bg.get_graphics().beginFill(this._colorBg,0.95);
+		this._bg.get_graphics().lineStyle(1,43775);
+		this._bg.get_graphics().drawRoundRect(0,0,this.widgetWidth,this.widgetHeight,6,6);
+		this._bg.get_graphics().endFill();
+		this.addChild(this._bg);
+		this._header = new openfl_display_Sprite();
+		this._header.get_graphics().beginFill(this._colorHeader);
+		this._header.get_graphics().drawRoundRectComplex(0,0,this.widgetWidth,24,6,6,0,0);
+		this._header.get_graphics().endFill();
+		this.addChild(this._header);
+		this._titleField = new openfl_text_TextField();
+		this._titleField.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",11,16777215,true));
+		this._titleField.set_text(" DEBUG CONSOLE");
+		this._titleField.set_width(this.widgetWidth - 60);
+		this._titleField.set_height(24);
+		this._titleField.set_x(5);
+		this._titleField.set_y(2);
+		this._titleField.set_selectable(false);
+		this._titleField.mouseEnabled = false;
+		this.addChild(this._titleField);
+		this._clearBtn = new openfl_display_Sprite();
+		this._clearBtn.get_graphics().beginFill(5583650);
+		this._clearBtn.get_graphics().drawRoundRect(0,0,50,20,3,3);
+		this._clearBtn.get_graphics().endFill();
+		this._clearBtn.set_x(this.widgetWidth - 55);
+		this._clearBtn.set_y(2);
+		this._clearBtn.set_buttonMode(true);
+		this._clearBtn.useHandCursor = true;
+		this._clearBtn.addEventListener("click",$bind(this,this.onClearClick));
+		this.addChild(this._clearBtn);
+		this._clearLabel = new openfl_text_TextField();
+		this._clearLabel.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",9,16777215,true));
+		this._clearLabel.set_text("Clear");
+		this._clearLabel.set_width(50);
+		this._clearLabel.set_height(20);
+		this._clearLabel.set_selectable(false);
+		this._clearLabel.mouseEnabled = false;
+		this._clearBtn.addChild(this._clearLabel);
+		this._logField = new openfl_text_TextField();
+		this._logField.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",10,this._colorText));
+		this._logField.set_text("");
+		this._logField.set_width(this.widgetWidth - 10);
+		this._logField.set_height(this.widgetHeight - 50);
+		this._logField.set_x(5);
+		this._logField.set_y(28);
+		this._logField.set_autoSize(2);
+		this._logField.set_multiline(true);
+		this._logField.set_wordWrap(true);
+		this._logField.set_background(true);
+		this._logField.set_backgroundColor(855320);
+		this._logField.set_border(true);
+		this._logField.set_borderColor(3355477);
+		this._logField.set_selectable(true);
+		this._logField.mouseEnabled = true;
+		this.addChild(this._logField);
+		this._statusField = new openfl_text_TextField();
+		this._statusField.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",9,this._colorMuted));
+		this._statusField.set_text("Lines: 0");
+		this._statusField.set_width(this.widgetWidth - 10);
+		this._statusField.set_height(16);
+		this._statusField.set_x(5);
+		this._statusField.set_y(this.widgetHeight - 20);
+		this._statusField.set_selectable(false);
+		this._statusField.mouseEnabled = false;
+		this.addChild(this._statusField);
+	}
+	,onClearClick: function(e) {
+		var clearInput = this.atom.getInput("clear");
+		if(clearInput != null) {
+			clearInput.set_value(true);
+		}
+	}
+	,syncFromAtom: function() {
+		if(this._outputContact != null && this._outputContact.get_value() != null) {
+			var logText = Std.string(this._outputContact.get_value());
+			if(logText != this._logField.get_text()) {
+				this._logField.set_text(logText);
+				if(this._logField.get_maxScrollV() > 1) {
+					this._logField.set_scrollV(this._logField.get_maxScrollV());
+				}
+			}
+		}
+		if(this._lineCountContact != null) {
+			this._lineCount = this._lineCountContact.get_value() | 0;
+			this._statusField.set_text("Lines: " + this._lineCount);
+		}
+	}
+	,onContactChanged: function(contact,newValue) {
+		if(this.isDisposed) {
+			return;
+		}
+		if(contact == this._outputContact && newValue != null) {
+			var logText = Std.string(newValue);
+			if(logText != this._logField.get_text()) {
+				this._logField.set_text(logText);
+				if(this._logField.get_maxScrollV() > 1) {
+					this._logField.set_scrollV(this._logField.get_maxScrollV());
+				}
+			}
+		} else if(contact == this._lineCountContact) {
+			this._lineCount = newValue | 0;
+			this._statusField.set_text("Lines: " + this._lineCount);
+		}
+	}
+	,dispose: function() {
+		if(this._clearBtn != null) {
+			this._clearBtn.removeEventListener("click",$bind(this,this.onClearClick));
+		}
+		this._bg = null;
+		this._header = null;
+		this._titleField = null;
+		this._logField = null;
+		this._clearBtn = null;
+		this._clearLabel = null;
+		this._statusField = null;
+		this._outputContact = null;
+		this._lineCountContact = null;
+		core_view_DeviceView.prototype.dispose.call(this);
+	}
+	,__class__: core_view_DebugConsoleWidget
+});
 var core_view_DeviceViewRegistry = function() {
 	this._widgets = new haxe_ds_StringMap();
 	this._containers = new haxe_ds_StringMap();
@@ -9596,7 +9765,7 @@ core_view_DeviceWidgetFactory.create = function(atom) {
 	} catch( _g ) {
 		haxe_NativeStackTrace.lastError = _g;
 		var e = haxe_Exception.caught(_g).unwrap();
-		haxe_Log.trace("DeviceWidgetFactory: Error creating widget for atom \"" + atom.name + "\": " + Std.string(e),{ fileName : "src/core/view/DeviceWidgetFactory.hx", lineNumber : 75, className : "core.view.DeviceWidgetFactory", methodName : "create"});
+		haxe_Log.trace("DeviceWidgetFactory: Error creating widget for atom \"" + atom.name + "\": " + Std.string(e),{ fileName : "src/core/view/DeviceWidgetFactory.hx", lineNumber : 101, className : "core.view.DeviceWidgetFactory", methodName : "create"});
 		return null;
 	}
 };
@@ -9612,6 +9781,8 @@ core_view_DeviceWidgetFactory.createForAssembly = function(asm) {
 	switch(deviceType.toLowerCase()) {
 	case "fft spectrum":case "fftatom":
 		return new core_view_FFTWidget(asm);
+	case "file writer":case "filewriter":
+		return new core_view_FileWriterWidget(asm);
 	case "container":case "group":case "panel":
 		return new core_view_PanelWidget(asm);
 	case "display":case "label":case "text":
@@ -9623,8 +9794,7 @@ core_view_DeviceWidgetFactory.createForAssembly = function(asm) {
 	case "oscilloscope":case "scope":
 		return new core_view_OscilloscopeWidget(asm,"in");
 	case "signalgenerator":
-		new core_view_SignalGeneratorWidget(asm);
-		return new core_view_FileWriterWidget(asm);
+		return new core_view_SignalGeneratorWidget(asm);
 	case "switch":case "toggle":
 		return new core_view_ToggleWidget(asm,core_view_DeviceWidgetFactory.getContactName(bp,"out"));
 	case "textarea":
@@ -9643,6 +9813,8 @@ core_view_DeviceWidgetFactory.createByAtomType = function(atom) {
 	switch(type) {
 	case "com port":case "comportatom":
 		return new core_view_ComPortWidget(atom);
+	case "debugconsole":
+		return new core_view_DebugConsoleWidget(atom);
 	case "fft spectrum":case "fftatom":
 		return new core_view_FFTWidget(atom);
 	case "file writer":case "filewriteratom":
@@ -9712,7 +9884,7 @@ core_view_DeviceWidgetFactory.isSupported = function(atomType) {
 	}
 	var type = atomType.toLowerCase();
 	switch(type) {
-	case "audioin":case "audioinput":case "button":case "conductor":case "fftatom":case "fpsmonitor":case "frametime":case "led":case "oscilloscope":case "relay":case "signalgen":case "textinput":case "toggle":case "universalgen":
+	case "audioin":case "audioinput":case "button":case "comportatom":case "conductor":case "debugconsole":case "fftatom":case "filewriteratom":case "fpsmonitor":case "frametime":case "led":case "oscilloscope":case "relay":case "signalgen":case "textarea":case "textinput":case "toggle":case "universalgen":
 		return true;
 	default:
 		return true;
@@ -21112,6 +21284,7 @@ library_AtomRegistry.initialize = function() {
 	if(library_AtomRegistry._initialized) {
 		return;
 	}
+	library_AtomRegistry.reg("DebugConsole","Debug Console",[{ name : "log", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL, label : "Log"},{ name : "append", type : core_types_ContactType.INPUT, dataType : "string", priority : core_data_ParameterPriority.IMPORTANT, label : "Append"},{ name : "clear", type : core_types_ContactType.INPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Clear"},{ name : "maxLines", type : core_types_ContactType.INPUT, defaultValue : 500, dataType : "int", priority : core_data_ParameterPriority.OPTIONAL, label : "MaxLines"},{ name : "enabled", type : core_types_ContactType.INPUT, defaultValue : true, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL, label : "Enabled"},{ name : "output", type : core_types_ContactType.OUTPUT, dataType : "string", priority : core_data_ParameterPriority.CRITICAL, label : "Output"},{ name : "changed", type : core_types_ContactType.OUTPUT, dataType : "bool", priority : core_data_ParameterPriority.OPTIONAL},{ name : "lineCount", type : core_types_ContactType.OUTPUT, dataType : "int", priority : core_data_ParameterPriority.IMPORTANT, label : "Lines"}],null,"debugconsole",true,false,"debugconsole");
 	library_AtomRegistry.reg("Button","Push Button",[{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "bool"}],null,"button",true,false,"button");
 	library_AtomRegistry.reg("LED","LED Indicator",[{ name : "in", type : core_types_ContactType.INPUT, dataType : "bool"}],null,"led",true,false,"led");
 	library_AtomRegistry.reg("Toggle","Toggle Switch",[{ name : "out", type : core_types_ContactType.OUTPUT, dataType : "bool"}],null,"toggle",true,false,"toggle");
@@ -21142,10 +21315,10 @@ library_AtomRegistry.remove = function(id) {
 		if(Object.prototype.hasOwnProperty.call(_this.h,id)) {
 			delete(_this.h[id]);
 		}
-		haxe_Log.trace("AtomRegistry: Removed " + id,{ fileName : "src/library/AtomRegistry.hx", lineNumber : 445, className : "library.AtomRegistry", methodName : "remove"});
+		haxe_Log.trace("AtomRegistry: Removed " + id,{ fileName : "src/library/AtomRegistry.hx", lineNumber : 458, className : "library.AtomRegistry", methodName : "remove"});
 		return true;
 	}
-	haxe_Log.trace("AtomRegistry: " + id + " not found for removal",{ fileName : "src/library/AtomRegistry.hx", lineNumber : 448, className : "library.AtomRegistry", methodName : "remove"});
+	haxe_Log.trace("AtomRegistry: " + id + " not found for removal",{ fileName : "src/library/AtomRegistry.hx", lineNumber : 461, className : "library.AtomRegistry", methodName : "remove"});
 	return false;
 };
 library_AtomRegistry.exists = function(id) {
@@ -21314,32 +21487,6 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 				this._rxTimer = 0.05;
 			}
 			testRxC.set_value("");
-		}
-		if(this._hasPendingRx) {
-			this._hasPendingRx = false;
-			var rxOut = this.getOutput("rxData");
-			if(rxOut != null) {
-				rxOut.setValueSilent(this._pendingRxStr);
-				rxOut.propagateCurrentValue();
-			}
-			var rxTick = this.getOutput("rxTick");
-			if(rxTick != null) {
-				rxTick.set_value(true);
-				this._rxTimer = 0.05;
-			}
-		}
-		if(this._hasPendingErr) {
-			this._hasPendingErr = false;
-			var errOut = this.getOutput("error");
-			if(errOut != null) {
-				errOut.setValueSilent(this._pendingErrStr);
-				errOut.propagateCurrentValue();
-			}
-			var errTick = this.getOutput("errorTick");
-			if(errTick != null) {
-				errTick.set_value(true);
-				this._errTimer = 0.05;
-			}
 		}
 		this.emitRxData();
 		this.readInputs();
@@ -21618,6 +21765,17 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 					}).then(function() {
 						return dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 164, value : 65439, index : 0});
 					});
+				} else if(vid == 1659) {
+					initPromise = dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 1, value : 0, index : 1}).then(function() {
+						return dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 1, value : 1, index : 0});
+					}).then(function() {
+						return dev.controlTransferOut({ requestType : "vendor", recipient : "device", request : 1, value : 2, index : 68});
+					}).then(function() {
+						var lineCoding = new Uint8Array([baudRate & 255,baudRate >> 8 & 255,baudRate >> 16 & 255,baudRate >> 24 & 255,0,0,8]);
+						return dev.controlTransferOut({ requestType : "class", recipient : "interface", request : 32, value : 0, index : ctrlIface},lineCoding);
+					}).then(function() {
+						return dev.controlTransferOut({ requestType : "class", recipient : "interface", request : 34, value : 3, index : ctrlIface});
+					});
 				} else {
 					var lineCoding = new Uint8Array([baudRate & 255,baudRate >> 8 & 255,baudRate >> 16 & 255,baudRate >> 24 & 255,0,0,8]);
 					initPromise = dev.controlTransferOut({ requestType : "class", recipient : "interface", request : 32, value : 0, index : ctrlIface},lineCoding).then(function() {
@@ -21648,13 +21806,13 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		} else if(this._connectionType == "usb") {
 			this.startUsbReadLoop();
 		}
-		haxe_Log.trace("ComPortAtom: Port opened via " + this._connectionType,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1379, className : "library.drivers.ComPortAtom", methodName : "onPortOpened"});
+		haxe_Log.trace("ComPortAtom: Port opened via " + this._connectionType,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1421, className : "library.drivers.ComPortAtom", methodName : "onPortOpened"});
 	}
 	,onPortOpenError: function(err) {
 		this.setError("Failed to open port: " + Std.string(err));
 	}
 	,onPortRequestError: function(err) {
-		haxe_Log.trace("ComPortAtom: Port request cancelled or failed: " + Std.string(err),{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1385, className : "library.drivers.ComPortAtom", methodName : "onPortRequestError"});
+		haxe_Log.trace("ComPortAtom: Port request cancelled or failed: " + Std.string(err),{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1427, className : "library.drivers.ComPortAtom", methodName : "onPortRequestError"});
 	}
 	,closeDevice: function() {
 		var _gthis = this;
@@ -21744,7 +21902,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(outOpen != null) {
 			outOpen.set_value(false);
 		}
-		haxe_Log.trace("ComPortAtom: Port closed",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1507, className : "library.drivers.ComPortAtom", methodName : "onPortClosed"});
+		haxe_Log.trace("ComPortAtom: Port closed",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1549, className : "library.drivers.ComPortAtom", methodName : "onPortClosed"});
 	}
 	,onPortCloseError: function(err) {
 		this.setError("Failed to close port: " + Std.string(err));
@@ -21823,16 +21981,19 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 			return;
 		}
 		if(result.status == "ok" && result.data != null) {
-			var bytes = [];
-			var view = result.data;
-			var _g = 0;
-			var _g1 = view.length;
-			while(_g < _g1) {
-				var i = _g++;
-				bytes.push(view[i]);
+			var dataView = result.data;
+			var len = dataView.byteLength;
+			if(len > 0) {
+				var bytes = [];
+				var _g = 0;
+				var _g1 = len;
+				while(_g < _g1) {
+					var i = _g++;
+					bytes.push(dataView.getUint8(i));
+				}
+				this.writeToBuffer(bytes);
+				this._hasPendingRx = true;
 			}
-			this.writeToBuffer(bytes);
-			this._hasPendingRx = true;
 		}
 		this.readUsbChunk();
 	}
@@ -21894,7 +22055,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 	}
 	,setDTRState: function(state) {
 		if(this._connectionType == "serial") {
-			haxe_Log.trace("ComPortAtom: DTR control not directly supported in standard Web Serial API without extensions.",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1700, className : "library.drivers.ComPortAtom", methodName : "setDTRState"});
+			haxe_Log.trace("ComPortAtom: DTR control not directly supported in standard Web Serial API without extensions.",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1750, className : "library.drivers.ComPortAtom", methodName : "setDTRState"});
 		} else if(this._connectionType == "usb") {
 			var vid = this._usbDevice.vendorId;
 			var val = state ? 3 : 0;
@@ -22846,6 +23007,112 @@ library_electro_ButtonAtom.prototype = $extend(core_base_Atom.prototype,{
 		}
 	}
 	,__class__: library_electro_ButtonAtom
+});
+var library_electro_DebugConsoleAtom = function(id) {
+	this._pulseTimer = 0.0;
+	this._enabled = true;
+	this._maxLines = 500;
+	this._logBuffer = [];
+	core_base_Atom.call(this,[new core_base_Contact("",core_types_ContactType.INPUT,"log"),new core_base_Contact("",core_types_ContactType.INPUT,"append"),new core_base_Contact(false,core_types_ContactType.INPUT,"clear"),new core_base_Contact(500,core_types_ContactType.INPUT,"maxLines"),new core_base_Contact(true,core_types_ContactType.INPUT,"enabled")],[new core_base_Contact("",core_types_ContactType.OUTPUT,"output"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"changed"),new core_base_Contact(0,core_types_ContactType.OUTPUT,"lineCount")],null,id,"DebugConsole");
+	library_electro_DebugConsoleAtom._instances.push(this);
+};
+$hxClasses["library.electro.DebugConsoleAtom"] = library_electro_DebugConsoleAtom;
+library_electro_DebugConsoleAtom.__name__ = "library.electro.DebugConsoleAtom";
+library_electro_DebugConsoleAtom.log = function(msg) {
+	var _g = 0;
+	var _g1 = library_electro_DebugConsoleAtom._instances;
+	while(_g < _g1.length) {
+		var inst = _g1[_g];
+		++_g;
+		if(inst._enabled) {
+			inst._appendToBuffer(msg);
+		}
+	}
+};
+library_electro_DebugConsoleAtom.__super__ = core_base_Atom;
+library_electro_DebugConsoleAtom.prototype = $extend(core_base_Atom.prototype,{
+	onContactChanged: function(c) {
+		if(this._isDisposed) {
+			return;
+		}
+		switch(c.name) {
+		case "append":
+			if(c.get_value() != null && c.get_value() != "") {
+				this._appendToBuffer(Std.string(c.get_value()));
+				c.setValueSilent("");
+			}
+			break;
+		case "clear":
+			if(c.get_value() == true) {
+				this._logBuffer = [];
+				this._updateOutputs();
+				c.setValueSilent(false);
+			}
+			break;
+		case "enabled":
+			this._enabled = c.get_value() == true;
+			break;
+		case "log":
+			if(c.get_value() != null && c.get_value() != "") {
+				this._logBuffer = [];
+				this._appendToBuffer(Std.string(c.get_value()));
+				c.setValueSilent("");
+			}
+			break;
+		case "maxLines":
+			var v = c.get_value() | 0;
+			if(v >= 10 && v <= 10000) {
+				this._maxLines = v;
+				while(this._logBuffer.length > this._maxLines) this._logBuffer.shift();
+				this._updateOutputs();
+			}
+			break;
+		}
+		core_base_Atom.prototype.onContactChanged.call(this,c);
+	}
+	,_appendToBuffer: function(msg) {
+		var now = new Date();
+		var timestamp = "" + now.getHours() + ":" + StringTools.lpad(Std.string(now.getMinutes()),"0",2) + ":" + StringTools.lpad(Std.string(now.getSeconds()),"0",2);
+		var logLine = "" + timestamp + " | " + msg;
+		this._logBuffer.push(logLine);
+		while(this._logBuffer.length > this._maxLines) this._logBuffer.shift();
+		this._updateOutputs();
+	}
+	,_updateOutputs: function() {
+		var fullLog = this._logBuffer.join("\n");
+		var output = this.getOutput("output");
+		if(output != null) {
+			output.setValueSilent(fullLog);
+			output.propagateCurrentValue();
+		}
+		var lineCount = this.getOutput("lineCount");
+		if(lineCount != null) {
+			lineCount.setValueSilent(this._logBuffer.length);
+			lineCount.propagateCurrentValue();
+		}
+		var changed = this.getOutput("changed");
+		if(changed != null) {
+			changed.set_value(true);
+			this._pulseTimer = 0.05;
+		}
+	}
+	,update: function(dt) {
+		core_base_Atom.prototype.update.call(this,dt);
+		if(this._pulseTimer > 0) {
+			this._pulseTimer -= dt;
+			if(this._pulseTimer <= 0) {
+				var changed = this.getOutput("changed");
+				if(changed != null) {
+					changed.set_value(false);
+				}
+			}
+		}
+	}
+	,dispose: function() {
+		HxOverrides.remove(library_electro_DebugConsoleAtom._instances,this);
+		core_base_Atom.prototype.dispose.call(this);
+	}
+	,__class__: library_electro_DebugConsoleAtom
 });
 var library_electro_FFTAtom = function(id) {
 	this._pulseTimer = 0.0;
@@ -41119,7 +41386,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 509112;
+	this.version = 995214;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
@@ -103014,6 +103281,8 @@ library_electro_BufferingAtom.DEFAULT_BUFFER_SIZE = 512;
 library_electro_BufferingAtom.MIN_BUFFER_SIZE = 1;
 library_electro_BufferingAtom.MAX_BUFFER_SIZE = 8192;
 library_electro_BufferingAtom.PULSE_DURATION = 0.05;
+library_electro_DebugConsoleAtom._instances = [];
+library_electro_DebugConsoleAtom.PULSE_DURATION = 0.05;
 library_electro_FFTAtom.MIN_FFT_SIZE = 256;
 library_electro_FFTAtom.MAX_FFT_SIZE = 4096;
 library_electro_FFTAtom.PULSE_DURATION = 0.05;

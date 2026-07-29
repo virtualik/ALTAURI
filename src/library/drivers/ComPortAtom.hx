@@ -747,7 +747,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
 			', this);
 			#end
 		}
-
+		#if cpp
 		// === Emit pending RX data (common path for both platforms) ===
 		if (_hasPendingRx)
 		{
@@ -766,7 +766,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
 			var errTick = getOutput("errorTick");
 			if (errTick != null) { errTick.value = true; _errTimer = PULSE_DURATION; }
 		}
-
+		#end
 		// === HTML5: Emit data from ring buffer ===
 		#if html5
 		emitRxData();
@@ -1098,7 +1098,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
 	* │  2. Else check navigator.usb → WebUSB API (Android Chrome)      │
 	* │     └─► requestDevice() with vendor ID filters:                 │
 	* │         0x303A (Espressif), 0x0403 (FTDI),                      │
-	* │         0x1A86 (CH340), 0x10C4 (CP2102), 0x067B (Prolific)     │
+	* │         0x1A86 (CH340), 0x10C4 (CP2102), 0x067B (Prolific)      │
 	* │                                                                 │
 	* │  3. Else → setError("Neither API supported")                    │
 	* └─────────────────────────────────────────────────────────────────┘
@@ -1206,6 +1206,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
 	*    - 0x10C4 (CP2102): vendor requests 0x00, 0x03, 0x07, 0x1E
 	*    - 0x0403 (FTDI):   vendor requests 0x00, 0x02, 0x04, 0x03, 0x01
 	*    - 0x1A86 (CH340):  vendor requests 0xA1, 0x9A, 0x9A, 0xA4
+	*    - 0x067B (PL2303): vendor requests 0x01, class requests 0x20, 0x22
 	*    - default (CDC):   class requests 0x20 (SET_LINE_CODING), 0x22
 	* 6. On failure, recursively try next candidate
 	*
@@ -1338,6 +1339,47 @@ class ComPortAtom extends Atom implements system.managers.Driver
 					.then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x9A, value:0x0f2c, index:b_val}); })
 					.then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0xA4, value:(~((1<<5)|(1<<6)))&0xffff, index:0x0000}); });
 				}
+else if (vid == 0x067b)   // Prolific PL2303HX
+{
+	// Для включения буферов RX и TX необходимо отправить вендорную последовательность.
+	// Без отправки 0x0044 чип будет принимать Tx, но Rx будет молчать.
+	initPromise = untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0000, index:0x0001})
+	.then(function() { 
+		return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0001, index:0x0000}); 
+	})
+	.then(function() { 
+		// Критически важная команда: активация RX!
+		return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0002, index:0x0044}); 
+	})
+	.then(function() {
+		// SET_LINE_CODING (стандартный класс-запрос 0x20)
+		var lineCoding:Uint8Array = new Uint8Array([
+			baudRate & 0xFF,
+			(baudRate >> 8) & 0xFF,
+			(baudRate >> 16) & 0xFF,
+			(baudRate >> 24) & 0xFF,
+			0x00,  // 1 stop bit
+			0x00,  // no parity
+			0x08   // 8 data bits
+		]);
+		return untyped dev.controlTransferOut({
+			requestType: 'class',
+			recipient: 'interface',
+			request: 0x20,
+			value: 0,
+			index: ctrlIface
+		}, lineCoding);
+	}).then(function() {
+		// SET_CONTROL_LINE_STATE (DTR + RTS)
+		return untyped dev.controlTransferOut({
+			requestType: 'class',
+			recipient: 'interface',
+			request: 0x22,
+			value: 0x03,
+			index: ctrlIface
+		});
+	});
+}
 				else   // Standard CDC/ACM
 				{
 					var lineCoding:Uint8Array = new Uint8Array([baudRate & 0xFF, (baudRate >> 8) & 0xFF, (baudRate >> 16) & 0xFF, (baudRate >> 24) & 0xFF, 0x00, 0x00, 0x08]);
@@ -1599,12 +1641,20 @@ class ComPortAtom extends Atom implements system.managers.Driver
 		}
 		if (result.status == 'ok' && result.data != null)
 		{
-			var bytes:Array<Int> = [];
-			var view:Uint8Array = untyped result.data;
-			for (i in 0...view.length) bytes.push(view[i]);
-			writeToBuffer(bytes);
-			_hasPendingRx = true;
+			var dataView:DataView = untyped result.data;
+			var len:Int = dataView.byteLength;
+			if (len > 0) {
+				var bytes:Array<Int> = [];
+				for (i in 0...len) {
+					bytes.push(dataView.getUint8(i));
+				}
+				writeToBuffer(bytes);
+				_hasPendingRx = true;
+				// Отладка: вывести первые несколько байт
+				// trace('USB RX: ' + len + ' bytes, first: ' + bytes.slice(0, 8));
+			}
 		}
+		// Продолжить чтение
 		readUsbChunk();
 	}
 	/**

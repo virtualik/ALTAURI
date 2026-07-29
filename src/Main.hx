@@ -208,10 +208,24 @@ class Main extends Sprite
 	// =========================================================================
 	// INITIALIZATION
 	// =========================================================================
-
 	private function init(e:Event = null):Void
 	{
+		// Перехватываем trace() для отправки в DebugConsoleAtom
+		var originalTrace = haxe.Log.trace;
+		haxe.Log.trace = function(v:Dynamic, ?infos:haxe.PosInfos)
+		{
+			// 1. Стандартный вывод в консоль браузера (только для HTML5 target)
+			#if html5
+			untyped console.log(v);
+			#end
+			
+			// 2. Отправка в DebugConsoleAtom (работает на всех платформах)
+			library.electro.DebugConsoleAtom.log(Std.string(v));
+		};
+			trace("DEBUG CONSOLE TEST: Если ты это видишь, перехват работает!");
+
 		log("System initialized");
+
 		removeEventListener(Event.ADDED_TO_STAGE, init);
 
 		openfl.Lib.current.stage.window.visible = true;

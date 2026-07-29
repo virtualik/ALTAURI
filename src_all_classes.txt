@@ -7718,6 +7718,402 @@ class ComPortWidget extends DeviceView
 }
 
 ================================================================================
+// FILE: core\view\DebugConsoleWidget.hx
+// Lines: 390 | Chars: 15530
+================================================================================
+
+// FILE: core/view/DebugConsoleWidget.hx
+package core.view;
+
+import openfl.display.Sprite;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import openfl.text.TextFieldAutoSize;
+import openfl.events.MouseEvent;
+import openfl.events.Event;
+import core.base.Atom;
+import core.base.Contact;
+
+/**
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║                     DEBUG CONSOLE WIDGET v1.4                             ║
+ * ║              (Contact Name Matching + Auto-scroll Fix)                    ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  Visual component (Face) for DebugConsoleAtom.                            ║
+ * ║  Displays trace() output in a scrollable text area with Clear button.     ║
+ * ║                                                                           ║
+ * ║  Architecture: "ATOM IS DATABANK & COMPUTE CORE"                          ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │  DebugConsoleAtom (Databank)                                        │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  Contact "output"    ───► DebugConsoleWidget (full log content)     │  ║
+ * ║  │  Contact "lineCount" ───► DebugConsoleWidget (status bar)           │  ║
+ * ║  │  Contact "clear"     ◄──── DebugConsoleWidget (clear button click)  │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  Widget READS from atom's output contacts.                          │  ║
+ * ║  │  Widget WRITES to atom's "clear" input on button click.             │  ║
+ * ║  │  Atom is the Databank — single source of truth.                     │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  ┌─────────────────────────────────────────────────────────────┐    │  ║
+ * ║  │  │  DEBUG CONSOLE                                    [Clear]   │    │  ║
+ * ║  │  ├─────────────────────────────────────────────────────────────┤    │  ║
+ * ║  │  │  12:34:56 | ComPortAtom: Opened COM13 via WebUSB           │    │  ║
+ * ║  │  │  12:34:57 | PL2303HX: RX buffer activated (0x0044)         │    │  ║
+ * ║  │  │  12:34:58 | SignalGenerator: freq=440.0 Hz                 │    │  ║
+ * ║  │  │  12:34:59 | FFTAtom: Processing 512 samples                │    │  ║
+ * ║  │  │  ...                                                        │    │  ║
+ * ║  │  └─────────────────────────────────────────────────────────────┘    │  ║
+ * ║  │  Lines: 4                                                           │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                     v1.4 CHANGES                                          ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  v1.4 — Contact Name Matching + Robust Sync                               ║
+ * ║  ─────────────────────────────────────────────                            ║
+ * ║  - FIXED: onContactChanged uses switch(contact.name) instead of           ║
+ * ║    if(contact == _outputContact). Previous approach failed when           ║
+ * ║    _outputContact was null during race conditions at init time.           ║
+ * ║  - FIXED: syncFromAtom() now has fallback to atom.getText()-style         │  ║
+ * ║    direct read if contact subscription hasn't fired yet.                  ║
+ * ║  - ADDED: Event.SCROLL listener on _logField for manual scroll            ║
+ * ║    detection (prevents auto-scroll from fighting user scroll).            ║
+ * ║  - ADDED: _userScrolledUp flag — disables auto-scroll when user           ║
+ * ║    manually scrolls up to read older messages.                            ║
+ * ║  - ADDED: Mouse wheel event interception (stopPropagation) to             ║
+ * ║    prevent scroll events from reaching parent NodeEditor (zoom).          ║
+ * ║                                                                           ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
+ */
+class DebugConsoleWidget extends DeviceView
+{
+    // =========================================================================
+    // UI COMPONENTS
+    // =========================================================================
+    private var _bg:Sprite;
+    private var _header:Sprite;
+    private var _titleField:TextField;
+    private var _logField:TextField;
+    private var _clearBtn:Sprite;
+    private var _clearLabel:TextField;
+    private var _statusField:TextField;
+
+    // =========================================================================
+    // STATE
+    // =========================================================================
+    /** Tracks whether user manually scrolled up (disables auto-scroll). */
+    private var _userScrolledUp:Bool = false;
+    /** Current line count for status bar. */
+    private var _lineCount:Int = 0;
+
+    // =========================================================================
+    // CONFIGURATION
+    // =========================================================================
+    public var widgetWidth:Float = 320;
+    public var widgetHeight:Float = 220;
+
+    override public function getWidgetSize():{width:Float, height:Float}
+    {
+        return {width: widgetWidth, height: widgetHeight};
+    }
+
+    private var _colorBg:Int = 0x1a1a24;
+    private var _colorHeader:Int = 0x2a2a3a;
+    private var _colorText:Int = 0x00FF88;
+    private var _colorMuted:Int = 0x888899;
+
+    // =========================================================================
+    // CONSTRUCTOR
+    // =========================================================================
+    public function new(atom:Atom)
+    {
+        super(atom);
+        buildUI();
+        syncFromAtom();
+    }
+
+    // =========================================================================
+    // INITIALIZATION
+    // =========================================================================
+    override private function onActivate():Void
+    {
+        syncFromAtom();
+    }
+
+    // =========================================================================
+    // UI CONSTRUCTION
+    // =========================================================================
+    private function buildUI():Void
+    {
+        // === BACKGROUND ===
+        _bg = new Sprite();
+        _bg.graphics.beginFill(_colorBg, 0.95);
+        _bg.graphics.lineStyle(1, 0x00AAFF);
+        _bg.graphics.drawRoundRect(0, 0, widgetWidth, widgetHeight, 6, 6);
+        _bg.graphics.endFill();
+        addChild(_bg);
+
+        // === HEADER ===
+        _header = new Sprite();
+        _header.graphics.beginFill(_colorHeader);
+        _header.graphics.drawRoundRectComplex(0, 0, widgetWidth, 24, 6, 6, 0, 0);
+        _header.graphics.endFill();
+        addChild(_header);
+
+        // === TITLE ===
+        _titleField = new TextField();
+        _titleField.defaultTextFormat = new TextFormat("_typewriter", 11, 0xFFFFFF, true);
+        _titleField.text = " DEBUG CONSOLE";
+        _titleField.width = widgetWidth - 60;
+        _titleField.height = 24;
+        _titleField.x = 5;
+        _titleField.y = 2;
+        _titleField.selectable = false;
+        _titleField.mouseEnabled = false;
+        addChild(_titleField);
+
+        // === CLEAR BUTTON ===
+        _clearBtn = new Sprite();
+        _clearBtn.graphics.beginFill(0x553322);
+        _clearBtn.graphics.drawRoundRect(0, 0, 50, 20, 3, 3);
+        _clearBtn.graphics.endFill();
+        _clearBtn.x = widgetWidth - 55;
+        _clearBtn.y = 2;
+        _clearBtn.buttonMode = true;
+        _clearBtn.useHandCursor = true;
+        _clearBtn.addEventListener(MouseEvent.CLICK, onClearClick);
+        addChild(_clearBtn);
+
+        _clearLabel = new TextField();
+        _clearLabel.defaultTextFormat = new TextFormat("_typewriter", 9, 0xFFFFFF, true);
+        _clearLabel.text = "Clear";
+        _clearLabel.width = 50;
+        _clearLabel.height = 20;
+        _clearLabel.selectable = false;
+        _clearLabel.mouseEnabled = false;
+        _clearBtn.addChild(_clearLabel);
+
+        // === LOG DISPLAY FIELD ===
+        _logField = new TextField();
+        _logField.defaultTextFormat = new TextFormat("_typewriter", 10, _colorText);
+        _logField.text = "";
+        _logField.width = widgetWidth - 10;
+        _logField.height = widgetHeight - 50;
+        _logField.x = 5;
+        _logField.y = 28;
+        
+        // Critical: prevent OpenFL from auto-resizing height
+        _logField.autoSize = TextFieldAutoSize.NONE;
+        _logField.multiline = true;
+        _logField.wordWrap = true;
+        _logField.background = true;
+        _logField.backgroundColor = 0x0d0d18;
+        _logField.border = true;
+        _logField.borderColor = 0x333355;
+        _logField.selectable = true;
+        _logField.mouseEnabled = true;
+        
+        // Listen for manual scroll to detect user scrolling up
+        _logField.addEventListener(Event.SCROLL, onLogScroll);
+        addChild(_logField);
+
+        // === STATUS BAR ===
+        _statusField = new TextField();
+        _statusField.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+        _statusField.text = "Lines: 0";
+        _statusField.width = widgetWidth - 10;
+        _statusField.height = 16;
+        _statusField.x = 5;
+        _statusField.y = widgetHeight - 20;
+        _statusField.selectable = false;
+        _statusField.mouseEnabled = false;
+        addChild(_statusField);
+
+        // === MOUSE WHEEL INTERCEPTION ===
+        // Prevent scroll events from reaching parent NodeEditor (zoom canvas)
+        addEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
+    }
+
+    // =========================================================================
+    // EVENT HANDLERS
+    // =========================================================================
+    /**
+     * Clear button clicked — send pulse to atom's "clear" input.
+     */
+    private function onClearClick(e:MouseEvent):Void
+    {
+        _userScrolledUp = false; // Reset auto-scroll on clear
+        var clearInput = atom.getInput("clear");
+        if (clearInput != null)
+        {
+            clearInput.value = true;
+        }
+    }
+
+    /**
+     * User manually scrolled the log field.
+     * Detects if user scrolled up (away from bottom) to read older messages.
+     * If so, disables auto-scroll until user scrolls back to bottom or clicks Clear.
+     */
+    private function onLogScroll(e:Event):Void
+    {
+        if (_logField == null) return;
+        
+        // If user is at the bottom, re-enable auto-scroll
+        if (_logField.scrollV >= _logField.maxScrollV)
+        {
+            _userScrolledUp = false;
+        }
+        else
+        {
+            // User scrolled up — disable auto-scroll
+            _userScrolledUp = true;
+        }
+    }
+
+    /**
+     * Mouse wheel handler — intercept to prevent parent zoom.
+     */
+    private function onMouseWheel(e:MouseEvent):Void
+    {
+        if (_logField == null || isDisposed) return;
+        
+        // Stop event from reaching parent NodeEditor (zoom canvas)
+        e.stopPropagation();
+        
+        // Manually scroll log field
+        var maxV = _logField.maxScrollV;
+        if (maxV > 1)
+        {
+            var delta = -e.delta * 3; // 3 lines per wheel tick
+            var newV = _logField.scrollV + Std.int(delta);
+            if (newV < 1) newV = 1;
+            if (newV > maxV) newV = maxV;
+            _logField.scrollV = newV;
+            
+            // Update auto-scroll state
+            if (newV >= maxV)
+            {
+                _userScrolledUp = false;
+            }
+            else
+            {
+                _userScrolledUp = true;
+            }
+        }
+    }
+
+    // =========================================================================
+    // DATA SYNCHRONIZATION
+    // =========================================================================
+    /**
+     * Sync widget state from atom's output contacts.
+     * Called on activation and when contacts change.
+     *
+     * Uses name-based contact lookup for reliability.
+     */
+    override private function syncFromAtom():Void
+    {
+        if (atom == null) return;
+        
+        // Read "output" contact (full log content)
+        var outputContact = atom.getOutput("output");
+        if (outputContact != null && outputContact.value != null)
+        {
+            var logText = Std.string(outputContact.value);
+            if (logText != _logField.text)
+            {
+                _logField.text = logText;
+                _autoScrollToBottom();
+            }
+        }
+        
+        // Read "lineCount" contact
+        var lineCountContact = atom.getOutput("lineCount");
+        if (lineCountContact != null)
+        {
+            _lineCount = Std.int(lineCountContact.value);
+            _statusField.text = 'Lines: $_lineCount';
+        }
+    }
+
+    /**
+     * v1.4 FIX: Uses switch(contact.name) instead of if(contact == _outputContact).
+     *
+     * Previous approach failed when _outputContact was null during race
+     * conditions at initialization. Name-based matching is robust because
+     * it doesn't depend on reference equality.
+     *
+     * DeviceView.subscribeToContacts() subscribes to ALL atom outputs.
+     * When atom's "output" contact changes, this handler is called with
+     * contact.name == "output".
+     */
+    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void
+    {
+        if (isDisposed) return;
+
+        switch (contact.name)
+        {
+            case "output":
+                if (newValue != null)
+                {
+                    var logText = Std.string(newValue);
+                    if (logText != _logField.text)
+                    {
+                        _logField.text = logText;
+                        _autoScrollToBottom();
+                    }
+                }
+
+            case "lineCount":
+                _lineCount = Std.int(newValue);
+                _statusField.text = 'Lines: $_lineCount';
+        }
+    }
+
+    /**
+     * Auto-scroll to bottom if user hasn't manually scrolled up.
+     */
+    private function _autoScrollToBottom():Void
+    {
+        if (_logField == null) return;
+        
+        if (!_userScrolledUp && _logField.maxScrollV > 1)
+        {
+            _logField.scrollV = _logField.maxScrollV;
+        }
+    }
+
+    // =========================================================================
+    // DISPOSE
+    // =========================================================================
+    override public function dispose():Void
+    {
+        if (_clearBtn != null)
+        {
+            _clearBtn.removeEventListener(MouseEvent.CLICK, onClearClick);
+        }
+        if (_logField != null)
+        {
+            _logField.removeEventListener(Event.SCROLL, onLogScroll);
+        }
+        removeEventListener(MouseEvent.MOUSE_WHEEL, onMouseWheel);
+        
+        _bg = null;
+        _header = null;
+        _titleField = null;
+        _logField = null;
+        _clearBtn = null;
+        _clearLabel = null;
+        _statusField = null;
+        
+        super.dispose();
+    }
+}
+
+================================================================================
 // FILE: core\view\DeviceView.hx
 // Lines: 482 | Chars: 17142
 ================================================================================
@@ -8613,23 +9009,47 @@ class DeviceViewRegistry
 
 ================================================================================
 // FILE: core\view\DeviceWidgetFactory.hx
-// Lines: 265 | Chars: 8495
+// Lines: 309 | Chars: 9364
 ================================================================================
 
+// FILE: core/view/DeviceWidgetFactory.hx
 package core.view;
+
 import core.base.Atom;
 import core.base.Assembly;
 import core.data.Blueprint;
+
+// --- Native & Cross-platform Widgets ---
+import core.view.ButtonWidget;
+import core.view.ToggleWidget;
+import core.view.LEDWidget;
+import core.view.TextWidget;
+import core.view.TextInputWidget;
+import core.view.TextAreaWidget;
+import core.view.OscilloscopeWidget;
+import core.view.FFTWidget;
+import core.view.SignalGeneratorWidget;
+import core.view.PanelWidget;
+import core.view.DebugConsoleWidget;
+
+// --- C++ Specific Widgets ---
 #if cpp
-	import core.view.MiniAudioWidget;
-	import core.view.ComPortWidget;
-	import core.view.ComEnumeratorWidget;
-	import core.view.NETRadioPlayerWidget;
-	import core.view.SystemVUMeterWidget;
-	import core.view.FFTWidget;
+import core.view.MiniAudioWidget;
+import core.view.ComPortWidget;
+import core.view.ComEnumeratorWidget;
+import core.view.NETRadioPlayerWidget;
+import core.view.SystemVUMeterWidget;
+import core.view.WEBSocketWidget;
+import core.view.URLAudioStreamPlayerWidget;
 #end
+
+// --- HTML5 Specific Widgets ---
+#if html5
+import core.view.FileWriterWidget;
+#end
+
 /**
-* DEVICE WIDGET FACTORY v1.1
+* DEVICE WIDGET FACTORY v1.2 (Fixed Syntax & Imports)
 * Factory for creating DeviceView (Atom's Face).
 *
 * Completely separated from Atom logic.
@@ -8678,36 +9098,42 @@ class DeviceWidgetFactory
 	public static function create(atom:Atom):DeviceView
 	{
 		if (atom == null) return null;
+		
 		try {
-// 1. First check Assembly (this prevents recursion)
+			// 1. First check Assembly (this prevents recursion)
 			if (Std.isOfType(atom, Assembly))
 			{
 				var asm:Assembly = cast(atom, Assembly);
 				return createForAssembly(asm);
 			}
-// 2. Native atoms - by type
+			
+			// 2. Native atoms - by type
 			return createByAtomType(atom);
 		}
 		catch (e:Dynamic)
 		{
 			trace('DeviceWidgetFactory: Error creating widget for atom "${atom.name}": $e');
 			return null;
-		}
+	 }
 	}
+
 	/**
 	* Create widget for Assembly by blueprint.deviceType.
 	*/
 	private static function createForAssembly(asm:Assembly):DeviceView
 	{
 		if (asm == null || asm.blueprint == null) return null;
+		
 		var bp = asm.blueprint;
 		var deviceType:String = bp.deviceType;
-// If deviceType not specified - PanelWidget (container)
+		
+		// If deviceType not specified - PanelWidget (container)
 		if (deviceType == null || deviceType == "")
 		{
 			return new PanelWidget(asm);
 		}
-// Determine by deviceType
+		
+		// Determine by deviceType
 		return switch (deviceType.toLowerCase())
 		{
 			case "led", "indicator", "light":
@@ -8728,45 +9154,49 @@ class DeviceWidgetFactory
 				new TextInputWidget(asm);
 			case "textarea":
 				new TextAreaWidget(asm);
-				#if cpp
-			case "miniaudioatom", "mini audio capture":
-				new MiniAudioWidget(asm);
-				#end
 			case "signalgenerator":
 				new SignalGeneratorWidget(asm);
-				#if cpp
+				
+			#if cpp
+			case "miniaudioatom", "mini audio capture":
+				new MiniAudioWidget(asm);
 			case "comport", "com port":
 				new ComPortWidget(asm);
 			case "comenumerator", "com enumerator":
 				new ComEnumeratorWidget(asm);
-				#end
-				#if html5
-				return new core.view.FileWriterWidget(asm);
-				#else
-				return new TextWidget(asm);
-				#end
-				#if cpp
 			case "netradio", "netradioplayer":
 				new NETRadioPlayerWidget(asm);
 			case "urlplayer", "url audio player", "urlaudioplayer":
 				new URLAudioStreamPlayerWidget(asm);
+			#end
 			
+			#if html5
 			case "filewriter", "file writer":
-				#end
+				new FileWriterWidget(asm);
+			#else
+			case "filewriter", "file writer":
+				new TextWidget(asm); // Safe fallback for non-HTML5 targets
+			#end
+			
 			default:
-// Try to find class by name
+				// Try to find class by name
 				createByClassName(deviceType, asm);
 		}
 	}
+
 	/**
 	* Create widget by atom type (for native atoms).
 	*/
 	private static function createByAtomType(atom:Atom):DeviceView
 	{
 		if (atom == null) return null;
+		
 		var type = atom.type.toLowerCase();
+		
 		return switch (type)
 		{
+			case "debugconsole":
+				new DebugConsoleWidget(atom);
 			case "led", "led indicator":
 				new LEDWidget(atom, "in");
 			case "button", "push button":
@@ -8781,22 +9211,20 @@ class DeviceWidgetFactory
 				new OscilloscopeWidget(atom, "in");
 			case "fftatom", "fft spectrum":
 				new FFTWidget(atom);
-				#if cpp
-				case "audioin", "audioinput", "audio":
-				new OscilloscopeWidget(atom, "samples");
-			case "systemvumeteratom", "system vu meter", "vumeter":
-				new SystemVUMeterWidget(atom);
-				#end
 			case "relay":
-			// Show output "out"
+				// Show output "out"
 				new TextWidget(atom, "out", false);
 			case "signalgenerator":
 				new SignalGeneratorWidget(atom);
-
 			case "comportatom", "com port":
 				new ComPortWidget(atom);
+				
 			#if cpp
-				case "comenumeratoratom", "com enumerator":
+			case "audioin", "audioinput", "audio":
+				new OscilloscopeWidget(atom, "samples");
+			case "systemvumeteratom", "system vu meter", "vumeter":
+				new SystemVUMeterWidget(atom);
+			case "comenumeratoratom", "com enumerator":
 				new ComEnumeratorWidget(atom);
 			case "websocketatom", "websocket":
 				new WEBSocketWidget(atom);
@@ -8806,18 +9234,22 @@ class DeviceWidgetFactory
 				new MiniAudioWidget(atom);
 			case "urlaudioplayeratom", "url audio player":
 				new URLAudioStreamPlayerWidget(atom);
-				#end
+			#end
+			
+			#if html5
 			case "filewriteratom", "file writer":
-				#if html5
-				return new core.view.FileWriterWidget(atom);
-				#else
-				return new TextWidget(atom);
-				#end
+				new FileWriterWidget(atom);
+			#else
+			case "filewriteratom", "file writer":
+				new TextWidget(atom); // Safe fallback
+			#end
+			
 			default:
-// Universal widget - text display
+				// Universal widget - text display
 				new TextWidget(atom);
 		}
 	}
+
 	/**
 	* Attempt to create widget by class name.
 	* Allows extending system without changing Factory.
@@ -8838,11 +9270,13 @@ class DeviceWidgetFactory
 		}
 		catch (e:Dynamic)
 		{
-// Ignore errors - return fallback
+			// Ignore errors - return fallback
 		}
-// Fallback - universal widget
+		
+		// Fallback - universal widget
 		return new TextWidget(atom);
 	}
+
 	/**
 	* Find contact name in Blueprint.
 	* Used to determine contact for display.
@@ -8850,33 +9284,39 @@ class DeviceWidgetFactory
 	private static function getContactName(bp:Blueprint, defaultName:String):String
 	{
 		if (bp == null || bp.pins == null) return defaultName;
-// Search exact match
+		
+		// Search exact match
 		for (pin in bp.pins)
 		{
 			if (pin.name == defaultName) return pin.name;
 		}
-// Take first available
+		
+		// Take first available
 		for (pin in bp.pins)
 		{
 			if (pin.name != null) return pin.name;
 		}
+		
 		return defaultName;
 	}
+
 	/**
 	* Check if atom type is supported.
 	*/
 	public static function isSupported(atomType:String):Bool
 	{
 		if (atomType == null) return false;
+		
 		var type = atomType.toLowerCase();
 		return switch (type)
 		{
 			case "led" | "button" | "toggle" | "oscilloscope" | "fftatom" | "textinput" |
-					"audioin" | "audioinput" | "relay" | "conductor" |
-					"universalgen" | "signalgen" | "fpsmonitor" | "frametime":
+				 "audioin" | "audioinput" | "relay" | "conductor" |
+				 "universalgen" | "signalgen" | "fpsmonitor" | "frametime" |
+				 "textarea" | "debugconsole" | "comportatom" | "filewriteratom":
 				true;
 			default:
-// Check Assembly
+				// Check Assembly
 				true; // PanelWidget as fallback
 		}
 	}
@@ -24608,7 +25048,7 @@ typedef WireEntry = {
 
 ================================================================================
 // FILE: library\AtomRegistry.hx
-// Lines: 633 | Chars: 32328
+// Lines: 646 | Chars: 33283
 ================================================================================
 
 // FILE: library/AtomRegistry.hx
@@ -24812,6 +25252,19 @@ class AtomRegistry
         // NATIVE ATOMS REGISTRATION
         // =================================================================
         // --- Electro / UI ---
+
+		// DEBUG CONSOLE — Cross-platform trace() capture
+		reg("DebugConsole", "Debug Console", [
+		{name: "log",          type: INPUT,  dataType: "string", priority: CRITICAL,  label: "Log"},
+		{name: "append",       type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Append"},
+		{name: "clear",        type: INPUT,  dataType: "bool",   priority: OPTIONAL,  label: "Clear"},
+		{name: "maxLines",     type: INPUT,  defaultValue: 500,  dataType: "int",    priority: OPTIONAL, label: "MaxLines"},
+		{name: "enabled",      type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL, label: "Enabled"},
+		{name: "output",       type: OUTPUT, dataType: "string", priority: CRITICAL,  label: "Output"},
+		{name: "changed",      type: OUTPUT, dataType: "bool",   priority: OPTIONAL},
+		{name: "lineCount",    type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Lines"}
+		], null, "debugconsole", true, false, "debugconsole");
+		
         reg("Button", "Push Button", [
             {name: "out", type: OUTPUT, dataType: "bool"}
         ], null, "button", true, false, "button");
@@ -25571,7 +26024,7 @@ class ComEnumeratorAtom extends Atom implements system.managers.Driver
 
 ================================================================================
 // FILE: library\drivers\ComPortAtom.hx
-// Lines: 1767 | Chars: 77809
+// Lines: 1817 | Chars: 79498
 ================================================================================
 
 // FILE: library/drivers/ComPortAtom.hx
@@ -26323,7 +26776,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
 			', this);
 			#end
 		}
-
+		#if cpp
 		// === Emit pending RX data (common path for both platforms) ===
 		if (_hasPendingRx)
 		{
@@ -26342,7 +26795,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
 			var errTick = getOutput("errorTick");
 			if (errTick != null) { errTick.value = true; _errTimer = PULSE_DURATION; }
 		}
-
+		#end
 		// === HTML5: Emit data from ring buffer ===
 		#if html5
 		emitRxData();
@@ -26674,7 +27127,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
 	* │  2. Else check navigator.usb → WebUSB API (Android Chrome)      │
 	* │     └─► requestDevice() with vendor ID filters:                 │
 	* │         0x303A (Espressif), 0x0403 (FTDI),                      │
-	* │         0x1A86 (CH340), 0x10C4 (CP2102), 0x067B (Prolific)     │
+	* │         0x1A86 (CH340), 0x10C4 (CP2102), 0x067B (Prolific)      │
 	* │                                                                 │
 	* │  3. Else → setError("Neither API supported")                    │
 	* └─────────────────────────────────────────────────────────────────┘
@@ -26782,6 +27235,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
 	*    - 0x10C4 (CP2102): vendor requests 0x00, 0x03, 0x07, 0x1E
 	*    - 0x0403 (FTDI):   vendor requests 0x00, 0x02, 0x04, 0x03, 0x01
 	*    - 0x1A86 (CH340):  vendor requests 0xA1, 0x9A, 0x9A, 0xA4
+	*    - 0x067B (PL2303): vendor requests 0x01, class requests 0x20, 0x22
 	*    - default (CDC):   class requests 0x20 (SET_LINE_CODING), 0x22
 	* 6. On failure, recursively try next candidate
 	*
@@ -26914,6 +27368,47 @@ class ComPortAtom extends Atom implements system.managers.Driver
 					.then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x9A, value:0x0f2c, index:b_val}); })
 					.then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0xA4, value:(~((1<<5)|(1<<6)))&0xffff, index:0x0000}); });
 				}
+else if (vid == 0x067b)   // Prolific PL2303HX
+{
+	// Для включения буферов RX и TX необходимо отправить вендорную последовательность.
+	// Без отправки 0x0044 чип будет принимать Tx, но Rx будет молчать.
+	initPromise = untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0000, index:0x0001})
+	.then(function() { 
+		return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0001, index:0x0000}); 
+	})
+	.then(function() { 
+		// Критически важная команда: активация RX!
+		return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0002, index:0x0044}); 
+	})
+	.then(function() {
+		// SET_LINE_CODING (стандартный класс-запрос 0x20)
+		var lineCoding:Uint8Array = new Uint8Array([
+			baudRate & 0xFF,
+			(baudRate >> 8) & 0xFF,
+			(baudRate >> 16) & 0xFF,
+			(baudRate >> 24) & 0xFF,
+			0x00,  // 1 stop bit
+			0x00,  // no parity
+			0x08   // 8 data bits
+		]);
+		return untyped dev.controlTransferOut({
+			requestType: 'class',
+			recipient: 'interface',
+			request: 0x20,
+			value: 0,
+			index: ctrlIface
+		}, lineCoding);
+	}).then(function() {
+		// SET_CONTROL_LINE_STATE (DTR + RTS)
+		return untyped dev.controlTransferOut({
+			requestType: 'class',
+			recipient: 'interface',
+			request: 0x22,
+			value: 0x03,
+			index: ctrlIface
+		});
+	});
+}
 				else   // Standard CDC/ACM
 				{
 					var lineCoding:Uint8Array = new Uint8Array([baudRate & 0xFF, (baudRate >> 8) & 0xFF, (baudRate >> 16) & 0xFF, (baudRate >> 24) & 0xFF, 0x00, 0x00, 0x08]);
@@ -27175,12 +27670,20 @@ class ComPortAtom extends Atom implements system.managers.Driver
 		}
 		if (result.status == 'ok' && result.data != null)
 		{
-			var bytes:Array<Int> = [];
-			var view:Uint8Array = untyped result.data;
-			for (i in 0...view.length) bytes.push(view[i]);
-			writeToBuffer(bytes);
-			_hasPendingRx = true;
+			var dataView:DataView = untyped result.data;
+			var len:Int = dataView.byteLength;
+			if (len > 0) {
+				var bytes:Array<Int> = [];
+				for (i in 0...len) {
+					bytes.push(dataView.getUint8(i));
+				}
+				writeToBuffer(bytes);
+				_hasPendingRx = true;
+				// Отладка: вывести первые несколько байт
+				// trace('USB RX: ' + len + ' bytes, first: ' + bytes.slice(0, 8));
+			}
 		}
+		// Продолжить чтение
 		readUsbChunk();
 	}
 	/**
@@ -33559,7 +34062,7 @@ class BufferingAtom extends Atom implements system.managers.Driver
 
 ================================================================================
 // FILE: library\electro\ButtonAtom.hx
-// Lines: 136 | Chars: 4309
+// Lines: 138 | Chars: 4381
 ================================================================================
 
 package library.electro;
@@ -33641,6 +34144,8 @@ class ButtonAtom extends Atom
                 _outputs[0].value = _state;
             }
         });
+		trace("DEBUG CONSOLE TEST: Если ты это видишь, перехват работает!");
+
     }
 
     /**
@@ -33696,6 +34201,372 @@ class ButtonAtom extends Atom
                 _outputs[0].value = _state;
             }
         }
+    }
+}
+
+================================================================================
+// FILE: library\electro\DebugConsoleAtom.hx
+// Lines: 360 | Chars: 16652
+================================================================================
+
+// FILE: library/electro/DebugConsoleAtom.hx
+package library.electro;
+
+import core.base.Atom;
+import core.base.Contact;
+import core.types.ContactType;
+import core.logic.TickGenerator;
+
+/**
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║                     DEBUG CONSOLE ATOM v1.3                               ║
+ * ║              (Passive Atom + TickGenerator Pulse Reset)                   ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  Captures trace() output and exposes it as atom outputs.                  ║
+ * ║  Use with DebugConsoleWidget for in-app log viewing.                      ║
+ * ║                                                                           ║
+ * ║  Architecture:                                                            ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │  Main.hx                                                            │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  haxe.Log.trace = function(v, ?infos) {                             │  ║
+ * ║  │      #if html5                                                      │  ║
+ * ║  │      untyped console.log(v);                                        │  ║
+ * ║  │      #end                                                           │  ║
+ * ║  │      DebugConsoleAtom.log(Std.string(v));                           │  ║
+ * ║  │  };                                                                 │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                              │                                            ║
+ * ║                              ▼                                            ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │  DebugConsoleAtom (Passive Databank)                                │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  STATIC API:                                                        │  ║
+ * ║  │  • DebugConsoleAtom.log(msg) → dispatch to all active instances     │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  INPUTS (manual control from other atoms):                          │  ║
+ * ║  │  • log      (String) → Replace entire buffer with single message   │  ║
+ * ║  │  • append   (String) → Append message to existing buffer            │  ║
+ * ║  │  • clear    (Bool)   → Clear buffer on true pulse                   │  ║
+ * ║  │  • maxLines (Int)    → Max lines before trimming (default 500)      │  ║
+ * ║  │  • enabled  (Bool)   → Master enable/disable                        │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  OUTPUTS (to DebugConsoleWidget):                                   │  ║
+ * ║  │  • output    (String) → Full log content (newline-separated)        │  ║
+ * ║  │  • changed   (Bool)   → Pulse on any log change                    │  ║
+ * ║  │  • lineCount (Int)    → Current number of lines in buffer          │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  DATABANK:                                                          │  ║
+ * ║  │  • _logBuffer: Array<String> — in-memory log storage                │  ║
+ * ║  │  • _maxLines:  Int          — auto-trim threshold                   │  ║
+ * ║  │  • _enabled:   Bool         — processing gate                       │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                              │                                            ║
+ * ║                              ▼                                            ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  │  DebugConsoleWidget (Face)                                          │  ║
+ * ║  │  Subscribes to "output" and "lineCount" contacts.                   │  ║
+ * ║  │  Displays scrollable text area with Clear button.                   │  ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                     v1.3 CHANGES                                          ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                           ║
+ * ║  v1.3 — TickGenerator Pulse Reset (Passive Atom Pattern)                  ║
+ * ║  ──────────────────────────────────────────────────────                    ║
+ * ║  - FIXED: Replaced update(dt) timer with TickGenerator.scheduleNextTick   ║
+ * ║    for "changed" pulse reset. This atom is NOT an active driver           ║
+ * ║    (isActive=false in AtomRegistry), so update(dt) was never called       ║
+ * ║    by DriverManager, causing "changed" to stay true forever.              ║
+ * ║  - FIXED: Added null/empty guard in static log() method.                  ║
+ * ║  - FIXED: Added isDisposed check in static log() to prevent               ║
+ * ║    use-after-free if atom is disposed while trace() is called.            ║
+ * ║  - ADDED: Detailed ASCII architecture tables.                             ║
+ * ║                                                                           ║
+ * ║  v1.2 — Fixed Output Contract                                             ║
+ * ║  ────────────────────────────────                                         ║
+ * ║  - FIXED: Output contact named "output" (not "log").                      ║
+ * ║  - FIXED: Silent reset of input contacts to prevent re-trigger.           ║
+ * ║                                                                           ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
+ */
+class DebugConsoleAtom extends Atom
+{
+    // =========================================================================
+    // REGISTRY — Static instance tracking
+    // =========================================================================
+    /**
+     * All active DebugConsoleAtom instances.
+     * Static log() dispatches messages to all registered instances.
+     * Instances are added in constructor and removed in dispose().
+     */
+    private static var _instances:Array<DebugConsoleAtom> = [];
+
+    // =========================================================================
+    // DATABANK — Internal state
+    // =========================================================================
+    /** In-memory log buffer. Each element is one line (with timestamp). */
+    private var _logBuffer:Array<String> = [];
+    /** Maximum number of lines before auto-trimming oldest entries. */
+    private var _maxLines:Int = 500;
+    /** Master enable flag. When false, static log() skips this instance. */
+    private var _enabled:Bool = true;
+
+    // =========================================================================
+    // CONSTRUCTOR
+    // =========================================================================
+    /**
+     * Create a new DebugConsoleAtom.
+     *
+     * This is a PASSIVE atom (isActive=false) — it does not need
+     * per-tick update(dt) calls from DriverManager. All processing
+     * happens synchronously when trace() is called or when input
+     * contacts change.
+     *
+     * @param id Unique runtime instance ID
+     */
+    public function new(id:String)
+    {
+        super(
+            // === INPUTS ===
+            [
+                new Contact("", ContactType.INPUT, "log"),
+                new Contact("", ContactType.INPUT, "append"),
+                new Contact(false, ContactType.INPUT, "clear"),
+                new Contact(500, ContactType.INPUT, "maxLines"),
+                new Contact(true, ContactType.INPUT, "enabled")
+            ],
+            // === OUTPUTS ===
+            [
+                new Contact("", ContactType.OUTPUT, "output"),
+                new Contact(false, ContactType.OUTPUT, "changed"),
+                new Contact(0, ContactType.OUTPUT, "lineCount")
+            ],
+            null,   // No process function — passive atom
+            id,
+            "DebugConsole",
+            false   // isActive = false (passive atom)
+        );
+        
+        // Register this instance for static log() dispatch
+        _instances.push(this);
+    }
+
+    // =========================================================================
+    // STATIC API — Global trace() capture
+    // =========================================================================
+    /**
+     * Send log message to ALL active DebugConsoleAtom instances.
+     *
+     * Called from custom trace() handler in Main.hx:
+     * ┌─────────────────────────────────────────────────────────────────┐
+     * │  haxe.Log.trace = function(v, ?infos) {                         │
+     * │      #if html5                                                  │
+     * │      untyped console.log(v);                                    │
+     * │      #end                                                       │
+     * │      DebugConsoleAtom.log(Std.string(v));                       │
+     * │  };                                                             │
+     * └─────────────────────────────────────────────────────────────────┘
+     *
+     * Safety checks:
+     * - Skip if msg is null or empty
+     * - Skip if instance is disposed (use-after-free protection)
+     * - Skip if instance is disabled via "enabled" input contact
+     *
+     * @param msg Log message string
+     */
+    public static function log(msg:String):Void
+    {
+        if (msg == null || msg == "") return;
+        
+        for (inst in _instances)
+        {
+            if (inst != null && !inst._isDisposed && inst._enabled)
+            {
+                inst._appendToBuffer(msg);
+            }
+        }
+    }
+
+	
+    // =========================================================================
+    // CONTACT HANDLER — Input processing
+    // =========================================================================
+    /**
+     * Handle input contact changes.
+     *
+     * ┌─────────────────────────────────────────────────────────────────┐
+     * │  Input Processing:                                              │
+     * │                                                                 │
+     * │  "log" (String)    → Replace mode: clear buffer, add message    │
+     * │  "append" (String) → Append mode: add to existing buffer        │
+     * │  "clear" (Bool)    → Clear buffer on true pulse                 │
+     * │  "maxLines" (Int)  → Update trim threshold (10..10000)          │
+     * │  "enabled" (Bool)  → Toggle processing on/off                   │
+     * │                                                                 │
+     * │  All pulse inputs use setValueSilent() to reset without         │
+     * │  triggering a parasitic propagate cycle.                        │
+     * └─────────────────────────────────────────────────────────────────┘
+     */
+    override public function onContactChanged(c:Contact):Void
+    {
+        if (_isDisposed) return;
+
+        switch (c.name)
+        {
+            case "log":
+                // Replace mode: clear buffer and add new message
+                if (c.value != null && c.value != "")
+                {
+                    _logBuffer = [];
+                    _appendToBuffer(Std.string(c.value));
+                    c.setValueSilent("");
+                }
+
+            case "append":
+                // Append mode: add to existing buffer
+                if (c.value != null && c.value != "")
+                {
+                    _appendToBuffer(Std.string(c.value));
+                    c.setValueSilent("");
+                }
+
+            case "clear":
+                // Clear buffer on true pulse
+                if (c.value == true)
+                {
+                    _logBuffer = [];
+                    _updateOutputs();
+                    c.setValueSilent(false);
+                }
+
+            case "maxLines":
+                // Update max lines (clamped to 10..10000)
+                var v = Std.int(c.value);
+                if (v >= 10 && v <= 10000)
+                {
+                    _maxLines = v;
+                    // Trim buffer if it exceeds new limit
+                    while (_logBuffer.length > _maxLines)
+                    {
+                        _logBuffer.shift();
+                    }
+                    _updateOutputs();
+                }
+
+            case "enabled":
+                // Toggle processing
+                _enabled = (c.value == true);
+        }
+
+        super.onContactChanged(c);
+    }
+
+    // =========================================================================
+    // INTERNAL LOGIC — Buffer management
+    // =========================================================================
+    /**
+     * Append a message to the log buffer with timestamp.
+     *
+     * Format: "HH:MM:SS | message"
+     *
+     * After appending, trims oldest entries if buffer exceeds _maxLines,
+     * then updates all output contacts.
+     *
+     * @param msg Message to append
+     */
+    private function _appendToBuffer(msg:String):Void
+    {
+        // Add timestamp prefix
+        var now = Date.now();
+        var hours = StringTools.lpad(Std.string(now.getHours()), "0", 2);
+        var minutes = StringTools.lpad(Std.string(now.getMinutes()), "0", 2);
+        var seconds = StringTools.lpad(Std.string(now.getSeconds()), "0", 2);
+        var logLine = '$hours:$minutes:$seconds | $msg';
+        
+        _logBuffer.push(logLine);
+
+        // Trim oldest entries if buffer exceeds maxLines
+        while (_logBuffer.length > _maxLines)
+        {
+            _logBuffer.shift();
+        }
+
+        _updateOutputs();
+    }
+
+    /**
+     * Update all output contacts with current buffer state.
+     *
+     * Uses batched driver update pattern:
+     * 1. setValueSilent() — write without triggering propagate
+     * 2. propagateCurrentValue() — single propagation wave
+     *
+     * "changed" pulse is reset via TickGenerator.scheduleNextTick
+     * (3 ticks ≈ 50ms at 60Hz) instead of update(dt) timer,
+     * because this atom is passive and update(dt) is never called.
+     */
+    private function _updateOutputs():Void
+    {
+        // Join buffer into single newline-separated string
+        var fullLog = _logBuffer.join("\n");
+        
+        // === OUTPUT: output (full log content) ===
+        var output = getOutput("output");
+        if (output != null)
+        {
+            output.setValueSilent(fullLog);
+            output.propagateCurrentValue();
+        }
+        
+        // === OUTPUT: lineCount (number of lines) ===
+        var lineCount = getOutput("lineCount");
+        if (lineCount != null)
+        {
+            lineCount.setValueSilent(_logBuffer.length);
+            lineCount.propagateCurrentValue();
+        }
+        
+        // === OUTPUT: changed (pulse) ===
+        var changed = getOutput("changed");
+        if (changed != null)
+        {
+            changed.value = true;
+            
+            // v1.3 FIX: Reset pulse via TickGenerator instead of update(dt).
+            // This atom is passive (isActive=false), so DriverManager never
+            // calls update(dt). Using scheduleNextTick ensures the pulse
+            // resets after ~50ms (3 ticks at 60Hz).
+            var changedRef = changed;
+            TickGenerator.getInstance().scheduleNextTick(function()
+            {
+                TickGenerator.getInstance().scheduleNextTick(function()
+                {
+                    TickGenerator.getInstance().scheduleNextTick(function()
+                    {
+                        if (changedRef != null && !changedRef.isDisposed)
+                        {
+                            changedRef.value = false;
+                        }
+                    });
+                });
+            });
+        }
+    }
+
+    // =========================================================================
+    // LIFECYCLE
+    // =========================================================================
+    /**
+     * Dispose the atom and unregister from static instances.
+     * Prevents use-after-free if trace() is called after disposal.
+     */
+    override public function dispose():Void
+    {
+        _instances.remove(this);
+        super.dispose();
     }
 }
 
@@ -35838,7 +36709,7 @@ class ToggleAtom extends Atom
 
 ================================================================================
 // FILE: Main.hx
-// Lines: 1933 | Chars: 59127
+// Lines: 1947 | Chars: 59614
 ================================================================================
 
 package;
@@ -36051,10 +36922,24 @@ class Main extends Sprite
 	// =========================================================================
 	// INITIALIZATION
 	// =========================================================================
-
 	private function init(e:Event = null):Void
 	{
+		// Перехватываем trace() для отправки в DebugConsoleAtom
+		var originalTrace = haxe.Log.trace;
+		haxe.Log.trace = function(v:Dynamic, ?infos:haxe.PosInfos)
+		{
+			// 1. Стандартный вывод в консоль браузера (только для HTML5 target)
+			#if html5
+			untyped console.log(v);
+			#end
+			
+			// 2. Отправка в DebugConsoleAtom (работает на всех платформах)
+			library.electro.DebugConsoleAtom.log(Std.string(v));
+		};
+			trace("DEBUG CONSOLE TEST: Если ты это видишь, перехват работает!");
+
 		log("System initialized");
+
 		removeEventListener(Event.ADDED_TO_STAGE, init);
 
 		openfl.Lib.current.stage.window.visible = true;

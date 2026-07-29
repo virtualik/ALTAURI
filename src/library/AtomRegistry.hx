@@ -199,6 +199,19 @@ class AtomRegistry
         // NATIVE ATOMS REGISTRATION
         // =================================================================
         // --- Electro / UI ---
+
+		// DEBUG CONSOLE — Cross-platform trace() capture
+		reg("DebugConsole", "Debug Console", [
+		{name: "log",          type: INPUT,  dataType: "string", priority: CRITICAL,  label: "Log"},
+		{name: "append",       type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Append"},
+		{name: "clear",        type: INPUT,  dataType: "bool",   priority: OPTIONAL,  label: "Clear"},
+		{name: "maxLines",     type: INPUT,  defaultValue: 500,  dataType: "int",    priority: OPTIONAL, label: "MaxLines"},
+		{name: "enabled",      type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL, label: "Enabled"},
+		{name: "output",       type: OUTPUT, dataType: "string", priority: CRITICAL,  label: "Output"},
+		{name: "changed",      type: OUTPUT, dataType: "bool",   priority: OPTIONAL},
+		{name: "lineCount",    type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Lines"}
+		], null, "debugconsole", true, false, "debugconsole");
+		
         reg("Button", "Push Button", [
             {name: "out", type: OUTPUT, dataType: "bool"}
         ], null, "button", true, false, "button");

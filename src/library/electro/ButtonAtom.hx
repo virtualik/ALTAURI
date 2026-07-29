@@ -77,6 +77,8 @@ class ButtonAtom extends Atom
                 _outputs[0].value = _state;
             }
         });
+		trace("DEBUG CONSOLE TEST: Если ты это видишь, перехват работает!");
+
     }
 
     /**
