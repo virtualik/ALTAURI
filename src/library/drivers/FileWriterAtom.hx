@@ -7,164 +7,39 @@ import core.base.Contact;
 import core.types.ContactType;
 import core.types.ContactType.*;
 import system.managers.DriverManager;
+import StringBuf;
 
-/**
- * ╔═══════════════════════════════════════════════════════════════════════════╗
- * ║                     FILE WRITER ATOM v1.1                                 ║
- * ║          (HTML5 File System Access API — Main Thread)                     ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                           ║
- * ║  Non-blocking file writer for HTML5 target using File System Access API.  ║
- * ║  Operates entirely on the main thread via Promises to avoid               ║
- * ║  DataCloneError associated with transferring FileSystemFileHandle         ║
- * ║  to Web Workers.                                                          ║
- * ║                                                                           ║
- * ║  Architecture:                                                            ║
- * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
- * ║  │                     FileWriterAtom                                  │  ║
- * ║  │                                                                     │  ║
- * ║  │  A) COMPUTE MODULE (Main Thread):                                   │  ║
- * ║  │     ─────────────────────────────────                               │  ║
- * ║  │     1. readInputs()                                                 │  ║
- * ║  │        - Detect open/close/flush/clear pulses                       │  ║
- * ║  │        - Route write/append data to stream                          │  ║
- * ║  │     2. updatePulseTimers(dt)                                        │  ║
- * ║  │        - Auto-reset written/errorTick pulses                        │  ║
- * ║  │                                                                     │  ║
- * ║  │  B) DATABANK (Haxe State):                                          │  ║
- * ║  │     ─────────────────────                                           │  ║
- * ║  │     _isOpenFlag, _fileSize, _writeCount, _mode, _enabled            │  ║
- * ║  │     _suggestedFileName, _lastError, _pendingOpen                    │  ║
- * ║  │     _fileHandle, _stream (Dynamic JS objects)                       │  ║
- * ║  │                                                                     │  ║
- * ║  │  C) BATCHED DRIVER UPDATE PATTERN:                                  │  ║
- * ║  │     ─────────────────────────────                                   │  ║
- * ║  │     Phase 1: setValueSilent() for all outputs                       │  ║
- * ║  │     Phase 2: propagateCurrentValue() once per output                │  ║
- * ║  │     → Reduces TickGenerator load from O(N×M) to O(N+M)              │  ║
- * ║  │                                                                     │  ║
- * ║  │  D) INPUTS:                                                         │  ║
- * ║  │     ────────                                                        │  ║
- * ║  │     open      (Bool pulse)  — show file picker dialog              │  ║
- * ║  │     close     (Bool pulse)  — close file & flush buffer            │  ║
- * ║  │     write     (String)      — write data (mode-dependent)          │  ║
- * ║  │     append    (String)      — ALWAYS append to end                 │  ║
- * ║  │     clear     (Bool pulse)  — truncate file to zero                │  ║
- * ║  │     flush     (Bool pulse)  — force buffer flush to disk           │  ║
- * ║  │     enabled   (Bool)        — master enable switch                 │  ║
- * ║  │     mode      (Int)         — 0=Write, 1=Append                    │  ║
- * ║  │     fileName  (String)      — suggested file name                  │  ║
- * ║  │                                                                     │  ║
- * ║  │  E) OUTPUTS:                                                        │  ║
- * ║  │     ────────                                                        │  ║
- * ║  │     isOpen    (Bool)        — file is open                         │  ║
- * ║  │     written   (Bool pulse)  — data flushed to disk                 │  ║
- * ║  │     writeCount(Int)         — total write operations               │  ║
- * ║  │     fileSize  (Int)         — current file size in bytes           │  ║
- * ║  │     error     (String)      — last error message                   │  ║
- * ║  │     errorTick (Bool pulse)  — error occurred                       │  ║
- * ║  └─────────────────────────────────────────────────────────────────────┘  ║
- * ║                                                                           ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                     DATA FLOW PIPELINE                                    ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                           ║
- * ║  1. User clicks "Open" in Widget                                          ║
- * ║       │                                                                   ║
- * ║       ▼                                                                   ║
- * ║  2. Widget calls atom.showFilePicker() (synchronous user gesture)         ║
- * ║       │                                                                   ║
- * ║       ▼                                                                   ║
- * ║  3. Browser shows native Save File dialog                                 ║
- * ║       │                                                                   ║
- * ║       ├──► Cancel: onFilePickerCancelled() → reset state                  ║
- * ║       │                                                                   ║
- * ║       └──► Select: onFileSelected(handle)                                 ║
- * ║                │                                                          ║
- * ║                ▼                                                          ║
- * ║           handle.createWritable() → onStreamOpened(stream)                ║
- * ║                │                                                          ║
- * ║                ▼                                                          ║
- * ║           _isOpenFlag = true, updateOutputs()                             ║
- * ║                                                                           ║
- * ║  4. Upstream Atom (e.g., ComPortAtom) sends data to "append" contact      ║
- * ║       │                                                                   ║
- * ║       ▼                                                                   ║
- * ║  5. readInputs() detects "append" value change                            ║
- * ║       │                                                                   ║
- * ║       ▼                                                                   ║
- * ║  6. appendData(data) → _stream.seek(_fileSize).write(data)               ║
- * ║       │                                                                   ║
- * ║       ▼                                                                   ║
- * ║  7. onWriteComplete(bytes) → updateOutputs() + written pulse              ║
- * ║                                                                           ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                     HAXE PARSER WORKAROUND                                ║
- * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                           ║
- * ║  The `.catch()` method on JS Promises conflicts with the Haxe `catch`     ║
- * ║  keyword, causing "String should be Int" parser errors.                   ║
- * ║                                                                           ║
- * ║  SOLUTION: Wrap the entire Promise chain in an `untyped { ... }` block    ║
- * ║  and use `['catch']` for the error handler. This disables Haxe's type     ║
- * ║  inference and keyword checking for that specific block, allowing the     ║
- * ║  JS Promise API to be called natively.                                    ║
- * ║                                                                           ║
- * ╚═══════════════════════════════════════════════════════════════════════════╝
- */
 class FileWriterAtom extends Atom implements system.managers.Driver
 {
-	// =========================================================================
-	// CONSTANTS
-	// =========================================================================
-	/** Duration of pulse outputs (written, errorTick) in seconds */
 	private static inline var PULSE_DURATION:Float = 0.05;
-	/** Write mode: overwrite file on each write */
 	private static inline var MODE_WRITE:Int = 0;
-	/** Write mode: always append to end of file */
 	private static inline var MODE_APPEND:Int = 1;
 
-	// =========================================================================
 	// STATE (DATABANK)
-	// =========================================================================
-	/** Is file currently open */
 	private var _isOpenFlag:Bool = false;
-	/** Current file size in bytes */
 	private var _fileSize:Int = 0;
-	/** Total write operations count */
 	private var _writeCount:Int = 0;
-	/** Current write mode (0=Write, 1=Append) */
 	private var _mode:Int = MODE_APPEND;
-	/** Master enable flag */
 	private var _enabled:Bool = true;
-	/** Suggested file name for picker dialog */
 	private var _suggestedFileName:String = "output.txt";
-	/** Last error message */
 	private var _lastError:String = "";
-	/** Pending open request (waiting for user gesture) */
 	private var _pendingOpen:Bool = false;
 
-	// =========================================================================
+	// FALLBACK MECHANISM (For Android 9 / Chrome < 130)
+	private var _isFallbackMode:Bool = false;
+	private var _fallbackBuffer:StringBuf = null;
+
 	// FILE SYSTEM ACCESS API FIELDS
-	// =========================================================================
-	/** FileSystemFileHandle reference */
 	private var _fileHandle:Dynamic = null;
-	/** FileSystemWritableFileStream reference */
 	private var _stream:Dynamic = null;
 
-	// =========================================================================
 	// PULSE TIMERS
-	// =========================================================================
 	private var _writtenTimer:Float = 0.0;
 	private var _errorTimer:Float = 0.0;
 
-	// =========================================================================
-	// CONSTRUCTOR
-	// =========================================================================
 	public function new(id:String)
 	{
 		super(
-			// === INPUTS ===
 			[
 				new Contact(false, INPUT, "open"),
 				new Contact(false, INPUT, "close"),
@@ -176,7 +51,6 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 				new Contact(MODE_APPEND, INPUT, "mode"),
 				new Contact("output.txt", INPUT, "fileName")
 			],
-			// === OUTPUTS ===
 			[
 				new Contact(false, OUTPUT, "isOpen"),
 				new Contact(false, OUTPUT, "written"),
@@ -188,17 +62,14 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 			null,
 			id,
 			"FileWriterAtom",
-			true // isActive = true → register in DriverManager
+			true
 		);
 		init();
 	}
 
-	// =========================================================================
-	// DRIVER INTERFACE
-	// =========================================================================
 	override public function init():Void
 	{
-		trace('FileWriterAtom: Initialized (Main Thread, no Worker)');
+		trace('FileWriterAtom: Initialized (Main Thread)');
 	}
 
 	override public function update(dt:Float):Void
@@ -210,64 +81,71 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 
 	override public function dispose():Void
 	{
-		// Close file if open
 		if (_isOpenFlag)
 		{
 			closeFile();
 		}
 		_fileHandle = null;
 		_stream = null;
+		_fallbackBuffer = null;
 		DriverManager.getInstance().unregister(this.id);
 		super.dispose();
 	}
 
-	// =========================================================================
-	// FILE OPERATIONS
-	// =========================================================================
 	/**
-	 * Show file picker dialog and open file for writing.
-	 *
-	 * CRITICAL: Must be called synchronously from a user gesture (e.g., button click).
-	 * The browser will block showSaveFilePicker() if called from non-user code.
-	 *
-	 * @param suggestedName Suggested file name for the dialog
+	 * Show file picker dialog or fallback to memory stream.
+	 * Synchronous invocation context preserved.
 	 */
 	public function showFilePicker(?suggestedName:String = null):Void
 	{
 		if (_isDisposed) return;
 		var name = suggestedName != null ? suggestedName : _suggestedFileName;
+		_suggestedFileName = name;
 
 		#if html5
-		var pickerOptions:Dynamic = {
-			suggestedName: name,
-			types: [
-				{
-					description: "Text Files",
-					accept: {
-						"text/plain": [".txt", ".log", ".csv", ".dat"]
-					}
-				}
-			]
-		};
-
-		// HAXE PARSER WORKAROUND:
-		// Wrap entire Promise chain in `untyped { ... }` and use `['catch']`
-		// to prevent Haxe from interpreting `.catch` as a keyword or array index.
 		var self = this;
+
 		untyped {
-			window.showSaveFilePicker(pickerOptions)
-				.then(function(handle) { self.onFileSelected(handle); })
-				['catch'](function(err) { self.onFilePickerCancelled(err); });
+			// FEATURE DETECTION: Check if File System Access API is supported
+			if (window.showSaveFilePicker != null)
+			{
+				self._isFallbackMode = false;
+				var pickerOptions:Dynamic = {
+					suggestedName: name,
+					types: [
+						{
+							description: "Text Files",
+							accept: {
+								"text/plain": [".txt", ".log", ".csv", ".dat"]
+							}
+						}
+					]
+				};
+
+				window.showSaveFilePicker(pickerOptions)
+					.then(function(handle) { self.onFileSelected(handle); })
+					['catch'](function(err) { self.onFilePickerCancelled(err); });
+			}
+			else
+			{
+				// FALLBACK MODE: Chrome Android < 130
+				self.initFallbackMode(name);
+			}
 		}
 		#end
 	}
 
-	/**
-	 * Called when user selects a file in the picker dialog.
-	 * Opens writable stream and updates state.
-	 *
-	 * @param handle FileSystemFileHandle from showSaveFilePicker
-	 */
+	private function initFallbackMode(fileName:String):Void
+	{
+		_isFallbackMode = true;
+		_fallbackBuffer = new StringBuf();
+		_isOpenFlag = true;
+		_fileSize = 0;
+		_writeCount = 0;
+		updateOutputs();
+		trace('FileWriterAtom: Opened in Fallback (Blob Storage) Mode for legacy Android/Chrome');
+	}
+
 	private function onFileSelected(handle:Dynamic):Void
 	{
 		if (_isDisposed) return;
@@ -281,9 +159,6 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		});
 	}
 
-	/**
-	 * Called when writable stream is successfully opened.
-	 */
 	private function onStreamOpened(stream:Dynamic):Void
 	{
 		if (_isDisposed) return;
@@ -292,12 +167,9 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		_fileSize = 0;
 		_writeCount = 0;
 		updateOutputs();
-		trace('FileWriterAtom: File opened successfully');
+		trace('FileWriterAtom: File opened via FSA API');
 	}
 
-	/**
-	 * Called when stream open fails.
-	 */
 	private function onStreamOpenError(err:Dynamic):Void
 	{
 		if (_isDisposed) return;
@@ -305,9 +177,6 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		setError('Failed to open stream: $errMsg');
 	}
 
-	/**
-	 * Called when user cancels the file picker dialog.
-	 */
 	private function onFilePickerCancelled(err:Dynamic):Void
 	{
 		if (_isDisposed) return;
@@ -315,23 +184,31 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		trace('FileWriterAtom: File picker cancelled');
 	}
 
-	/**
-	 * Write data to file (mode-dependent).
-	 *
-	 * In MODE_WRITE: truncates file and writes fresh data.
-	 * In MODE_APPEND: appends data to end of file.
-	 *
-	 * @param data String data to write
-	 */
 	private function writeData(data:String):Void
 	{
-		if (_isDisposed || _stream == null || !_isOpenFlag) return;
-		if (data == null || data == "") return;
+		if (_isDisposed || !_isOpenFlag || data == null || data == "") return;
 
+		if (_isFallbackMode)
+		{
+			if (_mode == MODE_WRITE)
+			{
+				_fallbackBuffer = new StringBuf();
+				_fallbackBuffer.add(data);
+				_fileSize = data.length;
+			}
+			else
+			{
+				_fallbackBuffer.add(data);
+				_fileSize += data.length;
+			}
+			onWriteComplete(data.length);
+			return;
+		}
+
+		if (_stream == null) return;
 		var self = this;
 		if (_mode == MODE_WRITE)
 		{
-			// Truncate and write
 			untyped _stream.seek(0).then(function() {
 				return untyped _stream.truncate(0);
 			}).then(function() {
@@ -344,7 +221,6 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		}
 		else
 		{
-			// Append: seek to end and write
 			untyped _stream.seek(_fileSize).then(function() {
 				return untyped _stream.write(data);
 			}).then(function() {
@@ -355,16 +231,19 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		}
 	}
 
-	/**
-	 * Append data to end of file (mode-independent).
-	 *
-	 * @param data String data to append
-	 */
 	private function appendData(data:String):Void
 	{
-		if (_isDisposed || _stream == null || !_isOpenFlag) return;
-		if (data == null || data == "") return;
+		if (_isDisposed || !_isOpenFlag || data == null || data == "") return;
 
+		if (_isFallbackMode)
+		{
+			_fallbackBuffer.add(data);
+			_fileSize += data.length;
+			onWriteComplete(data.length);
+			return;
+		}
+
+		if (_stream == null) return;
 		var self = this;
 		untyped _stream.seek(_fileSize).then(function() {
 			return untyped _stream.write(data);
@@ -375,13 +254,42 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		});
 	}
 
-	/**
-	 * Flush stream buffer to disk.
-	 */
+private function triggerFallbackDownload():Void
+{
+    if (!_isFallbackMode || _fallbackBuffer == null) return;
+    var content = _fallbackBuffer.toString();
+    if (content.length == 0) return;
+
+    #if html5
+    var fileName = _suggestedFileName;
+    
+    // Используем untyped __js__ для прямого выполнения в JS без проверки типов Haxe
+    untyped __js__("
+        var blob = new Blob([{0}], { type: 'text/plain;charset=utf-8' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = {1};
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    ", content, fileName);
+    #end
+}
+
 	private function flushBuffer():Void
 	{
-		if (_isDisposed || _stream == null || !_isOpenFlag) return;
+		if (_isDisposed || !_isOpenFlag) return;
 
+		if (_isFallbackMode)
+		{
+			triggerFallbackDownload();
+			trace('FileWriterAtom: Fallback buffer flushed to browser download');
+			return;
+		}
+
+		if (_stream == null) return;
 		var self = this;
 		untyped _stream.flush().then(function() {
 			trace('FileWriterAtom: Stream flushed');
@@ -390,13 +298,21 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		});
 	}
 
-	/**
-	 * Clear file contents (truncate to zero).
-	 */
 	private function clearFile():Void
 	{
-		if (_isDisposed || _stream == null || !_isOpenFlag) return;
+		if (_isDisposed || !_isOpenFlag) return;
 
+		if (_isFallbackMode)
+		{
+			_fallbackBuffer = new StringBuf();
+			_fileSize = 0;
+			_writeCount = 0;
+			updateOutputs();
+			trace('FileWriterAtom: Fallback buffer cleared');
+			return;
+		}
+
+		if (_stream == null) return;
 		var self = this;
 		untyped _stream.seek(0).then(function() {
 			return untyped _stream.truncate(0);
@@ -410,13 +326,21 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		});
 	}
 
-	/**
-	 * Close file and flush remaining buffer.
-	 */
 	private function closeFile():Void
 	{
-		if (_isDisposed || _stream == null || !_isOpenFlag) return;
+		if (_isDisposed || !_isOpenFlag) return;
 
+		if (_isFallbackMode)
+		{
+			triggerFallbackDownload();
+			_fallbackBuffer = null;
+			_isOpenFlag = false;
+			updateOutputs();
+			trace('FileWriterAtom: Fallback file closed & downloaded');
+			return;
+		}
+
+		if (_stream == null) return;
 		var self = this;
 		untyped _stream.close().then(function() {
 			self._stream = null;
@@ -428,20 +352,13 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		});
 	}
 
-	// =========================================================================
-	// WRITE CALLBACKS
-	// =========================================================================
-	/**
-	 * Called when write operation completes successfully.
-	 */
 	private function onWriteComplete(bytesWritten:Int):Void
 	{
 		if (_isDisposed) return;
-		_fileSize += bytesWritten;
+		if (!_isFallbackMode) _fileSize += bytesWritten;
 		_writeCount++;
 		updateOutputs();
 
-		// Emit written pulse
 		var writtenOut = getOutput("written");
 		if (writtenOut != null)
 		{
@@ -450,9 +367,6 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		}
 	}
 
-	/**
-	 * Called when write operation fails.
-	 */
 	private function onWriteError(err:Dynamic):Void
 	{
 		if (_isDisposed) return;
@@ -460,19 +374,10 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		setError('Write error: $errMsg');
 	}
 
-	// =========================================================================
-	// INPUT READING
-	// =========================================================================
-	/**
-	 * Read input contacts and dispatch operations.
-	 *
-	 * Pulse inputs (open, close, clear, flush) are auto-reset to false.
-	 */
 	private function readInputs():Void
 	{
 		if (_isDisposed) return;
 
-		// Master enable
 		var enabledC = getInput("enabled");
 		if (enabledC != null && enabledC.value != null)
 		{
@@ -480,7 +385,6 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		}
 		if (!_enabled) return;
 
-		// Mode
 		var modeC = getInput("mode");
 		if (modeC != null && modeC.value != null)
 		{
@@ -491,14 +395,12 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 			}
 		}
 
-		// File name
 		var fileNameC = getInput("fileName");
 		if (fileNameC != null && fileNameC.value != null)
 		{
 			_suggestedFileName = Std.string(fileNameC.value);
 		}
 
-		// Open (pulse) — requires user gesture
 		var openC = getInput("open");
 		if (openC != null && openC.value == true)
 		{
@@ -507,7 +409,6 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 			showFilePicker(_suggestedFileName);
 		}
 
-		// Write (data)
 		var writeC = getInput("write");
 		if (writeC != null && writeC.value != null)
 		{
@@ -518,7 +419,6 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 			}
 		}
 
-		// Append (data) — ALWAYS appends
 		var appendC = getInput("append");
 		if (appendC != null && appendC.value != null)
 		{
@@ -530,7 +430,6 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 			}
 		}
 
-		// Clear (pulse)
 		var clearC = getInput("clear");
 		if (clearC != null && clearC.value == true)
 		{
@@ -538,7 +437,6 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 			clearFile();
 		}
 
-		// Flush (pulse)
 		var flushC = getInput("flush");
 		if (flushC != null && flushC.value == true)
 		{
@@ -546,7 +444,6 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 			flushBuffer();
 		}
 
-		// Close (pulse)
 		var closeC = getInput("close");
 		if (closeC != null && closeC.value == true)
 		{
@@ -555,38 +452,21 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		}
 	}
 
-	// =========================================================================
-	// OUTPUT UPDATES (BATCHED DRIVER UPDATE PATTERN)
-	// =========================================================================
-	/**
-	 * Update all output contacts with current state.
-	 *
-	 * Phase 1: setValueSilent() for all outputs (no propagation)
-	 * Phase 2: propagateCurrentValue() once per output
-	 * → Reduces TickGenerator load from O(N×M) to O(N+M)
-	 */
 	private function updateOutputs():Void
 	{
 		var isOpenOut = getOutput("isOpen");
 		var writeCountOut = getOutput("writeCount");
 		var fileSizeOut = getOutput("fileSize");
 
-		// Phase 1: Silent writes
 		if (isOpenOut != null) isOpenOut.setValueSilent(_isOpenFlag);
 		if (writeCountOut != null) writeCountOut.setValueSilent(_writeCount);
 		if (fileSizeOut != null) fileSizeOut.setValueSilent(_fileSize);
 
-		// Phase 2: Single propagation per output
 		if (isOpenOut != null) isOpenOut.propagateCurrentValue();
 		if (writeCountOut != null) writeCountOut.propagateCurrentValue();
 		if (fileSizeOut != null) fileSizeOut.propagateCurrentValue();
 	}
 
-	/**
-	 * Set error state and emit error pulse.
-	 *
-	 * @param msg Error message
-	 */
 	private function setError(msg:String):Void
 	{
 		if (_isDisposed) return;
@@ -606,12 +486,6 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		trace('FileWriterAtom ERROR: $msg');
 	}
 
-	// =========================================================================
-	// PULSE TIMERS
-	// =========================================================================
-	/**
-	 * Update pulse timers for written and errorTick outputs.
-	 */
 	private function updatePulseTimers(dt:Float):Void
 	{
 		if (_isDisposed) return;
@@ -636,45 +510,15 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		}
 	}
 
-	// =========================================================================
-	// PUBLIC API (for Widget)
-	// =========================================================================
-	/**
-	 * Check if file is currently open.
-	 */
 	public function isOpen():Bool return _isOpenFlag;
-
-	/**
-	 * Get current file size in bytes.
-	 */
 	public function getFileSize():Int return _fileSize;
-
-	/**
-	 * Get total write operations count.
-	 */
 	public function getWriteCount():Int return _writeCount;
-
-	/**
-	 * Get current write mode.
-	 */
 	public function getMode():Int return _mode;
-
-	/**
-	 * Set write mode.
-	 */
 	public function setMode(mode:Int):Void
 	{
 		if (mode == MODE_WRITE || mode == MODE_APPEND) _mode = mode;
 	}
-
-	/**
-	 * Get suggested file name.
-	 */
 	public function getSuggestedFileName():String return _suggestedFileName;
-
-	/**
-	 * Check if there's a pending open request.
-	 */
 	public function hasPendingOpen():Bool return _pendingOpen;
 }
 #end

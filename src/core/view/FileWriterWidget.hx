@@ -21,7 +21,7 @@ import core.base.Contact;
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │   FileWriterWidget                                                      │
  * │                                                                         │
- * │   ───────────────────────────────────────────────────────────────     │
+ * │   ────────────────────────────────────────────────────────────────┐     │
  * │   │  [Title: File Writer]                              [LED ●]    │     │
  * │   ├───────────────────────────────────────────────────────────────┤     │
  * │   │                                                               │     │
@@ -30,7 +30,7 @@ import core.base.Contact;
  * │   │                                                               │     │
  * │   │  [OPEN]  [CLOSE]  [FLUSH]  [CLEAR]                            │     │
  * │   │                                                               │     │
- * │   │  Writes: 123    Size: 4.5 KB                                   │     │
+ * │   │  Writes: 123    Size: 4.5 KB                                  │     │
  * │   │                                                               │     │
  * │   │  Error: ___________________                                   │     │
  * │   │                                                               │     │
@@ -40,6 +40,10 @@ import core.base.Contact;
  * │   Widget WRITES to atom's contacts on user interaction                  │
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * Внёс извещение:
+ * FileWriter Web API in Chrome Desktop on Android systems needs Chrome 130–132+ and Android 10+ (recommended)
+ * 
  */
 class FileWriterWidget extends DeviceView
 {
@@ -503,14 +507,20 @@ class FileWriterWidget extends DeviceView
         }
     }
     
-    private function onSelectClick(e:MouseEvent):Void
-    {
-        // Trigger file picker via atom's open contact
-        if (_openContact != null)
-        {
-            _openContact.value = true;
-        }
-    }
+	private function onSelectClick(e:MouseEvent):Void
+	{
+		// CRITICAL FIX: Direct synchronous call to preserve user gesture context.
+		// Do NOT use _openContact.value = true, as it destroys user gesture on older Android Chrome.
+		if (atom != null && Std.isOfType(atom, library.drivers.FileWriterAtom))
+		{
+			var writerAtom:library.drivers.FileWriterAtom = cast atom;
+			writerAtom.showFilePicker(_suggestedFileName);
+		}
+		else
+		{
+			trace('FileWriterWidget: Atom is not FileWriterAtom or is null');
+		}
+	}
     
     private function onModeClick(e:MouseEvent):Void
     {

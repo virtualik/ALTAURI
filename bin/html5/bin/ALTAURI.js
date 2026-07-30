@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "168";
+	app.meta.h["build"] = "169";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
@@ -3518,6 +3518,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			console.log(v);
 			library_electro_DebugConsoleAtom.log(Std.string(v));
 		};
+		haxe_Log.trace("DEBUG CONSOLE TEST: Если ты это видишь, перехват работает!",{ fileName : "src/Main.hx", lineNumber : 225, className : "Main", methodName : "init"});
 		this.log("System initialized");
 		this.removeEventListener("addedToStage",$bind(this,this.init));
 		openfl_Lib.get_current().stage.window.set_visible(true);
@@ -3583,7 +3584,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		editor.connectAtoms(closeFileButtonId,"out",fileWriterId,"close");
 		editor.connectAtoms(comport1AtomId,"rxData",fileWriterId,"append");
 		editor.connectAtoms(fileWriterId,"isOpen",fileWriterStatusLedId,"in");
-		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 355, className : "Main", methodName : "createDemoProject"});
+		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 358, className : "Main", methodName : "createDemoProject"});
 		this.renameAtom(rootAssembly,openPortButtonId,"Open Port");
 		this.renameAtom(rootAssembly,closePortButtonId,"Close Port");
 		this.renameAtom(rootAssembly,sendTxDataButtonId,"Send TX");
@@ -4350,7 +4351,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				HxOverrides.remove(bp.internalConnections,conn);
 			}
 			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
-			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1595, className : "Main", methodName : "onPortRemoved"});
+			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1598, className : "Main", methodName : "onPortRemoved"});
 		}
 	}
 	,hardReset: function() {
@@ -4499,8 +4500,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		var nodeCount = this._editorContext.currentEditor.getSelectedNodeCount();
 		var wireIds = this._editorContext.currentEditor.getSelectedWireIds();
-		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1764, className : "Main", methodName : "deleteSelectedOnCanvas"});
-		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1765, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1767, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1768, className : "Main", methodName : "deleteSelectedOnCanvas"});
 		if(nodeCount > 0) {
 			this._editorContext.currentEditor.deleteSelectedNodes();
 			this.updateSettingsStats();
@@ -9339,8 +9340,8 @@ var core_view_DebugConsoleWidget = function(atom) {
 	this.widgetHeight = 220;
 	this.widgetWidth = 320;
 	this._lineCount = 0;
+	this._userScrolledUp = false;
 	core_view_DeviceView.call(this,atom);
-	this.findContacts();
 	this.buildUI();
 	this.syncFromAtom();
 };
@@ -9351,15 +9352,7 @@ core_view_DebugConsoleWidget.prototype = $extend(core_view_DeviceView.prototype,
 	getWidgetSize: function() {
 		return { width : this.widgetWidth, height : this.widgetHeight};
 	}
-	,findContacts: function() {
-		if(this.atom == null) {
-			return;
-		}
-		this._outputContact = this.atom.getOutput("output");
-		this._lineCountContact = this.atom.getOutput("lineCount");
-	}
 	,onActivate: function() {
-		this.findContacts();
 		this.syncFromAtom();
 	}
 	,buildUI: function() {
@@ -9418,6 +9411,7 @@ core_view_DebugConsoleWidget.prototype = $extend(core_view_DeviceView.prototype,
 		this._logField.set_borderColor(3355477);
 		this._logField.set_selectable(true);
 		this._logField.mouseEnabled = true;
+		this._logField.addEventListener("scroll",$bind(this,this.onLogScroll));
 		this.addChild(this._logField);
 		this._statusField = new openfl_text_TextField();
 		this._statusField.set_defaultTextFormat(new openfl_text_TextFormat("_typewriter",9,this._colorMuted));
@@ -9429,25 +9423,63 @@ core_view_DebugConsoleWidget.prototype = $extend(core_view_DeviceView.prototype,
 		this._statusField.set_selectable(false);
 		this._statusField.mouseEnabled = false;
 		this.addChild(this._statusField);
+		this.addEventListener("mouseWheel",$bind(this,this.onMouseWheel));
 	}
 	,onClearClick: function(e) {
+		this._userScrolledUp = false;
 		var clearInput = this.atom.getInput("clear");
 		if(clearInput != null) {
 			clearInput.set_value(true);
 		}
 	}
-	,syncFromAtom: function() {
-		if(this._outputContact != null && this._outputContact.get_value() != null) {
-			var logText = Std.string(this._outputContact.get_value());
-			if(logText != this._logField.get_text()) {
-				this._logField.set_text(logText);
-				if(this._logField.get_maxScrollV() > 1) {
-					this._logField.set_scrollV(this._logField.get_maxScrollV());
-				}
+	,onLogScroll: function(e) {
+		if(this._logField == null) {
+			return;
+		}
+		if(this._logField.get_scrollV() >= this._logField.get_maxScrollV()) {
+			this._userScrolledUp = false;
+		} else {
+			this._userScrolledUp = true;
+		}
+	}
+	,onMouseWheel: function(e) {
+		if(this._logField == null || this.isDisposed) {
+			return;
+		}
+		e.stopPropagation();
+		var maxV = this._logField.get_maxScrollV();
+		if(maxV > 1) {
+			var delta = -e.delta * 3;
+			var newV = this._logField.get_scrollV() + (delta | 0);
+			if(newV < 1) {
+				newV = 1;
+			}
+			if(newV > maxV) {
+				newV = maxV;
+			}
+			this._logField.set_scrollV(newV);
+			if(newV >= maxV) {
+				this._userScrolledUp = false;
+			} else {
+				this._userScrolledUp = true;
 			}
 		}
-		if(this._lineCountContact != null) {
-			this._lineCount = this._lineCountContact.get_value() | 0;
+	}
+	,syncFromAtom: function() {
+		if(this.atom == null) {
+			return;
+		}
+		var outputContact = this.atom.getOutput("output");
+		if(outputContact != null && outputContact.get_value() != null) {
+			var logText = Std.string(outputContact.get_value());
+			if(logText != this._logField.get_text()) {
+				this._logField.set_text(logText);
+				this._autoScrollToBottom();
+			}
+		}
+		var lineCountContact = this.atom.getOutput("lineCount");
+		if(lineCountContact != null) {
+			this._lineCount = lineCountContact.get_value() | 0;
 			this._statusField.set_text("Lines: " + this._lineCount);
 		}
 	}
@@ -9455,23 +9487,38 @@ core_view_DebugConsoleWidget.prototype = $extend(core_view_DeviceView.prototype,
 		if(this.isDisposed) {
 			return;
 		}
-		if(contact == this._outputContact && newValue != null) {
-			var logText = Std.string(newValue);
-			if(logText != this._logField.get_text()) {
-				this._logField.set_text(logText);
-				if(this._logField.get_maxScrollV() > 1) {
-					this._logField.set_scrollV(this._logField.get_maxScrollV());
-				}
-			}
-		} else if(contact == this._lineCountContact) {
+		switch(contact.name) {
+		case "lineCount":
 			this._lineCount = newValue | 0;
 			this._statusField.set_text("Lines: " + this._lineCount);
+			break;
+		case "output":
+			if(newValue != null) {
+				var logText = Std.string(newValue);
+				if(logText != this._logField.get_text()) {
+					this._logField.set_text(logText);
+					this._autoScrollToBottom();
+				}
+			}
+			break;
+		}
+	}
+	,_autoScrollToBottom: function() {
+		if(this._logField == null) {
+			return;
+		}
+		if(!this._userScrolledUp && this._logField.get_maxScrollV() > 1) {
+			this._logField.set_scrollV(this._logField.get_maxScrollV());
 		}
 	}
 	,dispose: function() {
 		if(this._clearBtn != null) {
 			this._clearBtn.removeEventListener("click",$bind(this,this.onClearClick));
 		}
+		if(this._logField != null) {
+			this._logField.removeEventListener("scroll",$bind(this,this.onLogScroll));
+		}
+		this.removeEventListener("mouseWheel",$bind(this,this.onMouseWheel));
 		this._bg = null;
 		this._header = null;
 		this._titleField = null;
@@ -9479,8 +9526,6 @@ core_view_DebugConsoleWidget.prototype = $extend(core_view_DeviceView.prototype,
 		this._clearBtn = null;
 		this._clearLabel = null;
 		this._statusField = null;
-		this._outputContact = null;
-		this._lineCountContact = null;
 		core_view_DeviceView.prototype.dispose.call(this);
 	}
 	,__class__: core_view_DebugConsoleWidget
@@ -10492,8 +10537,11 @@ core_view_FileWriterWidget.prototype = $extend(core_view_DeviceView.prototype,{
 		}
 	}
 	,onSelectClick: function(e) {
-		if(this._openContact != null) {
-			this._openContact.set_value(true);
+		if(this.atom != null && ((this.atom) instanceof library_drivers_FileWriterAtom)) {
+			var writerAtom = this.atom;
+			writerAtom.showFilePicker(this._suggestedFileName);
+		} else {
+			haxe_Log.trace("FileWriterWidget: Atom is not FileWriterAtom or is null",{ fileName : "src/core/view/FileWriterWidget.hx", lineNumber : 521, className : "core.view.FileWriterWidget", methodName : "onSelectClick"});
 		}
 	}
 	,onModeClick: function(e) {
@@ -10508,7 +10556,7 @@ core_view_FileWriterWidget.prototype = $extend(core_view_DeviceView.prototype,{
 			var writerAtom = this.atom;
 			writerAtom.showFilePicker(this._suggestedFileName);
 		} else {
-			haxe_Log.trace("FileWriterWidget: Atom is not FileWriterAtom or is null",{ fileName : "src/core/view/FileWriterWidget.hx", lineNumber : 538, className : "core.view.FileWriterWidget", methodName : "onOpenClick"});
+			haxe_Log.trace("FileWriterWidget: Atom is not FileWriterAtom or is null",{ fileName : "src/core/view/FileWriterWidget.hx", lineNumber : 548, className : "core.view.FileWriterWidget", methodName : "onOpenClick"});
 		}
 	}
 	,onCloseClick: function(e) {
@@ -21422,7 +21470,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 				this._readPos = this._writePos - this._bufferSize;
 				this._overflowCount++;
 				if(this._overflowCount % 100 == 0) {
-					haxe_Log.trace("ComPortAtom: Ring buffer overflow! Lost " + this._overflowCount + " bytes total",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 621, className : "library.drivers.ComPortAtom", methodName : "writeToBuffer"});
+					haxe_Log.trace("ComPortAtom: Ring buffer overflow! Lost " + this._overflowCount + " bytes total",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 605, className : "library.drivers.ComPortAtom", methodName : "writeToBuffer"});
 				}
 			}
 		}
@@ -21488,6 +21536,32 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 			}
 			testRxC.set_value("");
 		}
+		if(this._hasPendingRx) {
+			this._hasPendingRx = false;
+			var rxOut = this.getOutput("rxData");
+			if(rxOut != null) {
+				rxOut.setValueSilent(this._pendingRxStr);
+				rxOut.propagateCurrentValue();
+			}
+			var rxTick = this.getOutput("rxTick");
+			if(rxTick != null) {
+				rxTick.set_value(true);
+				this._rxTimer = 0.05;
+			}
+		}
+		if(this._hasPendingErr) {
+			this._hasPendingErr = false;
+			var errOut = this.getOutput("error");
+			if(errOut != null) {
+				errOut.setValueSilent(this._pendingErrStr);
+				errOut.propagateCurrentValue();
+			}
+			var errTick = this.getOutput("errorTick");
+			if(errTick != null) {
+				errTick.set_value(true);
+				this._errTimer = 0.05;
+			}
+		}
 		this.emitRxData();
 		this.readInputs();
 		this.updatePulseTimers(dt);
@@ -21504,7 +21578,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(bufSizeC != null && bufSizeC.get_value() != null) {
 			var newSize = bufSizeC.get_value();
 			if(newSize >= 256 && newSize <= 65536 && newSize != this._bufferSize) {
-				haxe_Log.trace("ComPortAtom: Buffer size changed from " + this._bufferSize + " to " + newSize,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 821, className : "library.drivers.ComPortAtom", methodName : "readConfiguration"});
+				haxe_Log.trace("ComPortAtom: Buffer size changed from " + this._bufferSize + " to " + newSize,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 760, className : "library.drivers.ComPortAtom", methodName : "readConfiguration"});
 				this.initRingBuffer(newSize);
 			}
 		}
@@ -21527,12 +21601,12 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		var txC = this.getInput("txData");
 		var dtrC = this.getInput("setDTR");
 		if(openC != null && openC.get_value() == true) {
-			this.openDevice();
 			openC.set_value(false);
+			this.openDevice();
 		}
 		if(closeC != null && closeC.get_value() == true) {
-			this.closeDevice();
 			closeC.set_value(false);
+			this.closeDevice();
 		}
 		if(sendC != null && sendC.get_value() == true && this._isOpenFlag) {
 			if(txC != null && txC.get_value() != null && txC.get_value() != "") {
@@ -21571,14 +21645,14 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		} else if(hasUSB) {
 			this._connectionType = "usb";
 			var self1 = this;
-			var filters = [{ vendorId : 12346},{ vendorId : 1027},{ vendorId : 6790},{ vendorId : 4292},{ vendorId : 1659}];
+			var filters = [{ vendorId : 12346},{ vendorId : 1027},{ vendorId : 6790},{ vendorId : 4292},{ vendorId : 1659},{ vendorId : 9025},{ vendorId : 6991},{ vendorId : 1155},{ vendorId : 11914},{ vendorId : 1003}];
 			navigator.usb.requestDevice({ filters : filters}).then(function(device) {
 				self1.onUsbDeviceRequested(device);
 			})["catch"](function(err) {
 				self1.onPortRequestError(err);
 			});
 		} else {
-			this.setError("Neither Web Serial API nor WebUSB is supported in this browser.");
+			this.setError("Neither Web Serial API nor WebUSB is supported in this browser environment.");
 		}
 	}
 	,onSerialPortRequested: function(port) {
@@ -21806,13 +21880,13 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		} else if(this._connectionType == "usb") {
 			this.startUsbReadLoop();
 		}
-		haxe_Log.trace("ComPortAtom: Port opened via " + this._connectionType,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1421, className : "library.drivers.ComPortAtom", methodName : "onPortOpened"});
+		haxe_Log.trace("ComPortAtom: Port opened via " + this._connectionType,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1294, className : "library.drivers.ComPortAtom", methodName : "onPortOpened"});
 	}
 	,onPortOpenError: function(err) {
 		this.setError("Failed to open port: " + Std.string(err));
 	}
 	,onPortRequestError: function(err) {
-		haxe_Log.trace("ComPortAtom: Port request cancelled or failed: " + Std.string(err),{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1427, className : "library.drivers.ComPortAtom", methodName : "onPortRequestError"});
+		haxe_Log.trace("ComPortAtom: Port request cancelled or failed: " + Std.string(err),{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1301, className : "library.drivers.ComPortAtom", methodName : "onPortRequestError"});
 	}
 	,closeDevice: function() {
 		var _gthis = this;
@@ -21902,7 +21976,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(outOpen != null) {
 			outOpen.set_value(false);
 		}
-		haxe_Log.trace("ComPortAtom: Port closed",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1549, className : "library.drivers.ComPortAtom", methodName : "onPortClosed"});
+		haxe_Log.trace("ComPortAtom: Port closed",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1407, className : "library.drivers.ComPortAtom", methodName : "onPortClosed"});
 	}
 	,onPortCloseError: function(err) {
 		this.setError("Failed to close port: " + Std.string(err));
@@ -22055,7 +22129,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 	}
 	,setDTRState: function(state) {
 		if(this._connectionType == "serial") {
-			haxe_Log.trace("ComPortAtom: DTR control not directly supported in standard Web Serial API without extensions.",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1750, className : "library.drivers.ComPortAtom", methodName : "setDTRState"});
+			haxe_Log.trace("ComPortAtom: DTR control not directly supported in standard Web Serial API without extensions.",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1555, className : "library.drivers.ComPortAtom", methodName : "setDTRState"});
 		} else if(this._connectionType == "usb") {
 			var vid = this._usbDevice.vendorId;
 			var val = state ? 3 : 0;
@@ -22110,6 +22184,8 @@ var library_drivers_FileWriterAtom = function(id) {
 	this._writtenTimer = 0.0;
 	this._stream = null;
 	this._fileHandle = null;
+	this._fallbackBuffer = null;
+	this._isFallbackMode = false;
 	this._pendingOpen = false;
 	this._lastError = "";
 	this._suggestedFileName = "output.txt";
@@ -22127,7 +22203,7 @@ library_drivers_FileWriterAtom.__interfaces__ = [system_managers_Driver];
 library_drivers_FileWriterAtom.__super__ = core_base_Atom;
 library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 	init: function() {
-		haxe_Log.trace("FileWriterAtom: Initialized (Main Thread, no Worker)",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 201, className : "library.drivers.FileWriterAtom", methodName : "init"});
+		haxe_Log.trace("FileWriterAtom: Initialized (Main Thread)",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 72, className : "library.drivers.FileWriterAtom", methodName : "init"});
 	}
 	,update: function(dt) {
 		if(this._isDisposed) {
@@ -22142,6 +22218,7 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 		}
 		this._fileHandle = null;
 		this._stream = null;
+		this._fallbackBuffer = null;
 		system_managers_DriverManager.getInstance().unregister(this.get_id());
 		core_base_Atom.prototype.dispose.call(this);
 	}
@@ -22150,13 +22227,28 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 			return;
 		}
 		var name = suggestedName != null ? suggestedName : this._suggestedFileName;
-		var pickerOptions = { suggestedName : name, types : [{ description : "Text Files", accept : { "text/plain" : [".txt",".log",".csv",".dat"]}}]};
+		this._suggestedFileName = name;
 		var self = this;
-		window.showSaveFilePicker(pickerOptions).then(function(handle) {
-			self.onFileSelected(handle);
-		})["catch"](function(err) {
-			self.onFilePickerCancelled(err);
-		});
+		if(window.showSaveFilePicker != null) {
+			self._isFallbackMode = false;
+			var pickerOptions = { suggestedName : name, types : [{ description : "Text Files", accept : { "text/plain" : [".txt",".log",".csv",".dat"]}}]};
+			window.showSaveFilePicker(pickerOptions).then(function(handle) {
+				self.onFileSelected(handle);
+			})["catch"](function(err) {
+				self.onFilePickerCancelled(err);
+			});
+		} else {
+			self.initFallbackMode(name);
+		}
+	}
+	,initFallbackMode: function(fileName) {
+		this._isFallbackMode = true;
+		this._fallbackBuffer = new StringBuf();
+		this._isOpenFlag = true;
+		this._fileSize = 0;
+		this._writeCount = 0;
+		this.updateOutputs();
+		haxe_Log.trace("FileWriterAtom: Opened in Fallback (Blob Storage) Mode for legacy Android/Chrome",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 146, className : "library.drivers.FileWriterAtom", methodName : "initFallbackMode"});
 	}
 	,onFileSelected: function(handle) {
 		if(this._isDisposed) {
@@ -22179,7 +22271,7 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 		this._fileSize = 0;
 		this._writeCount = 0;
 		this.updateOutputs();
-		haxe_Log.trace("FileWriterAtom: File opened successfully",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 295, className : "library.drivers.FileWriterAtom", methodName : "onStreamOpened"});
+		haxe_Log.trace("FileWriterAtom: File opened via FSA API",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 170, className : "library.drivers.FileWriterAtom", methodName : "onStreamOpened"});
 	}
 	,onStreamOpenError: function(err) {
 		if(this._isDisposed) {
@@ -22193,14 +22285,26 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 			return;
 		}
 		this._pendingOpen = false;
-		haxe_Log.trace("FileWriterAtom: File picker cancelled",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 315, className : "library.drivers.FileWriterAtom", methodName : "onFilePickerCancelled"});
+		haxe_Log.trace("FileWriterAtom: File picker cancelled",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 184, className : "library.drivers.FileWriterAtom", methodName : "onFilePickerCancelled"});
 	}
 	,writeData: function(data) {
 		var _gthis = this;
-		if(this._isDisposed || this._stream == null || !this._isOpenFlag) {
+		if(this._isDisposed || !this._isOpenFlag || data == null || data == "") {
 			return;
 		}
-		if(data == null || data == "") {
+		if(this._isFallbackMode) {
+			if(this._mode == 0) {
+				this._fallbackBuffer = new StringBuf();
+				this._fallbackBuffer.b += data == null ? "null" : "" + data;
+				this._fileSize = data.length;
+			} else {
+				this._fallbackBuffer.b += data == null ? "null" : "" + data;
+				this._fileSize += data.length;
+			}
+			this.onWriteComplete(data.length);
+			return;
+		}
+		if(this._stream == null) {
 			return;
 		}
 		var self = this;
@@ -22226,10 +22330,16 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 	}
 	,appendData: function(data) {
 		var _gthis = this;
-		if(this._isDisposed || this._stream == null || !this._isOpenFlag) {
+		if(this._isDisposed || !this._isOpenFlag || data == null || data == "") {
 			return;
 		}
-		if(data == null || data == "") {
+		if(this._isFallbackMode) {
+			this._fallbackBuffer.b += data == null ? "null" : "" + data;
+			this._fileSize += data.length;
+			this.onWriteComplete(data.length);
+			return;
+		}
+		if(this._stream == null) {
 			return;
 		}
 		var self = this;
@@ -22241,20 +22351,60 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 			self.onWriteError(err);
 		});
 	}
+	,triggerFallbackDownload: function() {
+		if(!this._isFallbackMode || this._fallbackBuffer == null) {
+			return;
+		}
+		var content = this._fallbackBuffer.b;
+		if(content.length == 0) {
+			return;
+		}
+		var fileName = this._suggestedFileName;
+		
+        var blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    ;
+	}
 	,flushBuffer: function() {
-		if(this._isDisposed || this._stream == null || !this._isOpenFlag) {
+		if(this._isDisposed || !this._isOpenFlag) {
+			return;
+		}
+		if(this._isFallbackMode) {
+			this.triggerFallbackDownload();
+			haxe_Log.trace("FileWriterAtom: Fallback buffer flushed to browser download",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 288, className : "library.drivers.FileWriterAtom", methodName : "flushBuffer"});
+			return;
+		}
+		if(this._stream == null) {
 			return;
 		}
 		var self = this;
 		this._stream.flush().then(function() {
-			haxe_Log.trace("FileWriterAtom: Stream flushed",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 387, className : "library.drivers.FileWriterAtom", methodName : "flushBuffer"});
+			haxe_Log.trace("FileWriterAtom: Stream flushed",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 295, className : "library.drivers.FileWriterAtom", methodName : "flushBuffer"});
 		})["catch"](function(err) {
 			self.onWriteError(err);
 		});
 	}
 	,clearFile: function() {
 		var _gthis = this;
-		if(this._isDisposed || this._stream == null || !this._isOpenFlag) {
+		if(this._isDisposed || !this._isOpenFlag) {
+			return;
+		}
+		if(this._isFallbackMode) {
+			this._fallbackBuffer = new StringBuf();
+			this._fileSize = 0;
+			this._writeCount = 0;
+			this.updateOutputs();
+			haxe_Log.trace("FileWriterAtom: Fallback buffer cleared",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 311, className : "library.drivers.FileWriterAtom", methodName : "clearFile"});
+			return;
+		}
+		if(this._stream == null) {
 			return;
 		}
 		var self = this;
@@ -22264,13 +22414,24 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 			self._fileSize = 0;
 			self._writeCount = 0;
 			self.updateOutputs();
-			haxe_Log.trace("FileWriterAtom: File cleared",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 407, className : "library.drivers.FileWriterAtom", methodName : "clearFile"});
+			haxe_Log.trace("FileWriterAtom: File cleared",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 323, className : "library.drivers.FileWriterAtom", methodName : "clearFile"});
 		})["catch"](function(err) {
 			self.onWriteError(err);
 		});
 	}
 	,closeFile: function() {
-		if(this._isDisposed || this._stream == null || !this._isOpenFlag) {
+		if(this._isDisposed || !this._isOpenFlag) {
+			return;
+		}
+		if(this._isFallbackMode) {
+			this.triggerFallbackDownload();
+			this._fallbackBuffer = null;
+			this._isOpenFlag = false;
+			this.updateOutputs();
+			haxe_Log.trace("FileWriterAtom: Fallback file closed & downloaded",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 339, className : "library.drivers.FileWriterAtom", methodName : "closeFile"});
+			return;
+		}
+		if(this._stream == null) {
 			return;
 		}
 		var self = this;
@@ -22278,7 +22439,7 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 			self._stream = null;
 			self._isOpenFlag = false;
 			self.updateOutputs();
-			haxe_Log.trace("FileWriterAtom: File closed",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 425, className : "library.drivers.FileWriterAtom", methodName : "closeFile"});
+			haxe_Log.trace("FileWriterAtom: File closed",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 349, className : "library.drivers.FileWriterAtom", methodName : "closeFile"});
 		})["catch"](function(err) {
 			self.onWriteError(err);
 		});
@@ -22287,7 +22448,9 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(this._isDisposed) {
 			return;
 		}
-		this._fileSize += bytesWritten;
+		if(!this._isFallbackMode) {
+			this._fileSize += bytesWritten;
+		}
 		this._writeCount++;
 		this.updateOutputs();
 		var writtenOut = this.getOutput("written");
@@ -22400,7 +22563,7 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 			errorTickOut.set_value(true);
 			this._errorTimer = 0.05;
 		}
-		haxe_Log.trace("FileWriterAtom ERROR: " + msg,{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 606, className : "library.drivers.FileWriterAtom", methodName : "setError"});
+		haxe_Log.trace("FileWriterAtom ERROR: " + msg,{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 486, className : "library.drivers.FileWriterAtom", methodName : "setError"});
 	}
 	,updatePulseTimers: function(dt) {
 		if(this._isDisposed) {
@@ -22976,6 +23139,7 @@ library_electro_ButtonAtom.prototype = $extend(core_base_Atom.prototype,{
 				_gthis._outputs[0].set_value(_gthis._state);
 			}
 		});
+		haxe_Log.trace("DEBUG CONSOLE TEST: Если ты это видишь, перехват работает!",{ fileName : "src/library/electro/ButtonAtom.hx", lineNumber : 80, className : "library.electro.ButtonAtom", methodName : "setState"});
 	}
 	,getState: function() {
 		return this._state;
@@ -23009,22 +23173,24 @@ library_electro_ButtonAtom.prototype = $extend(core_base_Atom.prototype,{
 	,__class__: library_electro_ButtonAtom
 });
 var library_electro_DebugConsoleAtom = function(id) {
-	this._pulseTimer = 0.0;
 	this._enabled = true;
 	this._maxLines = 500;
 	this._logBuffer = [];
-	core_base_Atom.call(this,[new core_base_Contact("",core_types_ContactType.INPUT,"log"),new core_base_Contact("",core_types_ContactType.INPUT,"append"),new core_base_Contact(false,core_types_ContactType.INPUT,"clear"),new core_base_Contact(500,core_types_ContactType.INPUT,"maxLines"),new core_base_Contact(true,core_types_ContactType.INPUT,"enabled")],[new core_base_Contact("",core_types_ContactType.OUTPUT,"output"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"changed"),new core_base_Contact(0,core_types_ContactType.OUTPUT,"lineCount")],null,id,"DebugConsole");
+	core_base_Atom.call(this,[new core_base_Contact("",core_types_ContactType.INPUT,"log"),new core_base_Contact("",core_types_ContactType.INPUT,"append"),new core_base_Contact(false,core_types_ContactType.INPUT,"clear"),new core_base_Contact(500,core_types_ContactType.INPUT,"maxLines"),new core_base_Contact(true,core_types_ContactType.INPUT,"enabled")],[new core_base_Contact("",core_types_ContactType.OUTPUT,"output"),new core_base_Contact(false,core_types_ContactType.OUTPUT,"changed"),new core_base_Contact(0,core_types_ContactType.OUTPUT,"lineCount")],null,id,"DebugConsole",false);
 	library_electro_DebugConsoleAtom._instances.push(this);
 };
 $hxClasses["library.electro.DebugConsoleAtom"] = library_electro_DebugConsoleAtom;
 library_electro_DebugConsoleAtom.__name__ = "library.electro.DebugConsoleAtom";
 library_electro_DebugConsoleAtom.log = function(msg) {
+	if(msg == null || msg == "") {
+		return;
+	}
 	var _g = 0;
 	var _g1 = library_electro_DebugConsoleAtom._instances;
 	while(_g < _g1.length) {
 		var inst = _g1[_g];
 		++_g;
-		if(inst._enabled) {
+		if(inst != null && !inst._isDisposed && inst._enabled) {
 			inst._appendToBuffer(msg);
 		}
 	}
@@ -23072,8 +23238,10 @@ library_electro_DebugConsoleAtom.prototype = $extend(core_base_Atom.prototype,{
 	}
 	,_appendToBuffer: function(msg) {
 		var now = new Date();
-		var timestamp = "" + now.getHours() + ":" + StringTools.lpad(Std.string(now.getMinutes()),"0",2) + ":" + StringTools.lpad(Std.string(now.getSeconds()),"0",2);
-		var logLine = "" + timestamp + " | " + msg;
+		var hours = StringTools.lpad(Std.string(now.getHours()),"0",2);
+		var minutes = StringTools.lpad(Std.string(now.getMinutes()),"0",2);
+		var seconds = StringTools.lpad(Std.string(now.getSeconds()),"0",2);
+		var logLine = "" + hours + ":" + minutes + ":" + seconds + " | " + msg;
 		this._logBuffer.push(logLine);
 		while(this._logBuffer.length > this._maxLines) this._logBuffer.shift();
 		this._updateOutputs();
@@ -23093,19 +23261,16 @@ library_electro_DebugConsoleAtom.prototype = $extend(core_base_Atom.prototype,{
 		var changed = this.getOutput("changed");
 		if(changed != null) {
 			changed.set_value(true);
-			this._pulseTimer = 0.05;
-		}
-	}
-	,update: function(dt) {
-		core_base_Atom.prototype.update.call(this,dt);
-		if(this._pulseTimer > 0) {
-			this._pulseTimer -= dt;
-			if(this._pulseTimer <= 0) {
-				var changed = this.getOutput("changed");
-				if(changed != null) {
-					changed.set_value(false);
-				}
-			}
+			var changedRef = changed;
+			core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
+				core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
+					core_logic_TickGenerator.getInstance().scheduleNextTick(function() {
+						if(changedRef != null && !changedRef.isDisposed) {
+							changedRef.set_value(false);
+						}
+					});
+				});
+			});
 		}
 	}
 	,dispose: function() {
@@ -41386,7 +41551,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 995214;
+	this.version = 934768;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
@@ -103282,7 +103447,6 @@ library_electro_BufferingAtom.MIN_BUFFER_SIZE = 1;
 library_electro_BufferingAtom.MAX_BUFFER_SIZE = 8192;
 library_electro_BufferingAtom.PULSE_DURATION = 0.05;
 library_electro_DebugConsoleAtom._instances = [];
-library_electro_DebugConsoleAtom.PULSE_DURATION = 0.05;
 library_electro_FFTAtom.MIN_FFT_SIZE = 256;
 library_electro_FFTAtom.MAX_FFT_SIZE = 4096;
 library_electro_FFTAtom.PULSE_DURATION = 0.05;
