@@ -829,6 +829,16 @@ class ComPortWidget extends DeviceView
 				_errLedTimer = _ledPulseDuration;
 			}
 		}
+		else if (contact == _portNameContact)
+		{
+			#if html5
+			if (_selectedPortInfo != null && newValue != null)
+				_selectedPortInfo.text = Std.string(newValue);
+			#elseif cpp
+			if (_portInput != null && newValue != null)
+				_portInput.text = Std.string(newValue);
+			#end
+		}
 		else if (contact == _errorContact)
 		{
 			if (newValue != null && newValue != "")
@@ -947,11 +957,23 @@ class ComPortWidget extends DeviceView
 	 */
 	private function onSelectPortClick(e:MouseEvent):Void
 	{
-		// The atom will handle port selection when open is triggered
-		// We just need to ensure the atom knows we want to select a port
-		if (_openContact != null)
+		// === FIX: Synchronous call to preserve User Gesture context ===
+		// We bypass the contact to call the atom directly.
+		// This guarantees the browser dialog opens even on Android Chrome.
+		#if html5
+		if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom))
 		{
-			_openContact.value = true;
+			var comAtom:library.drivers.ComPortAtom = cast atom;
+			comAtom.requestPortSync();
+		}
+		else
+		#end
+		{
+			// Fallback for C++ target or if cast fails
+			if (_openContact != null)
+			{
+				_openContact.value = true;
+			}
 		}
 	}
 
@@ -1042,10 +1064,21 @@ class ComPortWidget extends DeviceView
 			_baudRateContact.value = baud;
 		}
 
-		// Trigger open
-		if (_openContact != null)
+		// === FIX: Synchronous call to preserve User Gesture context ===
+		#if html5
+		if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom))
 		{
-			_openContact.value = true;
+			var comAtom:library.drivers.ComPortAtom = cast atom;
+			comAtom.requestPortSync();
+		}
+		else
+		#end
+		{
+			// Fallback for C++ target or if cast fails
+			if (_openContact != null)
+			{
+				_openContact.value = true;
+			}
 		}
 	}
 

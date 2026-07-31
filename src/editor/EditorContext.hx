@@ -314,14 +314,20 @@ class EditorContext
 		}
 
 		// Create container for new editor
-		var container = new Sprite();
-		drawContainerFrame(container);
-		_layer.addChild(container);
+			var container = new Sprite();
+			drawContainerFrame(container);
+			_layer.addChild(container);
 
-		// Create editor (v2.5: pass global name uniqueness checker)
-		var editor = new NodeEditor(assembly, isNameTakenGlobally);
-		editor.setSize(container.width, container.height);
-		container.addChild(editor);
+			// v3.0 FIX: Use explicit stage dimensions instead of container.width/height
+			// which may be 0 before the next render frame
+			var margin = 12;
+			var w = (_layer.stage != null) ? _layer.stage.stageWidth - (margin * 2) : 1000;
+			var h = (_layer.stage != null) ? _layer.stage.stageHeight - (margin * 2) : 700;
+
+			// Create editor (v2.5: pass global name uniqueness checker)
+			var editor = new NodeEditor(assembly, isNameTakenGlobally);
+			editor.setSize(w, h);
+			container.addChild(editor);
 
 		// =========================================================================
 		// v1.4 FIX: Двойной принудительный реблд для гарантии

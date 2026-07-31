@@ -679,15 +679,19 @@ class DevicePanel extends Sprite
             _header.graphics.drawRect(0, 0, w, 30);
             _header.graphics.endFill();
             
-            // =========================================================================
-            // v3.5: REPOSITION BUTTONS ON RESIZE
-            // =========================================================================
-            // Keep buttons in the same positions as Main.hx
-            if (_btnClose != null)
-            {
-                _btnClose.x = w - 45;
-                _btnClose.y = 5;
-            }
+// =========================================================================
+// v3.5: REPOSITION BUTTONS ON RESIZE
+// =========================================================================
+// Keep buttons in the same positions as Main.hx
+			if (_btnClose != null)
+			{
+				_btnClose.x = w - 45;
+				_btnClose.y = 5;
+				
+				// Обновляем видимость при ресайзе/смене режима 
+				var cfg = DisplayConfig.getInstance();
+				_btnClose.visible = cfg.deviceButtons.showClose;
+			}
             
             // Recalculate positions for [E], [C], [□]
             var btnX = w - 45; // Start from close button position
@@ -955,17 +959,20 @@ class DevicePanel extends Sprite
         _maximizeBtnLabel = cast(_maximizeBtn.getChildAt(0), TextField);
         // =========================================================================
         
-        // =========================================================================
-        // v3.5: CREATE EDITOR-STYLE CLOSE BUTTON
-        // =========================================================================
-        // Same position as Main.hx: x = stageWidth - 45, y = 5
-        _btnClose = new ButtonComponent("X", function()
-        {
-            if (onCloseApp != null) onCloseApp();
-        });
-        _btnClose.x = headerWidth - 45;
-        _btnClose.y = 5;
-        _header.addChild(_btnClose);
+		// =========================================================================
+		// v3.5: CREATE EDITOR-STYLE CLOSE BUTTON
+		// =========================================================================
+		_btnClose = new ButtonComponent("X", function()
+		{
+			if (onCloseApp != null) onCloseApp();
+		});
+		_btnClose.x = headerWidth - 45;
+		_btnClose.y = 5;
+		_header.addChild(_btnClose);
+
+		// Читаем начальное состояние видимости из DisplayConfig
+		var cfg = DisplayConfig.getInstance();
+		_btnClose.visible = cfg.deviceButtons.showClose;
         
         // =========================================================================
         // v3.6: HEADER DRAG FUNCTIONALITY

@@ -8,6 +8,7 @@ import core.types.ContactType;
 import core.types.ContactType.*;
 import system.managers.DriverManager;
 import StringBuf;
+import js.Syntax;
 
 class FileWriterAtom extends Atom implements system.managers.Driver
 {
@@ -123,8 +124,8 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 				};
 
 				window.showSaveFilePicker(pickerOptions)
-					.then(function(handle) { self.onFileSelected(handle); })
-					['catch'](function(err) { self.onFilePickerCancelled(err); });
+					.then(function(handle) { self.onFileSelected(handle); self._restoreFullscreen();})
+					['catch'](function(err) { self.onFilePickerCancelled(err); self._restoreFullscreen();});
 			}
 			else
 			{
@@ -254,29 +255,31 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 		});
 	}
 
-private function triggerFallbackDownload():Void
-{
-    if (!_isFallbackMode || _fallbackBuffer == null) return;
-    var content = _fallbackBuffer.toString();
-    if (content.length == 0) return;
-
-    #if html5
-    var fileName = _suggestedFileName;
-    
-    // Используем untyped __js__ для прямого выполнения в JS без проверки типов Haxe
-    untyped __js__("
-        var blob = new Blob([{0}], { type: 'text/plain;charset=utf-8' });
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = {1};
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    ", content, fileName);
-    #end
-}
+	private function triggerFallbackDownload():Void
+	{
+		if (!_isFallbackMode || _fallbackBuffer == null) return;
+		var content = _fallbackBuffer.toString();
+		if (content.length == 0) return;
+	#if html5
+		var fileName = _suggestedFileName;
+		// js.Syntax.code is the modern, type-safe replacement for untyped __js__.
+		// Placeholder syntax {0}, {1} is identical, but js.Syntax.code:
+		//   - Does NOT require `untyped` wrapper
+		//   - Works correctly with Haxe's tree-shaking
+		//   - Generates cleaner JS output
+		Syntax.code(
+	"var blob = new Blob([{0}], { type: 'text/plain;charset=utf-8' });
+	var url = URL.createObjectURL(blob);
+	var a = document.createElement('a');
+	a.href = url;
+	a.download = {1};
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
+	", content, fileName);
+	#end
+	}
 
 	private function flushBuffer():Void
 	{
@@ -509,7 +512,19 @@ private function triggerFallbackDownload():Void
 			}
 		}
 	}
-
+	
+	/**
+	* Helper to restore fullscreen after a browser dialog closes.
+	*/
+	private function _restoreFullscreen():Void
+	{
+		#if html5
+		var cfg = ui.DisplayConfig.getInstance();
+		var win = openfl.Lib.current.stage.window; // the window instance
+		cfg.reenterFullscreen(win);
+		#end
+	}
+	
 	public function isOpen():Bool return _isOpenFlag;
 	public function getFileSize():Int return _fileSize;
 	public function getWriteCount():Int return _writeCount;

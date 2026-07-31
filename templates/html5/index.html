@@ -178,6 +178,60 @@
             .how-it-works-block ul { grid-template-columns: 1fr; }
             #openfl-content { height: 400px; }
         }
+
+    /* Fullscreen canvas styling */
+    canvas:fullscreen {
+        width: 100vw !important;
+        height: 100vh !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        z-index: 9999 !important;
+    }
+    
+    /* Vendor prefixes for older browsers */
+    canvas:-webkit-full-screen {
+        width: 100vw !important;
+        height: 100vh !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        z-index: 9999 !important;
+    }
+    
+    canvas:-moz-full-screen {
+        width: 100vw !important;
+        height: 100vh !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        z-index: 9999 !important;
+    }
+    
+    canvas:-ms-fullscreen {
+        width: 100vw !important;
+        height: 100vh !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        z-index: 9999 !important;
+    }
+    
+    /* Hide scrollbars when canvas is fullscreen */
+    body:has(canvas:fullscreen) {
+        overflow: hidden !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    /* Ensure openfl-content container doesn't interfere */
+    #openfl-content:fullscreen {
+        width: 100vw !important;
+        height: 100vh !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+    }
     </style>
 </head>
 <body>

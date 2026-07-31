@@ -125,7 +125,21 @@ class RecentMenuTracker
     {
         _history = [];
     }
-    
+	
+    /**
+	* Re-subscribe to Impulsys after a clear() event.
+	* Called by Main.hx after hardReset() to restore tracking.
+	*/
+	public function resubscribe():Void
+	{
+		if (_onMenuAction != null)
+		{
+			Impulsys.removeImpulse(EventType.CONTEXT_MENU_ACTION, _onMenuAction);
+		}
+		_onMenuAction = onMenuAction;
+		Impulsys.subscribeToImpulse(EventType.CONTEXT_MENU_ACTION, _onMenuAction);
+	}
+
     /**
      * Impulsys handler for CONTEXT_MENU_ACTION.
      * Automatically records actions when menu items are clicked.

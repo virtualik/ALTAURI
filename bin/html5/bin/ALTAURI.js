@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "169";
+	app.meta.h["build"] = "170";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
@@ -3475,12 +3475,6 @@ var Main = function() {
 	this._cachedWindowHeight = 320;
 	this._cachedWindowWidth = 420;
 	this._cachedDeviceWindowState = null;
-	this._savedWindowHeight = 600;
-	this._savedWindowWidth = 800;
-	this._savedWindowY = 100;
-	this._savedWindowX = 100;
-	this._isWindowMaximized = false;
-	this._isPanelMode = false;
 	this._lastTime = 0;
 	openfl_display_Sprite.call(this);
 	this._theme = editor_EditorTheme.getInstance();
@@ -3518,7 +3512,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			console.log(v);
 			library_electro_DebugConsoleAtom.log(Std.string(v));
 		};
-		haxe_Log.trace("DEBUG CONSOLE TEST: Если ты это видишь, перехват работает!",{ fileName : "src/Main.hx", lineNumber : 225, className : "Main", methodName : "init"});
+		haxe_Log.trace("DEBUG CONSOLE TEST: Если ты это видишь, перехват работает!",{ fileName : "src/Main.hx", lineNumber : 241, className : "Main", methodName : "init"});
 		this.log("System initialized");
 		this.removeEventListener("addedToStage",$bind(this,this.init));
 		openfl_Lib.get_current().stage.window.set_visible(true);
@@ -3584,7 +3578,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		editor.connectAtoms(closeFileButtonId,"out",fileWriterId,"close");
 		editor.connectAtoms(comport1AtomId,"rxData",fileWriterId,"append");
 		editor.connectAtoms(fileWriterId,"isOpen",fileWriterStatusLedId,"in");
-		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 358, className : "Main", methodName : "createDemoProject"});
+		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 370, className : "Main", methodName : "createDemoProject"});
 		this.renameAtom(rootAssembly,openPortButtonId,"Open Port");
 		this.renameAtom(rootAssembly,closePortButtonId,"Close Port");
 		this.renameAtom(rootAssembly,sendTxDataButtonId,"Send TX");
@@ -3600,17 +3594,18 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			if(editor != null && !editor.isDisposed) {
 				editor.forceFullRedraw();
 			}
-			if(_gthis._isPanelMode) {
+			if(ui_DisplayConfig.getInstance().isDeviceMode()) {
 				_gthis.onToggleView();
 			}
 		},10);
 		haxe_Timer.delay(function() {
-			if(!_gthis._isPanelMode) {
+			if(!ui_DisplayConfig.getInstance().isDeviceMode()) {
 				_gthis.onToggleView();
 			}
 			if(_gthis._devicePanel == null) {
 				return;
 			}
+			var comport1Atom = rootAssembly.internalAtoms.h[comport1AtomId];
 			var txAtom = rootAssembly.internalAtoms.h[textInputTxDataId];
 			var textArea = rootAssembly.internalAtoms.h[textAreaRxDataId];
 			var comportledAtom = rootAssembly.internalAtoms.h[comportStatusLedId];
@@ -3620,6 +3615,9 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			var openFileBtAtom = rootAssembly.internalAtoms.h[openFileButtonId];
 			var closeFileBtAtom = rootAssembly.internalAtoms.h[closeFileButtonId];
 			var fileLedAtom = rootAssembly.internalAtoms.h[fileWriterStatusLedId];
+			if(comport1Atom != null) {
+				_gthis._devicePanel.addDevice(comport1Atom,10,10);
+			}
 			if(txAtom != null) {
 				_gthis._devicePanel.addDevice(txAtom,350,50);
 			}
@@ -3648,12 +3646,14 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				_gthis._devicePanel.addDevice(fileLedAtom,300,440);
 			}
 			_gthis.syncDevicePanelToCache();
-			if(!_gthis._isPanelMode) {
+			if(!ui_DisplayConfig.getInstance().isDeviceMode()) {
 				_gthis.onToggleView();
 			}
 		},10);
 		this.updateNavigationUI();
 		this.updateButtonStates();
+		var cfg = ui_DisplayConfig.getInstance();
+		cfg.deviceButtons.showClose = false;
 	}
 	,renameAtom: function(asm,atomId,desired) {
 		var atom = asm.internalAtoms.h[atomId];
@@ -3707,10 +3707,10 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				},100);
 			}
 			if(data.isOpen) {
-				this._isPanelMode = false;
+				ui_DisplayConfig.getInstance().set_currentMode(ui_DisplayMode.EDITOR);
 				this.onToggleView();
 			}
-			this.log("Project loaded (v2.9).");
+			this.log("Project loaded (v3.0 with DisplayConfig).");
 		} else {
 			this.createEmptyProject();
 		}
@@ -3746,12 +3746,13 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		var isRoot = this._editorContext.getStackLength() == 1;
 		if(isRoot) {
 			this.log("Saving Root...");
-			if(this._isPanelMode) {
+			var cfg = ui_DisplayConfig.getInstance();
+			if(cfg.isDeviceMode()) {
 				this.syncDevicePanelToCache();
 			}
 			var viewState = this._editorContext.currentEditor.getViewState();
 			var devicesData = this._cachedDeviceWindowState != null ? this._cachedDeviceWindowState : [];
-			var isWindowOpen = this._isPanelMode;
+			var isWindowOpen = cfg.isDeviceMode();
 			this._projectManager.saveSelfrun(this._editorContext.currentAssembly,viewState,devicesData,isWindowOpen,this._cachedWindowWidth,this._cachedWindowHeight,this._cachedWindowX,this._cachedWindowY);
 		} else {
 			this.log("Saving Assembly to Library...");
@@ -3901,8 +3902,9 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 	}
 	,onToggleView: function() {
-		this._isPanelMode = !this._isPanelMode;
-		if(this._isPanelMode) {
+		var cfg = ui_DisplayConfig.getInstance();
+		cfg.toggleMode();
+		if(cfg.isDeviceMode()) {
 			this.log("Mode: Device Panel");
 			this._editorLayer.set_visible(false);
 			this._uiLayer.set_visible(false);
@@ -3942,6 +3944,84 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			_gthis._windowSaveTimer = null;
 			_gthis.log("Device state auto-saved.");
 		},300);
+	}
+	,_onDisplayModeChanged: function(impulse) {
+		if(impulse == null || impulse.data == null) {
+			return;
+		}
+		var mode = impulse.data.mode;
+		switch(mode._hx_index) {
+		case 0:
+			if(this._editorLayer != null) {
+				this._editorLayer.set_visible(true);
+			}
+			if(this._uiLayer != null) {
+				this._uiLayer.set_visible(true);
+			}
+			if(this._devicePanel != null) {
+				this._devicePanel.set_visible(false);
+			}
+			break;
+		case 1:
+			if(this._editorLayer != null) {
+				this._editorLayer.set_visible(false);
+			}
+			if(this._uiLayer != null) {
+				this._uiLayer.set_visible(false);
+			}
+			if(this._devicePanel != null) {
+				this._devicePanel.set_visible(true);
+			}
+			break;
+		}
+	}
+	,_onSceneResized: function(impulse) {
+		if(impulse == null || impulse.data == null) {
+			return;
+		}
+		var w = impulse.data.width;
+		var h = impulse.data.height;
+		var cfg = ui_DisplayConfig.getInstance();
+		var btnSize = cfg.editorButtons.buttonSize;
+		var btnPadding = cfg.buttonPadding;
+		var rightEdge = w - btnPadding;
+		if(this._btnClose != null) {
+			this._btnClose.set_x(rightEdge - btnSize);
+		}
+		if(this._btnBack != null) {
+			this._btnBack.set_x(this._btnClose.get_x() - btnSize - btnPadding);
+		}
+		if(this._btnDelete != null) {
+			this._btnDelete.set_x(this._btnBack.get_x() - btnSize - btnPadding);
+		}
+		if(this._btnView != null) {
+			this._btnView.set_x(this._btnDelete.get_x() - btnSize - btnPadding);
+		}
+		if(this._btnNew != null) {
+			this._btnNew.set_x(this._btnView.get_x() - btnSize - btnPadding);
+		}
+		if(this._btnReset != null) {
+			this._btnReset.set_x(this._btnNew.get_x() - btnSize - btnPadding);
+		}
+		if(this._btnSettings != null) {
+			this._btnSettings.set_x(this._btnReset.get_x() - btnSize - btnPadding);
+		}
+		if(this._editorContext.currentEditor != null) {
+			var margin = 12;
+			this._editorContext.currentEditor.setSize(w - margin * 2,h - margin * 2);
+		}
+		if(this._devicePanel != null && this._devicePanel.get_visible()) {
+			this._devicePanel.setSize(w,h);
+		}
+	}
+	,_onFullscreenToggled: function(impulse) {
+		if(impulse == null || impulse.data == null) {
+			return;
+		}
+		var isFullscreen = impulse.data.isFullscreen;
+		if(this._devicePanel != null) {
+			this._devicePanel.setMaximizedState(isFullscreen);
+		}
 	}
 	,onMainLoop: function(e) {
 		var now = openfl_Lib.getTimer();
@@ -3992,8 +4072,16 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 	}
 	,buildUI: function() {
 		var _gthis = this;
-		var btnSize = 40;
-		var btnPadding = 5;
+		window.document.addEventListener("fullscreenchange",function(_) {
+			var cfg = ui_DisplayConfig.getInstance();
+			var isCurrentlyFullscreen = window.document.fullscreenElement != null;
+			if(cfg.isFullscreen != isCurrentlyFullscreen) {
+				cfg.set_isFullscreen(isCurrentlyFullscreen);
+			}
+		});
+		var cfg = ui_DisplayConfig.getInstance();
+		var btnSize = cfg.editorButtons.buttonSize;
+		var btnPadding = cfg.buttonPadding;
 		var startX = this.stage.stageWidth - btnPadding;
 		var startY = btnPadding;
 		this._popup = new ui_TextInputPopup();
@@ -4061,11 +4149,14 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.VALUE_COMMITTED,$bind(this,this.onValueCommitted));
 		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.DEVICE_WINDOW_CHANGED,$bind(this,this.onDeviceWindowChanged));
 		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.PORT_REMOVED,$bind(this,this.onPortRemoved));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.DISPLAY_MODE_CHANGED,$bind(this,this._onDisplayModeChanged));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.SCENE_RESIZED,$bind(this,this._onSceneResized));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.FULLSCREEN_TOGGLED,$bind(this,this._onFullscreenToggled));
 		this._devicePanel = new ui_DevicePanel();
 		this._devicePanel.set_visible(false);
 		this.addChild(this._devicePanel);
 		this._devicePanel.onShowEditor = function() {
-			if(_gthis._isPanelMode) {
+			if(ui_DisplayConfig.getInstance().isDeviceMode()) {
 				_gthis.onToggleView();
 			}
 		};
@@ -4101,33 +4192,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		};
 		this._devicePanel.onToggleMaximize = function() {
 			var win = openfl_Lib.get_current().stage.window;
-			if(win == null) {
-				return;
-			}
-			if(_gthis._isWindowMaximized) {
-				win.resize(_gthis._savedWindowWidth | 0,_gthis._savedWindowHeight | 0);
-				win.move(_gthis._savedWindowX | 0,_gthis._savedWindowY | 0);
-				_gthis._isWindowMaximized = false;
-				_gthis.log("Window restored to " + (_gthis._savedWindowWidth | 0) + "x" + (_gthis._savedWindowHeight | 0));
-			} else {
-				_gthis._savedWindowX = win.__x;
-				_gthis._savedWindowY = win.__y;
-				_gthis._savedWindowWidth = win.__width;
-				_gthis._savedWindowHeight = win.__height;
-				var display = win.get_display();
-				if(display != null && display.currentMode != null) {
-					win.resize(display.currentMode.width,display.currentMode.height);
-					win.move(0,0);
-					_gthis._isWindowMaximized = true;
-					_gthis.log("Window maximized to " + display.currentMode.width + "x" + display.currentMode.height);
-				} else {
-					win.resize(_gthis.stage.stageWidth | 0,_gthis.stage.stageHeight | 0);
-					win.move(0,0);
-					_gthis._isWindowMaximized = true;
-					_gthis.log("Window maximized to stage size: " + (_gthis.stage.stageWidth | 0) + "x" + (_gthis.stage.stageHeight | 0));
-				}
-			}
-			_gthis._devicePanel.setMaximizedState(_gthis._isWindowMaximized);
+			var cfg = ui_DisplayConfig.getInstance();
+			cfg.toggleFullscreen(win);
 		};
 	}
 	,onSettingsChanged: function() {
@@ -4146,8 +4212,9 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.get_graphics().endFill();
 		this._debugField.set_y(this.stage.stageHeight - 40);
 		this._pathField.set_y(this.stage.stageHeight - 20);
-		var btnSize = 40;
-		var btnPadding = 5;
+		var cfg = ui_DisplayConfig.getInstance();
+		var btnSize = cfg.editorButtons.buttonSize;
+		var btnPadding = cfg.buttonPadding;
 		var rightEdge = this.stage.stageWidth - btnPadding;
 		this._btnClose.set_x(rightEdge - btnSize);
 		this._btnBack.set_x(this._btnClose.get_x() - btnSize - btnPadding);
@@ -4160,22 +4227,24 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			var margin = 12;
 			this._editorContext.currentEditor.setSize(this.stage.stageWidth - margin * 2,this.stage.stageHeight - margin * 2);
 		}
-		if(this._devicePanel != null && this._devicePanel.get_visible()) {
+		if(cfg.isDeviceMode() && this._devicePanel != null) {
 			this._devicePanel.setSize(this.stage.stageWidth,this.stage.stageHeight);
 		}
-		if(this._isPanelMode && this._devicePanel != null) {
+		if(cfg.isDeviceMode() && this._devicePanel != null) {
 			var win = openfl_Lib.get_current().stage.window;
 			if(win != null) {
 				var display = win.get_display();
 				if(display != null && display.currentMode != null) {
 					var isFullscreen = win.__width >= display.currentMode.width - 10 && win.__height >= display.currentMode.height - 10;
-					if(isFullscreen != this._isWindowMaximized) {
-						this._isWindowMaximized = isFullscreen;
-						this._devicePanel.setMaximizedState(this._isWindowMaximized);
+					if(isFullscreen != cfg.isFullscreen) {
+						cfg.set_isFullscreen(isFullscreen);
+						this._devicePanel.setMaximizedState(cfg.isFullscreen);
 					}
 				}
 			}
 		}
+		cfg.set_sceneWidth(this.stage.stageWidth);
+		cfg.set_sceneHeight(this.stage.stageHeight);
 	}
 	,updateButtonStates: function() {
 		var isRoot = this._editorContext.getStackLength() <= 1;
@@ -4276,6 +4345,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 	,onResetClick: function() {
 		this.hardReset();
 		this.createEmptyProject();
+		this.updateNavigationUI();
+		this.updateButtonStates();
 		this.log("System Reset.");
 	}
 	,onPortRemoved: function(impulse) {
@@ -4351,7 +4422,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				HxOverrides.remove(bp.internalConnections,conn);
 			}
 			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
-			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1598, className : "Main", methodName : "onPortRemoved"});
+			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1736, className : "Main", methodName : "onPortRemoved"});
 		}
 	}
 	,hardReset: function() {
@@ -4370,13 +4441,13 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._devicePanel = new ui_DevicePanel();
 		this._devicePanel.set_visible(false);
 		this._devicePanel.onShowEditor = function() {
-			if(_gthis._isPanelMode) {
+			if(ui_DisplayConfig.getInstance().isDeviceMode()) {
 				_gthis.onToggleView();
 			}
 		};
 		this._devicePanel.onGetAssemblyList = $bind(this,this.getAllDevicesRecursive);
 		this.addChild(this._devicePanel);
-		this._isPanelMode = false;
+		ui_DisplayConfig.getInstance().set_currentMode(ui_DisplayMode.EDITOR);
 		this._editorLayer.set_visible(true);
 		this._uiLayer.set_visible(true);
 		this._cachedDeviceWindowState = null;
@@ -4394,6 +4465,10 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.REQUEST_NEW_ASSEMBLY_CONTEXT,$bind(this,this.onRequestNewContext));
 		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.VALUE_COMMITTED,$bind(this,this.onValueCommitted));
 		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.DEVICE_WINDOW_CHANGED,$bind(this,this.onDeviceWindowChanged));
+		ui_contextmenu_data_RecentMenuTracker.getInstance().resubscribe();
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.DISPLAY_MODE_CHANGED,$bind(this,this._onDisplayModeChanged));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.SCENE_RESIZED,$bind(this,this._onSceneResized));
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.FULLSCREEN_TOGGLED,$bind(this,this._onFullscreenToggled));
 		this._contextManager = new editor_ContextMenuManager(this._settingsPanel);
 		this._uiLayer.addChild(this._contextManager.getView());
 		system_managers_DriverManager.getInstance().dispose();
@@ -4500,8 +4575,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		var nodeCount = this._editorContext.currentEditor.getSelectedNodeCount();
 		var wireIds = this._editorContext.currentEditor.getSelectedWireIds();
-		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1767, className : "Main", methodName : "deleteSelectedOnCanvas"});
-		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1768, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1922, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1923, className : "Main", methodName : "deleteSelectedOnCanvas"});
 		if(nodeCount > 0) {
 			this._editorContext.currentEditor.deleteSelectedNodes();
 			this.updateSettingsStats();
@@ -9060,6 +9135,10 @@ core_view_ComPortWidget.prototype = $extend(core_view_DeviceView.prototype,{
 				this.pulseLed(this._errLed,16729156,3342336);
 				this._errLedTimer = this._ledPulseDuration;
 			}
+		} else if(contact == this._portNameContact) {
+			if(this._selectedPortInfo != null && newValue != null) {
+				this._selectedPortInfo.set_text(Std.string(newValue));
+			}
 		} else if(contact == this._errorContact) {
 			if(newValue != null && newValue != "") {
 				this._errorDisplay.set_text("Error: " + Std.string(newValue));
@@ -9124,7 +9203,10 @@ core_view_ComPortWidget.prototype = $extend(core_view_DeviceView.prototype,{
 		led.get_graphics().endFill();
 	}
 	,onSelectPortClick: function(e) {
-		if(this._openContact != null) {
+		if(this.atom != null && ((this.atom) instanceof library_drivers_ComPortAtom)) {
+			var comAtom = this.atom;
+			comAtom.requestPortSync();
+		} else if(this._openContact != null) {
 			this._openContact.set_value(true);
 		}
 	}
@@ -9186,7 +9268,10 @@ core_view_ComPortWidget.prototype = $extend(core_view_DeviceView.prototype,{
 		if(this._baudRateContact != null && baud != null && baud > 0) {
 			this._baudRateContact.set_value(baud);
 		}
-		if(this._openContact != null) {
+		if(this.atom != null && ((this.atom) instanceof library_drivers_ComPortAtom)) {
+			var comAtom = this.atom;
+			comAtom.requestPortSync();
+		} else if(this._openContact != null) {
 			this._openContact.set_value(true);
 		}
 	}
@@ -13917,8 +14002,11 @@ editor_EditorContext.prototype = {
 		var container = new openfl_display_Sprite();
 		this.drawContainerFrame(container);
 		this._layer.addChild(container);
+		var margin = 12;
+		var w = this._layer.stage != null ? this._layer.stage.stageWidth - margin * 2 : 1000;
+		var h = this._layer.stage != null ? this._layer.stage.stageHeight - margin * 2 : 700;
 		var editor = new editor_NodeEditor(assembly,$bind(this,this.isNameTakenGlobally));
-		editor.setSize(container.get_width(),container.get_height());
+		editor.setSize(w,h);
 		container.addChild(editor);
 		editor.forceFullRedraw();
 		haxe_Timer.delay(function() {
@@ -13934,10 +14022,10 @@ editor_EditorContext.prototype = {
 		if(Object.prototype.hasOwnProperty.call(this._cameraStates.h,bpId)) {
 			var state = this._cameraStates.h[bpId];
 			editor.setViewState(state);
-			haxe_Log.trace("EditorContext: Restored camera state for \"" + bpId + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 360, className : "editor.EditorContext", methodName : "push"});
+			haxe_Log.trace("EditorContext: Restored camera state for \"" + bpId + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 366, className : "editor.EditorContext", methodName : "push"});
 		} else {
 			editor.centerOnContent();
-			haxe_Log.trace("EditorContext: Auto-centered on \"" + bpId + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 366, className : "editor.EditorContext", methodName : "push"});
+			haxe_Log.trace("EditorContext: Auto-centered on \"" + bpId + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 372, className : "editor.EditorContext", methodName : "push"});
 		}
 	}
 	,pop: function(updateInstances) {
@@ -13951,7 +14039,7 @@ editor_EditorContext.prototype = {
 		var editedId = current.assembly.blueprint.id;
 		var currentState = current.editor.getViewState();
 		this._cameraStates.h[editedId] = currentState;
-		haxe_Log.trace("EditorContext: Saved camera state for \"" + editedId + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 385, className : "editor.EditorContext", methodName : "pop"});
+		haxe_Log.trace("EditorContext: Saved camera state for \"" + editedId + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 391, className : "editor.EditorContext", methodName : "pop"});
 		current.editor.dispose();
 		if(this._layer.contains(current.container)) {
 			this._layer.removeChild(current.container);
@@ -13976,7 +14064,7 @@ editor_EditorContext.prototype = {
 		},50);
 		if(current.parentCameraState != null) {
 			this.currentEditor.setViewState(current.parentCameraState);
-			haxe_Log.trace("EditorContext: Restored parent camera state",{ fileName : "src/editor/EditorContext.hx", lineNumber : 425, className : "editor.EditorContext", methodName : "pop"});
+			haxe_Log.trace("EditorContext: Restored parent camera state",{ fileName : "src/editor/EditorContext.hx", lineNumber : 431, className : "editor.EditorContext", methodName : "pop"});
 		}
 		if(updateInstances) {
 			var asm = current.assembly;
@@ -13989,10 +14077,10 @@ editor_EditorContext.prototype = {
 		this.currentEditor.refreshAssemblyViews();
 	}
 	,updateInstancesOf: function(typeId) {
-		haxe_Log.trace("🔍 updateInstancesOf: Looking for assemblies of type \"" + typeId + "\" in parent \"" + this.currentAssembly.blueprint.name + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 509, className : "editor.EditorContext", methodName : "updateInstancesOf"});
+		haxe_Log.trace("🔍 updateInstancesOf: Looking for assemblies of type \"" + typeId + "\" in parent \"" + this.currentAssembly.blueprint.name + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 515, className : "editor.EditorContext", methodName : "updateInstancesOf"});
 		var newBp = library_AtomRegistry.get(typeId);
 		if(newBp == null) {
-			haxe_Log.trace("❌ updateInstancesOf: Blueprint \"" + typeId + "\" not found in registry!",{ fileName : "src/editor/EditorContext.hx", lineNumber : 513, className : "editor.EditorContext", methodName : "updateInstancesOf"});
+			haxe_Log.trace("❌ updateInstancesOf: Blueprint \"" + typeId + "\" not found in registry!",{ fileName : "src/editor/EditorContext.hx", lineNumber : 519, className : "editor.EditorContext", methodName : "updateInstancesOf"});
 			return;
 		}
 		var foundCount = 0;
@@ -14008,13 +14096,13 @@ editor_EditorContext.prototype = {
 				var asm = js_Boot.__cast(atom , core_base_Assembly);
 				if(asm.blueprint.id == typeId) {
 					++foundCount;
-					haxe_Log.trace("✅ updateInstancesOf: Found assembly \"" + typeId + "\" with runtimeId=\"" + id + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 527, className : "editor.EditorContext", methodName : "updateInstancesOf"});
+					haxe_Log.trace("✅ updateInstancesOf: Found assembly \"" + typeId + "\" with runtimeId=\"" + id + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 533, className : "editor.EditorContext", methodName : "updateInstancesOf"});
 					var oldRuntimeId = asm.get_id();
 					this.unlinkParentWiresTo(asm);
 					asm.dispose();
 					var newInstance = core_base_AssemblyFactory.createAtom(typeId,oldRuntimeId);
 					if(newInstance == null) {
-						haxe_Log.trace("ERROR: EditorContext.updateInstancesOf: Failed to recreate assembly " + typeId + " (" + oldRuntimeId + ")",{ fileName : "src/editor/EditorContext.hx", lineNumber : 554, className : "editor.EditorContext", methodName : "updateInstancesOf"});
+						haxe_Log.trace("ERROR: EditorContext.updateInstancesOf: Failed to recreate assembly " + typeId + " (" + oldRuntimeId + ")",{ fileName : "src/editor/EditorContext.hx", lineNumber : 560, className : "editor.EditorContext", methodName : "updateInstancesOf"});
 						continue;
 					}
 					this.currentAssembly.internalAtoms.h[oldRuntimeId] = newInstance;
@@ -14026,7 +14114,7 @@ editor_EditorContext.prototype = {
 			}
 		}
 		if(foundCount == 0) {
-			haxe_Log.trace("⚠️ updateInstancesOf: No assemblies of type \"" + typeId + "\" found in parent!",{ fileName : "src/editor/EditorContext.hx", lineNumber : 590, className : "editor.EditorContext", methodName : "updateInstancesOf"});
+			haxe_Log.trace("⚠️ updateInstancesOf: No assemblies of type \"" + typeId + "\" found in parent!",{ fileName : "src/editor/EditorContext.hx", lineNumber : 596, className : "editor.EditorContext", methodName : "updateInstancesOf"});
 		}
 	}
 	,unlinkParentWiresTo: function(targetAsm) {
@@ -14097,13 +14185,13 @@ editor_EditorContext.prototype = {
 		library_AtomRegistry.registerBlueprint(this.currentAssembly.blueprint.id,this.currentAssembly.blueprint);
 	}
 	,reconnectExternalLinksToAssembly: function(targetAsm) {
-		haxe_Log.trace("🔗 reconnectExternalLinksToAssembly: targetAsm.id=\"" + targetAsm.get_id() + "\", targetAsm.blueprint.id=\"" + targetAsm.blueprint.id + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 751, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+		haxe_Log.trace("🔗 reconnectExternalLinksToAssembly: targetAsm.id=\"" + targetAsm.get_id() + "\", targetAsm.blueprint.id=\"" + targetAsm.blueprint.id + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 757, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
 		var bp = this.currentAssembly.blueprint;
 		if(bp.internalConnections == null) {
-			haxe_Log.trace("❌ reconnectExternalLinksToAssembly: parent blueprint has NO connections!",{ fileName : "src/editor/EditorContext.hx", lineNumber : 755, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+			haxe_Log.trace("❌ reconnectExternalLinksToAssembly: parent blueprint has NO connections!",{ fileName : "src/editor/EditorContext.hx", lineNumber : 761, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
 			return;
 		}
-		haxe_Log.trace("🔗 reconnectExternalLinksToAssembly: parent has " + bp.internalConnections.length + " connections",{ fileName : "src/editor/EditorContext.hx", lineNumber : 758, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+		haxe_Log.trace("🔗 reconnectExternalLinksToAssembly: parent has " + bp.internalConnections.length + " connections",{ fileName : "src/editor/EditorContext.hx", lineNumber : 764, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
 		var reconnectedCount = 0;
 		var _g = 0;
 		var _g1 = bp.internalConnections;
@@ -14141,7 +14229,7 @@ editor_EditorContext.prototype = {
 						if(fallbackPort != null) {
 							conn.to.contactName = fallbackPort.externalName;
 							cIn = this.resolveContactInParent(conn.to);
-							haxe_Log.trace("   🔄 Reconciled cIn: \"" + requestedName + "\" → \"" + conn.to.contactName + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 832, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+							haxe_Log.trace("   🔄 Reconciled cIn: \"" + requestedName + "\" → \"" + conn.to.contactName + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 838, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
 						}
 					}
 				}
@@ -14153,21 +14241,21 @@ editor_EditorContext.prototype = {
 						if(fallbackPort1 != null) {
 							conn.from.contactName = fallbackPort1.externalName;
 							cOut = this.resolveContactInParent(conn.from);
-							haxe_Log.trace("   🔄 Reconciled cOut: \"" + requestedName1 + "\" → \"" + conn.from.contactName + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 849, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+							haxe_Log.trace("   🔄 Reconciled cOut: \"" + requestedName1 + "\" → \"" + conn.from.contactName + "\"",{ fileName : "src/editor/EditorContext.hx", lineNumber : 855, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
 						}
 					}
 				}
-				haxe_Log.trace("🔗 reconnect: " + conn.from.atomId + "." + conn.from.contactName + " → " + conn.to.atomId + "." + conn.to.contactName,{ fileName : "src/editor/EditorContext.hx", lineNumber : 854, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
-				haxe_Log.trace("   cOut=" + (cOut != null ? cOut.name : "null") + ", cIn=" + (cIn != null ? cIn.name : "null"),{ fileName : "src/editor/EditorContext.hx", lineNumber : 855, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+				haxe_Log.trace("🔗 reconnect: " + conn.from.atomId + "." + conn.from.contactName + " → " + conn.to.atomId + "." + conn.to.contactName,{ fileName : "src/editor/EditorContext.hx", lineNumber : 860, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+				haxe_Log.trace("   cOut=" + (cOut != null ? cOut.name : "null") + ", cIn=" + (cIn != null ? cIn.name : "null"),{ fileName : "src/editor/EditorContext.hx", lineNumber : 861, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
 				if(cOut != null && cIn != null && !cOut.hasLink(cIn)) {
 					cOut.link(cIn);
-					haxe_Log.trace("   ✓ Linked!",{ fileName : "src/editor/EditorContext.hx", lineNumber : 858, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+					haxe_Log.trace("   ✓ Linked!",{ fileName : "src/editor/EditorContext.hx", lineNumber : 864, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
 				} else if(cOut == null || cIn == null) {
-					haxe_Log.trace("   ✗ FAILED to link!",{ fileName : "src/editor/EditorContext.hx", lineNumber : 860, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+					haxe_Log.trace("   ✗ FAILED to link!",{ fileName : "src/editor/EditorContext.hx", lineNumber : 866, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
 				}
 			}
 		}
-		haxe_Log.trace("🔗 reconnect: Reconnected " + reconnectedCount + " links",{ fileName : "src/editor/EditorContext.hx", lineNumber : 864, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
+		haxe_Log.trace("🔗 reconnect: Reconnected " + reconnectedCount + " links",{ fileName : "src/editor/EditorContext.hx", lineNumber : 870, className : "editor.EditorContext", methodName : "reconnectExternalLinksToAssembly"});
 	}
 	,resolveAssemblyInParent: function(atomId) {
 		if(atomId == null || atomId == "SELF") {
@@ -21637,26 +21725,48 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(hasSerial) {
 			this._connectionType = "serial";
 			var self = this;
-			navigator.serial.requestPort().then(function(port) {
-				self.onSerialPortRequested(port);
-			})["catch"](function(err) {
-				self.onPortRequestError(err);
-			});
-		} else if(hasUSB) {
-			this._connectionType = "usb";
-			var self1 = this;
-			var filters = [{ vendorId : 12346},{ vendorId : 1027},{ vendorId : 6790},{ vendorId : 4292},{ vendorId : 1659},{ vendorId : 9025},{ vendorId : 6991},{ vendorId : 1155},{ vendorId : 11914},{ vendorId : 1003}];
-			navigator.usb.requestDevice({ filters : filters}).then(function(device) {
-				self1.onUsbDeviceRequested(device);
-			})["catch"](function(err) {
-				self1.onPortRequestError(err);
-			});
-		} else {
-			this.setError("Neither Web Serial API nor WebUSB is supported in this browser environment.");
+			var wasFullscreen = document.fullscreenElement != null;
+			var doRequestPort = function() {
+				navigator.serial.requestPort().then(function(port) {
+					self.onSerialPortRequested(port);
+					if(wasFullscreen) {
+						self._reenterFullscreen();
+					}
+				})["catch"](function(err) {
+					self.onPortRequestError(err);
+					if(wasFullscreen) {
+						self._reenterFullscreen();
+					}
+				});
+			};
+			if(wasFullscreen) {
+				document.exitFullscreen();
+				haxe_Timer.delay(doRequestPort,300);
+			} else {
+				doRequestPort();
+			}
 		}
 	}
 	,onSerialPortRequested: function(port) {
 		this._serialPort = port;
+		var portInfo = "Serial Port";
+		try {
+			var info = port.getInfo();
+			if(info != null) {
+				var vid = info.usbVendorId != null ? info.usbVendorId : 0;
+				var pid = info.usbProductId != null ? info.usbProductId : 0;
+				if(vid != 0) {
+					portInfo = StringTools.hex(vid,4) + ":" + StringTools.hex(pid,4);
+					portInfo = this.formatUsbName(vid,pid);
+				}
+			}
+		} catch( _g ) {
+			haxe_NativeStackTrace.lastError = _g;
+		}
+		var portNameC = this.getInput("portName");
+		if(portNameC != null) {
+			portNameC.set_value(portInfo);
+		}
 		var baudRateInt = 9600;
 		var baudC = this.getInput("baudRate");
 		if(baudC != null && baudC.get_value() != null) {
@@ -21673,6 +21783,14 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 	,onUsbDeviceRequested: function(device) {
 		var _gthis = this;
 		this._usbDevice = device;
+		var vid = device.vendorId;
+		var pid = device.productId;
+		var productName = device.productName != null ? device.productName : "";
+		var portInfo = productName != "" ? productName : this.formatUsbName(vid,pid);
+		var portNameC = this.getInput("portName");
+		if(portNameC != null) {
+			portNameC.set_value(portInfo);
+		}
 		var baudRateInt = 9600;
 		var baudC = this.getInput("baudRate");
 		if(baudC != null && baudC.get_value() != null) {
@@ -21688,6 +21806,71 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		})["catch"](function(err) {
 			self.onPortOpenError(err);
 		});
+	}
+	,formatUsbName: function(vid,pid) {
+		switch(vid) {
+		case 1003:
+			return "Atmel SAMD";
+		case 1027:
+			return "FTDI " + StringTools.hex(pid,4);
+		case 1155:
+			return "STM32";
+		case 1659:
+			return "PL2303";
+		case 4292:
+			return "CP210x " + StringTools.hex(pid,4);
+		case 6790:
+			return "CH340 " + StringTools.hex(pid,4);
+		case 6991:
+			return "SparkFun";
+		case 9025:
+			return "Arduino";
+		case 11914:
+			return "RP2040";
+		case 12346:
+			return "ESP32";
+		default:
+			return "USB " + StringTools.hex(vid,4) + ":" + StringTools.hex(pid,4);
+		}
+	}
+	,requestPortSync: function() {
+		var hasSerial = typeof navigator !== 'undefined' && 'serial' in navigator;
+		var hasUSB = typeof navigator !== 'undefined' && 'usb' in navigator;
+		var cfg = ui_DisplayConfig.getInstance();
+		var wasFullscreen = cfg.isFullscreen;
+		var win = openfl_Lib.get_current().stage.window;
+		if(hasSerial) {
+			this._connectionType = "serial";
+			var self = this;
+			navigator.serial.requestPort().then(function(port) {
+				self.onSerialPortRequested(port);
+				if(wasFullscreen) {
+					cfg.reenterFullscreen(win);
+				}
+			})["catch"](function(err) {
+				self.onPortRequestError(err);
+				if(wasFullscreen) {
+					cfg.reenterFullscreen(win);
+				}
+			});
+		} else if(hasUSB) {
+			this._connectionType = "usb";
+			var self1 = this;
+			var filters = [{ vendorId : 12346},{ vendorId : 1027},{ vendorId : 6790},{ vendorId : 4292},{ vendorId : 1659},{ vendorId : 9025},{ vendorId : 6991},{ vendorId : 1155},{ vendorId : 11914},{ vendorId : 1003}];
+			navigator.usb.requestDevice({ filters : filters}).then(function(device) {
+				self1.onUsbDeviceRequested(device);
+				if(wasFullscreen) {
+					cfg.reenterFullscreen(win);
+				}
+			})["catch"](function(err) {
+				self1.onPortRequestError(err);
+				if(wasFullscreen) {
+					cfg.reenterFullscreen(win);
+				}
+			});
+		} else {
+			this.setError("Neither Web Serial API nor WebUSB is supported in this browser environment.");
+		}
 	}
 	,claimUsbInterfaces: function(baudRate) {
 		var self = this;
@@ -21880,13 +22063,13 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		} else if(this._connectionType == "usb") {
 			this.startUsbReadLoop();
 		}
-		haxe_Log.trace("ComPortAtom: Port opened via " + this._connectionType,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1294, className : "library.drivers.ComPortAtom", methodName : "onPortOpened"});
+		haxe_Log.trace("ComPortAtom: Port opened via " + this._connectionType,{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1414, className : "library.drivers.ComPortAtom", methodName : "onPortOpened"});
 	}
 	,onPortOpenError: function(err) {
 		this.setError("Failed to open port: " + Std.string(err));
 	}
 	,onPortRequestError: function(err) {
-		haxe_Log.trace("ComPortAtom: Port request cancelled or failed: " + Std.string(err),{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1301, className : "library.drivers.ComPortAtom", methodName : "onPortRequestError"});
+		haxe_Log.trace("ComPortAtom: Port request cancelled or failed: " + Std.string(err),{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1421, className : "library.drivers.ComPortAtom", methodName : "onPortRequestError"});
 	}
 	,closeDevice: function() {
 		var _gthis = this;
@@ -21976,7 +22159,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 		if(outOpen != null) {
 			outOpen.set_value(false);
 		}
-		haxe_Log.trace("ComPortAtom: Port closed",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1407, className : "library.drivers.ComPortAtom", methodName : "onPortClosed"});
+		haxe_Log.trace("ComPortAtom: Port closed",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1527, className : "library.drivers.ComPortAtom", methodName : "onPortClosed"});
 	}
 	,onPortCloseError: function(err) {
 		this.setError("Failed to close port: " + Std.string(err));
@@ -22129,7 +22312,7 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 	}
 	,setDTRState: function(state) {
 		if(this._connectionType == "serial") {
-			haxe_Log.trace("ComPortAtom: DTR control not directly supported in standard Web Serial API without extensions.",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1555, className : "library.drivers.ComPortAtom", methodName : "setDTRState"});
+			haxe_Log.trace("ComPortAtom: DTR control not directly supported in standard Web Serial API without extensions.",{ fileName : "src/library/drivers/ComPortAtom.hx", lineNumber : 1677, className : "library.drivers.ComPortAtom", methodName : "setDTRState"});
 		} else if(this._connectionType == "usb") {
 			var vid = this._usbDevice.vendorId;
 			var val = state ? 3 : 0;
@@ -22177,6 +22360,16 @@ library_drivers_ComPortAtom.prototype = $extend(core_base_Atom.prototype,{
 			}
 		}
 	}
+	,_restoreFullscreen: function() {
+		var cfg = ui_DisplayConfig.getInstance();
+		var win = openfl_Lib.get_current().stage.window;
+		cfg.reenterFullscreen(win);
+	}
+	,_reenterFullscreen: function() {
+		var cfg = ui_DisplayConfig.getInstance();
+		var win = openfl_Lib.get_current().stage.window;
+		cfg.reenterFullscreen(win);
+	}
 	,__class__: library_drivers_ComPortAtom
 });
 var library_drivers_FileWriterAtom = function(id) {
@@ -22203,7 +22396,7 @@ library_drivers_FileWriterAtom.__interfaces__ = [system_managers_Driver];
 library_drivers_FileWriterAtom.__super__ = core_base_Atom;
 library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 	init: function() {
-		haxe_Log.trace("FileWriterAtom: Initialized (Main Thread)",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 72, className : "library.drivers.FileWriterAtom", methodName : "init"});
+		haxe_Log.trace("FileWriterAtom: Initialized (Main Thread)",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 73, className : "library.drivers.FileWriterAtom", methodName : "init"});
 	}
 	,update: function(dt) {
 		if(this._isDisposed) {
@@ -22234,8 +22427,10 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 			var pickerOptions = { suggestedName : name, types : [{ description : "Text Files", accept : { "text/plain" : [".txt",".log",".csv",".dat"]}}]};
 			window.showSaveFilePicker(pickerOptions).then(function(handle) {
 				self.onFileSelected(handle);
+				self._restoreFullscreen();
 			})["catch"](function(err) {
 				self.onFilePickerCancelled(err);
+				self._restoreFullscreen();
 			});
 		} else {
 			self.initFallbackMode(name);
@@ -22248,7 +22443,7 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 		this._fileSize = 0;
 		this._writeCount = 0;
 		this.updateOutputs();
-		haxe_Log.trace("FileWriterAtom: Opened in Fallback (Blob Storage) Mode for legacy Android/Chrome",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 146, className : "library.drivers.FileWriterAtom", methodName : "initFallbackMode"});
+		haxe_Log.trace("FileWriterAtom: Opened in Fallback (Blob Storage) Mode for legacy Android/Chrome",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 147, className : "library.drivers.FileWriterAtom", methodName : "initFallbackMode"});
 	}
 	,onFileSelected: function(handle) {
 		if(this._isDisposed) {
@@ -22271,7 +22466,7 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 		this._fileSize = 0;
 		this._writeCount = 0;
 		this.updateOutputs();
-		haxe_Log.trace("FileWriterAtom: File opened via FSA API",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 170, className : "library.drivers.FileWriterAtom", methodName : "onStreamOpened"});
+		haxe_Log.trace("FileWriterAtom: File opened via FSA API",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 171, className : "library.drivers.FileWriterAtom", methodName : "onStreamOpened"});
 	}
 	,onStreamOpenError: function(err) {
 		if(this._isDisposed) {
@@ -22285,7 +22480,7 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 			return;
 		}
 		this._pendingOpen = false;
-		haxe_Log.trace("FileWriterAtom: File picker cancelled",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 184, className : "library.drivers.FileWriterAtom", methodName : "onFilePickerCancelled"});
+		haxe_Log.trace("FileWriterAtom: File picker cancelled",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 185, className : "library.drivers.FileWriterAtom", methodName : "onFilePickerCancelled"});
 	}
 	,writeData: function(data) {
 		var _gthis = this;
@@ -22360,17 +22555,16 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 			return;
 		}
 		var fileName = this._suggestedFileName;
-		
-        var blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    ;
+		var blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+	var url = URL.createObjectURL(blob);
+	var a = document.createElement('a');
+	a.href = url;
+	a.download = fileName;
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
+	;
 	}
 	,flushBuffer: function() {
 		if(this._isDisposed || !this._isOpenFlag) {
@@ -22378,7 +22572,7 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 		}
 		if(this._isFallbackMode) {
 			this.triggerFallbackDownload();
-			haxe_Log.trace("FileWriterAtom: Fallback buffer flushed to browser download",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 288, className : "library.drivers.FileWriterAtom", methodName : "flushBuffer"});
+			haxe_Log.trace("FileWriterAtom: Fallback buffer flushed to browser download",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 291, className : "library.drivers.FileWriterAtom", methodName : "flushBuffer"});
 			return;
 		}
 		if(this._stream == null) {
@@ -22386,7 +22580,7 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 		}
 		var self = this;
 		this._stream.flush().then(function() {
-			haxe_Log.trace("FileWriterAtom: Stream flushed",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 295, className : "library.drivers.FileWriterAtom", methodName : "flushBuffer"});
+			haxe_Log.trace("FileWriterAtom: Stream flushed",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 298, className : "library.drivers.FileWriterAtom", methodName : "flushBuffer"});
 		})["catch"](function(err) {
 			self.onWriteError(err);
 		});
@@ -22401,7 +22595,7 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 			this._fileSize = 0;
 			this._writeCount = 0;
 			this.updateOutputs();
-			haxe_Log.trace("FileWriterAtom: Fallback buffer cleared",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 311, className : "library.drivers.FileWriterAtom", methodName : "clearFile"});
+			haxe_Log.trace("FileWriterAtom: Fallback buffer cleared",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 314, className : "library.drivers.FileWriterAtom", methodName : "clearFile"});
 			return;
 		}
 		if(this._stream == null) {
@@ -22414,7 +22608,7 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 			self._fileSize = 0;
 			self._writeCount = 0;
 			self.updateOutputs();
-			haxe_Log.trace("FileWriterAtom: File cleared",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 323, className : "library.drivers.FileWriterAtom", methodName : "clearFile"});
+			haxe_Log.trace("FileWriterAtom: File cleared",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 326, className : "library.drivers.FileWriterAtom", methodName : "clearFile"});
 		})["catch"](function(err) {
 			self.onWriteError(err);
 		});
@@ -22428,7 +22622,7 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 			this._fallbackBuffer = null;
 			this._isOpenFlag = false;
 			this.updateOutputs();
-			haxe_Log.trace("FileWriterAtom: Fallback file closed & downloaded",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 339, className : "library.drivers.FileWriterAtom", methodName : "closeFile"});
+			haxe_Log.trace("FileWriterAtom: Fallback file closed & downloaded",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 342, className : "library.drivers.FileWriterAtom", methodName : "closeFile"});
 			return;
 		}
 		if(this._stream == null) {
@@ -22439,7 +22633,7 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 			self._stream = null;
 			self._isOpenFlag = false;
 			self.updateOutputs();
-			haxe_Log.trace("FileWriterAtom: File closed",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 349, className : "library.drivers.FileWriterAtom", methodName : "closeFile"});
+			haxe_Log.trace("FileWriterAtom: File closed",{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 352, className : "library.drivers.FileWriterAtom", methodName : "closeFile"});
 		})["catch"](function(err) {
 			self.onWriteError(err);
 		});
@@ -22563,7 +22757,7 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 			errorTickOut.set_value(true);
 			this._errorTimer = 0.05;
 		}
-		haxe_Log.trace("FileWriterAtom ERROR: " + msg,{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 486, className : "library.drivers.FileWriterAtom", methodName : "setError"});
+		haxe_Log.trace("FileWriterAtom ERROR: " + msg,{ fileName : "src/library/drivers/FileWriterAtom.hx", lineNumber : 489, className : "library.drivers.FileWriterAtom", methodName : "setError"});
 	}
 	,updatePulseTimers: function(dt) {
 		if(this._isDisposed) {
@@ -22587,6 +22781,11 @@ library_drivers_FileWriterAtom.prototype = $extend(core_base_Atom.prototype,{
 				}
 			}
 		}
+	}
+	,_restoreFullscreen: function() {
+		var cfg = ui_DisplayConfig.getInstance();
+		var win = openfl_Lib.get_current().stage.window;
+		cfg.reenterFullscreen(win);
 	}
 	,isOpen: function() {
 		return this._isOpenFlag;
@@ -41551,7 +41750,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 934768;
+	this.version = 487663;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
@@ -99678,6 +99877,8 @@ ui_DevicePanel.prototype = $extend(openfl_display_Sprite.prototype,{
 			if(this._btnClose != null) {
 				this._btnClose.set_x(w - 45);
 				this._btnClose.set_y(5);
+				var cfg = ui_DisplayConfig.getInstance();
+				this._btnClose.set_visible(cfg.deviceButtons.showClose);
 			}
 			var btnX = w - 45;
 			var _g = 0;
@@ -99805,6 +100006,8 @@ ui_DevicePanel.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._btnClose.set_x(headerWidth - 45);
 		this._btnClose.set_y(5);
 		this._header.addChild(this._btnClose);
+		var cfg = ui_DisplayConfig.getInstance();
+		this._btnClose.set_visible(cfg.deviceButtons.showClose);
 		this._header.addEventListener("mouseDown",$bind(this,this.onHeaderMouseDown));
 		this._header.set_buttonMode(true);
 		this._header.doubleClickEnabled = true;
@@ -100603,6 +100806,233 @@ ui_DeviceWindow.prototype = {
 	,__class__: ui_DeviceWindow
 	,__properties__: {get_isOpen:"get_isOpen",get_windowY:"get_windowY",get_windowX:"get_windowX",get_windowHeight:"get_windowHeight",get_windowWidth:"get_windowWidth"}
 };
+var ui_DisplayConfig = function() {
+	this.set_sceneWidth(800);
+	this.set_sceneHeight(600);
+	this.defaultWidth = 800;
+	this.defaultHeight = 600;
+	this.set_isFullscreen(false);
+	this.set_currentMode(ui_DisplayMode.EDITOR);
+	this.editorButtons = new ui_EditorButtons();
+	this.deviceButtons = new ui_DeviceButtons();
+	this.headerHeight = 30;
+	this.smallButtonWidth = 28;
+	this.smallButtonHeight = 26;
+	this.closeButtonSize = 40;
+	this.buttonPadding = 5;
+	window.document.addEventListener("fullscreenchange",$bind(this,this._onBrowserFullscreenChange));
+};
+$hxClasses["ui.DisplayConfig"] = ui_DisplayConfig;
+ui_DisplayConfig.__name__ = "ui.DisplayConfig";
+ui_DisplayConfig.getInstance = function() {
+	if(ui_DisplayConfig._instance == null) {
+		ui_DisplayConfig._instance = new ui_DisplayConfig();
+	}
+	return ui_DisplayConfig._instance;
+};
+ui_DisplayConfig.reset = function() {
+	if(ui_DisplayConfig._instance != null) {
+		ui_DisplayConfig._instance = null;
+	}
+};
+ui_DisplayConfig.prototype = {
+	set_sceneWidth: function(v) {
+		if(this.sceneWidth != v) {
+			this.sceneWidth = v;
+			this._notifySceneChanged();
+		}
+		return v;
+	}
+	,set_sceneHeight: function(v) {
+		if(this.sceneHeight != v) {
+			this.sceneHeight = v;
+			this._notifySceneChanged();
+		}
+		return v;
+	}
+	,set_isFullscreen: function(v) {
+		if(this.isFullscreen != v) {
+			this.isFullscreen = v;
+			this._notifyFullscreenChanged();
+		}
+		return v;
+	}
+	,set_currentMode: function(v) {
+		if(this.currentMode != v) {
+			this.currentMode = v;
+			this._notifyModeChanged();
+		}
+		return v;
+	}
+	,isEditorMode: function() {
+		return this.currentMode == ui_DisplayMode.EDITOR;
+	}
+	,isDeviceMode: function() {
+		return this.currentMode == ui_DisplayMode.DEVICE_PANEL;
+	}
+	,toggleMode: function() {
+		this.set_currentMode(this.currentMode == ui_DisplayMode.EDITOR ? ui_DisplayMode.DEVICE_PANEL : ui_DisplayMode.EDITOR);
+	}
+	,calcButtonX: function(rightEdge,buttonIndex,isSmall) {
+		if(isSmall == null) {
+			isSmall = true;
+		}
+		var x = rightEdge - this.buttonPadding;
+		x -= this.closeButtonSize;
+		var _g = 0;
+		var _g1 = buttonIndex;
+		while(_g < _g1) {
+			var i = _g++;
+			x -= this.buttonPadding;
+			x -= isSmall ? this.smallButtonWidth : this.closeButtonSize;
+		}
+		x -= isSmall ? this.smallButtonWidth : this.closeButtonSize;
+		return x;
+	}
+	,calcCloseButtonX: function(rightEdge) {
+		return rightEdge - this.buttonPadding - this.closeButtonSize;
+	}
+	,saveWindowState: function(win) {
+		if(win == null) {
+			return;
+		}
+		this.savedWindowRect = { x : win.__x, y : win.__y, w : win.__width, h : win.__height};
+	}
+	,restoreWindowState: function(win) {
+		if(win == null || this.savedWindowRect == null) {
+			return;
+		}
+		win.resize(this.savedWindowRect.w | 0,this.savedWindowRect.h | 0);
+		win.move(this.savedWindowRect.x | 0,this.savedWindowRect.y | 0);
+		this.set_isFullscreen(false);
+	}
+	,toggleMaximize: function(win) {
+		if(win == null) {
+			return;
+		}
+		if(this.isFullscreen) {
+			this.restoreWindowState(win);
+		} else {
+			this.saveWindowState(win);
+			var display = win.get_display();
+			if(display != null && display.currentMode != null) {
+				win.resize(display.currentMode.width,display.currentMode.height);
+				win.move(0,0);
+			}
+			this.set_isFullscreen(true);
+		}
+	}
+	,toggleFullscreen: function(win) {
+		var doc = window.document;
+		var canvas = this._getCanvasElement();
+		if(canvas == null) {
+			haxe_Log.trace("DisplayConfig: Cannot find OpenFL canvas for fullscreen",{ fileName : "src/ui/DisplayConfig.hx", lineNumber : 409, className : "ui.DisplayConfig", methodName : "toggleFullscreen"});
+			return;
+		}
+		if(!this.isFullscreen) {
+			if(canvas.requestFullscreen != null) {
+				canvas.requestFullscreen();
+			} else if(canvas.mozRequestFullScreen != null) {
+				canvas.mozRequestFullScreen();
+			} else if(canvas.webkitRequestFullscreen != null) {
+				canvas.webkitRequestFullscreen();
+			} else if(canvas.msRequestFullscreen != null) {
+				canvas.msRequestFullscreen();
+			}
+			this.set_isFullscreen(true);
+			haxe_Log.trace("DisplayConfig: Browser fullscreen requested",{ fileName : "src/ui/DisplayConfig.hx", lineNumber : 436, className : "ui.DisplayConfig", methodName : "toggleFullscreen"});
+		} else {
+			if(doc.exitFullscreen != null) {
+				doc.exitFullscreen();
+			} else if(doc.mozCancelFullScreen != null) {
+				doc.mozCancelFullScreen();
+			} else if(doc.webkitExitFullscreen != null) {
+				doc.webkitExitFullscreen();
+			} else if(doc.msExitFullscreen != null) {
+				doc.msExitFullscreen();
+			}
+			this.set_isFullscreen(false);
+			haxe_Log.trace("DisplayConfig: Browser fullscreen exit requested",{ fileName : "src/ui/DisplayConfig.hx", lineNumber : 460, className : "ui.DisplayConfig", methodName : "toggleFullscreen"});
+		}
+	}
+	,_getCanvasElement: function() {
+		var doc = window.document;
+		var canvas = doc.getElementById("openfl-content");
+		if(canvas == null) {
+			canvas = doc.querySelector("canvas");
+		}
+		return canvas;
+	}
+	,_onBrowserFullscreenChange: function(_) {
+		var doc = window.document;
+		var browserFullscreen = doc.fullscreenElement != null;
+		if(this.isFullscreen != browserFullscreen) {
+			this.set_isFullscreen(browserFullscreen);
+			haxe_Log.trace("DisplayConfig: Browser fullscreen state synced: " + Std.string(this.isFullscreen),{ fileName : "src/ui/DisplayConfig.hx", lineNumber : 536, className : "ui.DisplayConfig", methodName : "_onBrowserFullscreenChange"});
+		}
+	}
+	,reenterFullscreen: function(win) {
+		var canvas = this._getCanvasElement();
+		if(canvas != null) {
+			if(canvas.requestFullscreen != null) {
+				canvas.requestFullscreen();
+			} else if(canvas.mozRequestFullScreen != null) {
+				canvas.mozRequestFullScreen();
+			} else if(canvas.webkitRequestFullscreen != null) {
+				canvas.webkitRequestFullscreen();
+			} else if(canvas.msRequestFullscreen != null) {
+				canvas.msRequestFullscreen();
+			}
+			this.set_isFullscreen(true);
+		}
+	}
+	,_notifyModeChanged: function() {
+		core_logic_Impulsys.quickEmit(core_logic_EventType.DISPLAY_MODE_CHANGED,{ mode : this.currentMode});
+	}
+	,_notifySceneChanged: function() {
+		core_logic_Impulsys.quickEmit(core_logic_EventType.SCENE_RESIZED,{ width : this.sceneWidth, height : this.sceneHeight});
+	}
+	,_notifyFullscreenChanged: function() {
+		core_logic_Impulsys.quickEmit(core_logic_EventType.FULLSCREEN_TOGGLED,{ isFullscreen : this.isFullscreen});
+	}
+	,__class__: ui_DisplayConfig
+	,__properties__: {set_currentMode:"set_currentMode",set_isFullscreen:"set_isFullscreen",set_sceneHeight:"set_sceneHeight",set_sceneWidth:"set_sceneWidth"}
+};
+var ui_EditorButtons = function() {
+	this.buttonPadding = 5;
+	this.buttonSize = 40;
+	this.showClose = true;
+	this.showSettings = true;
+	this.showView = true;
+	this.showNew = true;
+	this.showDelete = true;
+	this.showBack = true;
+};
+$hxClasses["ui.EditorButtons"] = ui_EditorButtons;
+ui_EditorButtons.__name__ = "ui.EditorButtons";
+ui_EditorButtons.prototype = {
+	__class__: ui_EditorButtons
+};
+var ui_DeviceButtons = function() {
+	this.closeButtonSize = 40;
+	this.smallButtonHeight = 26;
+	this.smallButtonWidth = 28;
+	this.headerHeight = 30;
+	this.showClose = true;
+	this.showMaximize = true;
+	this.showClear = true;
+	this.showEditor = true;
+};
+$hxClasses["ui.DeviceButtons"] = ui_DeviceButtons;
+ui_DeviceButtons.__name__ = "ui.DeviceButtons";
+ui_DeviceButtons.prototype = {
+	__class__: ui_DeviceButtons
+};
+var ui_DisplayMode = $hxEnums["ui.DisplayMode"] = { __ename__:"ui.DisplayMode",__constructs__:null
+	,EDITOR: {_hx_name:"EDITOR",_hx_index:0,__enum__:"ui.DisplayMode",toString:$estr}
+	,DEVICE_PANEL: {_hx_name:"DEVICE_PANEL",_hx_index:1,__enum__:"ui.DisplayMode",toString:$estr}
+};
+ui_DisplayMode.__constructs__ = [ui_DisplayMode.EDITOR,ui_DisplayMode.DEVICE_PANEL];
 var ui_PropertiesWindow = function() {
 	this._isDisposed = false;
 	var _gthis = this;
@@ -102764,6 +103194,13 @@ ui_contextmenu_data_RecentMenuTracker.prototype = {
 	,clear: function() {
 		this._history = [];
 	}
+	,resubscribe: function() {
+		if(this._onMenuAction != null) {
+			core_logic_Impulsys.removeImpulse(core_logic_EventType.CONTEXT_MENU_ACTION,this._onMenuAction);
+		}
+		this._onMenuAction = $bind(this,this.onMenuAction);
+		core_logic_Impulsys.subscribeToImpulse(core_logic_EventType.CONTEXT_MENU_ACTION,this._onMenuAction);
+	}
 	,onMenuAction: function(impulse) {
 		if(impulse == null || impulse.data == null) {
 			return;
@@ -103332,10 +103769,13 @@ core_logic_EventType.REDRAW_WIRES = "REDRAW_WIRES";
 core_logic_EventType.ASSEMBLY_PORTS_CHANGED = "ASSEMBLY_PORTS_CHANGED";
 core_logic_EventType.VALUE_COMMITTED = "VALUE_COMMITTED";
 core_logic_EventType.DEVICE_WINDOW_CHANGED = "DEVICE_WINDOW_CHANGED";
-core_logic_EventType.OSCILLOSCOPE_SHAPE_CHANGED = "OSCILLOSCOPE_SHAPE_CHANGED";
-core_logic_EventType.OSCILLOSCOPE_FRAME_READY = "OSCILLOSCOPE_FRAME_READY";
+core_logic_EventType.OSCILLOSCOPE_SHAPE_CHANGED = "OSCILOSCOPE_SHAPE_CHANGED";
+core_logic_EventType.OSCILLOSCOPE_FRAME_READY = "OSCILOSCOPE_FRAME_READY";
 core_logic_EventType.FFT_SPECTRUM_READY = "FFT_SPECTRUM_READY";
 core_logic_EventType.PORT_REMOVED = "PORT_REMOVED";
+core_logic_EventType.DISPLAY_MODE_CHANGED = "DISPLAY_MODE_CHANGED";
+core_logic_EventType.SCENE_RESIZED = "SCENE_RESIZED";
+core_logic_EventType.FULLSCREEN_TOGGLED = "FULLSCREEN_TOGGLED";
 core_logic_EventType.PORT_DRAG_START = "PORT_DRAG_START";
 core_logic_EventType.NODE_CLICKED = "NODE_CLICKED";
 core_logic_EventType.NODE_RIGHT_CLICKED = "NODE_RIGHT_CLICKED";

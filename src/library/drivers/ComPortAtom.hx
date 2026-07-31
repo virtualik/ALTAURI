@@ -355,7 +355,7 @@ import system.managers.DriverManager;
 * ║  │ WCH (CH340 / CH341)    │ 0x1A86 │ Vendor Specific  │ YES             │ ║
 * ║  │ Silicon Labs (CP2102/4)│ 0x10C4 │ Vendor Specific  │ YES             │ ║
 * ║  │ Prolific (PL2303)      │ 0x067B │ Vendor Specific  │ YES             │ ║
-* ║  │ Arduino (32u4/16u2)   │ 0x2341 │ CDC / ACM        │ YES             │ ║
+* ║  │ Arduino (32u4/16u2)    │ 0x2341 │ CDC / ACM        │ YES             │ ║
 * ║  │ SparkFun (32u4/SAMD)   │ 0x1B4F │ CDC / ACM        │ YES             │ ║
 * ║  │ STM32 (Virtual COM)    │ 0x0483 │ CDC / ACM        │ YES             │ ║
 * ║  │ Raspberry Pi (RP2040)  │ 0x2E8A │ CDC / ACM        │ YES             │ ║
@@ -674,32 +674,32 @@ class ComPortAtom extends Atom implements system.managers.Driver
 			#if cpp
 			untyped __cpp__('
 			ComPortState* _cps_stPtr = nullptr;
-			{
-				std::lock_guard<std::mutex> _cps_mapLock(_com_map_mutex);
-				auto _cps_it = _com_states_map.find((void*){0}.mPtr);
-				if (_cps_it != _com_states_map.end()) {
-					_cps_stPtr = _cps_it->second;
-				}
-			}
+		{
+			std::lock_guard<std::mutex> _cps_mapLock(_com_map_mutex);
+			auto _cps_it = _com_states_map.find((void*){0}.mPtr);
+			if (_cps_it != _com_states_map.end()) {
+			_cps_stPtr = _cps_it->second;
+		}
+		}
 			if (_cps_stPtr != nullptr) {
-				{
-					std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
-					if (_cps_stPtr->hasRxData) {
-						{0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer);
-						{0}->_hasPendingRx = true;
-						_cps_stPtr->hasRxData = false;
-						_cps_stPtr->rxBuffer[0] = 0;
-					}
-				}
-				{
-					std::lock_guard<std::mutex> _cps_errLock(_cps_stPtr->errMutex);
-					if (_cps_stPtr->hasError) {
-						{0}->_pendingErrStr = ::String(_cps_stPtr->errBuffer);
-						{0}->_hasPendingErr = true;
-						_cps_stPtr->hasError = false;
-					}
-				}
-			}
+		{
+			std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
+			if (_cps_stPtr->hasRxData) {
+		{0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer);
+		{0}->_hasPendingRx = true;
+			_cps_stPtr->hasRxData = false;
+			_cps_stPtr->rxBuffer[0] = 0;
+		}
+		}
+		{
+			std::lock_guard<std::mutex> _cps_errLock(_cps_stPtr->errMutex);
+			if (_cps_stPtr->hasError) {
+		{0}->_pendingErrStr = ::String(_cps_stPtr->errBuffer);
+		{0}->_hasPendingErr = true;
+			_cps_stPtr->hasError = false;
+		}
+		}
+		}
 			', this);
 			#end
 		}
@@ -818,10 +818,10 @@ class ComPortAtom extends Atom implements system.managers.Driver
 	private function openDevice():Void
 	{
 		if (_isOpenFlag) closeDevice();
-		
+
 		var portNameC = getInput("portName");
 		var portNameStr:String = (portNameC != null && portNameC.value != null) ? Std.string(portNameC.value) : "COM1";
-		
+
 		var baudC = getInput("baudRate");
 		var baudRateInt:Int = (baudC != null && baudC.value != null) ? cast baudC.value : 9600;
 
@@ -839,57 +839,57 @@ class ComPortAtom extends Atom implements system.managers.Driver
 		::String portStr = {1};
 		const char* _cps_rawName = portStr.c_str();
 		if (_cps_rawName[0] == (char)92) {
-			strncpy(fullPortName, _cps_rawName, sizeof(fullPortName) - 1);
-		} else {
-			fullPortName[0] = (char)92;
-			fullPortName[1] = (char)92;
-			fullPortName[2] = (char)46;
-			fullPortName[3] = (char)92;
-			strncpy(fullPortName + 4, _cps_rawName, sizeof(fullPortName) - 5);
-		}
+		strncpy(fullPortName, _cps_rawName, sizeof(fullPortName) - 1);
+	} else {
+		fullPortName[0] = (char)92;
+		fullPortName[1] = (char)92;
+		fullPortName[2] = (char)46;
+		fullPortName[3] = (char)92;
+		strncpy(fullPortName + 4, _cps_rawName, sizeof(fullPortName) - 5);
+	}
 		fullPortName[sizeof(fullPortName) - 1] = 0;
 		st->hComm = CreateFileA(fullPortName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
 		if (st->hComm == INVALID_HANDLE_VALUE) {
-			DWORD err = GetLastError();
-			sprintf(st->errBuffer, "Open Failed:%lu", err);
-			st->hasError = true;
-		} else {
-			SetupComm(st->hComm, 4096, 4096);
-			DCB dcbSerialParams;
-			memset(&dcbSerialParams, 0, sizeof(DCB));
-			dcbSerialParams.DCBlength = sizeof(DCB);
-			GetCommState(st->hComm, &dcbSerialParams);
-			dcbSerialParams.BaudRate = (DWORD){2};
-			dcbSerialParams.ByteSize = 8;
-			dcbSerialParams.StopBits = ONESTOPBIT;
-			dcbSerialParams.Parity = NOPARITY;
-			dcbSerialParams.fDtrControl = DTR_CONTROL_ENABLE;
-			dcbSerialParams.fRtsControl = RTS_CONTROL_ENABLE;
-			if (!SetCommState(st->hComm, &dcbSerialParams)) {
-				DWORD err = GetLastError();
-				sprintf(st->errBuffer, "SetCommState:%lu", err);
-				st->hasError = true;
-				CloseHandle(st->hComm);
-				st->hComm = INVALID_HANDLE_VALUE;
-			} else {
-				COMMTIMEOUTS timeouts;
-				memset(&timeouts, 0, sizeof(COMMTIMEOUTS));
-				timeouts.ReadIntervalTimeout = MAXDWORD;
-				timeouts.ReadTotalTimeoutMultiplier = 0;
-				timeouts.ReadTotalTimeoutConstant = 0;
-				timeouts.WriteTotalTimeoutMultiplier = 10;
-				timeouts.WriteTotalTimeoutConstant = 100;
-				SetCommTimeouts(st->hComm, &timeouts);
-				PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
-				st->readThread = new std::thread(_altauri_com_reader_loop, (void*){0}.mPtr);
-			}
-		}
+		DWORD err = GetLastError();
+		sprintf(st->errBuffer, "Open Failed:%lu", err);
+		st->hasError = true;
+	} else {
+		SetupComm(st->hComm, 4096, 4096);
+		DCB dcbSerialParams;
+		memset(&dcbSerialParams, 0, sizeof(DCB));
+		dcbSerialParams.DCBlength = sizeof(DCB);
+		GetCommState(st->hComm, &dcbSerialParams);
+		dcbSerialParams.BaudRate = (DWORD){2};
+		dcbSerialParams.ByteSize = 8;
+		dcbSerialParams.StopBits = ONESTOPBIT;
+		dcbSerialParams.Parity = NOPARITY;
+		dcbSerialParams.fDtrControl = DTR_CONTROL_ENABLE;
+		dcbSerialParams.fRtsControl = RTS_CONTROL_ENABLE;
+		if (!SetCommState(st->hComm, &dcbSerialParams)) {
+		DWORD err = GetLastError();
+		sprintf(st->errBuffer, "SetCommState:%lu", err);
+		st->hasError = true;
+		CloseHandle(st->hComm);
+		st->hComm = INVALID_HANDLE_VALUE;
+	} else {
+		COMMTIMEOUTS timeouts;
+		memset(&timeouts, 0, sizeof(COMMTIMEOUTS));
+		timeouts.ReadIntervalTimeout = MAXDWORD;
+		timeouts.ReadTotalTimeoutMultiplier = 0;
+		timeouts.ReadTotalTimeoutConstant = 0;
+		timeouts.WriteTotalTimeoutMultiplier = 10;
+		timeouts.WriteTotalTimeoutConstant = 100;
+		SetCommTimeouts(st->hComm, &timeouts);
+		PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
+		st->readThread = new std::thread(_altauri_com_reader_loop, (void*){0}.mPtr);
+	}
+	}
 		#endif
 		{
-			std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
-			_com_states_map[(void*){0}.mPtr] = st;
-			{0}->_isOpenFlag = (st->hComm != INVALID_HANDLE_VALUE);
-		}
+		std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
+		_com_states_map[(void*){0}.mPtr] = st;
+		{0}->_isOpenFlag = (st->hComm != INVALID_HANDLE_VALUE);
+	}
 		', this, portNameStr, baudRateInt);
 
 		var outOpen = getOutput("isOpen");
@@ -903,30 +903,30 @@ class ComPortAtom extends Atom implements system.managers.Driver
 		untyped __cpp__('
 		ComPortState* st = nullptr;
 		{
-			std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
-			auto _cps_it = _com_states_map.find((void*){0}.mPtr);
-			if (_cps_it != _com_states_map.end()) {
-				st = _cps_it->second;
-				_com_states_map.erase(_cps_it);
-			}
-		}
+		std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
+		auto _cps_it = _com_states_map.find((void*){0}.mPtr);
+		if (_cps_it != _com_states_map.end()) {
+		st = _cps_it->second;
+		_com_states_map.erase(_cps_it);
+	}
+	}
 		if (st != nullptr) {
-			#ifdef _WIN32
-			st->isRunning = false;
-			if (st->hComm != INVALID_HANDLE_VALUE) {
-				CancelIoEx(st->hComm, NULL);
-			}
-			if (st->readThread && st->readThread->joinable()) {
-				st->readThread->join();
-			}
-			delete st->readThread;
-			if (st->hComm != INVALID_HANDLE_VALUE) {
-				PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
-				CloseHandle(st->hComm);
-			}
-			#endif
-			delete st;
-		}
+		#ifdef _WIN32
+		st->isRunning = false;
+		if (st->hComm != INVALID_HANDLE_VALUE) {
+		CancelIoEx(st->hComm, NULL);
+	}
+		if (st->readThread && st->readThread->joinable()) {
+		st->readThread->join();
+	}
+		delete st->readThread;
+		if (st->hComm != INVALID_HANDLE_VALUE) {
+		PurgeComm(st->hComm, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR);
+		CloseHandle(st->hComm);
+	}
+		#endif
+		delete st;
+	}
 		', this);
 		_isOpenFlag = false;
 		var outOpen = getOutput("isOpen");
@@ -939,22 +939,22 @@ class ComPortAtom extends Atom implements system.managers.Driver
 		untyped __cpp__('
 		ComPortState* _cps_stPtr = nullptr;
 		{
-			std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
-			auto _cps_it = _com_states_map.find((void*){0}.mPtr);
-			if (_cps_it != _com_states_map.end()) {
-				_cps_stPtr = _cps_it->second;
-			}
-		}
+		std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
+		auto _cps_it = _com_states_map.find((void*){0}.mPtr);
+		if (_cps_it != _com_states_map.end()) {
+		_cps_stPtr = _cps_it->second;
+	}
+	}
 		if (_cps_stPtr != nullptr) {
-			#ifdef _WIN32
-			if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
-				const char* buffer = {1}.c_str();
-				DWORD bytesToWrite = (DWORD)strlen(buffer);
-				DWORD bytesWritten;
-				WriteFile(_cps_stPtr->hComm, buffer, bytesToWrite, &bytesWritten, NULL);
-			}
-			#endif
-		}
+		#ifdef _WIN32
+		if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
+		const char* buffer = {1}.c_str();
+		DWORD bytesToWrite = (DWORD)strlen(buffer);
+		DWORD bytesWritten;
+		WriteFile(_cps_stPtr->hComm, buffer, bytesToWrite, &bytesWritten, NULL);
+	}
+		#endif
+	}
 		', this, data);
 	}
 
@@ -964,23 +964,23 @@ class ComPortAtom extends Atom implements system.managers.Driver
 		untyped __cpp__('
 		ComPortState* _cps_stPtr = nullptr;
 		{
-			std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
-			auto _cps_it = _com_states_map.find((void*){0}.mPtr);
-			if (_cps_it != _com_states_map.end()) {
-				_cps_stPtr = _cps_it->second;
-			}
-		}
+		std::lock_guard<std::mutex> _cps_lock(_com_map_mutex);
+		auto _cps_it = _com_states_map.find((void*){0}.mPtr);
+		if (_cps_it != _com_states_map.end()) {
+		_cps_stPtr = _cps_it->second;
+	}
+	}
 		if (_cps_stPtr != nullptr) {
-			#ifdef _WIN32
-			if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
-				if ({1}) {
-					EscapeCommFunction(_cps_stPtr->hComm, SETDTR);
-				} else {
-					EscapeCommFunction(_cps_stPtr->hComm, CLRDTR);
-				}
-			}
-			#endif
-		}
+		#ifdef _WIN32
+		if (_cps_stPtr->hComm != INVALID_HANDLE_VALUE) {
+		if ({1}) {
+		EscapeCommFunction(_cps_stPtr->hComm, SETDTR);
+	} else {
+		EscapeCommFunction(_cps_stPtr->hComm, CLRDTR);
+	}
+	}
+		#endif
+	}
 		', this, state);
 	}
 	#end
@@ -1005,39 +1005,43 @@ class ComPortAtom extends Atom implements system.managers.Driver
 		{
 			_connectionType = "serial";
 			var self = this;
-			untyped js.Syntax.code("navigator.serial").requestPort().then(function(port:Dynamic) { self.onSerialPortRequested(port); })
-			['catch'](function(err:Dynamic) { self.onPortRequestError(err); });
-		}
-		else if (hasUSB)
-		{
-			_connectionType = "usb";
-			var self = this;
-			var filters:Array<Dynamic> = [
-				// --- USB-UART Converters ---
-				{ vendorId: 0x303A }, // Espressif Systems (ESP32-S2/S3/C3 Native USB)
-				{ vendorId: 0x0403 }, // FTDI (FT232R, FT2232, FT4232)
-				{ vendorId: 0x1A86 }, // QinHeng Electronics (CH340, CH341, CH9102)
-				{ vendorId: 0x10C4 }, // Silicon Labs (CP2102, CP2104, CP2105)
-				{ vendorId: 0x067B }, // Prolific Technology (PL2303)
-				
-				// --- Microcontrollers & CDC/ACM Devices ---
-				{ vendorId: 0x2341 }, // Arduino SA (Leonardo, Micro, Uno, Mega, Nano)
-				{ vendorId: 0x1B4F }, // SparkFun Electronics (Pro Micro 32u4, SAMD21)
-				{ vendorId: 0x0483 }, // STMicroelectronics (STM32 USB CDC / Virtual COM)
-				{ vendorId: 0x2E8A }, // Raspberry Pi Foundation (RP2040 Pico CDC)
-				{ vendorId: 0x03EB }  // Microchip / Atmel (SAMD21 / LUFA CDC)
-			];
-			untyped js.Syntax.code("navigator.usb").requestDevice({ filters: filters }).then(function(device:Dynamic)
+			
+			// === FIX: Fullscreen-aware port request ===
+			// Browser exits fullscreen when requestPort() is called, which breaks the dialog.
+			// Solution: explicitly exit fullscreen first, wait for it to complete,
+			// then call requestPort(). After port selection, re-enter fullscreen.
+			
+			var wasFullscreen:Bool = untyped js.Syntax.code("document.fullscreenElement != null");
+			
+			var doRequestPort = function() {
+				untyped js.Syntax.code("navigator.serial").requestPort().then(function(port:Dynamic) { 
+					self.onSerialPortRequested(port);
+					// Re-enter fullscreen after successful port selection
+					if (wasFullscreen) {
+						self._reenterFullscreen();
+					}
+				})
+				['catch'](function(err:Dynamic) { 
+					self.onPortRequestError(err);
+					// Re-enter fullscreen even on error/cancel
+					if (wasFullscreen) {
+						self._reenterFullscreen();
+					}
+				});
+			};
+			
+			if (wasFullscreen)
 			{
-				self.onUsbDeviceRequested(device);
-			})['catch'](function(err:Dynamic)
+				// Exit fullscreen first, then request port after a short delay
+				untyped js.Syntax.code("document.exitFullscreen()");
+				// Wait for fullscreen exit to complete (typically 100-200ms)
+				haxe.Timer.delay(doRequestPort, 300);
+			}
+			else
 			{
-				self.onPortRequestError(err);
-			});
-		}
-		else
-		{
-			setError("Neither Web Serial API nor WebUSB is supported in this browser environment.");
+				// Not in fullscreen, proceed normally
+				doRequestPort();
+			}
 		}
 	}
 
@@ -1046,6 +1050,32 @@ class ComPortAtom extends Atom implements system.managers.Driver
 	@:keep public function onSerialPortRequested(port:Dynamic):Void
 	{
 		_serialPort = port;
+
+		var portInfo:String = "Serial Port";
+		try {
+			// Web Serial даёт getInfo() с usbVendorId / usbProductId
+			var info:Dynamic = untyped port.getInfo();
+			if (info != null)
+			{
+				var vid:Int = untyped info.usbVendorId != null ? info.usbVendorId : 0;
+				var pid:Int = untyped info.usbProductId != null ? info.usbProductId : 0;
+				if (vid != 0)
+				{
+					portInfo = StringTools.hex(vid, 4) + ":" + StringTools.hex(pid, 4);
+					// Можно сделать красивее:
+					portInfo = formatUsbName(vid, pid);
+				}
+			}
+		}
+		catch (e:Dynamic) {}
+
+		var portNameC = getInput("portName");
+		if (portNameC != null)
+		{
+			portNameC.value = portInfo;           // <-- вот это ключевая строка
+			// или setValueSilent + propagate, если у вас так принято
+		}
+
 		var baudRateInt:Int = 9600;
 		var baudC = getInput("baudRate");
 		if (baudC != null && baudC.value != null) baudRateInt = cast baudC.value;
@@ -1060,6 +1090,20 @@ class ComPortAtom extends Atom implements system.managers.Driver
 	@:keep public function onUsbDeviceRequested(device:Dynamic):Void
 	{
 		_usbDevice = device;
+
+		var vid:Int = untyped device.vendorId;
+		var pid:Int = untyped device.productId;
+		var productName:String = untyped (device.productName != null ? device.productName : "");
+		var portInfo:String = productName != ""
+		? productName
+		: formatUsbName(vid, pid);
+
+		var portNameC = getInput("portName");
+		if (portNameC != null)
+		{
+			portNameC.value = portInfo;
+		}
+
 		var baudRateInt:Int = 9600;
 		var baudC = getInput("baudRate");
 		if (baudC != null && baudC.value != null) baudRateInt = cast baudC.value;
@@ -1079,6 +1123,75 @@ class ComPortAtom extends Atom implements system.managers.Driver
 			self.onPortOpenError(err);
 		});
 	}
+
+	private function formatUsbName(vid:Int, pid:Int):String
+	{
+		return switch (vid)
+		{
+			case 0x0403: "FTDI " + StringTools.hex(pid, 4);
+			case 0x10C4: "CP210x " + StringTools.hex(pid, 4);
+			case 0x1A86: "CH340 " + StringTools.hex(pid, 4);
+			case 0x067B: "PL2303";
+			case 0x2341: "Arduino";
+			case 0x1B4F: "SparkFun";
+			case 0x0483: "STM32";
+			case 0x2E8A: "RP2040";
+			case 0x03EB: "Atmel SAMD";
+			case 0x303A: "ESP32";
+			default: "USB " + StringTools.hex(vid, 4) + ":" + StringTools.hex(pid, 4);
+		}
+	}
+
+	/**
+	* Synchronous port request to preserve browser User Gesture context.
+	* Called directly from ComPortWidget.onOpenClick() to bypass the update() loop,
+	* which destroys the user gesture context and blocks the browser dialog.
+	*/
+	public function requestPortSync():Void
+	{
+		var hasSerial:Bool = untyped js.Syntax.code("typeof navigator !== 'undefined' && 'serial' in navigator");
+		var hasUSB:Bool = untyped js.Syntax.code("typeof navigator !== 'undefined' && 'usb' in navigator");
+		
+		// Save fullscreen state to restore it after dialog closes
+		var cfg = ui.DisplayConfig.getInstance();
+		var wasFullscreen = cfg.isFullscreen;
+		var win = openfl.Lib.current.stage.window;
+
+		if (hasSerial)
+		{
+			_connectionType = "serial";
+			var self = this;
+			untyped js.Syntax.code("navigator.serial").requestPort().then(function(port:Dynamic) { 
+				self.onSerialPortRequested(port); 
+				if (wasFullscreen) cfg.reenterFullscreen(win);
+			})['catch'](function(err:Dynamic) { 
+				self.onPortRequestError(err); 
+				if (wasFullscreen) cfg.reenterFullscreen(win);
+			});
+		}
+		else if (hasUSB)
+		{
+			_connectionType = "usb";
+			var self = this;
+			var filters:Array<Dynamic> = [
+				{ vendorId: 0x303A }, { vendorId: 0x0403 }, { vendorId: 0x1A86 },
+				{ vendorId: 0x10C4 }, { vendorId: 0x067B }, { vendorId: 0x2341 },
+				{ vendorId: 0x1B4F }, { vendorId: 0x0483 }, { vendorId: 0x2E8A }, { vendorId: 0x03EB }
+			];
+			untyped js.Syntax.code("navigator.usb").requestDevice({ filters: filters }).then(function(device:Dynamic) {
+				self.onUsbDeviceRequested(device);
+				if (wasFullscreen) cfg.reenterFullscreen(win);
+			})['catch'](function(err:Dynamic) {
+				self.onPortRequestError(err);
+				if (wasFullscreen) cfg.reenterFullscreen(win);
+			});
+		}
+		else
+		{
+			setError("Neither Web Serial API nor WebUSB is supported in this browser environment.");
+		}
+	}
+
 
 	/** WebUSB: Claim interface and configure chip/CDC control sequence. */
 	@:keep private function claimUsbInterfaces(baudRate:Int):Dynamic
@@ -1211,32 +1324,38 @@ class ComPortAtom extends Atom implements system.managers.Driver
 				{
 					// Vendor initialization sequence required to enable RX/TX buffers for PL2303
 					initPromise = untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0000, index:0x0001})
-					.then(function() { 
-						return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0001, index:0x0000}); 
+								  .then(function()
+					{
+						return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0001, index:0x0000});
 					})
-					.then(function() { 
+					.then(function()
+					{
 						// Critical command: RX buffer activation
-						return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0002, index:0x0044}); 
+						return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0002, index:0x0044});
 					})
-					.then(function() {
+					.then(function()
+					{
 						var lineCoding:Uint8Array = new Uint8Array([
-							baudRate & 0xFF,
-							(baudRate >> 8) & 0xFF,
-							(baudRate >> 16) & 0xFF,
-							(baudRate >> 24) & 0xFF,
-							0x00,  // 1 stop bit
-							0x00,  // no parity
-							0x08   // 8 data bits
-						]);
-						return untyped dev.controlTransferOut({
+									baudRate & 0xFF,
+									(baudRate >> 8) & 0xFF,
+									(baudRate >> 16) & 0xFF,
+									(baudRate >> 24) & 0xFF,
+									0x00,  // 1 stop bit
+									0x00,  // no parity
+									0x08   // 8 data bits
+								]);
+						return untyped dev.controlTransferOut(
+						{
 							requestType: 'class',
 							recipient: 'interface',
 							request: 0x20,
 							value: 0,
 							index: ctrlIface
 						}, lineCoding);
-					}).then(function() {
-						return untyped dev.controlTransferOut({
+					}).then(function()
+					{
+						return untyped dev.controlTransferOut(
+						{
 							requestType: 'class',
 							recipient: 'interface',
 							request: 0x22,
@@ -1248,16 +1367,17 @@ class ComPortAtom extends Atom implements system.managers.Driver
 				else   // Standard USB CDC / ACM (Arduino, STM32, RP2040, SparkFun, Atmel SAMD, ESP32)
 				{
 					var lineCoding:Uint8Array = new Uint8Array([
-						baudRate & 0xFF,
-						(baudRate >> 8) & 0xFF,
-						(baudRate >> 16) & 0xFF,
-						(baudRate >> 24) & 0xFF,
-						0x00, // 1 stop bit
-						0x00, // no parity
-						0x08  // 8 data bits
-					]);
+								baudRate & 0xFF,
+								(baudRate >> 8) & 0xFF,
+								(baudRate >> 16) & 0xFF,
+								(baudRate >> 24) & 0xFF,
+								0x00, // 1 stop bit
+								0x00, // no parity
+								0x08  // 8 data bits
+							]);
 					initPromise = untyped dev.controlTransferOut({requestType:'class', recipient:'interface', request:0x20, value:0, index:ctrlIface}, lineCoding)
-					.then(function() {
+								  .then(function()
+					{
 						// SET_CONTROL_LINE_STATE: Assert DTR (0x01) + RTS (0x02) = 0x03
 						return untyped dev.controlTransferOut({requestType:'class', recipient:'interface', request:0x22, value:0x03, index:ctrlIface});
 					});
@@ -1296,7 +1416,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
 
 	/** Port open error callback. */
 	@:keep public function onPortOpenError(err:Dynamic):Void { setError('Failed to open port: $err'); }
-	
+
 	/** User dialog cancellation callback. */
 	@:keep public function onPortRequestError(err:Dynamic):Void { trace('ComPortAtom: Port request cancelled or failed: $err'); }
 
@@ -1478,9 +1598,11 @@ class ComPortAtom extends Atom implements system.managers.Driver
 		{
 			var dataView:DataView = untyped result.data;
 			var len:Int = dataView.byteLength;
-			if (len > 0) {
+			if (len > 0)
+			{
 				var bytes:Array<Int> = [];
-				for (i in 0...len) {
+				for (i in 0...len)
+				{
 					bytes.push(dataView.getUint8(i));
 				}
 				writeToBuffer(bytes);
@@ -1594,4 +1716,30 @@ class ComPortAtom extends Atom implements system.managers.Driver
 		if (_txTimer > 0) { _txTimer -= dt; if (_txTimer <= 0) { var c = getOutput("txTick"); if (c != null) c.value = false; } }
 		if (_errTimer > 0) { _errTimer -= dt; if (_errTimer <= 0) { var c = getOutput("errorTick"); if (c != null) c.value = false; } }
 	}
+
+	/**
+	* Helper to restore fullscreen after a browser dialog closes.
+	*/
+	private function _restoreFullscreen():Void
+	{
+		#if html5
+		var cfg = ui.DisplayConfig.getInstance();
+		var win = openfl.Lib.current.stage.window;
+		cfg.reenterFullscreen(win);
+		#end
+	}
+	
+	#if html5
+	/**
+	* Re-enter fullscreen mode after a browser dialog closes.
+	* Delegates to DisplayConfig which correctly targets the canvas element
+	* and triggers stage resize.
+	*/
+	private function _reenterFullscreen():Void
+	{
+		var cfg = ui.DisplayConfig.getInstance();
+		var win = openfl.Lib.current.stage.window;
+		cfg.reenterFullscreen(win);
+	}
+	#end
 }
