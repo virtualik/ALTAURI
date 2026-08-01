@@ -1006,7 +1006,8 @@ class NodeEditor extends Sprite
 	private function onMouseWheel(e:MouseEvent):Void
 	{
 		_viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
-		_wireRenderer.rebuildAll();
+		// НЕ вызываем _wireRenderer.rebuildAll(); здесь — провода масштабируются 
+		// автоматически вместе с canvas. Перерисуем после зума.
 		updateVisibility();
 	}
 

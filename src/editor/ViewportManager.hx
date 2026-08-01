@@ -95,6 +95,7 @@ class ViewportManager
     private var _touchPanStartCanvasX:Float = 0;
     private var _touchPanStartCanvasY:Float = 0;
 
+	private var _wasZooming:Bool = false;
     private var _pinchZooming:Bool = false;
     private var _pinchStartDistance:Float = 0;
     private var _pinchStartScale:Float = 1.0;
@@ -207,11 +208,14 @@ class ViewportManager
         }
         
         // Schedule zoom end detection (15ms after last zoom)
-        _zoomEndTimer = haxe.Timer.delay(() -> {
-            _isZooming = false;
-            EditorState.setIsZooming(false);
-            _processPendingActivations();
-        }, 15);
+		_zoomEndTimer = haxe.Timer.delay(() -> {
+			_isZooming = false;
+			EditorState.setIsZooming(false);
+			_processPendingActivations();
+			
+			// Один rebuild после завершения зума
+			core.logic.Impulsys.quickEmit(core.logic.EventType.REDRAW_WIRES);
+		}, 15);
         
         _canvas.scaleX = newScale;
         _canvas.scaleY = newScale;
@@ -504,14 +508,20 @@ class ViewportManager
             }
         }
         else if (_touchCount == 0)
+    {
+        _touchPanning = false;
+        _pinchZooming = false;
+        EditorState.setIsPanning(false);
+        EditorState.setIsZooming(false);
+        
+        // НОВОЕ: один rebuild после окончания жеста
+        if (_wasZooming)
         {
-            // All fingers removed
-            _touchPanning = false;
-            _pinchZooming = false;
-            EditorState.setIsPanning(false);
-            EditorState.setIsZooming(false);
+            core.logic.Impulsys.quickEmit(core.logic.EventType.REDRAW_WIRES);
+            _wasZooming = false;
         }
-        else if (_touchCount == 1 && _pinchZooming)
+    }
+	else if (_touchCount == 1 && _pinchZooming)
         {
             // Transitioned from pinch to pan
             _pinchZooming = false;

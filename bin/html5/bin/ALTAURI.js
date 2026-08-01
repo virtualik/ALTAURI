@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "171";
+	app.meta.h["build"] = "172";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
@@ -15157,7 +15157,6 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 	}
 	,onMouseWheel: function(e) {
 		this._viewport.handleZoom(e.delta,e.stageX,e.stageY,this);
-		this._wireRenderer.rebuildAll();
 		this.updateVisibility();
 	}
 	,updateVisibility: function() {
@@ -15325,7 +15324,7 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._canvas.set_y(targetY);
 		this._wireRenderer.rebuildAll();
 		this.updateVisibility();
-		haxe_Log.trace("NodeEditor: Auto-centered on content (zoom=" + zoom + ")",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 1174, className : "editor.NodeEditor", methodName : "centerOnContent"});
+		haxe_Log.trace("NodeEditor: Auto-centered on content (zoom=" + zoom + ")",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 1175, className : "editor.NodeEditor", methodName : "centerOnContent"});
 	}
 	,deleteSelectedNodes: function() {
 		var ids = this._selection.getSelectedNodeIds();
@@ -16838,6 +16837,7 @@ var editor_ViewportManager = function(canvas,bgHitArea) {
 	this._pinchStartScale = 1.0;
 	this._pinchStartDistance = 0;
 	this._pinchZooming = false;
+	this._wasZooming = false;
 	this._touchPanStartCanvasY = 0;
 	this._touchPanStartCanvasX = 0;
 	this._touchPanStartY = 0;
@@ -16921,6 +16921,7 @@ editor_ViewportManager.prototype = {
 			_gthis._isZooming = false;
 			editor_EditorState.setIsZooming(false);
 			_gthis._processPendingActivations();
+			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
 		},15);
 		this._canvas.set_scaleX(newScale);
 		this._canvas.set_scaleY(newScale);
@@ -17110,6 +17111,10 @@ editor_ViewportManager.prototype = {
 			this._pinchZooming = false;
 			editor_EditorState.setIsPanning(false);
 			editor_EditorState.setIsZooming(false);
+			if(this._wasZooming) {
+				core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
+				this._wasZooming = false;
+			}
 		} else if(this._touchCount == 1 && this._pinchZooming) {
 			this._pinchZooming = false;
 			this._touchPanning = true;
@@ -41964,7 +41969,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 521741;
+	this.version = 956581;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";
