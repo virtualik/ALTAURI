@@ -232,6 +232,12 @@
         top: 0 !important;
         left: 0 !important;
     }
+	/* Pan and Zoom will not use in html actions*/
+	canvas, #openfl-content {
+    touch-action: none; /* Запрещает браузеру обрабатывать панорамирование и зум */
+    -webkit-user-select: none;
+    user-select: none;
+}
     </style>
 </head>
 <body>

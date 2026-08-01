@@ -179,6 +179,15 @@ class NodeView extends Sprite
 	private function set_isSelected(value:Bool):Bool { selected = value; return value; }
 	public var hasWidget(default, null):Bool = false;
 
+	
+// =========================================================================
+// DINAMIC SWICHING CACHEASBITMAP
+// =========================================================================
+	public function setCacheAsBitmapState(enabled:Bool):Void
+	{
+		this.cacheAsBitmap = enabled;
+	}
+	
 // =========================================================================
 // INLINE NAME EDITING (v3.3)
 // =========================================================================
@@ -231,6 +240,15 @@ class NodeView extends Sprite
 		{
 			this.assembly = cast(atom, Assembly);
 		}
+		
+		// ═══════════════════════════════════════════════════════════════
+		// Turning off cacheAsBitmap for HTML5
+		// Предотвращает дикие спайки GC и перевыделение canvas-буфера 
+		// при каждом изменении scaleX/scaleY родительского контейнера.
+		// ═══════════════════════════════════════════════════════════════
+		this.cacheAsBitmap = false;
+		
+		
 		buildUI();
 		createPorts();
 		createInlineEditors();
@@ -384,6 +402,9 @@ class NodeView extends Sprite
 	 */
 	private function realignInlineEditors():Void
 	{
+		// RADICAL FREEZE: No coordinates needed during zoom/pan.
+		if (editor.EditorState.isZooming() || editor.EditorState.isPanning()) return;
+		
 		var inputs = atom.getInputs();
 		if (inputs == null || inputs.length == 0) return;
 
@@ -825,6 +846,14 @@ class NodeView extends Sprite
 
 	public function updateInlineEditorsVisibility():Void
 	{
+	// ═══════════════════════════════════════════════════════════════
+    // HARD GUARD AGAINST UI RECALCULATION DURING GESTURES
+    // ═══════════════════════════════════════════════════════════════
+		// RADICAL FREEZE: No coordinates needed during zoom/pan.
+		if (EditorState.isZooming() || EditorState.isPanning()) {
+			return;
+		}
+		
 		var inputs = atom.getInputs();
 		if (inputs == null) return;
 		for (contact in inputs)
@@ -1674,6 +1703,10 @@ class NodeView extends Sprite
 	*/
 	public function getPortPosition(contactName:String): {x:Float, y:Float}
 	{
+		// RADICAL FREEZE: No coordinates needed during zoom/pan. 
+		// WireRenderer will skip rendering if it receives null, which is what we want.
+		if (editor.EditorState.isZooming() || editor.EditorState.isPanning()) return null;
+
 		var port = inputPorts.get(contactName);
 		if (port == null) port = outputPorts.get(contactName);
 		if (port == null) return null;
@@ -1726,6 +1759,17 @@ class NodeView extends Sprite
 
 	private function onWiresRedrawn(impulse:Impulse):Void
 	{
+		// ======================================================================
+		// HARD GUARD AGAINST UI RECALCULATION DURING GESTURES
+		// ======================================================================
+		// If zooming or panning is in progress, we STRICTLY must not recalculate
+		// inline editors. WireRenderer already scales along with
+		// _canvas via the hardware OpenFL display list.
+		// Loops through _inlineEditors and port.numChildren kill FPS on Android.
+		if (EditorState.isZooming() || EditorState.isPanning()) {
+			return;
+		}
+
 		//updateInlineEditorsVisibility();
 		alignInlineEditors();
 	}

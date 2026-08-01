@@ -30,7 +30,8 @@
 			width="1280" 
 			height="800"
 			background="#FF00FF"
-			transparent="true" />
+			transparent="true"
+			render="webgl" hardware="true" vsync="true" />
 	
 	<!-- Специфичные настройки для HTML5 -->
 	<!-- СЛУЧАЙ 1 НА ВЕСЬ БРАУЗЕР: Не задаём width и height, чтобы браузер сам подогнал canvas 1:1 -->
@@ -38,6 +39,7 @@
 
 	<!-- СЛУЧАЙ 2 ДЛЯ ОБЛАСТИ DIV:Фиксированный размер для демо-виджета, например 800x400 -->
 	<window if="html5" width="1024" height="600" background="#1E1E1E" />
+	<window if="html5" render="webgl" hardware="true" vsync="true" />
 	<template path="templates/html5/index.html" rename="index.html" />
 
 	<!-- ========================================================================= -->

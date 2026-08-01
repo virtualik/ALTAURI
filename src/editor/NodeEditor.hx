@@ -34,8 +34,57 @@ import ecs.ECS;
 using StringTools;
 
 /**
-* NODE EDITOR v4.8 (Global Name Uniqueness + Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
+* NODE EDITOR v4.9 (Zoom Performance Fix + Global Name Uniqueness + Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
 * Visual schematic editing coordinator.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v4.9 CHANGES (Zoom Performance Fix — Android Touch Optimization)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM:
+*  On Android tablets, pinch-to-zoom caused severe UI stuttering and GC
+*  spikes because OpenFL's cacheAsBitmap=true forced every NodeView to
+*  recreate its canvas buffer on every frame during scaleX/scaleY changes.
+*
+*  SOLUTION:
+*  Subscribe to ViewportManager.onZoomStart / onZoomEnd callbacks.
+*  During active zoom, set cacheAsBitmap=false on all visible NodeViews
+*  to switch to cheaper dynamic rendering. After zoom ends, restore
+*  cacheAsBitmap=true for crisp static rendering and force a final
+*  wire redraw to ensure vector clarity at the new scale.
+*
+*  Flow:
+*  ┌──────────────────────────────────────────────────────────────────┐
+*  │  User starts pinch-to-zoom                                       │
+*  │       │                                                          │
+*  │       ▼                                                          │
+*  │  ViewportManager detects 2-finger touch                          │
+*  │       │                                                          │
+*  │       ├──► onZoomStart callback fires                            │
+*  │       │         │                                                │
+*  │       │         ▼                                                │
+*  │       │    NodeEditor iterates _nodes                            │
+*  │       │         │                                                │
+*  │       │         ▼                                                │
+*  │       │    view.setCacheAsBitmapState(false)                     │
+*  │       │         │                                                │
+*  │       │         ▼                                                │
+*  │       │    OpenFL uses dynamic rendering (cheaper)               │
+*  │       │                                                          │
+*  │       └──► User releases fingers                                 │
+*  │                 │                                                │
+*  │                 ▼                                                │
+*  │            onZoomEnd callback fires                              │
+*  │                 │                                                │
+*  │                 ▼                                                │
+*  │            view.setCacheAsBitmapState(true)                      │
+*  │                 │                                                │
+*  │                 ▼                                                │
+*  │            _wireRenderer.rebuildAll()                            │
+*  │                 │                                                │
+*  │                 ▼                                                │
+*  │            Crisp vector rendering at new scale                   │
+*  └──────────────────────────────────────────────────────────────────┘
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v4.8 CHANGES (Global Name Uniqueness)
@@ -275,6 +324,16 @@ class NodeEditor extends Sprite
 
 		_canvas = new Sprite();
 		_editorContainer.addChild(_canvas);
+		
+		// ═══════════════════════════════════════════════════════════════
+		// CRITICAL FIX FOR ANDROID WEBGL:
+		// Disable canvas caching. When zooming, OpenFL tries to
+		// recreate the texture of the entire container if this is true, which kills FPS
+		// and causes artifacts (missing nodes) when switching visibility.
+		// ═══════════════════════════════════════════════════════════════
+		_canvas.cacheAsBitmap = false;
+		_canvas.cacheAsBitmapMatrix = null;
+		
 		_canvas.graphics.lineStyle(3, 0xFF33FF);
 		_canvas.graphics.beginFill(_theme.CANVAS_BG_COLOR, 1);
 		_canvas.graphics.drawRect(-1, -1, 1500, 1500);
@@ -301,6 +360,53 @@ class NodeEditor extends Sprite
 			function() return _selection.getSelectedWireIds()
 		);
 
+		/**
+		* Subscribe to ViewportManager zoom callbacks to toggle cacheAsBitmap
+		* on all NodeViews during pinch-to-zoom gestures.
+		* 
+		* During zoom:  cacheAsBitmap=false → cheaper dynamic rendering
+		* After zoom:   cacheAsBitmap=true  → crisp static rendering
+		* 
+		* Wire redraw is deferred via haxe.Timer.delay to decouple the heavy
+		* rebuildAll() operation from the zoom gesture completion. The canvas
+		* is already scaled via the hardware display list, so the zoom feels
+		* immediate. The wire redraw happens asynchronously to make them crisp
+		* at the new scale without blocking the UI thread.
+		*/
+		_viewport.onZoomStart = function() {
+			for (view in _nodes) {
+				if (view != null) view.setCacheAsBitmapState(false);
+			}
+		};
+
+		_viewport.onZoomEnd = function() {
+			for (view in _nodes) {
+				if (view != null) view.setCacheAsBitmapState(true);
+			}
+			/**
+			* Defer wire redraw to allow the UI to settle after zoom.
+			* Wires are already scaled via the hardware display list,
+			* so the zoom feels immediate. The redraw makes them crisp
+			* at the new scale without blocking the gesture completion.
+			*/
+			haxe.Timer.delay(function() {
+				if (_wireRenderer != null) _wireRenderer.rebuildAll();
+			}, 100);
+		};
+
+		/**
+		* Update node visibility after completing any touch gesture (pan or zoom).
+		* No wire redraw here — that is handled by onZoomEnd with a delay.
+		*/
+		_viewport.onTransformEnd = function() {
+			updateVisibility();
+		};
+		
+		// Update node visibility after completing any touch gesture (pan or zoom)
+		_viewport.onTransformEnd = function() {
+			updateVisibility();
+		};
+		
 		// Pass reference to setWires method so WireRenderer can update selection
 		_wireRenderer.setSelectionCallback(function(ids:Array<String>)
 		{
@@ -1013,13 +1119,8 @@ class NodeEditor extends Sprite
 
 	private function updateVisibility():Void
 	{
-		var now = haxe.Timer.stamp();
-		if (now - _lastVisibilityUpdate < 0.1) return;
-		_lastVisibilityUpdate = now;
-
 		var w = _forcedWidth > 0 ? _forcedWidth : (stage != null ? stage.stageWidth : 1024);
 		var h = _forcedHeight > 0 ? _forcedHeight : (stage != null ? stage.stageHeight : 600);
-
 		_viewport.updateVisibility(_nodes.iterator(), w, h);
 	}
 

@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "172";
+	app.meta.h["build"] = "173";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
@@ -3516,6 +3516,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				e.preventDefault();
 				return false;
 			};
+			canvas.style.touchAction = "none";
 			canvas.addEventListener("mousedown",function(e) {
 				if(e.button == 1) {
 					e.preventDefault();
@@ -3557,7 +3558,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 			console.log(v);
 			library_electro_DebugConsoleAtom.log(Std.string(v));
 		};
-		haxe_Log.trace("DEBUG CONSOLE TEST: Если ты это видишь, перехват работает!",{ fileName : "src/Main.hx", lineNumber : 317, className : "Main", methodName : "init"});
+		haxe_Log.trace("DEBUG CONSOLE TEST: Если ты это видишь, перехват работает!",{ fileName : "src/Main.hx", lineNumber : 323, className : "Main", methodName : "init"});
 		this.log("System initialized");
 		this.removeEventListener("addedToStage",$bind(this,this.init));
 		openfl_Lib.get_current().stage.window.set_visible(true);
@@ -3623,7 +3624,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		editor.connectAtoms(closeFileButtonId,"out",fileWriterId,"close");
 		editor.connectAtoms(comport1AtomId,"rxData",fileWriterId,"append");
 		editor.connectAtoms(fileWriterId,"isOpen",fileWriterStatusLedId,"in");
-		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 446, className : "Main", methodName : "createDemoProject"});
+		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 452, className : "Main", methodName : "createDemoProject"});
 		this.renameAtom(rootAssembly,openPortButtonId,"Open Port");
 		this.renameAtom(rootAssembly,closePortButtonId,"Close Port");
 		this.renameAtom(rootAssembly,sendTxDataButtonId,"Send TX");
@@ -3947,6 +3948,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 	}
 	,onToggleView: function() {
+		var _gthis = this;
 		var cfg = ui_DisplayConfig.getInstance();
 		cfg.toggleMode();
 		if(cfg.isDeviceMode()) {
@@ -3972,8 +3974,17 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				this._devicePanel.clearDevices();
 			}
 			if(this._editorContext.currentEditor != null) {
+				editor_EditorState.setIsZooming(false);
+				editor_EditorState.setIsPanning(false);
 				this._editorContext.currentEditor.restoreAllWidgets();
-				this._editorContext.currentEditor.forceFullRedraw();
+				haxe_Timer.delay(function() {
+					if(_gthis._editorContext.currentEditor != null && !_gthis._editorContext.currentEditor.isDisposed) {
+						_gthis._editorContext.currentEditor.forceFullRedraw();
+						if(_gthis.stage != null) {
+							_gthis.stage.invalidate();
+						}
+					}
+				},50);
 			}
 		}
 	}
@@ -4467,7 +4478,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				HxOverrides.remove(bp.internalConnections,conn);
 			}
 			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
-			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1812, className : "Main", methodName : "onPortRemoved"});
+			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1833, className : "Main", methodName : "onPortRemoved"});
 		}
 	}
 	,hardReset: function() {
@@ -4620,8 +4631,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		var nodeCount = this._editorContext.currentEditor.getSelectedNodeCount();
 		var wireIds = this._editorContext.currentEditor.getSelectedWireIds();
-		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1998, className : "Main", methodName : "deleteSelectedOnCanvas"});
-		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1999, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 2019, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 2020, className : "Main", methodName : "deleteSelectedOnCanvas"});
 		if(nodeCount > 0) {
 			this._editorContext.currentEditor.deleteSelectedNodes();
 			this.updateSettingsStats();
@@ -14608,6 +14619,8 @@ var editor_NodeEditor = function(assembly,isNameTakenGlobally) {
 	this.addChild(this._editorContainer);
 	this._canvas = new openfl_display_Sprite();
 	this._editorContainer.addChild(this._canvas);
+	this._canvas.set_cacheAsBitmap(false);
+	this._canvas.set_cacheAsBitmapMatrix(null);
 	this._canvas.get_graphics().lineStyle(3,16724991);
 	this._canvas.get_graphics().beginFill(this._theme.CANVAS_BG_COLOR,1);
 	this._canvas.get_graphics().drawRect(-1,-1,1500,1500);
@@ -14626,6 +14639,43 @@ var editor_NodeEditor = function(assembly,isNameTakenGlobally) {
 	this._wireRenderer.configure(this._blueprint,this._assembly,this._canvas,$bind(this,this.getNodeViewById),$bind(this,this.getEdgePortById),function() {
 		return _gthis._selection.getSelectedWireIds();
 	});
+	this._viewport.onZoomStart = function() {
+		var h = _gthis._nodes.h;
+		var view_h = h;
+		var view_keys = Object.keys(h);
+		var view_length = view_keys.length;
+		var view_current = 0;
+		while(view_current < view_length) {
+			var view = view_h[view_keys[view_current++]];
+			if(view != null) {
+				view.setCacheAsBitmapState(false);
+			}
+		}
+	};
+	this._viewport.onZoomEnd = function() {
+		var h = _gthis._nodes.h;
+		var view_h = h;
+		var view_keys = Object.keys(h);
+		var view_length = view_keys.length;
+		var view_current = 0;
+		while(view_current < view_length) {
+			var view = view_h[view_keys[view_current++]];
+			if(view != null) {
+				view.setCacheAsBitmapState(true);
+			}
+		}
+		haxe_Timer.delay(function() {
+			if(_gthis._wireRenderer != null) {
+				_gthis._wireRenderer.rebuildAll();
+			}
+		},100);
+	};
+	this._viewport.onTransformEnd = function() {
+		_gthis.updateVisibility();
+	};
+	this._viewport.onTransformEnd = function() {
+		_gthis.updateVisibility();
+	};
 	this._wireRenderer.setSelectionCallback(function(ids) {
 		_gthis._selection.clearNodeSelection();
 		_gthis._selection.setWires(ids);
@@ -14841,10 +14891,10 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._wireRenderer.rebuildAll();
 	}
 	,reattachNodeView: function(atomId,newAtom) {
-		haxe_Log.trace("🔄 reattachNodeView: atomId=\"" + atomId + "\", newAtom.id=\"" + newAtom.get_id() + "\"",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 574, className : "editor.NodeEditor", methodName : "reattachNodeView"});
+		haxe_Log.trace("🔄 reattachNodeView: atomId=\"" + atomId + "\", newAtom.id=\"" + newAtom.get_id() + "\"",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 680, className : "editor.NodeEditor", methodName : "reattachNodeView"});
 		var view = this._nodes.h[atomId];
 		if(view == null) {
-			haxe_Log.trace("❌ reattachNodeView: NO NodeView found for \"" + atomId + "\"!",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 578, className : "editor.NodeEditor", methodName : "reattachNodeView"});
+			haxe_Log.trace("❌ reattachNodeView: NO NodeView found for \"" + atomId + "\"!",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 684, className : "editor.NodeEditor", methodName : "reattachNodeView"});
 			var _g = [];
 			var h = this._nodes.h;
 			var k_h = h;
@@ -14855,13 +14905,13 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 				var k = k_keys[k_current++];
 				_g.push(k);
 			}
-			haxe_Log.trace("   Available keys: " + Std.string(_g),{ fileName : "src/editor/NodeEditor.hx", lineNumber : 579, className : "editor.NodeEditor", methodName : "reattachNodeView"});
+			haxe_Log.trace("   Available keys: " + Std.string(_g),{ fileName : "src/editor/NodeEditor.hx", lineNumber : 685, className : "editor.NodeEditor", methodName : "reattachNodeView"});
 			return;
 		}
-		haxe_Log.trace("✅ reattachNodeView: Found NodeView, calling reattachToAtom",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 582, className : "editor.NodeEditor", methodName : "reattachNodeView"});
+		haxe_Log.trace("✅ reattachNodeView: Found NodeView, calling reattachToAtom",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 688, className : "editor.NodeEditor", methodName : "reattachNodeView"});
 		view.reattachToAtom(newAtom);
 		this._wireRenderer.rebuildAll();
-		haxe_Log.trace("✅ reattachNodeView: rebuildAll completed",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 585, className : "editor.NodeEditor", methodName : "reattachNodeView"});
+		haxe_Log.trace("✅ reattachNodeView: rebuildAll completed",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 691, className : "editor.NodeEditor", methodName : "reattachNodeView"});
 	}
 	,forceFullRedraw: function() {
 		if(this.isDisposed) {
@@ -15160,11 +15210,6 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.updateVisibility();
 	}
 	,updateVisibility: function() {
-		var now = new Date().getTime() / 1000;
-		if(now - this._lastVisibilityUpdate < 0.1) {
-			return;
-		}
-		this._lastVisibilityUpdate = now;
 		var w = this._forcedWidth > 0 ? this._forcedWidth : this.stage != null ? this.stage.stageWidth : 1024;
 		var h = this._forcedHeight > 0 ? this._forcedHeight : this.stage != null ? this.stage.stageHeight : 600;
 		this._viewport.updateVisibility(new haxe_ds__$StringMap_StringMapValueIterator(this._nodes.h),w,h);
@@ -15324,7 +15369,7 @@ editor_NodeEditor.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._canvas.set_y(targetY);
 		this._wireRenderer.rebuildAll();
 		this.updateVisibility();
-		haxe_Log.trace("NodeEditor: Auto-centered on content (zoom=" + zoom + ")",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 1175, className : "editor.NodeEditor", methodName : "centerOnContent"});
+		haxe_Log.trace("NodeEditor: Auto-centered on content (zoom=" + zoom + ")",{ fileName : "src/editor/NodeEditor.hx", lineNumber : 1276, className : "editor.NodeEditor", methodName : "centerOnContent"});
 	}
 	,deleteSelectedNodes: function() {
 		var ids = this._selection.getSelectedNodeIds();
@@ -15561,6 +15606,7 @@ var editor_NodeView = function(atom,nodeId) {
 	if(((atom) instanceof core_base_Assembly)) {
 		this.assembly = js_Boot.__cast(atom , core_base_Assembly);
 	}
+	this.set_cacheAsBitmap(false);
 	this.buildUI();
 	this.createPorts();
 	this.createInlineEditors();
@@ -15592,6 +15638,9 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 	,set_isSelected: function(value) {
 		this.set_selected(value);
 		return value;
+	}
+	,setCacheAsBitmapState: function(enabled) {
+		this.set_cacheAsBitmap(enabled);
 	}
 	,setParentAssembly: function(asm) {
 		this._parentAssembly = asm;
@@ -15653,6 +15702,9 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		this.realignInlineEditors();
 	}
 	,realignInlineEditors: function() {
+		if(editor_EditorState.isZooming() || editor_EditorState.isPanning()) {
+			return;
+		}
 		var inputs = this.get_atom().getInputs();
 		if(inputs == null || inputs.length == 0) {
 			return;
@@ -16057,6 +16109,9 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		return null;
 	}
 	,updateInlineEditorsVisibility: function() {
+		if(editor_EditorState.isZooming() || editor_EditorState.isPanning()) {
+			return;
+		}
 		var inputs = this.get_atom().getInputs();
 		if(inputs == null) {
 			return;
@@ -16294,11 +16349,11 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		e.stopPropagation();
 		if(((this.get_atom()) instanceof core_base_Assembly)) {
-			haxe_Log.trace("NodeView: Double-click detected on Assembly. Emitting request for ID: " + this.get_atom().get_id(),{ fileName : "src/editor/NodeView.hx", lineNumber : 1130, className : "editor.NodeView", methodName : "onDoubleClick"});
+			haxe_Log.trace("NodeView: Double-click detected on Assembly. Emitting request for ID: " + this.get_atom().get_id(),{ fileName : "src/editor/NodeView.hx", lineNumber : 1159, className : "editor.NodeView", methodName : "onDoubleClick"});
 			core_logic_Impulsys.quickEmit(core_logic_EventType.OPEN_ASSEMBLY_REQUEST,{ atomId : this.get_atom().get_id()});
 			return;
 		}
-		haxe_Log.trace("NodeView: Double-click on simple atom " + this.get_atom().get_id() + " (ignored)",{ fileName : "src/editor/NodeView.hx", lineNumber : 1134, className : "editor.NodeView", methodName : "onDoubleClick"});
+		haxe_Log.trace("NodeView: Double-click on simple atom " + this.get_atom().get_id() + " (ignored)",{ fileName : "src/editor/NodeView.hx", lineNumber : 1163, className : "editor.NodeView", methodName : "onDoubleClick"});
 	}
 	,onClick: function(e) {
 		if(this._isEditingName) {
@@ -16477,7 +16532,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		if(this.stage != null) {
 			this.stage.set_focus(this._nameInput);
 		}
-		haxe_Log.trace("NodeView: Started name editing for \"" + this.get_atom().get_displayName() + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1480, className : "editor.NodeView", methodName : "startNameEditing"});
+		haxe_Log.trace("NodeView: Started name editing for \"" + this.get_atom().get_displayName() + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1509, className : "editor.NodeView", methodName : "startNameEditing"});
 	}
 	,finishNameEditing: function() {
 		var _gthis = this;
@@ -16498,11 +16553,11 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		var oldName = this.get_atom().get_displayName();
 		var finalName = core_logic_NamingService.resolveUniqueInstanceName(typedName,this.get_atom().get_id());
 		if(finalName != typedName) {
-			haxe_Log.trace("NodeView: Name \"" + typedName + "\" taken — applied as \"" + finalName + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1530, className : "editor.NodeView", methodName : "finishNameEditing"});
+			haxe_Log.trace("NodeView: Name \"" + typedName + "\" taken — applied as \"" + finalName + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1559, className : "editor.NodeView", methodName : "finishNameEditing"});
 		}
 		var ok = core_logic_NamingService.renameInstance(oldName,finalName,this.get_atom().get_id());
 		if(!ok) {
-			haxe_Log.trace("NodeView: renameInstance FAILED for \"" + finalName + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1540, className : "editor.NodeView", methodName : "finishNameEditing"});
+			haxe_Log.trace("NodeView: renameInstance FAILED for \"" + finalName + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1569, className : "editor.NodeView", methodName : "finishNameEditing"});
 			this._nameInput.set_borderColor(16724787);
 			haxe_Timer.delay(function() {
 				if(_gthis._nameInput != null) {
@@ -16523,7 +16578,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._nameInput.set_visible(false);
 		this._titleLabel.set_visible(true);
 		core_logic_Impulsys.quickEmit(core_logic_EventType.VALUE_COMMITTED);
-		haxe_Log.trace("NodeView: Renamed atom \"" + oldName + "\" → \"" + finalName + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1576, className : "editor.NodeView", methodName : "finishNameEditing"});
+		haxe_Log.trace("NodeView: Renamed atom \"" + oldName + "\" → \"" + finalName + "\"",{ fileName : "src/editor/NodeView.hx", lineNumber : 1605, className : "editor.NodeView", methodName : "finishNameEditing"});
 	}
 	,cancelNameEditing: function() {
 		this._isEditingName = false;
@@ -16571,6 +16626,9 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		ecs_ECS.updatePosition(this.nodeId,x,y);
 	}
 	,getPortPosition: function(contactName) {
+		if(editor_EditorState.isZooming() || editor_EditorState.isPanning()) {
+			return null;
+		}
 		var port = this.inputPorts.h[contactName];
 		if(port == null) {
 			port = this.outputPorts.h[contactName];
@@ -16601,12 +16659,15 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 	}
 	,onAssemblyPortsChanged: function(impulse) {
 		if(impulse.data != null && impulse.data.assemblyId == this.get_atom().get_id()) {
-			haxe_Log.trace("NodeView: Ports changed event received for " + this.get_atom().get_displayName() + ". Rebuilding layout.",{ fileName : "src/editor/NodeView.hx", lineNumber : 1720, className : "editor.NodeView", methodName : "onAssemblyPortsChanged"});
+			haxe_Log.trace("NodeView: Ports changed event received for " + this.get_atom().get_displayName() + ". Rebuilding layout.",{ fileName : "src/editor/NodeView.hx", lineNumber : 1753, className : "editor.NodeView", methodName : "onAssemblyPortsChanged"});
 			this.updateLayout();
 			this.alignInlineEditors();
 		}
 	}
 	,onWiresRedrawn: function(impulse) {
+		if(editor_EditorState.isZooming() || editor_EditorState.isPanning()) {
+			return;
+		}
 		this.alignInlineEditors();
 	}
 	,dispose: function() {
@@ -16659,7 +16720,7 @@ editor_NodeView.prototype = $extend(openfl_display_Sprite.prototype,{
 		this._previewContainer = null;
 		this._selectionHighlight = null;
 		this._settingsButton = null;
-		haxe_Log.trace("NodeView: Disposed",{ fileName : "src/editor/NodeView.hx", lineNumber : 1782, className : "editor.NodeView", methodName : "dispose"});
+		haxe_Log.trace("NodeView: Disposed",{ fileName : "src/editor/NodeView.hx", lineNumber : 1826, className : "editor.NodeView", methodName : "dispose"});
 	}
 	,__class__: editor_NodeView
 	,__properties__: $extend(openfl_display_Sprite.prototype.__properties__,{set_isSelected:"set_isSelected",get_isSelected:"get_isSelected",set_selected:"set_selected",set_atom:"set_atom",get_atom:"get_atom"})
@@ -16832,6 +16893,8 @@ editor_SelectionManager.prototype = {
 	,__class__: editor_SelectionManager
 };
 var editor_ViewportManager = function(canvas,bgHitArea) {
+	this._tempPoint2 = new openfl_geom_Point();
+	this._tempPoint1 = new openfl_geom_Point();
 	this._pinchCenterY = 0;
 	this._pinchCenterX = 0;
 	this._pinchStartScale = 1.0;
@@ -16844,6 +16907,7 @@ var editor_ViewportManager = function(canvas,bgHitArea) {
 	this._touchPanStartX = 0;
 	this._touchPanning = false;
 	this._touchCount = 0;
+	this._hasPendingTransform = false;
 	this._lastVisibilityUpdate = 0;
 	this._pendingActivations = [];
 	this._zoomEndTimer = null;
@@ -16862,6 +16926,7 @@ var editor_ViewportManager = function(canvas,bgHitArea) {
 	this._canvas.addEventListener("touchBegin",$bind(this,this.onTouchBegin));
 	this._canvas.addEventListener("touchMove",$bind(this,this.onTouchMove));
 	this._canvas.addEventListener("touchEnd",$bind(this,this.onTouchEnd));
+	this._canvas.addEventListener("enterFrame",$bind(this,this.onEnterFrame));
 };
 $hxClasses["editor.ViewportManager"] = editor_ViewportManager;
 editor_ViewportManager.__name__ = "editor.ViewportManager";
@@ -16899,7 +16964,9 @@ editor_ViewportManager.prototype = {
 		if(delta < 0) {
 			zoomFactor = 0.90909090909090906;
 		}
-		var mouseLocal = this._canvas.globalToLocal(new openfl_geom_Point(stageX,stageY));
+		this._tempPoint1.x = stageX;
+		this._tempPoint1.y = stageY;
+		var mouseLocal = this._canvas.globalToLocal(this._tempPoint1);
 		var oldScale = this._canvas.get_scaleX();
 		var newScale = oldScale * zoomFactor;
 		if(newScale < this._zoomMin) {
@@ -16925,7 +16992,9 @@ editor_ViewportManager.prototype = {
 		},15);
 		this._canvas.set_scaleX(newScale);
 		this._canvas.set_scaleY(newScale);
-		var targetGlobalPos = new openfl_geom_Point(stageX - mouseLocal.x * newScale,stageY - mouseLocal.y * newScale);
+		this._tempPoint2.x = stageX - mouseLocal.x * newScale;
+		this._tempPoint2.y = stageY - mouseLocal.y * newScale;
+		var targetGlobalPos = this._tempPoint2;
 		var targetLocalPos = container.globalToLocal(targetGlobalPos);
 		this._canvas.set_x(targetLocalPos.x);
 		this._canvas.set_y(targetLocalPos.y);
@@ -17033,27 +17102,43 @@ editor_ViewportManager.prototype = {
 		return this._canvas.get_scaleX();
 	}
 	,onTouchBegin: function(e) {
-		if(!this.isBackgroundTouch(e.target)) {
-			return;
-		}
-		if(!this._activeTouches.h.hasOwnProperty(e.touchPointID)) {
+		var isFirstTouch = !this._activeTouches.h.hasOwnProperty(e.touchPointID);
+		if(isFirstTouch) {
 			this._touchCount++;
 		}
 		this._activeTouches.h[e.touchPointID] = { x : e.stageX, y : e.stageY};
+		if(isFirstTouch && this._touchCount == 1 && !this.isBackgroundTouch(e.target)) {
+			return;
+		}
 		this.updateTouchState();
 	}
 	,onTouchMove: function(e) {
 		if(this._activeTouches.h.hasOwnProperty(e.touchPointID)) {
 			this._activeTouches.h[e.touchPointID] = { x : e.stageX, y : e.stageY};
 		}
-		this.updateTouchState();
+		this._hasPendingTransform = true;
 	}
 	,onTouchEnd: function(e) {
 		if(this._activeTouches.h.hasOwnProperty(e.touchPointID)) {
 			this._touchCount--;
 		}
 		this._activeTouches.remove(e.touchPointID);
+		this._hasPendingTransform = true;
 		this.updateTouchState();
+		if(this.onTransformEnd != null) {
+			var callback = this.onTransformEnd;
+			haxe_Timer.delay(function() {
+				if(callback != null) {
+					callback();
+				}
+			},16);
+		}
+	}
+	,onEnterFrame: function(e) {
+		if(this._hasPendingTransform) {
+			this.updateTouchState();
+			this._hasPendingTransform = false;
+		}
 	}
 	,updateTouchState: function() {
 		if(this._touchCount == 1) {
@@ -17076,11 +17161,19 @@ editor_ViewportManager.prototype = {
 			}
 		} else if(this._touchCount == 2) {
 			if(!this._pinchZooming) {
+				var initialDistance = this.calculatePinchDistance();
+				if(initialDistance < 15) {
+					return;
+				}
 				this._pinchZooming = true;
 				this._touchPanning = false;
 				editor_EditorState.setIsPanning(false);
 				editor_EditorState.setIsZooming(true);
-				this._pinchStartDistance = this.calculatePinchDistance();
+				this._wasZooming = true;
+				if(this.onZoomStart != null) {
+					this.onZoomStart();
+				}
+				this._pinchStartDistance = initialDistance;
 				this._pinchStartScale = this._canvas.get_scaleX();
 				var center = this.getPinchCenter();
 				this._pinchCenterX = center.x;
@@ -17095,10 +17188,14 @@ editor_ViewportManager.prototype = {
 				if(newScale > this._zoomMax) {
 					newScale = this._zoomMax;
 				}
-				var mouseLocal = this._canvas.globalToLocal(new openfl_geom_Point(this._pinchCenterX,this._pinchCenterY));
+				this._tempPoint1.x = this._pinchCenterX;
+				this._tempPoint1.y = this._pinchCenterY;
+				var mouseLocal = this._canvas.globalToLocal(this._tempPoint1);
 				this._canvas.set_scaleX(newScale);
 				this._canvas.set_scaleY(newScale);
-				var targetGlobalPos = new openfl_geom_Point(this._pinchCenterX - mouseLocal.x * newScale,this._pinchCenterY - mouseLocal.y * newScale);
+				this._tempPoint2.x = this._pinchCenterX - mouseLocal.x * newScale;
+				this._tempPoint2.y = this._pinchCenterY - mouseLocal.y * newScale;
+				var targetGlobalPos = this._tempPoint2;
 				var container = this._canvas.parent;
 				if(container != null) {
 					var targetLocalPos = container.globalToLocal(targetGlobalPos);
@@ -17109,15 +17206,20 @@ editor_ViewportManager.prototype = {
 		} else if(this._touchCount == 0) {
 			this._touchPanning = false;
 			this._pinchZooming = false;
+			this._isZooming = false;
 			editor_EditorState.setIsPanning(false);
 			editor_EditorState.setIsZooming(false);
 			if(this._wasZooming) {
+				if(this.onZoomEnd != null) {
+					this.onZoomEnd();
+				}
 				core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
 				this._wasZooming = false;
 			}
 		} else if(this._touchCount == 1 && this._pinchZooming) {
 			this._pinchZooming = false;
 			this._touchPanning = true;
+			this._isZooming = false;
 			editor_EditorState.setIsZooming(false);
 			editor_EditorState.setIsPanning(true);
 			var firstTouch = this.getFirstTouch();
@@ -17153,28 +17255,42 @@ editor_ViewportManager.prototype = {
 		return { x : 0, y : 0};
 	}
 	,calculatePinchDistance: function() {
-		var touches = [];
+		var first = null;
+		var second = null;
 		var t = this._activeTouches.iterator();
 		while(t.hasNext()) {
 			var t1 = t.next();
-			touches.push(t1);
+			if(first == null) {
+				first = t1;
+			} else if(second == null) {
+				second = t1;
+			} else {
+				break;
+			}
 		}
-		if(touches.length >= 2) {
-			var dx = touches[1].x - touches[0].x;
-			var dy = touches[1].y - touches[0].y;
+		if(first != null && second != null) {
+			var dx = second.x - first.x;
+			var dy = second.y - first.y;
 			return Math.sqrt(dx * dx + dy * dy);
 		}
 		return 0;
 	}
 	,getPinchCenter: function() {
-		var touches = [];
+		var first = null;
+		var second = null;
 		var t = this._activeTouches.iterator();
 		while(t.hasNext()) {
 			var t1 = t.next();
-			touches.push(t1);
+			if(first == null) {
+				first = t1;
+			} else if(second == null) {
+				second = t1;
+			} else {
+				break;
+			}
 		}
-		if(touches.length >= 2) {
-			return { x : (touches[0].x + touches[1].x) / 2, y : (touches[0].y + touches[1].y) / 2};
+		if(first != null && second != null) {
+			return { x : (first.x + second.x) / 2, y : (first.y + second.y) / 2};
 		}
 		return { x : 0, y : 0};
 	}
@@ -17182,6 +17298,7 @@ editor_ViewportManager.prototype = {
 		this._canvas.removeEventListener("touchBegin",$bind(this,this.onTouchBegin));
 		this._canvas.removeEventListener("touchMove",$bind(this,this.onTouchMove));
 		this._canvas.removeEventListener("touchEnd",$bind(this,this.onTouchEnd));
+		this._canvas.removeEventListener("enterFrame",$bind(this,this.onEnterFrame));
 		this._activeTouches = null;
 		this._pendingActivations = null;
 		if(this._zoomEndTimer != null) {
@@ -17298,7 +17415,10 @@ editor_WireRenderer.prototype = {
 		if(this._isDisposed) {
 			return;
 		}
-		haxe_Log.trace("🎨 WireRenderer.rebuildAll: blueprint has " + (this._blueprint.internalConnections != null ? this._blueprint.internalConnections.length : 0) + " connections",{ fileName : "src/editor/WireRenderer.hx", lineNumber : 339, className : "editor.WireRenderer", methodName : "rebuildAll"});
+		if(editor_EditorState.isZooming() || editor_EditorState.isPanning()) {
+			return;
+		}
+		haxe_Log.trace("🎨 WireRenderer.rebuildAll: blueprint has " + (this._blueprint.internalConnections != null ? this._blueprint.internalConnections.length : 0) + " connections",{ fileName : "src/editor/WireRenderer.hx", lineNumber : 345, className : "editor.WireRenderer", methodName : "rebuildAll"});
 		var activeWireIds_h = Object.create(null);
 		var ghostWireIds = [];
 		if(this._blueprint.internalConnections != null) {
@@ -17605,12 +17725,12 @@ editor_WireRenderer.prototype = {
 			}
 			var view = this._getNodeView(runtimeId);
 			if(view == null) {
-				haxe_Log.trace("⚠️ getWirePoint: No NodeView for runtimeId=\"" + runtimeId + "\" (atomId=\"" + point.atomId + "\")",{ fileName : "src/editor/WireRenderer.hx", lineNumber : 738, className : "editor.WireRenderer", methodName : "getWirePoint"});
+				haxe_Log.trace("⚠️ getWirePoint: No NodeView for runtimeId=\"" + runtimeId + "\" (atomId=\"" + point.atomId + "\")",{ fileName : "src/editor/WireRenderer.hx", lineNumber : 749, className : "editor.WireRenderer", methodName : "getWirePoint"});
 				return null;
 			}
 			var portPos = view.getPortPosition(point.contactName);
 			if(portPos == null) {
-				haxe_Log.trace("⚠️ getWirePoint: No port position for contactName=\"" + point.contactName + "\" on view \"" + runtimeId + "\"",{ fileName : "src/editor/WireRenderer.hx", lineNumber : 743, className : "editor.WireRenderer", methodName : "getWirePoint"});
+				haxe_Log.trace("⚠️ getWirePoint: No port position for contactName=\"" + point.contactName + "\" on view \"" + runtimeId + "\"",{ fileName : "src/editor/WireRenderer.hx", lineNumber : 755, className : "editor.WireRenderer", methodName : "getWirePoint"});
 				return null;
 			}
 			var pt = this._canvas.globalToLocal(new openfl_geom_Point(portPos.x,portPos.y));
@@ -41969,7 +42089,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 956581;
+	this.version = 442194;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";

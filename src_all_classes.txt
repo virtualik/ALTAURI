@@ -6745,7 +6745,7 @@ class ComEnumeratorWidget extends DeviceView
 
 ================================================================================
 // FILE: core\view\ComPortWidget.hx
-// Lines: 1296 | Chars: 40166
+// Lines: 1296 | Chars: 40388
 ================================================================================
 
 package core.view;
@@ -6773,15 +6773,15 @@ import core.base.Contact;
  * ║  At compile time, Haxe selects the appropriate UI variant:                ║
  * ║                                                                           ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
- * ║  │                    COMPILATION FLOW                                 │
- * ║  │                                                                     │
+ * ║  │                    COMPILATION FLOW                                 │  ║
+ * ║  │                                                                     │  ║
  * ║  │  haxe -cpp  ──► #if cpp   ──► Port name text field (manual entry)   │  ║
- *   │  haxe -html5──► #if html5 ──► "Select Port" button (browser dialog) │  ║
+ * ║  │  haxe -html5──► #if html5 ──► "Select Port" button (browser dialog) │  ║
  * ║  │                                                                     │  ║
  * ║  │  Common code (TX/RX, indicators, open/close) is shared.             │  ║
  * ║  │  Platform-specific code is isolated in #if blocks.                  │  ║
- * ║  ─────────────────────────────────────────────────────────────────────  ║
- * ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
  * ║  v2.0 Changes (HTML5):                                                    ║
  * ║  - Added "Select Port" button (replaces manual port name entry)           ║
  * ║  - Added bufferSize/chunkSize/enabled configuration inputs                ║
@@ -6789,43 +6789,43 @@ import core.base.Contact;
  * ║  - Port name field shows selected port info (read-only)                   ║
  * ║                                                                           ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
- *                         ARCHITECTURE                                       ║
- * ═══════════════════════════════════════════════════════════════════════════╣
+ * ║                        ARCHITECTURE                                       ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
- *   ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │                     ComPortWidget                                   │  ║
  * ║  │                                                                     │  ║
- *   │  ┌───────────────────────────────────────────────────────────────┐  │
- * ║  │  │  COMMON LAYER (all targets)                                   │  │
- * ║  │  │  ─────────────────────────────────────────────────────────── │  │  ║
+ * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
+ * ║  │  │  COMMON LAYER (all targets)                                   │  │  ║
+ * ║  │  │  ───────────────────────────────────────────────────────────  │  │  ║
  * ║  │  │  • Contacts: baudRate, open, close, send, txData,             │  │  ║
  * ║  │  │    isOpen, rxData, rxTick, txTick, error, errorTick           │  │  ║
- *   │  │  • updatePulseTimers(): reset tick pulses                     │  │  ║
+ * ║  │  │  • updatePulseTimers(): reset tick pulses                     │  │  ║
  * ║  │  │  • readInputs(): input reading + dispatch                     │  │  ║
- * ║  │  └───────────────────────────────────────────────────────────────┘  │
- * ║  │                                                                     │
- * ║  │  ┌──────────────────────────┐  ┌────────────────────────────────┐ │  ║
- * ║  │  │  #if cpp                 │  │  #if html5                     │ │
- * ║  │  │  ────────               │  │  ──────────                    │ │  ║
- * ║  │  │  portName: TextField     │  │  selectPortBtn: Sprite         │ │  ║
- * ║  │  │  (manual COM1 entry)     │  │  (browser dialog trigger)      │ │  ║
- * ║  │  │                          │  │                                │ │  ║
- * ║  │  │  dtrBtn: visible         │  │  dtrBtn: hidden/disabled       │ │  ║
- * ║  │  │                          │  │                                │ │  ║
- * ║  │  │  (no extra config)       │  │  bufferSize/chunkSize/enabled  │ │  ║
- * ║  │  │                          │  │  configuration fields          │ │  ║
- * ║  │  └──────────────────────────┘  └──────────────────────────────── │  ║
+ * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  ┌──────────────────────────┐  ┌─────────────────────────────────┐  │  ║
+ * ║  │  │  #if cpp                 │  │  #if html5                      │  │  ║
+ * ║  │  │  ────────                │  │  ──────────                     │  │  ║
+ * ║  │  │  portName: TextField     │  │  selectPortBtn: Sprite          │  │  ║
+ * ║  │  │  (manual COM1 entry)     │  │  (browser dialog trigger)       │  │  ║
+ * ║  │  │                          │  │                                 │  │  ║
+ * ║  │  │  dtrBtn: visible         │  │  dtrBtn: hidden/disabled        │  │  ║
+ * ║  │  │                          │  │                                 │  │  ║
+ * ║  │  │  (no extra config)       │  │  bufferSize/chunkSize/enabled   │  │  ║
+ * ║  │  │                          │  │  configuration fields           │  │  ║
+ * ║  │  └──────────────────────────┘  └─────────────────────────────────┘  │  ║
  * ║  │                                                                     │  ║
  * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
- * ║  │  │  DATABANK (Haxe fields, shared)                               │  │
- * ║  │  │  ─────────────────────────────────────────────────────────── │  │  ║
- * ║  │  │  _baudRateContact, _openContact, _closeContact               │  │  ║
- * ║  │  │  _sendContact, _txDataContact, _setDTRContact                │  │  ║
- * ║  │  │  _isOpenContact, _rxDataContact, _rxTickContact              │  │  ║
- * ║  │  │  _txTickContact, _errorContact, _errorTickContact            │  │
- * ║  │  │  _lastRxData, _lastError                                     │  │  ║
- * ║  │  │  _rxLedTimer, _txLedTimer, _errLedTimer                      │  │  ║
- * ║  │  │  _dtrState                                                   │  │  ║
+ * ║  │  │  DATABANK (Haxe fields, shared)                               │  │  ║
+ * ║  │  │  ───────────────────────────────────────────────────────────  │  │  ║
+ * ║  │  │  _baudRateContact, _openContact, _closeContact                │  │  ║
+ * ║  │  │  _sendContact, _txDataContact, _setDTRContact                 │  │  ║
+ * ║  │  │  _isOpenContact, _rxDataContact, _rxTickContact               │  │  ║
+ * ║  │  │  _txTickContact, _errorContact, _errorTickContact             │  │  ║
+ * ║  │  │  _lastRxData, _lastError                                      │  │  ║
+ * ║  │  │  _rxLedTimer, _txLedTimer, _errLedTimer                       │  │  ║
+ * ║  │  │  _dtrState                                                    │  │  ║
  * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
@@ -6857,15 +6857,15 @@ import core.base.Contact;
  * ║  [  OPEN  ]  [  CLOSE  ]                                                  ║
  * ║  ─────────────────────────────────────────────────────────────────────    ║
  * ║  Buffer: [4096]  Chunk: [256]  [Enabled ✓]                                ║
- * ║  ────────────────────────────────────────────────────────────────────    ║
+ * ║  ────────────────────────────────────────────────────────────────────     ║
  * ║  TX: [_________________________] [SEND]                                   ║
  * ║  ─────────────────────────────────────────────────────────────────────    ║
  * ║  RX DATA:                                                                 ║
- * ║  ─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  Received text...                                                   │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║  RX: ●  TX: ●  ERR: ●                                                     ║
- * ║
+ * ║                                                                           ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 class ComPortWidget extends DeviceView
@@ -8047,7 +8047,7 @@ class ComPortWidget extends DeviceView
 
 ================================================================================
 // FILE: core\view\DebugConsoleWidget.hx
-// Lines: 390 | Chars: 15530
+// Lines: 390 | Chars: 15531
 ================================================================================
 
 // FILE: core/view/DebugConsoleWidget.hx
@@ -8086,10 +8086,10 @@ import core.base.Contact;
  * ║  │  ┌─────────────────────────────────────────────────────────────┐    │  ║
  * ║  │  │  DEBUG CONSOLE                                    [Clear]   │    │  ║
  * ║  │  ├─────────────────────────────────────────────────────────────┤    │  ║
- * ║  │  │  12:34:56 | ComPortAtom: Opened COM13 via WebUSB           │    │  ║
- * ║  │  │  12:34:57 | PL2303HX: RX buffer activated (0x0044)         │    │  ║
- * ║  │  │  12:34:58 | SignalGenerator: freq=440.0 Hz                 │    │  ║
- * ║  │  │  12:34:59 | FFTAtom: Processing 512 samples                │    │  ║
+ * ║  │  │  12:34:56 | ComPortAtom: Opened COM13 via WebUSB            │    │  ║
+ * ║  │  │  12:34:57 | PL2303HX: RX buffer activated (0x0044)          │    │  ║
+ * ║  │  │  12:34:58 | SignalGenerator: freq=440.0 Hz                  │    │  ║
+ * ║  │  │  12:34:59 | FFTAtom: Processing 512 samples                 │    │  ║
  * ║  │  │  ...                                                        │    │  ║
  * ║  │  └─────────────────────────────────────────────────────────────┘    │  ║
  * ║  │  Lines: 4                                                           │  ║
@@ -8104,7 +8104,7 @@ import core.base.Contact;
  * ║  - FIXED: onContactChanged uses switch(contact.name) instead of           ║
  * ║    if(contact == _outputContact). Previous approach failed when           ║
  * ║    _outputContact was null during race conditions at init time.           ║
- * ║  - FIXED: syncFromAtom() now has fallback to atom.getText()-style         │  ║
+ * ║  - FIXED: syncFromAtom() now has fallback to atom.getText()-style         ║
  * ║    direct read if contact subscription hasn't fired yet.                  ║
  * ║  - ADDED: Event.SCROLL listener on _logField for manual scroll            ║
  * ║    detection (prevents auto-scroll from fighting user scroll).            ║
@@ -20510,7 +20510,7 @@ class GroupSelectionManager
 
 ================================================================================
 // FILE: editor\NodeEditor.hx
-// Lines: 1413 | Chars: 47309
+// Lines: 1514 | Chars: 52595
 ================================================================================
 
 package editor;
@@ -20549,8 +20549,57 @@ import ecs.ECS;
 using StringTools;
 
 /**
-* NODE EDITOR v4.8 (Global Name Uniqueness + Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
+* NODE EDITOR v4.9 (Zoom Performance Fix + Global Name Uniqueness + Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
 * Visual schematic editing coordinator.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v4.9 CHANGES (Zoom Performance Fix — Android Touch Optimization)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM:
+*  On Android tablets, pinch-to-zoom caused severe UI stuttering and GC
+*  spikes because OpenFL's cacheAsBitmap=true forced every NodeView to
+*  recreate its canvas buffer on every frame during scaleX/scaleY changes.
+*
+*  SOLUTION:
+*  Subscribe to ViewportManager.onZoomStart / onZoomEnd callbacks.
+*  During active zoom, set cacheAsBitmap=false on all visible NodeViews
+*  to switch to cheaper dynamic rendering. After zoom ends, restore
+*  cacheAsBitmap=true for crisp static rendering and force a final
+*  wire redraw to ensure vector clarity at the new scale.
+*
+*  Flow:
+*  ┌──────────────────────────────────────────────────────────────────┐
+*  │  User starts pinch-to-zoom                                       │
+*  │       │                                                          │
+*  │       ▼                                                          │
+*  │  ViewportManager detects 2-finger touch                          │
+*  │       │                                                          │
+*  │       ├──► onZoomStart callback fires                            │
+*  │       │         │                                                │
+*  │       │         ▼                                                │
+*  │       │    NodeEditor iterates _nodes                            │
+*  │       │         │                                                │
+*  │       │         ▼                                                │
+*  │       │    view.setCacheAsBitmapState(false)                     │
+*  │       │         │                                                │
+*  │       │         ▼                                                │
+*  │       │    OpenFL uses dynamic rendering (cheaper)               │
+*  │       │                                                          │
+*  │       └──► User releases fingers                                 │
+*  │                 │                                                │
+*  │                 ▼                                                │
+*  │            onZoomEnd callback fires                              │
+*  │                 │                                                │
+*  │                 ▼                                                │
+*  │            view.setCacheAsBitmapState(true)                      │
+*  │                 │                                                │
+*  │                 ▼                                                │
+*  │            _wireRenderer.rebuildAll()                            │
+*  │                 │                                                │
+*  │                 ▼                                                │
+*  │            Crisp vector rendering at new scale                   │
+*  └──────────────────────────────────────────────────────────────────┘
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v4.8 CHANGES (Global Name Uniqueness)
@@ -20790,6 +20839,16 @@ class NodeEditor extends Sprite
 
 		_canvas = new Sprite();
 		_editorContainer.addChild(_canvas);
+		
+		// ═══════════════════════════════════════════════════════════════
+		// CRITICAL FIX FOR ANDROID WEBGL:
+		// Disable canvas caching. When zooming, OpenFL tries to
+		// recreate the texture of the entire container if this is true, which kills FPS
+		// and causes artifacts (missing nodes) when switching visibility.
+		// ═══════════════════════════════════════════════════════════════
+		_canvas.cacheAsBitmap = false;
+		_canvas.cacheAsBitmapMatrix = null;
+		
 		_canvas.graphics.lineStyle(3, 0xFF33FF);
 		_canvas.graphics.beginFill(_theme.CANVAS_BG_COLOR, 1);
 		_canvas.graphics.drawRect(-1, -1, 1500, 1500);
@@ -20807,7 +20866,7 @@ class NodeEditor extends Sprite
 		_bgHitArea.addEventListener(MouseEvent.RIGHT_CLICK, onCanvasRightClick);
 
 		// Managers
-		_viewport = new ViewportManager(_canvas);
+		_viewport = new ViewportManager(_canvas, _bgHitArea);
 		_actions = new EditorActionHandler(_assembly, _blueprint, _isNameTakenGlobally); // v4.8: Pass callback
 		_wireRenderer = new WireRenderer();
 		_wireRenderer.configure(
@@ -20816,6 +20875,52 @@ class NodeEditor extends Sprite
 			function() return _selection.getSelectedWireIds()
 		);
 
+		// ═══════════════════════════════════════════════════════════════════
+		// v4.9: ZOOM PERFORMANCE FIX (Android Touch Optimization)
+		// Subscribe to ViewportManager zoom callbacks to toggle cacheAsBitmap
+		// on all NodeViews during pinch-to-zoom gestures.
+		//
+		// During zoom:  cacheAsBitmap=false → cheaper dynamic rendering
+		// After zoom:   cacheAsBitmap=true  → crisp static rendering
+		//               + force wire redraw for vector clarity
+		// ═══════════════════════════════════════════════════════════════════
+		_viewport.onZoomStart = function() {
+			for (view in _nodes) {
+				if (view != null) view.setCacheAsBitmapState(false);
+			}
+		};
+
+		_viewport.onZoomEnd = function() {
+			for (view in _nodes) {
+				if (view != null) view.setCacheAsBitmapState(true);
+			}
+			// Force final wire redraw after zoom completes
+			// to ensure crisp vector rendering at the new scale
+			if (_wireRenderer != null) _wireRenderer.rebuildAll();
+		};
+		
+				_viewport.onZoomEnd = function() {
+			for (view in _nodes) {
+				if (view != null) view.setCacheAsBitmapState(true);
+			}
+			// Force final wire redraw after zoom completes
+			if (_wireRenderer != null) _wireRenderer.rebuildAll();
+		};
+
+		// ═══════════════════════════════════════════════════════════════
+		// КРИТИЧЕСКИЙ ФИКС: Обновляем видимость нод после завершения 
+		// любого тач-жеста (pan или zoom). Без этого атомы, заехавшие 
+		// в область видимости во время пана, остаются скрытыми.
+		// ═══════════════════════════════════════════════════════════════
+		_viewport.onTransformEnd = function() {
+			updateVisibility();
+		};
+		
+		// Update node visibility after completing any touch gesture (pan or zoom)
+		_viewport.onTransformEnd = function() {
+			updateVisibility();
+		};
+		
 		// Pass reference to setWires method so WireRenderer can update selection
 		_wireRenderer.setSelectionCallback(function(ids:Array<String>)
 		{
@@ -21521,19 +21626,15 @@ class NodeEditor extends Sprite
 	private function onMouseWheel(e:MouseEvent):Void
 	{
 		_viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
-		_wireRenderer.rebuildAll();
+		// НЕ вызываем _wireRenderer.rebuildAll(); здесь — провода масштабируются 
+		// автоматически вместе с canvas. Перерисуем после зума.
 		updateVisibility();
 	}
 
 	private function updateVisibility():Void
 	{
-		var now = haxe.Timer.stamp();
-		if (now - _lastVisibilityUpdate < 0.1) return;
-		_lastVisibilityUpdate = now;
-
 		var w = _forcedWidth > 0 ? _forcedWidth : (stage != null ? stage.stageWidth : 1024);
 		var h = _forcedHeight > 0 ? _forcedHeight : (stage != null ? stage.stageHeight : 600);
-
 		_viewport.updateVisibility(_nodes.iterator(), w, h);
 	}
 
@@ -21929,7 +22030,7 @@ class NodeEditor extends Sprite
 
 ================================================================================
 // FILE: editor\NodeView.hx
-// Lines: 1784 | Chars: 60222
+// Lines: 1820 | Chars: 61684
 ================================================================================
 
 package editor;
@@ -22113,6 +22214,15 @@ class NodeView extends Sprite
 	private function set_isSelected(value:Bool):Bool { selected = value; return value; }
 	public var hasWidget(default, null):Bool = false;
 
+	
+// =========================================================================
+// DINAMIC SWICHING CACHEASBITMAP
+// =========================================================================
+	public function setCacheAsBitmapState(enabled:Bool):Void
+	{
+		this.cacheAsBitmap = enabled;
+	}
+	
 // =========================================================================
 // INLINE NAME EDITING (v3.3)
 // =========================================================================
@@ -22165,6 +22275,15 @@ class NodeView extends Sprite
 		{
 			this.assembly = cast(atom, Assembly);
 		}
+		
+		// ═══════════════════════════════════════════════════════════════
+		// Turning off cacheAsBitmap for HTML5
+		// Предотвращает дикие спайки GC и перевыделение canvas-буфера 
+		// при каждом изменении scaleX/scaleY родительского контейнера.
+		// ═══════════════════════════════════════════════════════════════
+		this.cacheAsBitmap = false;
+		
+		
 		buildUI();
 		createPorts();
 		createInlineEditors();
@@ -22759,6 +22878,13 @@ class NodeView extends Sprite
 
 	public function updateInlineEditorsVisibility():Void
 	{
+	// ═══════════════════════════════════════════════════════════════
+    // HARD GUARD AGAINST UI RECALCULATION DURING GESTURES
+    // ═══════════════════════════════════════════════════════════════
+		if (EditorState.isZooming() || EditorState.isPanning()) {
+			return;
+		}
+		
 		var inputs = atom.getInputs();
 		if (inputs == null) return;
 		for (contact in inputs)
@@ -23660,6 +23786,17 @@ class NodeView extends Sprite
 
 	private function onWiresRedrawn(impulse:Impulse):Void
 	{
+		// ======================================================================
+		// HARD GUARD AGAINST UI RECALCULATION DURING GESTURES
+		// ======================================================================
+		// If zooming or panning is in progress, we STRICTLY must not recalculate
+		// inline editors. WireRenderer already scales along with
+		// _canvas via the hardware OpenFL display list.
+		// Loops through _inlineEditors and port.numChildren kill FPS on Android.
+		if (EditorState.isZooming() || EditorState.isPanning()) {
+			return;
+		}
+
 		//updateInlineEditorsVisibility();
 		alignInlineEditors();
 	}
@@ -24129,367 +24266,735 @@ class SelectionManager
 
 ================================================================================
 // FILE: editor\ViewportManager.hx
-// Lines: 346 | Chars: 13095
+// Lines: 718 | Chars: 23990
 ================================================================================
 
 package editor;
 
 import openfl.display.Sprite;
 import openfl.geom.Point;
+import openfl.events.TouchEvent;
 import editor.NodeView;
 
 /**
- * VIEWPORT MANAGER v1.1 (Zoom Performance Fix)
- * Handles Pan, Zoom, and Visibility culling logic.
- *
- * Architecture:
- * ┌─────────────────────────────────────────────────────────────────────────┐
- * │   ViewportManager                                                       │
- * │                                                                         │
- * │   ┌─────────────────────────────────────────────────────────────────┐   │
- * │   │  Pan Operations:                                                │   │
- * │   │  - handlePanStart(x, y)    → Begin pan                          │   │
- * │   │  - handlePanMove(x, y)     → Update canvas position             │   │
- * │   │  - handlePanEnd()          → End pan                            │   │
- * │   │                                                                 │   │
- * │   │  Zoom Operations:                                               │   │
- * │   │  - handleZoom(delta, x, y) → Scale canvas towards cursor        │   │
- * │   │  - Lazy activation system  → Defer DeviceView activation        │   │
- * │   │  - EditorState integration → Global zoom tracking               │   │
- * │   │                                                                 │   │
- * │   │  Visibility Culling:                                            │   │
- * │   │  - updateVisibility()      → Hide/show nodes based on viewport  │   │
- * │   │  - Throttled updates       → 20 FPS max during rapid zoom       │   │
- * │   │  - Batch activation        → Process pending in small batches   │   │
- * │   │                                                                 │   │
- * │   │  State:                                                         │   │
- * │   │  - getViewState()        → {x, y, zoom}                         │   │
- * │   │  - setViewState(state)   → Restore saved viewport               │   │
- * │   └─────────────────────────────────────────────────────────────────┘   │
- * │                                                                         │
- * │   v1.1 Changes:                                                         │
- * │   - Added lazy activation for DeviceView (prevents mass activation)     │
- * │   - Added visibility update throttling                                  │
- * │   - Integrated EditorState for global zoom tracking                     │
- * │                                                                         │
- * └─────────────────────────────────────────────────────────────────────────┘
- */
+* VIEWPORT MANAGER v1.4 (Zoom Performance Fix + Touch Throttling + Smart Pan Target)
+* Handles Pan, Zoom, Visibility culling, and Touch interactions.
+*
+* Architecture:
+* ┌─────────────────────────────────────────────────────────────────────────┐
+* │   ViewportManager                                                       │
+* │                                                                         │
+* │   ┌─────────────────────────────────────────────────────────────────┐   │
+* │   │  Mouse Operations:                                              │   │
+* │   │  - handlePanStart/Move/End()  → Middle mouse pan                │   │
+* │   │  - handleZoom()               → Mouse wheel zoom                │   │
+* │   │                                                                 │   │
+* │   │  Touch Operations (Mobile/Tablet):                              │   │
+* │   │  - 1 Finger on BG           → Pan canvas                        │   │
+* │   │  - 1 Finger on Node/Port    → Ignored (let NodeEditor handle)   │   │
+* │   │  - 2 Fingers                → Pinch-to-zoom canvas              │   │
+* │   │  - Touch tracking           → Map<Int, {x, y}> by touchPointID  │   │
+* │   │                                                                 │   │
+* │   │  Visibility Culling:                                            │   │
+* │   │  - updateVisibility()      → Hide/show nodes based on viewport  │   │
+* │   │  - Throttled updates       → 20 FPS max during rapid zoom       │   │
+* │   │  - Batch activation        → Process pending in small batches   │   │
+* │   │                                                                 │   │
+* │   │  State:                                                         │   │
+* │   │  - getViewState()        → {x, y, zoom}                         │   │
+* │   │  - setViewState(state)   → Restore saved viewport               │   │
+* │   └─────────────────────────────────────────────────────────────────┘   │
+* │                                                                         │
+* │   v1.4 Changes:                                                         │
+* │   - ADDED: _hasPendingTransform flag for ENTER_FRAME throttling         │
+* │   - ADDED: onZoomStart / onZoomEnd callbacks for cacheAsBitmap toggle   │
+* │   - v1.3: Added isBackgroundTouch() to prevent pan hijacking            │
+* │   - v1.3: Added robust multi-touch tracking via touchPointID Map        │
+* │   - v1.3: Removed invalid `stage` references                            │
+* │   - v1.3: Removed non-existent TouchEvent.TOUCH_CANCEL                  │
+* │   - v1.3: Added lazy activation for DeviceView                          │
+* │   - v1.3: Added visibility update throttling                            │
+* │   - v1.3: Integrated EditorState for global zoom tracking               │
+* │                                                                         │
+* └─────────────────────────────────────────────────────────────────────────┘
+*/
 class ViewportManager
 {
-    // =========================================================================
-    // DEPENDENCIES
-    // =========================================================================
-    private var _canvas:Sprite;
-    private var _theme:EditorTheme;
-    
-    // =========================================================================
-    // PAN STATE
-    // =========================================================================
-    private var _isPanning:Bool = false;
-    private var _panStartX:Float = 0;
-    private var _panStartY:Float = 0;
-    private var _canvasStartX:Float = 0;
-    private var _canvasStartY:Float = 0;
-    
-    // =========================================================================
-    // ZOOM SETTINGS
-    // =========================================================================
-    private var _zoomMin:Float = 0.1;
-    private var _zoomMax:Float = 3.0;
-    
-    // =========================================================================
-    // LAZY ACTIVATION SYSTEM
-    // =========================================================================
-    private var _isZooming:Bool = false;
-    private var _zoomEndTimer:haxe.Timer = null;
-    private var _pendingActivations:Array<NodeView> = [];
-    
-    // =========================================================================
-    // THROTTLING
-    // =========================================================================
-    private var _lastVisibilityUpdate:Float = 0;
-    private static inline var VISIBILITY_THROTTLE:Float = 0.05; // 20 FPS max
-    
-    // =========================================================================
-    // CONSTRUCTOR
-    // =========================================================================
-    public function new(canvas:Sprite)
-    {
-        _canvas = canvas;
-        _theme = EditorTheme.getInstance();
-    }
-    
-    // =========================================================================
-    // PAN OPERATIONS
-    // =========================================================================
-    /**
-     * Begin pan operation.
-     */
-    public function handlePanStart(stageX:Float, stageY:Float):Void
-    {
-        if (_isPanning) return;
-        
-        _isPanning = true;
-        _panStartX = stageX;
-        _panStartY = stageY;
-        _canvasStartX = _canvas.x;
-        _canvasStartY = _canvas.y;
-        
-        // Update global state
-        EditorState.setIsPanning(true);
-    }
-    
-    /**
-     * Update canvas position during pan.
-     */
-    public function handlePanMove(stageX:Float, stageY:Float):Void
-    {
-        if (!_isPanning) return;
-        
-        var dx = stageX - _panStartX;
-        var dy = stageY - _panStartY;
-        
-        _canvas.x = _canvasStartX + dx;
-        _canvas.y = _canvasStartY + dy;
-    }
-    
-    /**
-     * End pan operation.
-     */
-    public function handlePanEnd():Void
-    {
-        _isPanning = false;
-        EditorState.setIsPanning(false);
-    }
-    
-    public function isPanning():Bool return _isPanning;
-    
-    // =========================================================================
-    // ZOOM OPERATIONS (WITH LAZY ACTIVATION)
-    // =========================================================================
-    /**
-     * Handle zoom operation.
-     * Scales canvas towards cursor position.
-     * 
-     * Uses lazy activation to prevent mass DeviceView activation during zoom.
-     */
-    public function handleZoom(delta:Int, stageX:Float, stageY:Float, container:Sprite):Void
-    {
-        var zoomFactor:Float = 1.1;
-        if (delta < 0) zoomFactor = 1 / 1.1;
-        
-        var mouseLocal:Point = _canvas.globalToLocal(new Point(stageX, stageY));
-        
-        var oldScale:Float = _canvas.scaleX;
-        var newScale:Float = oldScale * zoomFactor;
-        
-        if (newScale < _zoomMin) newScale = _zoomMin;
-        if (newScale > _zoomMax) newScale = _zoomMax;
-        if (newScale == oldScale) return;
-        
-        // Mark as zooming
-        _isZooming = true;
-        EditorState.setIsZooming(true);
-        
-        // Reset zoom end timer
-        if (_zoomEndTimer != null)
-        {
-            _zoomEndTimer.stop();
-            _zoomEndTimer = null;
-        }
-        
-        // Schedule zoom end detection (15ms after last zoom)
-        _zoomEndTimer = haxe.Timer.delay(() -> {
-            _isZooming = false;
-            EditorState.setIsZooming(false);
-            _processPendingActivations();
-        }, 15);
-        
-        _canvas.scaleX = newScale;
-        _canvas.scaleY = newScale;
-        
-        // Adjust position to zoom towards cursor
-        var targetGlobalPos:Point = new Point(
-            stageX - (mouseLocal.x * newScale),
-            stageY - (mouseLocal.y * newScale)
-        );
-        
-        var targetLocalPos:Point = container.globalToLocal(targetGlobalPos);
-        
-        _canvas.x = targetLocalPos.x;
-        _canvas.y = targetLocalPos.y;
-    }
-    
-    // =========================================================================
-    // STATE MANAGEMENT
-    // =========================================================================
-    /**
-     * Get current viewport state.
-     */
-    public function getViewState():{x:Float, y:Float, zoom:Float}
-    {
-        return { x: _canvas.x, y: _canvas.y, zoom: _canvas.scaleX };
-    }
-    
-    /**
-     * Restore viewport state.
-     */
-    public function setViewState(state:{x:Float, y:Float, zoom:Float}):Void
-    {
-        if (state == null) return;
-        
-        _canvas.x = state.x;
-        _canvas.y = state.y;
-        
-        var z = state.zoom;
-        if (z < _zoomMin) z = _zoomMin;
-        if (z > _zoomMax) z = _zoomMax;
-        
-        _canvas.scaleX = z;
-        _canvas.scaleY = z;
-    }
-    
-    // =========================================================================
-    // VISIBILITY CULLING (WITH LAZY ACTIVATION)
-    // =========================================================================
-    /**
-     * Update node visibility based on viewport bounds.
-     * 
-     * During zoom: only hide nodes, defer activation until zoom ends.
-     * Throttled to 20 FPS max during rapid zoom.
-     */
-    public function updateVisibility(nodes:Iterator<NodeView>, stageWidth:Float, stageHeight:Float):Void
-    {
-        // Throttle visibility updates during rapid zoom
-        var now = haxe.Timer.stamp();
-        if (_isZooming && (now - _lastVisibilityUpdate) < VISIBILITY_THROTTLE)
-        {
-            return;
-        }
-        _lastVisibilityUpdate = now;
-        
-        var margin:Float = 150;
-        
-        // Calculate visible bounds in Canvas coordinates
-        var viewLeft:Float = (-_canvas.x / _canvas.scaleX) - margin;
-        var viewTop:Float = (-_canvas.y / _canvas.scaleY) - margin;
-        var viewRight:Float = viewLeft + (stageWidth / _canvas.scaleX) + (margin * 2);
-        var viewBottom:Float = viewTop + (stageHeight / _canvas.scaleY) + (margin * 2);
-        
-        var visibleCount:Int = 0;
-        var newlyVisible:Int = 0;
-        var newlyHidden:Int = 0;
-        
-        for (view in nodes)
-        {
-            if (view == null) continue;
-										
-            var wasVisible = view.visible;
+	// =========================================================================
+	// DEPENDENCIES
+	// =========================================================================
+	private var _canvas:Sprite;
+	private var _bgHitArea:Sprite; // Reference to the background hit area
+	private var _theme:EditorTheme;
+	
+	// =========================================================================
+	// PAN STATE
+	// =========================================================================
+	private var _isPanning:Bool = false;
+	private var _panStartX:Float = 0;
+	private var _panStartY:Float = 0;
+	private var _canvasStartX:Float = 0;
+	private var _canvasStartY:Float = 0;
+	
+	// =========================================================================
+	// ZOOM SETTINGS
+	// =========================================================================
+	private var _zoomMin:Float = 0.1;
+	private var _zoomMax:Float = 3.0;
+	
+	// =========================================================================
+	// LAZY ACTIVATION SYSTEM
+	// =========================================================================
+	private var _isZooming:Bool = false;
+	private var _zoomEndTimer:haxe.Timer = null;
+	private var _pendingActivations:Array<NodeView> = [];
+	
+	// =========================================================================
+	// THROTTLING
+	// =========================================================================
+	private var _lastVisibilityUpdate:Float = 0;
+	private static inline var VISIBILITY_THROTTLE:Float = 0.05; // 20 FPS max
+	private var _hasPendingTransform:Bool = false; // Флаг отложенного применения трансформаций
+	
+	// =========================================================================
+	// ZOOM CALLBACKS
+	// =========================================================================
+	public var onZoomStart:Void -> Void;
+	public var onZoomEnd:Void -> Void;
+	
+	// =========================================================================
+	// TRANSFORM CALLBACKS (Update visibility after touch-pan/zoom)
+	// =========================================================================
+	public var onTransformEnd:Void -> Void;
+	
+	// =========================================================================
+	// TOUCH STATE
+	// =========================================================================
+	private var _activeTouches:Map<Int, {x:Float, y:Float}>;
+	private var _touchCount:Int = 0;
+	private var _touchPanning:Bool = false;
+	private var _touchPanStartX:Float = 0;
+	private var _touchPanStartY:Float = 0;
+	private var _touchPanStartCanvasX:Float = 0;
+	private var _touchPanStartCanvasY:Float = 0;
+	private var _wasZooming:Bool = false;
+	private var _pinchZooming:Bool = false;
+	private var _pinchStartDistance:Float = 0;
+	private var _pinchStartScale:Float = 1.0;
+	private var _pinchCenterX:Float = 0;
+	private var _pinchCenterY:Float = 0;
+
+	// =========================================================================
+	// Reusable Points for stop GC-spikes when Zooming on Android
+	// =========================================================================
+	private var _tempPoint1:openfl.geom.Point = new openfl.geom.Point();
+	private var _tempPoint2:openfl.geom.Point = new openfl.geom.Point();
+	
+	// =========================================================================
+	// CONSTRUCTOR
+	// =========================================================================
+	/**
+	 * Create ViewportManager.
+	 * 
+	 * @param canvas The main canvas sprite.
+	 * @param bgHitArea Optional background hit area sprite. If provided, pan 
+	 *                  will ONLY trigger when this specific sprite is touched,
+	 *                  preventing interference with NodeView/Port interactions.
+	 */
+	public function new(canvas:Sprite, ?bgHitArea:Sprite)
+	{
+		_canvas = canvas;
+		_bgHitArea = bgHitArea;
+		_theme = EditorTheme.getInstance();
+		_activeTouches = new Map();
+		
+		// Listen to touch events directly on the canvas.
+		// NOTE: OpenFL TouchEvent does NOT have TOUCH_CANCEL. 
+		// TOUCH_END reliably captures both finger lifts and system interruptions.
+		_canvas.addEventListener(TouchEvent.TOUCH_BEGIN, onTouchBegin);
+		_canvas.addEventListener(TouchEvent.TOUCH_MOVE, onTouchMove);
+		_canvas.addEventListener(TouchEvent.TOUCH_END, onTouchEnd);
+		
+		// ПУНКТ 3: Слушатель ENTER_FRAME для применения трансформаций строго 1 раз за кадр (60 FPS)
+		_canvas.addEventListener(openfl.events.Event.ENTER_FRAME, onEnterFrame);
+	}
+	
+	// =========================================================================
+	// PAN OPERATIONS
+	// =========================================================================
+	/**
+	 * Begin pan operation.
+	 */
+	public function handlePanStart(stageX:Float, stageY:Float):Void
+	{
+		if (_isPanning) return;
+		
+		_isPanning = true;
+		_panStartX = stageX;
+		_panStartY = stageY;
+		_canvasStartX = _canvas.x;
+		_canvasStartY = _canvas.y;
+		
+		// Update global state
+		EditorState.setIsPanning(true);
+	}
+	
+	/**
+	 * Update canvas position during pan.
+	 */
+	public function handlePanMove(stageX:Float, stageY:Float):Void
+	{
+		if (!_isPanning) return;
+		
+		var dx = stageX - _panStartX;
+		var dy = stageY - _panStartY;
+		
+		_canvas.x = _canvasStartX + dx;
+		_canvas.y = _canvasStartY + dy;
+	}
+	
+	/**
+	 * End pan operation.
+	 */
+	public function handlePanEnd():Void
+	{
+		_isPanning = false;
+		EditorState.setIsPanning(false);
+	}
+	
+	public function isPanning():Bool return _isPanning;
+	
+	// =========================================================================
+	// ZOOM OPERATIONS (WITH LAZY ACTIVATION)
+	// =========================================================================
+	/**
+	 * Handle zoom operation.
+	 * Scales canvas towards cursor position.
+	 * 
+	 * Uses lazy activation to prevent mass DeviceView activation during zoom.
+	 */
+	public function handleZoom(delta:Int, stageX:Float, stageY:Float, container:Sprite):Void
+	{
+		var zoomFactor:Float = 1.1;
+		if (delta < 0) zoomFactor = 1 / 1.1;
+		
+		_tempPoint1.x = stageX;
+		_tempPoint1.y = stageY;
+		var mouseLocal:openfl.geom.Point = _canvas.globalToLocal(_tempPoint1);
+		
+		var oldScale:Float = _canvas.scaleX;
+		var newScale:Float = oldScale * zoomFactor;
+		
+		if (newScale < _zoomMin) newScale = _zoomMin;
+		if (newScale > _zoomMax) newScale = _zoomMax;
+		if (newScale == oldScale) return;
+		
+		// Mark as zooming
+		_isZooming = true;
+		EditorState.setIsZooming(true);
+		
+		// Reset zoom end timer
+		if (_zoomEndTimer != null)
+		{
+			_zoomEndTimer.stop();
+			_zoomEndTimer = null;
+		}
+		
+		// Schedule zoom end detection (15ms after last zoom)
+		_zoomEndTimer = haxe.Timer.delay(() -> {
+			_isZooming = false;
+			EditorState.setIsZooming(false);
+			_processPendingActivations();
+			
+			// Один rebuild после завершения зума
+			core.logic.Impulsys.quickEmit(core.logic.EventType.REDRAW_WIRES);
+		}, 15);
+		
+		_canvas.scaleX = newScale;
+		_canvas.scaleY = newScale;
+		
+		// Adjust position to zoom towards cursor
+		_tempPoint2.x = stageX - (mouseLocal.x * newScale);
+		_tempPoint2.y = stageY - (mouseLocal.y * newScale);
+		var targetGlobalPos:openfl.geom.Point = _tempPoint2;
+		
+		var targetLocalPos:Point = container.globalToLocal(targetGlobalPos);
+		
+		_canvas.x = targetLocalPos.x;
+		_canvas.y = targetLocalPos.y;
+	}
+	
+	// =========================================================================
+	// STATE MANAGEMENT
+	// =========================================================================
+	/**
+	 * Get current viewport state.
+	 */
+	public function getViewState():{x:Float, y:Float, zoom:Float}
+	{
+		return { x: _canvas.x, y: _canvas.y, zoom: _canvas.scaleX };
+	}
+	
+	/**
+	 * Restore viewport state.
+	 */
+	public function setViewState(state:{x:Float, y:Float, zoom:Float}):Void
+	{
+		if (state == null) return;
+		
+		_canvas.x = state.x;
+		_canvas.y = state.y;
+		
+		var z = state.zoom;
+		if (z < _zoomMin) z = _zoomMin;
+		if (z > _zoomMax) z = _zoomMax;
+		
+		_canvas.scaleX = z;
+		_canvas.scaleY = z;
+	}
+	
+	// =========================================================================
+	// VISIBILITY CULLING (WITH LAZY ACTIVATION)
+	// =========================================================================
+	/**
+	 * Update node visibility based on viewport bounds.
+	 * 
+	 * During zoom: only hide nodes, defer activation until zoom ends.
+	 * Throttled to 20 FPS max during rapid zoom.
+	 */
+	public function updateVisibility(nodes:Iterator<NodeView>, stageWidth:Float, stageHeight:Float):Void
+	{
+		// Throttle visibility updates during rapid zoom
+		var now = haxe.Timer.stamp();
+		if (_isZooming && (now - _lastVisibilityUpdate) < VISIBILITY_THROTTLE)
+		{
+			return;
+		}
+		_lastVisibilityUpdate = now;
+		
+		var margin:Float = 150;
+		
+		// Calculate visible bounds in Canvas coordinates
+		var viewLeft:Float = (-_canvas.x / _canvas.scaleX) - margin;
+		var viewTop:Float = (-_canvas.y / _canvas.scaleY) - margin;
+		var viewRight:Float = viewLeft + (stageWidth / _canvas.scaleX) + (margin * 2);
+		var viewBottom:Float = viewTop + (stageHeight / _canvas.scaleY) + (margin * 2);
+		
+		var visibleCount:Int = 0;
+		var newlyVisible:Int = 0;
+		var newlyHidden:Int = 0;
+		
+		for (view in nodes)
+		{
+			if (view == null) continue;
+											
+			var wasVisible = view.visible;
 			var size = view.getNodeSize();
 			// AABB check: node is visible if any part of it is within viewport
 			var isVisible = (view.x + size.width > viewLeft && view.x < viewRight &&
 							 view.y + size.height > viewTop  && view.y < viewBottom);
-            
-            if (isVisible) visibleCount++;
-            
-            if (view.visible != isVisible)
-            {
-                // During zoom, only hide nodes, defer activation
-                if (_isZooming)
-                {
-                    if (isVisible && !wasVisible)
-                    {
-                        // Node became visible during zoom - defer activation
-                        if (_pendingActivations.indexOf(view) == -1)
-                        {
-                            _pendingActivations.push(view);
-                        }
-                        // Still set visible for rendering
-                        view.visible = true;
-                        newlyVisible++;
-                    }
-                    else if (!isVisible && wasVisible)
-                    {
-                        // Node became hidden - deactivate immediately
-                        view.visible = false;
-                        newlyHidden++;
-                    }
-                }
-                else
-                {
-                    // Not zooming - full activation/deactivation
-                    view.visible = isVisible;
-                    if (isVisible && !wasVisible) newlyVisible++;
-                    else if (!isVisible && wasVisible) newlyHidden++;
-                }
-            }
-        }
-        
-        // Log if many nodes changed visibility at once
-        if (newlyVisible > 3 || newlyHidden > 3)
-        {
-            //trace('VISIBILITY DEBUG: Zoom=${Std.string(_canvas.scaleX).substr(0, 5)}, Visible=${visibleCount}, NewVisible=${newlyVisible}, NewHidden=${newlyHidden}');
-        }
-    }
-    
-    /**
-     * Process pending activations after zoom ends.
-     * Activates in small batches to avoid single-frame spike.
-     */
-    private function _processPendingActivations():Void
-    {
-        if (_pendingActivations.length == 0) return;
-        
-        //trace('VISIBILITY: Processing ${_pendingActivations.length} pending activations after zoom');
-        
-        // Activate in small batches to avoid single-frame spike
-        var batchSize = 5;
-        var processed = 0;
-        
-        for (view in _pendingActivations)
-        {
-            if (view != null && view.visible)
-            {
-                // Re-trigger visible to activate DeviceView
-                view.visible = view.visible;
-                processed++;
-                
-                // Stop if batch limit reached (remaining will process next frame)
-                if (processed >= batchSize) break;
-            }
-        }
-        
-        _pendingActivations = _pendingActivations.slice(batchSize);
-        
-        // If still pending, schedule next batch
-        if (_pendingActivations.length > 0)
-        {
-            haxe.Timer.delay(() -> _processPendingActivations(), 50);
-        }
-    }
-    
-    public function isZooming():Bool
-    {
-        return _isZooming;
-    }
-    
-    public function getCurrentScale():Float
-    {
-        return _canvas.scaleX;
-    }
+			
+			if (isVisible) visibleCount++;
+			
+			if (view.visible != isVisible)
+			{
+				// During zoom, only hide nodes, defer activation
+				if (_isZooming)
+				{
+					if (isVisible && !wasVisible)
+					{
+						// Node became visible during zoom - defer activation
+						if (_pendingActivations.indexOf(view) == -1)
+						{
+							_pendingActivations.push(view);
+						}
+						// Still set visible for rendering
+						view.visible = true;
+						newlyVisible++;
+					}
+					else if (!isVisible && wasVisible)
+					{
+						// Node became hidden - deactivate immediately
+						view.visible = false;
+						newlyHidden++;
+					}
+				}
+				else
+				{
+					// Not zooming - full activation/deactivation
+					view.visible = isVisible;
+					if (isVisible && !wasVisible) newlyVisible++;
+					else if (!isVisible && wasVisible) newlyHidden++;
+				}
+			}
+		}
+		
+		// Log if many nodes changed visibility at once
+		if (newlyVisible > 3 || newlyHidden > 3)
+		{
+			//trace('VISIBILITY DEBUG: Zoom=${Std.string(_canvas.scaleX).substr(0, 5)}, Visible=${visibleCount}, NewVisible=${newlyVisible}, NewHidden=${newlyHidden}');
+		}
+	}
+	
+	/**
+	 * Process pending activations after zoom ends.
+	 * Activates in small batches to avoid single-frame spike.
+	 */
+	private function _processPendingActivations():Void
+	{
+		if (_pendingActivations.length == 0) return;
+		
+		//trace('VISIBILITY: Processing ${_pendingActivations.length} pending activations after zoom');
+		
+		// Activate in small batches to avoid single-frame spike
+		var batchSize = 5;
+		var processed = 0;
+		
+		for (view in _pendingActivations)
+		{
+			if (view != null && view.visible)
+			{
+				// Re-trigger visible to activate DeviceView
+				view.visible = view.visible;
+				processed++;
+				
+				// Stop if batch limit reached (remaining will process next frame)
+				if (processed >= batchSize) break;
+			}
+		}
+		
+		_pendingActivations = _pendingActivations.slice(batchSize);
+		
+		// If still pending, schedule next batch
+		if (_pendingActivations.length > 0)
+		{
+			haxe.Timer.delay(() -> _processPendingActivations(), 50);
+		}
+	}
+	
+	public function isZooming():Bool
+	{
+		return _isZooming;
+	}
+	
+	public function getCurrentScale():Float
+	{
+		return _canvas.scaleX;
+	}
+	
+	// =========================================================================
+	// TOUCH HANDLERS
+	// =========================================================================
+	private function onTouchBegin(e:TouchEvent):Void
+	{
+		// ═══════════════════════════════════════════════════════════════
+		// Always track all touches for potential pinch gestures,
+		// even if the touch is not on the background (e.g., on a NodeView).
+		// The isBackgroundTouch check should only prevent starting a PAN,
+		// not prevent tracking the touch for potential PINCH.
+		// ═══════════════════════════════════════════════════════════════
+		var isFirstTouch = !_activeTouches.exists(e.touchPointID);
+		if (isFirstTouch)
+		{
+			_touchCount++;
+		}
+		_activeTouches.set(e.touchPointID, {x: e.stageX, y: e.stageY});
+		
+		// Only start pan if this is the first finger AND it's on the background.
+		// For subsequent fingers, always call updateTouchState() to allow pinch to start.
+		if (isFirstTouch && _touchCount == 1 && !isBackgroundTouch(e.target))
+		{
+			// Don't start pan, but touch is tracked for potential pinch
+			return;
+		}
+		
+		updateTouchState();
+	}
+
+	private function onTouchMove(e:TouchEvent):Void
+	{
+		if (_activeTouches.exists(e.touchPointID))
+		{
+			_activeTouches.set(e.touchPointID, {x: e.stageX, y: e.stageY});
+		}
+		
+		// ПУНКТ 3: Пропускаем события тача через троттлинг.
+		// Обновляем масштаб строго 1 раз за кадр через ENTER_FRAME.
+		_hasPendingTransform = true;
+	}
+
+	private function onTouchEnd(e:TouchEvent):Void
+	{
+		if (_activeTouches.exists(e.touchPointID))
+		{
+			_touchCount--;
+		}
+		_activeTouches.remove(e.touchPointID);
+		
+		// Force the application of the last state before completion
+		_hasPendingTransform = true;
+		updateTouchState();
+		
+		// We notify NodeEditor that it needs to update the visibility of nodes after the gesture
+		if (onTransformEnd != null) onTransformEnd();
+	}
+
+	// =========================================================================
+	// TOUCH THROTTLING (ПУНКТ 3)
+	// =========================================================================
+	private function onEnterFrame(e:openfl.events.Event):Void
+	{
+		if (_hasPendingTransform)
+		{
+			// Применяем трансформацию ровно 1 раз за кадр (60 FPS)
+			updateTouchState();
+			_hasPendingTransform = false;
+		}
+	}
+
+	// =========================================================================
+	// TOUCH STATE MACHINE
+	// =========================================================================
+	private function updateTouchState():Void
+	{
+		if (_touchCount == 1)
+		{
+			if (!_touchPanning)
+			{
+				// One finger - start pan
+				_touchPanning = true;
+				_pinchZooming = false;
+				EditorState.setIsPanning(true);
+				EditorState.setIsZooming(false);
+				
+				var firstTouch = getFirstTouch();
+				_touchPanStartX = firstTouch.x;
+				_touchPanStartY = firstTouch.y;
+				_touchPanStartCanvasX = _canvas.x;
+				_touchPanStartCanvasY = _canvas.y;
+			}
+			else
+			{
+				// Continue pan with one finger
+				var firstTouch = getFirstTouch();
+				var dx = firstTouch.x - _touchPanStartX;
+				var dy = firstTouch.y - _touchPanStartY;
+				_canvas.x = _touchPanStartCanvasX + dx;
+				_canvas.y = _touchPanStartCanvasY + dy;
+			}
+		}
+		else if (_touchCount == 2)
+		{
+			if (!_pinchZooming)
+			{
+				// Calculate initial distance between fingers
+				var initialDistance = calculatePinchDistance();
+				
+				// ═══════════════════════════════════════════════════════════════
+				// FIX: Only start pinch if fingers are far enough apart.
+				// If fingers are too close, the scale ratio becomes extremely
+				// sensitive, causing aggressive zoom/pan behavior.
+				// Minimum threshold: 50 pixels (about 1 cm on most screens).
+				// ═══════════════════════════════════════════════════════════════
+				if (initialDistance < 15)
+				{
+					// Fingers too close together — don't start pinch.
+					// Continue with whatever gesture was active (pan or nothing).
+					return;
+				}
+				
+				// Initialize pinch
+				_pinchZooming = true;
+				_touchPanning = false; // Explicitly reset pan state
+				EditorState.setIsPanning(false);
+				EditorState.setIsZooming(true);
+				_wasZooming = true;
+				
+				if (onZoomStart != null) onZoomStart();
+				
+				_pinchStartDistance = initialDistance;
+				_pinchStartScale = _canvas.scaleX;
+				var center = getPinchCenter();
+				_pinchCenterX = center.x;
+				_pinchCenterY = center.y;
+				
+				// Log for debugging
+				trace('Pinch started: distance=${_pinchStartDistance}, scale=${_pinchStartScale}, center=(${_pinchCenterX}, ${_pinchCenterY})');
+			}
+						else
+			{
+				// Continue pinch-to-zoom
+				var currentDistance = calculatePinchDistance();
+				var scaleRatio = currentDistance / _pinchStartDistance;
+				var newScale = _pinchStartScale * scaleRatio;
+				
+				// Clamp scale
+				if (newScale < _zoomMin) newScale = _zoomMin;
+				if (newScale > _zoomMax) newScale = _zoomMax;
+				
+				// ═══════════════════════════════════════════════════════════════
+				// FIX: Zero-GC point reuse for pinch zoom calculations
+				// ═══════════════════════════════════════════════════════════════
+				_tempPoint1.x = _pinchCenterX;
+				_tempPoint1.y = _pinchCenterY;
+				var mouseLocal:openfl.geom.Point = _canvas.globalToLocal(_tempPoint1);
+				
+				_canvas.scaleX = newScale;
+				_canvas.scaleY = newScale;
+				
+				_tempPoint2.x = _pinchCenterX - (mouseLocal.x * newScale);
+				_tempPoint2.y = _pinchCenterY - (mouseLocal.y * newScale);
+				var targetGlobalPos:openfl.geom.Point = _tempPoint2;
+				
+				var container = _canvas.parent;
+				if (container != null)
+				{
+					var targetLocalPos:Point = container.globalToLocal(targetGlobalPos);
+					_canvas.x = targetLocalPos.x;
+					_canvas.y = targetLocalPos.y;
+				}
+			}
+		}
+		else if (_touchCount == 0)
+		{
+			_touchPanning = false;
+			_pinchZooming = false;
+			_isZooming = false;
+			EditorState.setIsPanning(false);
+			EditorState.setIsZooming(false);
+			
+			// Trigger end of Zoom
+			if (_wasZooming)
+			{
+				if (onZoomEnd != null) onZoomEnd();
+				core.logic.Impulsys.quickEmit(core.logic.EventType.REDRAW_WIRES);
+				_wasZooming = false;
+			}
+		}
+		else if (_touchCount == 1 && _pinchZooming)
+		{
+			// Transitioned from pinch to pan
+			_pinchZooming = false;
+			_touchPanning = true;
+			_isZooming = false;
+			EditorState.setIsZooming(false);
+			EditorState.setIsPanning(true);
+			
+			var firstTouch = getFirstTouch();
+			_touchPanStartX = firstTouch.x;
+			_touchPanStartY = firstTouch.y;
+			_touchPanStartCanvasX = _canvas.x;
+			_touchPanStartCanvasY = _canvas.y;
+		}
+	}
+
+	// =========================================================================
+	// TOUCH HELPER METHODS
+	// =========================================================================
+	/**
+	 * Check if the touch target is the background (empty canvas space).
+	 * 
+	 * This prevents the viewport from hijacking interactions with Nodes, 
+	 * Ports, Wires, or Widgets.
+	 * 
+	 * @param target The DisplayObject that was touched.
+	 * @return true if the touch is on the background, false otherwise.
+	 */
+	private function isBackgroundTouch(target:openfl.display.DisplayObject):Bool
+	{
+		// 1. Strict check: If we have a dedicated background hit area, ONLY allow pan if touched.
+		// This naturally excludes Nodes, Ports, Wires, and Widgets.
+		if (_bgHitArea != null)
+		{
+			return (target == _bgHitArea || target == _canvas);
+		}
+		
+		// 2. Fallback: Walk up the display list to ensure we didn't touch a NodeView.
+		var current:openfl.display.DisplayObject = target;
+		while (current != null && current != _canvas)
+		{
+			if (Std.isOfType(current, NodeView)) 
+			{
+				return false; // Touched a node or its child (port/widget)
+			}
+			current = current.parent;
+		}
+		
+		return true; // Reached canvas without hitting a NodeView
+	}
+
+	private function getFirstTouch():{x:Float, y:Float}
+	{
+		for (touch in _activeTouches)
+		{
+			return touch;
+		}
+		return {x: 0, y: 0};
+	}
+
+	private function calculatePinchDistance():Float
+	{
+		// Calculate distance between two fingers
+		var touches = [];
+		for (t in _activeTouches) touches.push(t);
+		
+		if (touches.length >= 2)
+		{
+			var dx = touches[1].x - touches[0].x;
+			var dy = touches[1].y - touches[0].y;
+			return Math.sqrt(dx * dx + dy * dy);
+		}
+		
+		return 0;
+	}
+
+	private function getPinchCenter():{x:Float, y:Float}
+	{
+		var touches = [];
+		for (t in _activeTouches) touches.push(t);
+		
+		if (touches.length >= 2)
+		{
+			return {
+				x: (touches[0].x + touches[1].x) / 2,
+				y: (touches[0].y + touches[1].y) / 2
+			};
+		}
+		
+		return {x: 0, y: 0};
+	}
+
+	// =========================================================================
+	// CLEANUP
+	// =========================================================================
+	/**
+	 * Dispose resources and remove event listeners.
+	 */
+	public function dispose():Void
+	{
+		_canvas.removeEventListener(TouchEvent.TOUCH_BEGIN, onTouchBegin);
+		_canvas.removeEventListener(TouchEvent.TOUCH_MOVE, onTouchMove);
+		_canvas.removeEventListener(TouchEvent.TOUCH_END, onTouchEnd);
+		_canvas.removeEventListener(openfl.events.Event.ENTER_FRAME, onEnterFrame);
+		
+		_activeTouches = null;
+		_pendingActivations = null;
+		
+		if (_zoomEndTimer != null)
+		{
+			_zoomEndTimer.stop();
+			_zoomEndTimer = null;
+		}
+	}
 }
 
 ================================================================================
 // FILE: editor\WireRenderer.hx
-// Lines: 905 | Chars: 36507
+// Lines: 916 | Chars: 33077
 ================================================================================
 
-//================================================================================
-// FILE: editor\WireRenderer.hx
-// Lines: 755 | Chars: 29020
-//================================================================================
-
 package editor;
+
 import openfl.display.Sprite;
 import openfl.display.Graphics;
 import openfl.events.MouseEvent;
@@ -24657,717 +25162,733 @@ import ui.WireType.WireType as WireTypeEnum;
 * └─────────────────────────────────────────────────────────────────────────┘
 */
 class WireRenderer {
-    // === Dependencies (set via configure) ===
-    private var _blueprint:Blueprint;
-    private var _assembly:Assembly;
-    private var _canvas:Sprite;
-    private var _theme:EditorTheme;
-
-    // === Node/Port accessors ===
-    private var _getNodeView:String -> NodeView;
-    private var _getEdgePort:String -> Sprite;
-    private var _getSelectedWireIds:Void -> Array<String>;
-
-    // === Internal state ===
-    private var _container:Sprite;
-    private var _wireSprites:Map<String, WireEntry>;
-    private var _activeWires:Array<Sprite>;
-    private var _ghostWire:Sprite;
-    private var _wireType:WireTypeEnum;
-
-    // v1.6: Thickness of the invisible hit sprite used for wire selection.
-    // 12px provides a comfortable click target even at high zoom-out levels.
-    private static inline var HIT_SPRITE_THICKNESS:Float = 12.0;
-
-    // === Selection callback ===
-    private var _onWireSelectionChanged:Array<String> -> Void;
-
-    // === Disposed flag ===
-    private var _isDisposed:Bool = false;
-
-    public var wireType(get, set):WireTypeEnum;
-    public var container(get, never):Sprite;
-
-    public function new() {
-        _wireSprites = new Map();
-        _activeWires = [];
-        _wireType = WireType.BEZIER;
-        _theme = EditorTheme.getInstance();
-    }
-
-    // ========================================================================
-    // CONFIGURATION
-    // ========================================================================
-    /**
-     * Configure the renderer with all required dependencies.
-     * Must be called before any rendering methods.
-     */
-    public function configure(
-        blueprint:Blueprint,
-        assembly:Assembly,
-        canvas:Sprite,
-        getNodeView:String -> NodeView,
-        getEdgePort:String -> Sprite,
-        getSelectedWireIds:Void -> Array<String>
-    ):Void {
-        _blueprint = blueprint;
-        _assembly = assembly;
-        _canvas = canvas;
-        _getNodeView = getNodeView;
-        _getEdgePort = getEdgePort;
-        _getSelectedWireIds = getSelectedWireIds;
-
-        _container = new Sprite();
-        _container.mouseEnabled = false;
-        _canvas.addChild(_container);
-
-        _ghostWire = new Sprite();
-        _ghostWire.mouseEnabled = false;
-        _canvas.addChild(_ghostWire);
-    }
-
-    /**
-     * Set callback for wire selection changes.
-     */
-    public function setSelectionCallback(callback:Array<String> -> Void):Void {
-        _onWireSelectionChanged = callback;
-    }
-
-    // ========================================================================
-    // ACTIVE WIRES (during drag)
-    // ========================================================================
-    /**
-     * Mark wires connected to specified nodes as "active".
-     * Active wires will be updated on every node move.
-     */
-    public function setActiveWiresForNodes(nodeIds:Array<String>):Void {
-        if (_isDisposed) return;
-        clearActiveWires();
-
-        if (_blueprint.internalConnections == null) return;
-
-        var movingSet = new Map<String, Bool>();
-        for (id in nodeIds) movingSet.set(id, true);
-
-        for (link in _blueprint.internalConnections) {
-            var fromRuntime = _assembly.idMap.get(link.from.atomId);
-            if (fromRuntime == null) fromRuntime = link.from.atomId;
-            var toRuntime = _assembly.idMap.get(link.to.atomId);
-            if (toRuntime == null) toRuntime = link.to.atomId;
-
-            var isFromMoving = movingSet.exists(fromRuntime);
-            var isToMoving = movingSet.exists(toRuntime);
-
-            if (isFromMoving || isToMoving) {
-                var id = getWireIDStatic(link);
-                var entry = _wireSprites.get(id);
-                if (entry != null) {
-                    addActiveWire(entry.sprite);
-                }
-            }
-        }
-    }
-
-    /**
-     * Add a wire sprite to the active set.
-     */
-    public function addActiveWire(sprite:Sprite):Void {
-        if (_isDisposed) return;
-        if (_activeWires.indexOf(sprite) == -1) {
-            _activeWires.push(sprite);
-        }
-    }
-
-    /**
-     * Clear the active wires set.
-     */
-    public function clearActiveWires():Void {
-        _activeWires = [];
-    }
-
-    /**
-     * Update rendering of active wires (called during node drag).
-     */
-    public function updateActiveWires():Void {
-        if (_isDisposed || _activeWires.length == 0) return;
-
-        var selectedIds = _getSelectedWireIds();
-
-        for (link in _blueprint.internalConnections) {
-            var id = getWireIDStatic(link);
-            var entry = _wireSprites.get(id);
-
-            if (entry != null && _activeWires.indexOf(entry.sprite) != -1) {
-                var isSelected = selectedIds.indexOf(id) != -1;
-                var thickness = isSelected ? 4 : _theme.WIRE_THICKNESS;
-                var color = isSelected ? _theme.WIRE_COLOR_SELECTED : _theme.WIRE_COLOR_DEFAULT;
-                // v1.6: Update BOTH visible sprite and hit sprite
-                drawWireGraphics(entry.sprite.graphics, link, color, thickness);
-                if (entry.hitSprite != null) {
-                    drawWireGraphics(entry.hitSprite.graphics, link, 0xFF00FF, HIT_SPRITE_THICKNESS);
-                }
-            }
-        }
-    }
-
-    // ========================================================================
-    // MAIN RENDERING
-    // ========================================================================
-    /**
-     * Rebuild all wires from blueprint connections.
-     * Creates new sprites for new connections, updates existing ones,
-     * and removes sprites for deleted connections.
-     *
-     * v1.4: Also removes "ghost" wires where one or both endpoints are missing.
-     */
+	// === Dependencies (set via configure) ===
+	private var _blueprint:Blueprint;
+	private var _assembly:Assembly;
+	private var _canvas:Sprite;
+	private var _theme:EditorTheme;
+	
+	// === Node/Port accessors ===
+	private var _getNodeView:String -> NodeView;
+	private var _getEdgePort:String -> Sprite;
+	private var _getSelectedWireIds:Void -> Array<String>;
+	
+	// === Internal state ===
+	private var _container:Sprite;
+	private var _wireSprites:Map<String, WireEntry>;
+	private var _activeWires:Array<Sprite>;
+	private var _ghostWire:Sprite;
+	private var _wireType:WireTypeEnum;
+	
+	// v1.6: Thickness of the invisible hit sprite used for wire selection.
+	// 12px provides a comfortable click target even at high zoom-out levels.
+	private static inline var HIT_SPRITE_THICKNESS:Float = 12.0;
+	
+	// === Selection callback ===
+	private var _onWireSelectionChanged:Array<String> -> Void;
+	
+	// === Disposed flag ===
+	private var _isDisposed:Bool = false;
+	
+	public var wireType(get, set):WireTypeEnum;
+	public var container(get, never):Sprite;
+	
+	public function new() {
+		_wireSprites = new Map();
+		_activeWires = [];
+		_wireType = WireType.BEZIER;
+		_theme = EditorTheme.getInstance();
+	}
+	
+	// ========================================================================
+	// CONFIGURATION
+	// ========================================================================
+	/**
+	 * Configure the renderer with all required dependencies.
+	 * Must be called before any rendering methods.
+	 */
+	public function configure(
+		blueprint:Blueprint,
+		assembly:Assembly,
+		canvas:Sprite,
+		getNodeView:String -> NodeView,
+		getEdgePort:String -> Sprite,
+		getSelectedWireIds:Void -> Array<String>
+	):Void {
+		_blueprint = blueprint;
+		_assembly = assembly;
+		_canvas = canvas;
+		_getNodeView = getNodeView;
+		_getEdgePort = getEdgePort;
+		_getSelectedWireIds = getSelectedWireIds;
+		
+		_container = new Sprite();
+		_container.mouseEnabled = false;
+		_canvas.addChild(_container);
+		
+		_ghostWire = new Sprite();
+		_ghostWire.mouseEnabled = false;
+		_canvas.addChild(_ghostWire);
+	}
+	
+	/**
+	 * Set callback for wire selection changes.
+	 */
+	public function setSelectionCallback(callback:Array<String> -> Void):Void {
+		_onWireSelectionChanged = callback;
+	}
+	
+	// ========================================================================
+	// ACTIVE WIRES (during drag)
+	// ========================================================================
+	/**
+	 * Mark wires connected to specified nodes as "active".
+	 * Active wires will be updated on every node move.
+	 */
+	public function setActiveWiresForNodes(nodeIds:Array<String>):Void {
+		if (_isDisposed) return;
+		clearActiveWires();
+		
+		if (_blueprint.internalConnections == null) return;
+		
+		var movingSet = new Map<String, Bool>();
+		for (id in nodeIds) movingSet.set(id, true);
+		
+		for (link in _blueprint.internalConnections) {
+			var fromRuntime = _assembly.idMap.get(link.from.atomId);
+			if (fromRuntime == null) fromRuntime = link.from.atomId;
+			var toRuntime = _assembly.idMap.get(link.to.atomId);
+			if (toRuntime == null) toRuntime = link.to.atomId;
+			
+			var isFromMoving = movingSet.exists(fromRuntime);
+			var isToMoving = movingSet.exists(toRuntime);
+			
+			if (isFromMoving || isToMoving) {
+				var id = getWireIDStatic(link);
+				var entry = _wireSprites.get(id);
+				if (entry != null) {
+					addActiveWire(entry.sprite);
+				}
+			}
+		}
+	}
+	
+	/**
+	 * Add a wire sprite to the active set.
+	 */
+	public function addActiveWire(sprite:Sprite):Void {
+		if (_isDisposed) return;
+		if (_activeWires.indexOf(sprite) == -1) {
+			_activeWires.push(sprite);
+		}
+	}
+	
+	/**
+	 * Clear the active wires set.
+	 */
+	public function clearActiveWires():Void {
+		_activeWires = [];
+	}
+	
+	/**
+	 * Update rendering of active wires (called during node drag).
+	 */
+	public function updateActiveWires():Void {
+		if (_isDisposed || _activeWires.length == 0) return;
+		
+		var selectedIds = _getSelectedWireIds();
+		
+		for (link in _blueprint.internalConnections) {
+			var id = getWireIDStatic(link);
+			var entry = _wireSprites.get(id);
+			
+			if (entry != null && _activeWires.indexOf(entry.sprite) != -1) {
+				var isSelected = selectedIds.indexOf(id) != -1;
+				var thickness = isSelected ? 4 : _theme.WIRE_THICKNESS;
+				var color = isSelected ? _theme.WIRE_COLOR_SELECTED : _theme.WIRE_COLOR_DEFAULT;
+				
+				// v1.6: Update BOTH visible sprite and hit sprite
+				drawWireGraphics(entry.sprite.graphics, link, color, thickness);
+				if (entry.hitSprite != null) {
+					drawWireGraphics(entry.hitSprite.graphics, link, 0xFF00FF, HIT_SPRITE_THICKNESS);
+				}
+			}
+		}
+	}
+	
+	// ========================================================================
+	// MAIN RENDERING
+	// ========================================================================
+	/**
+	 * Rebuild all wires from blueprint connections.
+	 * Creates new sprites for new connections, updates existing ones,
+	 * and removes sprites for deleted connections.
+	 *
+	 * v1.4: Also removes "ghost" wires where one or both endpoints are missing.
+	 */
 	public function rebuildAll():Void {
 		if (_isDisposed) return;
+		
+		// ПУНКТ 5: Отключаем перерисовку векторных линий во время зума.
+		// WebGL автоматически масштабирует содержимое _canvas, поэтому
+		// вызов Graphics.clear() и lineTo() на каждый тач-ивент лишь 
+		// создаёт ненужную нагрузку на CPU и GC, не улучшая визуал.
+		if (EditorState.isZooming()) return;
+		
 		trace('🎨 WireRenderer.rebuildAll: blueprint has ${_blueprint.internalConnections != null ? _blueprint.internalConnections.length : 0} connections');
-
-        var activeWireIds = new Map<String, Bool>();
-        var ghostWireIds:Array<String> = [];
-
-        if (_blueprint.internalConnections != null) {
-            for (link in _blueprint.internalConnections) {
-                var id = getWireIDStatic(link);
-                activeWireIds.set(id, true);
-
-                // === v1.4: Check for ghost wires (missing endpoints) ===
-                var p1 = getWirePoint(link.from);
-                var p2 = getWirePoint(link.to);
-
-                if (p1 == null || p2 == null) {
-                    // Ghost wire detected — one or both endpoints missing
-                    ghostWireIds.push(id);
-                    continue; // Skip drawing this wire
-                }
-
-                var entry = _wireSprites.get(id);
-
-                if (entry != null) {
-                    // Update existing wire
-                    var selectedIds = _getSelectedWireIds();
-                    var isSelected = selectedIds.indexOf(id) != -1;
-                    var color = isSelected ? _theme.WIRE_COLOR_SELECTED : _theme.WIRE_COLOR_DEFAULT;
-                    var thickness = isSelected ? 4 : _theme.WIRE_THICKNESS;
-                    // v1.6: Update BOTH visible sprite and hit sprite
-                    drawWireGraphics(entry.sprite.graphics, link, color, thickness);
-                    if (entry.hitSprite != null) {
-                        drawWireGraphics(entry.hitSprite.graphics, link, 0xFF00FF, HIT_SPRITE_THICKNESS);
-                    }
-                } else {
-                    // Create new wire
-                    createWireSprite(link);
-                }
-            }
-        }
-
-        // === v1.4: Remove ghost wire sprites ===
-        for (id in ghostWireIds) {
-            removeWireSprite(id);
-        }
-
-        // Remove deleted wires (not in blueprint anymore)
-        var idsToRemove:Array<String> = [];
-        for (id in _wireSprites.keys()) {
-            if (!activeWireIds.exists(id)) {
-                idsToRemove.push(id);
-            }
-        }
-        for (id in idsToRemove) {
-            removeWireSprite(id);
-        }
-    }
-
-    /**
-     * Remove all wire sprites and clear internal state.
-     */
-    public function clearAll():Void {
-        for (key in _wireSprites.keys()) {
-            var entry = _wireSprites.get(key);
-            if (entry == null) continue;
-
-            // v1.6: Listeners live on hitSprite now
-            if (entry.hitSprite != null) {
-                if (entry.mouseDownHandler != null) {
-                    entry.hitSprite.removeEventListener(MouseEvent.MOUSE_DOWN, entry.mouseDownHandler);
-                }
-                if (entry.clickHandler != null) {
-                    entry.hitSprite.removeEventListener(MouseEvent.CLICK, entry.clickHandler);
-                }
-                if (entry.rightClickHandler != null) {
-                    entry.hitSprite.removeEventListener(MouseEvent.RIGHT_CLICK, entry.rightClickHandler);
-                }
-                entry.hitSprite.graphics.clear();
-                if (entry.hitSprite.parent != null) {
-                    entry.hitSprite.parent.removeChild(entry.hitSprite);
-                }
-            }
-
-            if (entry.sprite != null) {
-                entry.sprite.graphics.clear();
-                if (entry.sprite.parent != null) {
-                    entry.sprite.parent.removeChild(entry.sprite);
-                }
-            }
-        }
-        _wireSprites.clear();
-        _activeWires = [];
-    }
-
-    /**
-     * Update wires connected to SELF (edge ports).
-     * Called when the assembly frame is resized.
-     */
-    public function updateEdgeWires():Void {
-        if (_isDisposed || _blueprint.internalConnections == null) return;
-
-        for (link in _blueprint.internalConnections) {
-            if (link.from.atomId == "SELF" || link.to.atomId == "SELF") {
-                var wireID = getWireIDStatic(link);
-                var entry = _wireSprites.get(wireID);
-
-                if (entry != null) {
-                    // v1.6: Update both visible + hit sprite
-                    drawWireGraphics(entry.sprite.graphics, link);
-                    if (entry.hitSprite != null) {
-                        drawWireGraphics(entry.hitSprite.graphics, link, 0xFF00FF, HIT_SPRITE_THICKNESS);
-                    }
-                }
-            }
-        }
-    }
-
-    // ========================================================================
-    // GHOST WIRE (drag preview)
-    // ========================================================================
-    /**
-     * Draw the ghost wire during port drag operation.
-     *
-     * @param startX Start X (global/stage coordinates)
-     * @param startY Start Y (global/stage coordinates)
-     * @param endX   End X (global/stage coordinates)
-     * @param endY   End Y (global/stage coordinates)
-     * @param isInput Whether the start port is an input
-     */
-    public function drawGhostWire(startX:Float, startY:Float, endX:Float, endY:Float, isInput:Bool):Void {
-        if (_isDisposed || _ghostWire == null) return;
-
-        var g = _ghostWire.graphics;
-        g.clear();
-
-        var p1 = _canvas.globalToLocal(new Point(startX, startY));
-        var p2 = _canvas.globalToLocal(new Point(endX, endY));
-
-        g.lineStyle(4, _theme.WIRE_COLOR_GHOST, 0.8);
-        g.moveTo(p1.x, p1.y);
-
-        switch (_wireType) {
-            case WireType.BEZIER: drawGhostBezier(g, p1, p2, isInput);
-            case WireType.STRAIGHT: drawGhostStraight(g, p1, p2, isInput);
-        }
-    }
-
-    /**
-     * Clear the ghost wire preview.
-     */
-    public function clearGhostWire():Void {
-        if (_ghostWire != null) {
-            _ghostWire.graphics.clear();
-        }
-    }
-
-    // ========================================================================
-    // WIRE DELETION
-    // ========================================================================
-    /**
-     * Remove a specific wire sprite by its ID.
-     *
-     * v1.6: Now removes BOTH the visible sprite and the hit sprite,
-     * plus all event listeners attached to the hit sprite.
-     */
-    public function removeWireSprite(id:String):Void {
-        var entry = _wireSprites.get(id);
-        if (entry == null) return;
-
-        // v1.6: Listeners live on hitSprite now, not on the visible sprite
-        if (entry.hitSprite != null) {
-            if (entry.mouseDownHandler != null) {
-                entry.hitSprite.removeEventListener(MouseEvent.MOUSE_DOWN, entry.mouseDownHandler);
-            }
-            if (entry.clickHandler != null) {
-                entry.hitSprite.removeEventListener(MouseEvent.CLICK, entry.clickHandler);
-            }
-            if (entry.rightClickHandler != null) {
-                entry.hitSprite.removeEventListener(MouseEvent.RIGHT_CLICK, entry.rightClickHandler);
-            }
-            entry.hitSprite.graphics.clear();
-            if (entry.hitSprite.parent != null) {
-                entry.hitSprite.parent.removeChild(entry.hitSprite);
-            }
-        }
-
-        if (entry.sprite != null) {
-            entry.sprite.graphics.clear();
-            if (entry.sprite.parent != null) {
-                entry.sprite.parent.removeChild(entry.sprite);
-            }
-        }
-
-        _wireSprites.remove(id);
-    }
-
-    /**
-     * Get the total number of wires in the blueprint.
-     */
-    public function getWireCount():Int {
-        return (_blueprint == null || _blueprint.internalConnections == null) ? 0 : _blueprint.internalConnections.length;
-    }
-
-    // ========================================================================
-    // PROPERTIES
-    // ========================================================================
-    private function get_wireType():WireTypeEnum return _wireType;
-    private function set_wireType(value:WireTypeEnum):WireTypeEnum {
-        _wireType = value;
-        rebuildAll();
-        return _wireType;
-    }
-
-    private function get_container():Sprite return _container;
-
-    // ========================================================================
-    // INTERNAL: WIRE CREATION
-    // ========================================================================
-    /**
-     * Create a new wire sprite for a connection and add it to the container.
-     *
-     * v1.6: Each wire now consists of TWO sprites:
-     *   - hitSprite: invisible (alpha=0), thick (12px), interactive.
-     *     This is the click target. Without it, the wire's hit area was
-     *     only 2-3px wide (the visible line thickness), making selection
-     *     nearly impossible at any zoom level.
-     *   - sprite: visible, thin, non-interactive (mouseEnabled=false).
-     *     Drawn ON TOP of hitSprite. Mouse events fall through to hitSprite.
-     *
-     * Both sprites are drawn with the SAME geometry (same Bezier/Straight
-     * curve), just different thickness and alpha.
-     */
-    private function createWireSprite(link:ConnectionDef):Sprite {
-        var id = getWireIDStatic(link);
-        var selectedIds = _getSelectedWireIds();
-        var isSelected = selectedIds.indexOf(id) != -1;
-        var color = isSelected ? _theme.WIRE_COLOR_SELECTED : _theme.WIRE_COLOR_DEFAULT;
-        var thickness = isSelected ? 4 : _theme.WIRE_THICKNESS;
-
-        // === v1.6: Hit sprite (invisible, thick, interactive) ===
-        var hitSpr = new Sprite();
-        hitSpr.mouseEnabled = true;
-        hitSpr.buttonMode = true;
-        hitSpr.alpha = 0;  // fully transparent
-        // Draw with HIT_SPRITE_THICKNESS and any color (alpha=0 hides it)
-        drawWireGraphics(hitSpr.graphics, link, 0xFF00FF, HIT_SPRITE_THICKNESS);
-
-        // Mouse handlers on hitSpr (NOT on the visible sprite)
-        var mouseDownHandler = function(e:MouseEvent) e.stopPropagation();
-        var clickHandler = function(e:MouseEvent) {
-            e.stopPropagation();
-            handleWireClick(id, e.ctrlKey);
-        };
-        var rightClickHandler = function(e:MouseEvent) {
-            e.stopPropagation();
-            handleWireRightClick(id);
-        };
-        hitSpr.addEventListener(MouseEvent.MOUSE_DOWN, mouseDownHandler);
-        hitSpr.addEventListener(MouseEvent.CLICK, clickHandler);
-        hitSpr.addEventListener(MouseEvent.RIGHT_CLICK, rightClickHandler);
-
-        // === Visible sprite (thin, non-interactive) ===
-        var spr = new Sprite();
-        spr.mouseEnabled = false;  // v1.6: events fall through to hitSpr
-        spr.mouseChildren = false;
-        drawWireGraphics(spr.graphics, link, color, thickness);
-
-        // Add hitSprite FIRST (below), then visible sprite ON TOP
-        _container.addChild(hitSpr);
-        _container.addChild(spr);
-
-        _wireSprites.set(id, {
-            sprite: spr,
-            hitSprite: hitSpr,
-            clickHandler: clickHandler,
-            rightClickHandler: rightClickHandler,
-            mouseDownHandler: mouseDownHandler
-        });
-
-        return spr;
-    }
-
-    /**
-     * Handle left-click on a wire (selection toggle).
-     */
-    private function handleWireClick(wireId:String, ctrlKey:Bool):Void {
-        if (_isDisposed) return;
-
-        var selectedIds = _getSelectedWireIds();
-        if (!ctrlKey) {
-            selectedIds = [wireId];
-        } else {
-            var idx = selectedIds.indexOf(wireId);
-            if (idx != -1) selectedIds.splice(idx, 1);
-            else selectedIds.push(wireId);
-        }
-
-        if (_onWireSelectionChanged != null) {
-            _onWireSelectionChanged(selectedIds);
-        }
-
-        rebuildAll();
-    }
-
-    /**
-     * Handle right-click on a wire (context menu).
-     * Selection logic:
-     * - If wire is not selected: select ONLY this wire (deselecting everything else)
-     * - If wire is already selected: keep current selection (group operation)
-     */
-    private function handleWireRightClick(wireId:String):Void {
-        if (_isDisposed) return;
-
-        var selectedIds = _getSelectedWireIds();
-
-        // === SELECTION LOGIC ON RIGHT-CLICK ===
-        // If the wire is not selected, we must select ONLY it.
-        // This will deselect all nodes (via callback to NodeEditor).
-        if (selectedIds.indexOf(wireId) == -1) {
-            selectedIds = [wireId];
-            // Notify NodeEditor: "Select only this wire (and deselect everything else)"
-            if (_onWireSelectionChanged != null) {
-                _onWireSelectionChanged(selectedIds);
-            }
-            // Redraw to update wire color
-            rebuildAll();
-        }
-
-        // If the wire is already selected, we do NOT change selection (work with the group)
-
-        // === SEND IMPULSE FOR CONTEXT MENU ===
-        Impulsys.quickEmit(EventType.WIRE_RIGHT_CLICKED, {
-            ids: selectedIds.copy(), // Pass current list (either 1 wire or a group)
-            x: _canvas.stage.mouseX,
-            y: _canvas.stage.mouseY
-        });
-    }
-
-    // ========================================================================
-    // INTERNAL: WIRE DRAWING
-    // ========================================================================
-    /**
-     * Draw wire graphics for a connection.
-     *
-     * @param g         Graphics object to draw into
-     * @param link      Connection definition
-     * @param color     Optional color override (-1 = use default)
-     * @param thickness Optional thickness override (-1 = use default)
-     */
-    private function drawWireGraphics(g:Graphics, link:ConnectionDef, ?color:Int = -1, ?thickness:Float = -1):Void {
-        if (color == -1) color = _theme.WIRE_COLOR_DEFAULT;
-        if (thickness == -1) thickness = _theme.WIRE_THICKNESS;
-
-        var p1 = getWirePoint(link.from);
-        if (p1 == null) return;
-
-        var p2 = getWirePoint(link.to);
-        if (p2 == null) return;
-
-        var isFromInput = isPointInput(link.from);
-        var isToInput = isPointInput(link.to);
-
-        g.clear();
-        g.lineStyle(thickness, color);
-        g.moveTo(p1.x, p1.y);
-
-        switch (_wireType) {
-            case WireType.BEZIER: drawWireBezier(g, p1, p2, isFromInput, isToInput);
-            case WireType.STRAIGHT: drawWireStraight(g, p1, p2, isFromInput, isToInput);
-        }
-    }
-
-    /**
-     * Get the connection point for a wire endpoint.
-     *
-     * ═══════════════════════════════════════════════════════════════════════
-     * v1.3 FIX:
-     * ═══════════════════════════════════════════════════════════════════════
-     *
-     * NodeView.getPortPosition() returns GLOBAL coordinates,
-     * but _container.graphics works in LOCAL coordinates of _canvas.
-     *
-     * After zoom/pan, conversion global→local is required!
-     */
-    private function getWirePoint(point:ConnectionPoint):{x:Float, y:Float} {
-        if (point.atomId == "SELF") {
-            // Edge ports of the assembly
-            var portSpr = _getEdgePort(point.contactName);
-            // v1.5: stage check — edge port exists but not yet staged → skip wire
-            if (portSpr == null || portSpr.stage == null) return null;
-
-            var pt = _canvas.globalToLocal(portSpr.localToGlobal(new Point(0, 0)));
-            return { x: pt.x, y: pt.y };
-        } else {
-            // Regular nodes
-            var runtimeId = _assembly.idMap.get(point.atomId);
-            if (runtimeId == null) runtimeId = point.atomId;
-
+		
+		var activeWireIds = new Map<String, Bool>();
+		var ghostWireIds:Array<String> = [];
+		
+		if (_blueprint.internalConnections != null) {
+			for (link in _blueprint.internalConnections) {
+				var id = getWireIDStatic(link);
+				activeWireIds.set(id, true);
+				
+				// === v1.4: Check for ghost wires (missing endpoints) ===
+				var p1 = getWirePoint(link.from);
+				var p2 = getWirePoint(link.to);
+				
+				if (p1 == null || p2 == null) {
+					// Ghost wire detected — one or both endpoints missing
+					ghostWireIds.push(id);
+					continue; // Skip drawing this wire
+				}
+				
+				var entry = _wireSprites.get(id);
+				
+				if (entry != null) {
+					// Update existing wire
+					var selectedIds = _getSelectedWireIds();
+					var isSelected = selectedIds.indexOf(id) != -1;
+					var color = isSelected ? _theme.WIRE_COLOR_SELECTED : _theme.WIRE_COLOR_DEFAULT;
+					var thickness = isSelected ? 4 : _theme.WIRE_THICKNESS;
+					
+					// v1.6: Update BOTH visible sprite and hit sprite
+					drawWireGraphics(entry.sprite.graphics, link, color, thickness);
+					if (entry.hitSprite != null) {
+						drawWireGraphics(entry.hitSprite.graphics, link, 0xFF00FF, HIT_SPRITE_THICKNESS);
+					}
+				} else {
+					// Create new wire
+					createWireSprite(link);
+				}
+			}
+		}
+		
+		// === v1.4: Remove ghost wire sprites ===
+		for (id in ghostWireIds) {
+			removeWireSprite(id);
+		}
+		
+		// Remove deleted wires (not in blueprint anymore)
+		var idsToRemove:Array<String> = [];
+		for (id in _wireSprites.keys()) {
+			if (!activeWireIds.exists(id)) {
+				idsToRemove.push(id);
+			}
+		}
+		for (id in idsToRemove) {
+			removeWireSprite(id);
+		}
+	}
+	
+	/**
+	 * Remove all wire sprites and clear internal state.
+	 */
+	public function clearAll():Void {
+		for (key in _wireSprites.keys()) {
+			var entry = _wireSprites.get(key);
+			if (entry == null) continue;
+			
+			// v1.6: Listeners live on hitSprite now
+			if (entry.hitSprite != null) {
+				if (entry.mouseDownHandler != null) {
+					entry.hitSprite.removeEventListener(MouseEvent.MOUSE_DOWN, entry.mouseDownHandler);
+				}
+				if (entry.clickHandler != null) {
+					entry.hitSprite.removeEventListener(MouseEvent.CLICK, entry.clickHandler);
+				}
+				if (entry.rightClickHandler != null) {
+					entry.hitSprite.removeEventListener(MouseEvent.RIGHT_CLICK, entry.rightClickHandler);
+				}
+				entry.hitSprite.graphics.clear();
+				if (entry.hitSprite.parent != null) {
+					entry.hitSprite.parent.removeChild(entry.hitSprite);
+				}
+			}
+			
+			if (entry.sprite != null) {
+				entry.sprite.graphics.clear();
+				if (entry.sprite.parent != null) {
+					entry.sprite.parent.removeChild(entry.sprite);
+				}
+			}
+		}
+		_wireSprites.clear();
+		_activeWires = [];
+	}
+	
+	/**
+	 * Update wires connected to SELF (edge ports).
+	 * Called when the assembly frame is resized.
+	 */
+	public function updateEdgeWires():Void {
+		if (_isDisposed || _blueprint.internalConnections == null) return;
+		
+		for (link in _blueprint.internalConnections) {
+			if (link.from.atomId == "SELF" || link.to.atomId == "SELF") {
+				var wireID = getWireIDStatic(link);
+				var entry = _wireSprites.get(wireID);
+				
+				if (entry != null) {
+					// v1.6: Update both visible + hit sprite
+					drawWireGraphics(entry.sprite.graphics, link);
+					if (entry.hitSprite != null) {
+						drawWireGraphics(entry.hitSprite.graphics, link, 0xFF00FF, HIT_SPRITE_THICKNESS);
+					}
+				}
+			}
+		}
+	}
+	
+	// ========================================================================
+	// GHOST WIRE (drag preview)
+	// ========================================================================
+	/**
+	 * Draw the ghost wire during port drag operation.
+	 *
+	 * @param startX Start X (global/stage coordinates)
+	 * @param startY Start Y (global/stage coordinates)
+	 * @param endX   End X (global/stage coordinates)
+	 * @param endY   End Y (global/stage coordinates)
+	 * @param isInput Whether the start port is an input
+	 */
+	public function drawGhostWire(startX:Float, startY:Float, endX:Float, endY:Float, isInput:Bool):Void {
+		if (_isDisposed || _ghostWire == null) return;
+		
+		var g = _ghostWire.graphics;
+		g.clear();
+		
+		var p1 = _canvas.globalToLocal(new Point(startX, startY));
+		var p2 = _canvas.globalToLocal(new Point(endX, endY));
+		
+		g.lineStyle(4, _theme.WIRE_COLOR_GHOST, 0.8);
+		g.moveTo(p1.x, p1.y);
+		
+		switch (_wireType) {
+			case WireType.BEZIER: drawGhostBezier(g, p1, p2, isInput);
+			case WireType.STRAIGHT: drawGhostStraight(g, p1, p2, isInput);
+		}
+	}
+	
+	/**
+	 * Clear the ghost wire preview.
+	 */
+	public function clearGhostWire():Void {
+		if (_ghostWire != null) {
+			_ghostWire.graphics.clear();
+		}
+	}
+	
+	// ========================================================================
+	// WIRE DELETION
+	// ========================================================================
+	/**
+	 * Remove a specific wire sprite by its ID.
+	 *
+	 * v1.6: Now removes BOTH the visible sprite and the hit sprite,
+	 * plus all event listeners attached to the hit sprite.
+	 */
+	public function removeWireSprite(id:String):Void {
+		var entry = _wireSprites.get(id);
+		if (entry == null) return;
+		
+		// v1.6: Listeners live on hitSprite now, not on the visible sprite
+		if (entry.hitSprite != null) {
+			if (entry.mouseDownHandler != null) {
+				entry.hitSprite.removeEventListener(MouseEvent.MOUSE_DOWN, entry.mouseDownHandler);
+			}
+			if (entry.clickHandler != null) {
+				entry.hitSprite.removeEventListener(MouseEvent.CLICK, entry.clickHandler);
+			}
+			if (entry.rightClickHandler != null) {
+				entry.hitSprite.removeEventListener(MouseEvent.RIGHT_CLICK, entry.rightClickHandler);
+			}
+			entry.hitSprite.graphics.clear();
+			if (entry.hitSprite.parent != null) {
+				entry.hitSprite.parent.removeChild(entry.hitSprite);
+			}
+		}
+		
+		if (entry.sprite != null) {
+			entry.sprite.graphics.clear();
+			if (entry.sprite.parent != null) {
+				entry.sprite.parent.removeChild(entry.sprite);
+			}
+		}
+		
+		_wireSprites.remove(id);
+	}
+	
+	/**
+	 * Get the total number of wires in the blueprint.
+	 */
+	public function getWireCount():Int {
+		return (_blueprint == null || _blueprint.internalConnections == null) ? 0 : _blueprint.internalConnections.length;
+	}
+	
+	// ========================================================================
+	// PROPERTIES
+	// ========================================================================
+	private function get_wireType():WireTypeEnum return _wireType;
+	private function set_wireType(value:WireTypeEnum):WireTypeEnum {
+		_wireType = value;
+		rebuildAll();
+		return _wireType;
+	}
+	
+	private function get_container():Sprite return _container;
+	
+	// ========================================================================
+	// INTERNAL: WIRE CREATION
+	// ========================================================================
+	/**
+	 * Create a new wire sprite for a connection and add it to the container.
+	 *
+	 * v1.6: Each wire now consists of TWO sprites:
+	 *   - hitSprite: invisible (alpha=0), thick (12px), interactive.
+	 *     This is the click target. Without it, the wire's hit area was
+	 *     only 2-3px wide (the visible line thickness), making selection
+	 *     nearly impossible at any zoom level.
+	 *   - sprite: visible, thin, non-interactive (mouseEnabled=false).
+	 *     Drawn ON TOP of hitSprite. Mouse events fall through to hitSprite.
+	 *
+	 * Both sprites are drawn with the SAME geometry (same Bezier/Straight
+	 * curve), just different thickness and alpha.
+	 */
+	private function createWireSprite(link:ConnectionDef):Sprite {
+		var id = getWireIDStatic(link);
+		var selectedIds = _getSelectedWireIds();
+		var isSelected = selectedIds.indexOf(id) != -1;
+		var color = isSelected ? _theme.WIRE_COLOR_SELECTED : _theme.WIRE_COLOR_DEFAULT;
+		var thickness = isSelected ? 4 : _theme.WIRE_THICKNESS;
+		
+		// === v1.6: Hit sprite (invisible, thick, interactive) ===
+		var hitSpr = new Sprite();
+		hitSpr.mouseEnabled = true;
+		hitSpr.buttonMode = true;
+		hitSpr.alpha = 0;  // fully transparent
+		
+		// Draw with HIT_SPRITE_THICKNESS and any color (alpha=0 hides it)
+		drawWireGraphics(hitSpr.graphics, link, 0xFF00FF, HIT_SPRITE_THICKNESS);
+		
+		// Mouse handlers on hitSpr (NOT on the visible sprite)
+		var mouseDownHandler = function(e:MouseEvent) e.stopPropagation();
+		var clickHandler = function(e:MouseEvent) {
+			e.stopPropagation();
+			handleWireClick(id, e.ctrlKey);
+		};
+		var rightClickHandler = function(e:MouseEvent) {
+			e.stopPropagation();
+			handleWireRightClick(id);
+		};
+		
+		hitSpr.addEventListener(MouseEvent.MOUSE_DOWN, mouseDownHandler);
+		hitSpr.addEventListener(MouseEvent.CLICK, clickHandler);
+		hitSpr.addEventListener(MouseEvent.RIGHT_CLICK, rightClickHandler);
+		
+		// === Visible sprite (thin, non-interactive) ===
+		var spr = new Sprite();
+		spr.mouseEnabled = false;  // v1.6: events fall through to hitSpr
+		spr.mouseChildren = false;
+		drawWireGraphics(spr.graphics, link, color, thickness);
+		
+		// Add hitSprite FIRST (below), then visible sprite ON TOP
+		_container.addChild(hitSpr);
+		_container.addChild(spr);
+		
+		_wireSprites.set(id, {
+			sprite: spr,
+			hitSprite: hitSpr,
+			clickHandler: clickHandler,
+			rightClickHandler: rightClickHandler,
+			mouseDownHandler: mouseDownHandler
+		});
+		
+		return spr;
+	}
+	
+	/**
+	 * Handle left-click on a wire (selection toggle).
+	 */
+	private function handleWireClick(wireId:String, ctrlKey:Bool):Void {
+		if (_isDisposed) return;
+		
+		var selectedIds = _getSelectedWireIds();
+		if (!ctrlKey) {
+			selectedIds = [wireId];
+		} else {
+			var idx = selectedIds.indexOf(wireId);
+			if (idx != -1) selectedIds.splice(idx, 1);
+			else selectedIds.push(wireId);
+		}
+		
+		if (_onWireSelectionChanged != null) {
+			_onWireSelectionChanged(selectedIds);
+		}
+		
+		rebuildAll();
+	}
+	
+	/**
+	 * Handle right-click on a wire (context menu).
+	 * Selection logic:
+	 * - If wire is not selected: select ONLY this wire (deselecting everything else)
+	 * - If wire is already selected: keep current selection (group operation)
+	 */
+	private function handleWireRightClick(wireId:String):Void {
+		if (_isDisposed) return;
+		
+		var selectedIds = _getSelectedWireIds();
+		
+		// === SELECTION LOGIC ON RIGHT-CLICK ===
+		// If the wire is not selected, we must select ONLY it.
+		// This will deselect all nodes (via callback to NodeEditor).
+		if (selectedIds.indexOf(wireId) == -1) {
+			selectedIds = [wireId];
+			
+			// Notify NodeEditor: "Select only this wire (and deselect everything else)"
+			if (_onWireSelectionChanged != null) {
+				_onWireSelectionChanged(selectedIds);
+			}
+			
+			// Redraw to update wire color
+			rebuildAll();
+		}
+		
+		// If the wire is already selected, we do NOT change selection (work with the group)
+		
+		// === SEND IMPULSE FOR CONTEXT MENU ===
+		Impulsys.quickEmit(EventType.WIRE_RIGHT_CLICKED, {
+			ids: selectedIds.copy(), // Pass current list (either 1 wire or a group)
+			x: _canvas.stage.mouseX,
+			y: _canvas.stage.mouseY
+		});
+	}
+	
+	// ========================================================================
+	// INTERNAL: WIRE DRAWING
+	// ========================================================================
+	/**
+	 * Draw wire graphics for a connection.
+	 *
+	 * @param g         Graphics object to draw into
+	 * @param link      Connection definition
+	 * @param color     Optional color override (-1 = use default)
+	 * @param thickness Optional thickness override (-1 = use default)
+	 */
+	private function drawWireGraphics(g:Graphics, link:ConnectionDef, ?color:Int = -1, ?thickness:Float = -1):Void {
+		if (color == -1) color = _theme.WIRE_COLOR_DEFAULT;
+		if (thickness == -1) thickness = _theme.WIRE_THICKNESS;
+		
+		var p1 = getWirePoint(link.from);
+		if (p1 == null) return;
+		
+		var p2 = getWirePoint(link.to);
+		if (p2 == null) return;
+		
+		var isFromInput = isPointInput(link.from);
+		var isToInput = isPointInput(link.to);
+		
+		g.clear();
+		g.lineStyle(thickness, color);
+		g.moveTo(p1.x, p1.y);
+		
+		switch (_wireType) {
+			case WireType.BEZIER: drawWireBezier(g, p1, p2, isFromInput, isToInput);
+			case WireType.STRAIGHT: drawWireStraight(g, p1, p2, isFromInput, isToInput);
+		}
+	}
+	
+	/**
+	 * Get the connection point for a wire endpoint.
+	 *
+	 * ═══════════════════════════════════════════════════════════════════════
+	 * v1.3 FIX:
+	 * ═══════════════════════════════════════════════════════════════════════
+	 *
+	 * NodeView.getPortPosition() returns GLOBAL coordinates,
+	 * but _container.graphics works in LOCAL coordinates of _canvas.
+	 *
+	 * After zoom/pan, conversion global→local is required!
+	 */
+	private function getWirePoint(point:ConnectionPoint):{x:Float, y:Float} {
+		if (point.atomId == "SELF") {
+			// Edge ports of the assembly
+			var portSpr = _getEdgePort(point.contactName);
+			// v1.5: stage check — edge port exists but not yet staged → skip wire
+			if (portSpr == null || portSpr.stage == null) return null;
+			
+			var pt = _canvas.globalToLocal(portSpr.localToGlobal(new Point(0, 0)));
+			return { x: pt.x, y: pt.y };
+		} else {
+			// Regular nodes
+			var runtimeId = _assembly.idMap.get(point.atomId);
+			if (runtimeId == null) runtimeId = point.atomId;
+			
 			var view = _getNodeView(runtimeId);
 			if (view == null) {
 				trace('⚠️ getWirePoint: No NodeView for runtimeId="$runtimeId" (atomId="${point.atomId}")');
 				return null;
 			}
+			
 			var portPos = view.getPortPosition(point.contactName);
 			if (portPos == null) {
 				trace('⚠️ getWirePoint: No port position for contactName="${point.contactName}" on view "$runtimeId"');
 				return null;
 			}
-            var pt = _canvas.globalToLocal(new Point(portPos.x, portPos.y));
+			
+			var pt = _canvas.globalToLocal(new Point(portPos.x, portPos.y));
 			return { x: pt.x, y: pt.y };
 			//return { x: portPos.x, y: portPos.y };
 		}
-    }
+	}
 	
-    /**
-     * Check if a connection point is an input port.
-     */
-    private function isPointInput(point:ConnectionPoint):Bool {
-        if (point.atomId == "SELF") {
-            var portSpr = _getEdgePort(point.contactName);
-            if (portSpr == null) return false;
-            return (portSpr.x != 0);
-        } else {
-            var runtimeId = _assembly.idMap.get(point.atomId);
-            if (runtimeId == null) runtimeId = point.atomId;
-
-            var view = _getNodeView(runtimeId);
-            if (view == null) return false;
-
-            return view.inputPorts.exists(point.contactName);
-        }
-    }
-
-    /**
-     * Draw a Bezier curve wire between two points.
-     */
-    private function drawWireBezier(g:Graphics, p1:{x:Float, y:Float}, p2:{x:Float, y:Float},
-                                      isFromInput:Bool, isToInput:Bool):Void {
-        var dist = Math.abs(p2.x - p1.x);
-        var tension = dist * 0.5;
-        if (tension < 50) tension = 50;
-
-        var c1x = p1.x + (isFromInput ? -tension : tension);
-        var c2x = p2.x + (isToInput ? -tension : tension);
-
-        g.cubicCurveTo(c1x, p1.y, c2x, p2.y, p2.x, p2.y);
-    }
-
-    /**
-     * Draw a straight wire with horizontal tails.
-     */
-    private function drawWireStraight(g:Graphics, p1:{x:Float, y:Float}, p2:{x:Float, y:Float},
-                                       isFromInput:Bool, isToInput:Bool):Void {
-        var minTail = 20.0;
-        var tailDir1:Float = isFromInput ? -1 : 1;
-        var tailDir2:Float = isToInput ? -1 : 1;
-
-        var a = { x: p1.x + tailDir1 * minTail, y: p1.y };
-        var e = { x: p2.x + tailDir2 * minTail, y: p2.y };
-
-        g.lineTo(a.x, a.y);
-        g.lineTo(e.x, e.y);
-        g.lineTo(p2.x, p2.y);
-    }
-
-    /**
-     * Draw ghost Bezier curve for drag preview.
-     */
-    private function drawGhostBezier(g:Graphics, p1:{x:Float, y:Float}, p2:{x:Float, y:Float}, isInput:Bool):Void {
-        var dx = Math.abs(p2.x - p1.x) * 0.5;
-        if (dx < 50) dx = 50;
-
-        if (isInput) {
-            g.cubicCurveTo(p1.x - dx, p1.y, p2.x + dx, p2.y, p2.x, p2.y);
-        } else {
-            g.cubicCurveTo(p1.x + dx, p1.y, p2.x - dx, p2.y, p2.x, p2.y);
-        }
-    }
-
-    /**
-     * Draw ghost straight wire for drag preview.
-     */
-    private function drawGhostStraight(g:Graphics, p1:{x:Float, y:Float}, p2:{x:Float, y:Float}, isInput:Bool):Void {
-        var minTail = 20.0;
-        var dir = isInput ? -1 : 1;
-        var a = { x: p1.x + dir * minTail, y: p1.y };
-
-        g.lineTo(a.x, a.y);
-        g.lineTo(p2.x, p2.y);
-    }
-
-    // ========================================================================
-    // INTERNAL: UTILITIES
-    // ========================================================================
-    /**
-     * Generate a unique wire ID from a connection definition.
-     * Static method - can be used without an instance.
-     */
-    public static function getWireIDStatic(link:ConnectionDef):String {
-        return '${link.from.atomId}_${link.from.contactName}->${link.to.atomId}_${link.to.contactName}';
-    }
-
-    /**
-     * Find a connection definition by its wire ID.
-     */
-    public function findLinkById(id:String):ConnectionDef {
-        if (_blueprint == null || _blueprint.internalConnections == null) return null;
-
-        for (link in _blueprint.internalConnections) {
-            if (getWireIDStatic(link) == id) return link;
-        }
-        return null;
-    }
-
-    // ========================================================================
-    // DISPOSAL v1.2
-    // ========================================================================
-    /**
-     * Clean up all resources and event listeners.
-     * v1.2: Also clears the selection callback.
-     */
-    public function dispose():Void {
-        if (_isDisposed) return;
-        _isDisposed = true;
-
-        clearAll();
-
-        // FIX: Clear callback
-        _onWireSelectionChanged = null;
-
-        if (_container != null && _container.parent != null) {
-            _container.parent.removeChild(_container);
-        }
-
-        if (_ghostWire != null && _ghostWire.parent != null) {
-            _ghostWire.parent.removeChild(_ghostWire);
-        }
-
-        _container = null;
-        _ghostWire = null;
-        _blueprint = null;
-        _assembly = null;
-        _canvas = null;
-        _getNodeView = null;
-        _getEdgePort = null;
-        _getSelectedWireIds = null;
-    }
+	/**
+	 * Check if a connection point is an input port.
+	 */
+	private function isPointInput(point:ConnectionPoint):Bool {
+		if (point.atomId == "SELF") {
+			var portSpr = _getEdgePort(point.contactName);
+			if (portSpr == null) return false;
+			return (portSpr.x != 0);
+		} else {
+			var runtimeId = _assembly.idMap.get(point.atomId);
+			if (runtimeId == null) runtimeId = point.atomId;
+			
+			var view = _getNodeView(runtimeId);
+			if (view == null) return false;
+			
+			return view.inputPorts.exists(point.contactName);
+		}
+	}
+	
+	/**
+	 * Draw a Bezier curve wire between two points.
+	 */
+	private function drawWireBezier(g:Graphics, p1:{x:Float, y:Float}, p2:{x:Float, y:Float},
+									  isFromInput:Bool, isToInput:Bool):Void {
+		var dist = Math.abs(p2.x - p1.x);
+		var tension = dist * 0.5;
+		if (tension < 50) tension = 50;
+		
+		var c1x = p1.x + (isFromInput ? -tension : tension);
+		var c2x = p2.x + (isToInput ? -tension : tension);
+		
+		g.cubicCurveTo(c1x, p1.y, c2x, p2.y, p2.x, p2.y);
+	}
+	
+	/**
+	 * Draw a straight wire with horizontal tails.
+	 */
+	private function drawWireStraight(g:Graphics, p1:{x:Float, y:Float}, p2:{x:Float, y:Float},
+									   isFromInput:Bool, isToInput:Bool):Void {
+		var minTail = 20.0;
+		var tailDir1:Float = isFromInput ? -1 : 1;
+		var tailDir2:Float = isToInput ? -1 : 1;
+		
+		var a = { x: p1.x + tailDir1 * minTail, y: p1.y };
+		var e = { x: p2.x + tailDir2 * minTail, y: p2.y };
+		
+		g.lineTo(a.x, a.y);
+		g.lineTo(e.x, e.y);
+		g.lineTo(p2.x, p2.y);
+	}
+	
+	/**
+	 * Draw ghost Bezier curve for drag preview.
+	 */
+	private function drawGhostBezier(g:Graphics, p1:{x:Float, y:Float}, p2:{x:Float, y:Float}, isInput:Bool):Void {
+		var dx = Math.abs(p2.x - p1.x) * 0.5;
+		if (dx < 50) dx = 50;
+		
+		if (isInput) {
+			g.cubicCurveTo(p1.x - dx, p1.y, p2.x + dx, p2.y, p2.x, p2.y);
+		} else {
+			g.cubicCurveTo(p1.x + dx, p1.y, p2.x - dx, p2.y, p2.x, p2.y);
+		}
+	}
+	
+	/**
+	 * Draw ghost straight wire for drag preview.
+	 */
+	private function drawGhostStraight(g:Graphics, p1:{x:Float, y:Float}, p2:{x:Float, y:Float}, isInput:Bool):Void {
+		var minTail = 20.0;
+		var dir = isInput ? -1 : 1;
+		var a = { x: p1.x + dir * minTail, y: p1.y };
+		
+		g.lineTo(a.x, a.y);
+		g.lineTo(p2.x, p2.y);
+	}
+	
+	// ========================================================================
+	// INTERNAL: UTILITIES
+	// ========================================================================
+	/**
+	 * Generate a unique wire ID from a connection definition.
+	 * Static method - can be used without an instance.
+	 */
+	public static function getWireIDStatic(link:ConnectionDef):String {
+		return '${link.from.atomId}_${link.from.contactName}->${link.to.atomId}_${link.to.contactName}';
+	}
+	
+	/**
+	 * Find a connection definition by its wire ID.
+	 */
+	public function findLinkById(id:String):ConnectionDef {
+		if (_blueprint == null || _blueprint.internalConnections == null) return null;
+		
+		for (link in _blueprint.internalConnections) {
+			if (getWireIDStatic(link) == id) return link;
+		}
+		
+		return null;
+	}
+	
+	// ========================================================================
+	// DISPOSAL v1.2
+	// ========================================================================
+	/**
+	 * Clean up all resources and event listeners.
+	 * v1.2: Also clears the selection callback.
+	 */
+	public function dispose():Void {
+		if (_isDisposed) return;
+		_isDisposed = true;
+		
+		clearAll();
+		
+		// FIX: Clear callback
+		_onWireSelectionChanged = null;
+		
+		if (_container != null && _container.parent != null) {
+			_container.parent.removeChild(_container);
+		}
+		
+		if (_ghostWire != null && _ghostWire.parent != null) {
+			_ghostWire.parent.removeChild(_ghostWire);
+		}
+		
+		_container = null;
+		_ghostWire = null;
+		_blueprint = null;
+		_assembly = null;
+		_canvas = null;
+		_getNodeView = null;
+		_getEdgePort = null;
+		_getSelectedWireIds = null;
+	}
 }
 
 /**
@@ -25382,13 +25903,12 @@ class WireRenderer {
  * drawWireGraphics() so they stay in sync.
  */
 typedef WireEntry = {
-    var sprite:Sprite;
-    @:optional var hitSprite:Sprite;
-    @:optional var clickHandler:MouseEvent -> Void;
-    @:optional var rightClickHandler:MouseEvent -> Void;
-    @:optional var mouseDownHandler:MouseEvent -> Void;
+	var sprite:Sprite;
+	@:optional var hitSprite:Sprite;
+	@:optional var clickHandler:MouseEvent -> Void;
+	@:optional var rightClickHandler:MouseEvent -> Void;
+	@:optional var mouseDownHandler:MouseEvent -> Void;
 }
-
 
 ================================================================================
 // FILE: library\AtomRegistry.hx
@@ -36841,7 +37361,7 @@ class ToggleAtom extends Atom
 
 ================================================================================
 // FILE: Main.hx
-// Lines: 2100 | Chars: 65874
+// Lines: 2194 | Chars: 69759
 ================================================================================
 
 package;
@@ -37072,6 +37592,88 @@ class Main extends Sprite
 // =========================================================================
 	private function init(e:Event = null):Void
 	{
+		#if html5
+		var canvas:js.html.CanvasElement = cast js.Browser.document.getElementById("openfl-content");
+		if (canvas == null) canvas = cast js.Browser.document.querySelector("canvas");
+		if (canvas != null)
+		{
+			// Блокировка контекстного меню (уже есть)
+			canvas.oncontextmenu = function(e) { e.preventDefault(); return false; };
+			
+			// ═══════════════════════════════════════════════════════════════
+			// Жёсткий запрет на браузерную обработку тач-событий
+			// Предотвращает рассинхрон между JS-потоком и Compositor Thread Chrome
+			// ═══════════════════════════════════════════════════════════════
+			untyped canvas.style.touchAction = "none";
+			
+			// ═══════════════════════════════════════════════════════════════
+			// Блокировка браузерного autoscroll на средней кнопке мыши
+			// ═══════════════════════════════════════════════════════════════
+			// Браузер активирует autoscroll mode на нативном mousedown event
+			// с button === 1 ДО того, как OpenFL получит MIDDLE_MOUSE_DOWN.
+			// preventDefault() на canvas останавливает браузерный autoscroll,
+			// позволяя OpenFL/ViewportManager обработать pan самостоятельно.
+			canvas.addEventListener("mousedown", function(e:js.html.MouseEvent) {
+				if (e.button == 1) {
+					e.preventDefault();
+					e.stopPropagation();
+				}
+			});
+			
+			// Дополнительно: блокируем auxclick (срабатывает при отпускании средней кнопки)
+			canvas.addEventListener("auxclick", function(e:js.html.MouseEvent) {
+				if (e.button == 1) {
+					e.preventDefault();
+				}
+			});
+		}
+		#end
+		#if html5
+		var canvas:js.html.CanvasElement = cast js.Browser.document.getElementById("openfl-content");
+		if (canvas == null) canvas = cast js.Browser.document.querySelector("canvas");
+		if (canvas != null)
+		{
+			// Блокировка контекстного меню
+			canvas.oncontextmenu = function(e) { e.preventDefault(); return false; };
+			
+			// ═══════════════════════════════════════════════════════════════
+			// Блокировка браузерного autoscroll на средней кнопке мыши
+			// ═══════════════════════════════════════════════════════════════
+			canvas.addEventListener("mousedown", function(e:js.html.MouseEvent) {
+				if (e.button == 1) {
+					e.preventDefault();
+					e.stopPropagation();
+				}
+			});
+			
+			canvas.addEventListener("auxclick", function(e:js.html.MouseEvent) {
+				if (e.button == 1) {
+					e.preventDefault();
+				}
+			});
+			
+			// ═══════════════════════════════════════════════════════════════
+			// Блокировка прокрутки страницы при колесе мыши над canvas
+			// ═══════════════════════════════════════════════════════════════
+			// Браузерное событие wheel срабатывает ДО того, как OpenFL получит
+			// MouseEvent.MOUSE_WHEEL. Без preventDefault() браузер прокручивает
+			// страницу одновременно с тем, как OpenFL обрабатывает zoom.
+			//
+			// {passive: false} — критически важен! По умолчанию современные
+			// браузеры (Chrome, Firefox) делают wheel event passive, что
+			// запрещает вызов preventDefault(). Явное указание passive: false
+			// позволяет блокировать прокрутку страницы.
+			//
+			// OpenFL всё равно получит свой MOUSE_WHEEL (его обработчики
+			// зарегистрированы внутри canvas и не зависят от preventDefault
+			// на уровне DOM), поэтому zoom продолжит работать как обычно.
+			// ═══════════════════════════════════════════════════════════════
+			canvas.addEventListener("wheel", function(e:js.html.WheelEvent) {
+				e.preventDefault();
+			}, {passive: false});
+		}
+		#end
+		
 // Перехватываем trace() для отправки в DebugConsoleAtom
 		var originalTrace = haxe.Log.trace;
 		haxe.Log.trace = function(v:Dynamic, ?infos:haxe.PosInfos)
@@ -37797,31 +38399,43 @@ class Main extends Sprite
 			#end
 		}
 		else {
-// --- SWITCH TO EDITOR MODE ---
+			// --- SWITCH TO EDITOR MODE ---
 			log("Mode: Node Editor");
-
 			syncDevicePanelToCache();
-
+			
 			if (_devicePanel != null) _devicePanel.visible = false;
-
 			_editorLayer.visible = true;
 			_uiLayer.visible = true;
-
+			
 			if (_devicePanel != null) _devicePanel.clearDevices();
-
+			
 			if (_editorContext.currentEditor != null)
 			{
-// Restore widgets synchronously
+				// 1. Ensure gesture flags are cleared before redrawing
+				editor.EditorState.setIsZooming(false);
+				editor.EditorState.setIsPanning(false);
+				
+				// 2. Restoring widgets
 				_editorContext.currentEditor.restoreAllWidgets();
-
-// v2.3 FIX: Single synchronous redraw. No timers needed.
-// WireRenderer.rebuildAll() now safely skips unready nodes,
-// so wires will appear as soon as NodeViews complete layout.
+				
+				// 3. Double repaint with forced WebGL wakeup
 				_editorContext.currentEditor.forceFullRedraw();
+				
+				haxe.Timer.delay(() -> {
+					if (_editorContext.currentEditor != null && !_editorContext.currentEditor.isDisposed)
+					{
+						_editorContext.currentEditor.forceFullRedraw();
+						// CRITICAL FOR ANDROID:
+						// Force OpenFL to completely redraw the scene,
+						// resetting any cached hidden layer states
+						if (stage != null) {
+							stage.invalidate();
+						}
+					}
+				}, 50);
 			}
 		}
 	}
-
 // v2.3: Auto-save with 300ms debounce
 	private function onDeviceWindowChanged(impulse:Impulse):Void
 	{

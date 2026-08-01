@@ -235,6 +235,12 @@ class Main extends Sprite
 			canvas.oncontextmenu = function(e) { e.preventDefault(); return false; };
 			
 			// ═══════════════════════════════════════════════════════════════
+			// Жёсткий запрет на браузерную обработку тач-событий
+			// Предотвращает рассинхрон между JS-потоком и Compositor Thread Chrome
+			// ═══════════════════════════════════════════════════════════════
+			untyped canvas.style.touchAction = "none";
+			
+			// ═══════════════════════════════════════════════════════════════
 			// Блокировка браузерного autoscroll на средней кнопке мыши
 			// ═══════════════════════════════════════════════════════════════
 			// Браузер активирует autoscroll mode на нативном mousedown event
@@ -1027,31 +1033,46 @@ class Main extends Sprite
 			#end
 		}
 		else {
-// --- SWITCH TO EDITOR MODE ---
+			// --- SWITCH TO EDITOR MODE ---
 			log("Mode: Node Editor");
-
 			syncDevicePanelToCache();
-
+			
 			if (_devicePanel != null) _devicePanel.visible = false;
-
 			_editorLayer.visible = true;
 			_uiLayer.visible = true;
-
+			
 			if (_devicePanel != null) _devicePanel.clearDevices();
-
+			
 			if (_editorContext.currentEditor != null)
 			{
-// Restore widgets synchronously
+				// Reset gesture flags before redrawing
+				editor.EditorState.setIsZooming(false);
+				editor.EditorState.setIsPanning(false);
+				
+				// Restore widgets to NodeViews
 				_editorContext.currentEditor.restoreAllWidgets();
-
-// v2.3 FIX: Single synchronous redraw. No timers needed.
-// WireRenderer.rebuildAll() now safely skips unready nodes,
-// so wires will appear as soon as NodeViews complete layout.
-				_editorContext.currentEditor.forceFullRedraw();
+				
+				/**
+				* Defer the full redraw to the next frame cycle.
+				* restoreAllWidgets() traverses all nodes and re-acquires their
+				* DeviceViews, which is heavy on low-end devices. By deferring
+				* the redraw, the browser presents the editor layer immediately,
+				* and the wire/node redraw happens asynchronously.
+				*/
+				haxe.Timer.delay(function() {
+					if (_editorContext.currentEditor != null && !_editorContext.currentEditor.isDisposed)
+					{
+						_editorContext.currentEditor.forceFullRedraw();
+						
+						// Force WebGL context to refresh cached layer states
+						if (stage != null) {
+							stage.invalidate();
+						}
+					}
+				}, 50);
 			}
 		}
 	}
-
 // v2.3: Auto-save with 300ms debounce
 	private function onDeviceWindowChanged(impulse:Impulse):Void
 	{
