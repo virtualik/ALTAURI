@@ -2,26 +2,27 @@ package editor;
 
 import openfl.display.Sprite;
 import openfl.geom.Point;
+import openfl.events.TouchEvent;
 import editor.NodeView;
 
 /**
- * VIEWPORT MANAGER v1.1 (Zoom Performance Fix)
- * Handles Pan, Zoom, and Visibility culling logic.
+ * VIEWPORT MANAGER v1.3 (Zoom Performance Fix + Touch Support + Smart Pan Target)
+ * Handles Pan, Zoom, Visibility culling, and Touch interactions.
  *
  * Architecture:
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │   ViewportManager                                                       │
  * │                                                                         │
  * │   ┌─────────────────────────────────────────────────────────────────┐   │
- * │   │  Pan Operations:                                                │   │
- * │   │  - handlePanStart(x, y)    → Begin pan                          │   │
- * │   │  - handlePanMove(x, y)     → Update canvas position             │   │
- * │   │  - handlePanEnd()          → End pan                            │   │
+ * │   │  Mouse Operations:                                              │   │
+ * │   │  - handlePanStart/Move/End()  → Middle mouse pan                │   │
+ * │   │  - handleZoom()               → Mouse wheel zoom                │   │
  * │   │                                                                 │   │
- * │   │  Zoom Operations:                                               │   │
- * │   │  - handleZoom(delta, x, y) → Scale canvas towards cursor        │   │
- * │   │  - Lazy activation system  → Defer DeviceView activation        │   │
- * │   │  - EditorState integration → Global zoom tracking               │   │
+ * │   │  Touch Operations (Mobile/Tablet):                              │   │
+ * │   │  - 1 Finger on BG           → Pan canvas                        │   │
+ * │   │  - 1 Finger on Node/Port    → Ignored (let NodeEditor handle)   │   │
+ * │   │  - 2 Fingers                → Pinch-to-zoom canvas              │   │
+ * │   │  - Touch tracking           → Map<Int, {x, y}> by touchPointID  │   │
  * │   │                                                                 │   │
  * │   │  Visibility Culling:                                            │   │
  * │   │  - updateVisibility()      → Hide/show nodes based on viewport  │   │
@@ -33,7 +34,12 @@ import editor.NodeView;
  * │   │  - setViewState(state)   → Restore saved viewport               │   │
  * │   └─────────────────────────────────────────────────────────────────┘   │
  * │                                                                         │
- * │   v1.1 Changes:                                                         │
+ * │   v1.3 Changes:                                                         │
+ * │   - Added isBackgroundTouch() to prevent pan from hijacking node/port   │
+ * │     interactions. Pan now only triggers on _bgHitArea or _canvas.       │
+ * │   - Added robust multi-touch tracking via touchPointID Map              │
+ * │   - Removed invalid `stage` references (ViewportManager is not a Sprite)│
+ * │   - Removed non-existent TouchEvent.TOUCH_CANCEL (OpenFL compatibility) │
  * │   - Added lazy activation for DeviceView (prevents mass activation)     │
  * │   - Added visibility update throttling                                  │
  * │   - Integrated EditorState for global zoom tracking                     │
@@ -46,6 +52,7 @@ class ViewportManager
     // DEPENDENCIES
     // =========================================================================
     private var _canvas:Sprite;
+    private var _bgHitArea:Sprite; // Reference to the background hit area
     private var _theme:EditorTheme;
     
     // =========================================================================
@@ -77,12 +84,47 @@ class ViewportManager
     private static inline var VISIBILITY_THROTTLE:Float = 0.05; // 20 FPS max
     
     // =========================================================================
+    // TOUCH STATE
+    // =========================================================================
+    private var _activeTouches:Map<Int, {x:Float, y:Float}>;
+    private var _touchCount:Int = 0;
+    
+    private var _touchPanning:Bool = false;
+    private var _touchPanStartX:Float = 0;
+    private var _touchPanStartY:Float = 0;
+    private var _touchPanStartCanvasX:Float = 0;
+    private var _touchPanStartCanvasY:Float = 0;
+
+    private var _pinchZooming:Bool = false;
+    private var _pinchStartDistance:Float = 0;
+    private var _pinchStartScale:Float = 1.0;
+    private var _pinchCenterX:Float = 0;
+    private var _pinchCenterY:Float = 0;
+
+    // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
-    public function new(canvas:Sprite)
+    /**
+     * Create ViewportManager.
+     * 
+     * @param canvas The main canvas sprite.
+     * @param bgHitArea Optional background hit area sprite. If provided, pan 
+     *                  will ONLY trigger when this specific sprite is touched,
+     *                  preventing interference with NodeView/Port interactions.
+     */
+    public function new(canvas:Sprite, ?bgHitArea:Sprite)
     {
         _canvas = canvas;
+        _bgHitArea = bgHitArea;
         _theme = EditorTheme.getInstance();
+        _activeTouches = new Map();
+        
+        // Listen to touch events directly on the canvas.
+        // NOTE: OpenFL TouchEvent does NOT have TOUCH_CANCEL. 
+        // TOUCH_END reliably captures both finger lifts and system interruptions.
+        _canvas.addEventListener(TouchEvent.TOUCH_BEGIN, onTouchBegin);
+        _canvas.addEventListener(TouchEvent.TOUCH_MOVE, onTouchMove);
+        _canvas.addEventListener(TouchEvent.TOUCH_END, onTouchEnd);
     }
     
     // =========================================================================
@@ -249,7 +291,7 @@ class ViewportManager
         for (view in nodes)
         {
             if (view == null) continue;
-										
+											
             var wasVisible = view.visible;
 			var size = view.getNodeSize();
 			// AABB check: node is visible if any part of it is within viewport
@@ -342,5 +384,244 @@ class ViewportManager
     public function getCurrentScale():Float
     {
         return _canvas.scaleX;
+    }
+	
+    // =========================================================================
+    // TOUCH HANDLERS
+    // =========================================================================
+    private function onTouchBegin(e:TouchEvent):Void
+    {
+        // CRITICAL FIX v1.3: Only allow touch panning if the user touched the empty canvas background.
+        // If they touched a NodeView, Port, Wire, or Widget, let that object handle the interaction.
+        if (!isBackgroundTouch(e.target))
+        {
+            return; // Ignore this touch for viewport panning
+        }
+
+        if (!_activeTouches.exists(e.touchPointID))
+        {
+            _touchCount++;
+        }
+        _activeTouches.set(e.touchPointID, {x: e.stageX, y: e.stageY});
+        updateTouchState();
+    }
+
+    private function onTouchMove(e:TouchEvent):Void
+    {
+        if (_activeTouches.exists(e.touchPointID))
+        {
+            _activeTouches.set(e.touchPointID, {x: e.stageX, y: e.stageY});
+        }
+        updateTouchState();
+    }
+
+    private function onTouchEnd(e:TouchEvent):Void
+    {
+        if (_activeTouches.exists(e.touchPointID))
+        {
+            _touchCount--;
+        }
+        _activeTouches.remove(e.touchPointID);
+        updateTouchState();
+    }
+
+    // =========================================================================
+    // TOUCH STATE MACHINE
+    // =========================================================================
+    private function updateTouchState():Void
+    {
+        if (_touchCount == 1)
+        {
+            if (!_touchPanning)
+            {
+                // One finger - start pan
+                _touchPanning = true;
+                _pinchZooming = false;
+                EditorState.setIsPanning(true);
+                EditorState.setIsZooming(false);
+                
+                var firstTouch = getFirstTouch();
+                _touchPanStartX = firstTouch.x;
+                _touchPanStartY = firstTouch.y;
+                _touchPanStartCanvasX = _canvas.x;
+                _touchPanStartCanvasY = _canvas.y;
+            }
+            else
+            {
+                // Continue pan with one finger
+                var firstTouch = getFirstTouch();
+                var dx = firstTouch.x - _touchPanStartX;
+                var dy = firstTouch.y - _touchPanStartY;
+                _canvas.x = _touchPanStartCanvasX + dx;
+                _canvas.y = _touchPanStartCanvasY + dy;
+            }
+        }
+        else if (_touchCount == 2)
+        {
+            if (!_pinchZooming)
+            {
+                // Two fingers - start pinch-to-zoom
+                _pinchZooming = true;
+                _touchPanning = false;
+                EditorState.setIsPanning(false);
+                EditorState.setIsZooming(true);
+                
+                _pinchStartDistance = calculatePinchDistance();
+                _pinchStartScale = _canvas.scaleX;
+                var center = getPinchCenter();
+                _pinchCenterX = center.x;
+                _pinchCenterY = center.y;
+            }
+            else
+            {
+                // Continue pinch-to-zoom
+                var currentDistance = calculatePinchDistance();
+                var scaleRatio = currentDistance / _pinchStartDistance;
+                var newScale = _pinchStartScale * scaleRatio;
+                
+                // Clamp scale
+                if (newScale < _zoomMin) newScale = _zoomMin;
+                if (newScale > _zoomMax) newScale = _zoomMax;
+                
+                // Apply scale relative to pinch center
+                var mouseLocal:Point = _canvas.globalToLocal(new Point(_pinchCenterX, _pinchCenterY));
+                _canvas.scaleX = newScale;
+                _canvas.scaleY = newScale;
+                
+                // Adjust position to zoom towards pinch center
+                var targetGlobalPos:Point = new Point(
+                    _pinchCenterX - (mouseLocal.x * newScale),
+                    _pinchCenterY - (mouseLocal.y * newScale)
+                );
+                
+                var container = _canvas.parent;
+                if (container != null)
+                {
+                    var targetLocalPos:Point = container.globalToLocal(targetGlobalPos);
+                    _canvas.x = targetLocalPos.x;
+                    _canvas.y = targetLocalPos.y;
+                }
+            }
+        }
+        else if (_touchCount == 0)
+        {
+            // All fingers removed
+            _touchPanning = false;
+            _pinchZooming = false;
+            EditorState.setIsPanning(false);
+            EditorState.setIsZooming(false);
+        }
+        else if (_touchCount == 1 && _pinchZooming)
+        {
+            // Transitioned from pinch to pan
+            _pinchZooming = false;
+            _touchPanning = true;
+            EditorState.setIsZooming(false);
+            EditorState.setIsPanning(true);
+            
+            var firstTouch = getFirstTouch();
+            _touchPanStartX = firstTouch.x;
+            _touchPanStartY = firstTouch.y;
+            _touchPanStartCanvasX = _canvas.x;
+            _touchPanStartCanvasY = _canvas.y;
+        }
+    }
+
+    // =========================================================================
+    // TOUCH HELPER METHODS
+    // =========================================================================
+    /**
+     * Check if the touch target is the background (empty canvas space).
+     * 
+     * This prevents the viewport from hijacking interactions with Nodes, 
+     * Ports, Wires, or Widgets.
+     * 
+     * @param target The DisplayObject that was touched.
+     * @return true if the touch is on the background, false otherwise.
+     */
+    private function isBackgroundTouch(target:openfl.display.DisplayObject):Bool
+    {
+        // 1. Strict check: If we have a dedicated background hit area, ONLY allow pan if touched.
+        // This naturally excludes Nodes, Ports, Wires, and Widgets.
+        if (_bgHitArea != null)
+        {
+            return (target == _bgHitArea || target == _canvas);
+        }
+        
+        // 2. Fallback: Walk up the display list to ensure we didn't touch a NodeView.
+        var current:openfl.display.DisplayObject = target;
+        while (current != null && current != _canvas)
+        {
+            if (Std.isOfType(current, NodeView)) 
+            {
+                return false; // Touched a node or its child (port/widget)
+            }
+            current = current.parent;
+        }
+        
+        return true; // Reached canvas without hitting a NodeView
+    }
+
+    private function getFirstTouch():{x:Float, y:Float}
+    {
+        for (touch in _activeTouches)
+        {
+            return touch;
+        }
+        return {x: 0, y: 0};
+    }
+
+    private function calculatePinchDistance():Float
+    {
+        // Calculate distance between two fingers
+        var touches = [];
+        for (t in _activeTouches) touches.push(t);
+        
+        if (touches.length >= 2)
+        {
+            var dx = touches[1].x - touches[0].x;
+            var dy = touches[1].y - touches[0].y;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+        
+        return 0;
+    }
+
+    private function getPinchCenter():{x:Float, y:Float}
+    {
+        var touches = [];
+        for (t in _activeTouches) touches.push(t);
+        
+        if (touches.length >= 2)
+        {
+            return {
+                x: (touches[0].x + touches[1].x) / 2,
+                y: (touches[0].y + touches[1].y) / 2
+            };
+        }
+        
+        return {x: 0, y: 0};
+    }
+
+    // =========================================================================
+    // CLEANUP
+    // =========================================================================
+    /**
+     * Dispose resources and remove event listeners.
+     */
+    public function dispose():Void
+    {
+        _canvas.removeEventListener(TouchEvent.TOUCH_BEGIN, onTouchBegin);
+        _canvas.removeEventListener(TouchEvent.TOUCH_MOVE, onTouchMove);
+        _canvas.removeEventListener(TouchEvent.TOUCH_END, onTouchEnd);
+        
+        _activeTouches = null;
+        _pendingActivations = null;
+        
+        if (_zoomEndTimer != null)
+        {
+            _zoomEndTimer.stop();
+            _zoomEndTimer = null;
+        }
     }
 }

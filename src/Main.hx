@@ -226,6 +226,82 @@ class Main extends Sprite
 // =========================================================================
 	private function init(e:Event = null):Void
 	{
+		#if html5
+		var canvas:js.html.CanvasElement = cast js.Browser.document.getElementById("openfl-content");
+		if (canvas == null) canvas = cast js.Browser.document.querySelector("canvas");
+		if (canvas != null)
+		{
+			// Блокировка контекстного меню (уже есть)
+			canvas.oncontextmenu = function(e) { e.preventDefault(); return false; };
+			
+			// ═══════════════════════════════════════════════════════════════
+			// Блокировка браузерного autoscroll на средней кнопке мыши
+			// ═══════════════════════════════════════════════════════════════
+			// Браузер активирует autoscroll mode на нативном mousedown event
+			// с button === 1 ДО того, как OpenFL получит MIDDLE_MOUSE_DOWN.
+			// preventDefault() на canvas останавливает браузерный autoscroll,
+			// позволяя OpenFL/ViewportManager обработать pan самостоятельно.
+			canvas.addEventListener("mousedown", function(e:js.html.MouseEvent) {
+				if (e.button == 1) {
+					e.preventDefault();
+					e.stopPropagation();
+				}
+			});
+			
+			// Дополнительно: блокируем auxclick (срабатывает при отпускании средней кнопки)
+			canvas.addEventListener("auxclick", function(e:js.html.MouseEvent) {
+				if (e.button == 1) {
+					e.preventDefault();
+				}
+			});
+		}
+		#end
+		#if html5
+		var canvas:js.html.CanvasElement = cast js.Browser.document.getElementById("openfl-content");
+		if (canvas == null) canvas = cast js.Browser.document.querySelector("canvas");
+		if (canvas != null)
+		{
+			// Блокировка контекстного меню
+			canvas.oncontextmenu = function(e) { e.preventDefault(); return false; };
+			
+			// ═══════════════════════════════════════════════════════════════
+			// Блокировка браузерного autoscroll на средней кнопке мыши
+			// ═══════════════════════════════════════════════════════════════
+			canvas.addEventListener("mousedown", function(e:js.html.MouseEvent) {
+				if (e.button == 1) {
+					e.preventDefault();
+					e.stopPropagation();
+				}
+			});
+			
+			canvas.addEventListener("auxclick", function(e:js.html.MouseEvent) {
+				if (e.button == 1) {
+					e.preventDefault();
+				}
+			});
+			
+			// ═══════════════════════════════════════════════════════════════
+			// Блокировка прокрутки страницы при колесе мыши над canvas
+			// ═══════════════════════════════════════════════════════════════
+			// Браузерное событие wheel срабатывает ДО того, как OpenFL получит
+			// MouseEvent.MOUSE_WHEEL. Без preventDefault() браузер прокручивает
+			// страницу одновременно с тем, как OpenFL обрабатывает zoom.
+			//
+			// {passive: false} — критически важен! По умолчанию современные
+			// браузеры (Chrome, Firefox) делают wheel event passive, что
+			// запрещает вызов preventDefault(). Явное указание passive: false
+			// позволяет блокировать прокрутку страницы.
+			//
+			// OpenFL всё равно получит свой MOUSE_WHEEL (его обработчики
+			// зарегистрированы внутри canvas и не зависят от preventDefault
+			// на уровне DOM), поэтому zoom продолжит работать как обычно.
+			// ═══════════════════════════════════════════════════════════════
+			canvas.addEventListener("wheel", function(e:js.html.WheelEvent) {
+				e.preventDefault();
+			}, {passive: false});
+		}
+		#end
+		
 // Перехватываем trace() для отправки в DebugConsoleAtom
 		var originalTrace = haxe.Log.trace;
 		haxe.Log.trace = function(v:Dynamic, ?infos:haxe.PosInfos)

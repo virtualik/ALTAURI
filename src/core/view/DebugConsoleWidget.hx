@@ -34,10 +34,10 @@ import core.base.Contact;
  * ║  │  ┌─────────────────────────────────────────────────────────────┐    │  ║
  * ║  │  │  DEBUG CONSOLE                                    [Clear]   │    │  ║
  * ║  │  ├─────────────────────────────────────────────────────────────┤    │  ║
- * ║  │  │  12:34:56 | ComPortAtom: Opened COM13 via WebUSB           │    │  ║
- * ║  │  │  12:34:57 | PL2303HX: RX buffer activated (0x0044)         │    │  ║
- * ║  │  │  12:34:58 | SignalGenerator: freq=440.0 Hz                 │    │  ║
- * ║  │  │  12:34:59 | FFTAtom: Processing 512 samples                │    │  ║
+ * ║  │  │  12:34:56 | ComPortAtom: Opened COM13 via WebUSB            │    │  ║
+ * ║  │  │  12:34:57 | PL2303HX: RX buffer activated (0x0044)          │    │  ║
+ * ║  │  │  12:34:58 | SignalGenerator: freq=440.0 Hz                  │    │  ║
+ * ║  │  │  12:34:59 | FFTAtom: Processing 512 samples                 │    │  ║
  * ║  │  │  ...                                                        │    │  ║
  * ║  │  └─────────────────────────────────────────────────────────────┘    │  ║
  * ║  │  Lines: 4                                                           │  ║
@@ -52,7 +52,7 @@ import core.base.Contact;
  * ║  - FIXED: onContactChanged uses switch(contact.name) instead of           ║
  * ║    if(contact == _outputContact). Previous approach failed when           ║
  * ║    _outputContact was null during race conditions at init time.           ║
- * ║  - FIXED: syncFromAtom() now has fallback to atom.getText()-style         │  ║
+ * ║  - FIXED: syncFromAtom() now has fallback to atom.getText()-style         ║
  * ║    direct read if contact subscription hasn't fired yet.                  ║
  * ║  - ADDED: Event.SCROLL listener on _logField for manual scroll            ║
  * ║    detection (prevents auto-scroll from fighting user scroll).            ║

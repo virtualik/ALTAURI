@@ -913,7 +913,7 @@ ApplicationMain.main = function() {
 ApplicationMain.create = function(config) {
 	var app = new openfl_display_Application();
 	ManifestResources.init(config);
-	app.meta.h["build"] = "170";
+	app.meta.h["build"] = "171";
 	app.meta.h["company"] = "ViRTUALiK";
 	app.meta.h["file"] = "ALTAURI";
 	app.meta.h["name"] = "ALTAURI";
@@ -3507,12 +3507,57 @@ Main.__super__ = openfl_display_Sprite;
 Main.prototype = $extend(openfl_display_Sprite.prototype,{
 	init: function(e) {
 		var _gthis = this;
+		var canvas = window.document.getElementById("openfl-content");
+		if(canvas == null) {
+			canvas = window.document.querySelector("canvas");
+		}
+		if(canvas != null) {
+			canvas.oncontextmenu = function(e) {
+				e.preventDefault();
+				return false;
+			};
+			canvas.addEventListener("mousedown",function(e) {
+				if(e.button == 1) {
+					e.preventDefault();
+					e.stopPropagation();
+				}
+			});
+			canvas.addEventListener("auxclick",function(e) {
+				if(e.button == 1) {
+					e.preventDefault();
+				}
+			});
+		}
+		var canvas = window.document.getElementById("openfl-content");
+		if(canvas == null) {
+			canvas = window.document.querySelector("canvas");
+		}
+		if(canvas != null) {
+			canvas.oncontextmenu = function(e) {
+				e.preventDefault();
+				return false;
+			};
+			canvas.addEventListener("mousedown",function(e) {
+				if(e.button == 1) {
+					e.preventDefault();
+					e.stopPropagation();
+				}
+			});
+			canvas.addEventListener("auxclick",function(e) {
+				if(e.button == 1) {
+					e.preventDefault();
+				}
+			});
+			canvas.addEventListener("wheel",function(e) {
+				e.preventDefault();
+			},{ passive : false});
+		}
 		var originalTrace = haxe_Log.trace;
 		haxe_Log.trace = function(v,infos) {
 			console.log(v);
 			library_electro_DebugConsoleAtom.log(Std.string(v));
 		};
-		haxe_Log.trace("DEBUG CONSOLE TEST: Если ты это видишь, перехват работает!",{ fileName : "src/Main.hx", lineNumber : 241, className : "Main", methodName : "init"});
+		haxe_Log.trace("DEBUG CONSOLE TEST: Если ты это видишь, перехват работает!",{ fileName : "src/Main.hx", lineNumber : 317, className : "Main", methodName : "init"});
 		this.log("System initialized");
 		this.removeEventListener("addedToStage",$bind(this,this.init));
 		openfl_Lib.get_current().stage.window.set_visible(true);
@@ -3578,7 +3623,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		editor.connectAtoms(closeFileButtonId,"out",fileWriterId,"close");
 		editor.connectAtoms(comport1AtomId,"rxData",fileWriterId,"append");
 		editor.connectAtoms(fileWriterId,"isOpen",fileWriterStatusLedId,"in");
-		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 370, className : "Main", methodName : "createDemoProject"});
+		haxe_Log.trace("MainHTML5: Demo project created with 2 atoms and 1 connection",{ fileName : "src/Main.hx", lineNumber : 446, className : "Main", methodName : "createDemoProject"});
 		this.renameAtom(rootAssembly,openPortButtonId,"Open Port");
 		this.renameAtom(rootAssembly,closePortButtonId,"Close Port");
 		this.renameAtom(rootAssembly,sendTxDataButtonId,"Send TX");
@@ -4422,7 +4467,7 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 				HxOverrides.remove(bp.internalConnections,conn);
 			}
 			core_logic_Impulsys.quickEmit(core_logic_EventType.REDRAW_WIRES);
-			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1736, className : "Main", methodName : "onPortRemoved"});
+			haxe_Log.trace("Removed " + toRemove.length + " external wires connected to port \"" + portName + "\" of assembly " + asmId,{ fileName : "src/Main.hx", lineNumber : 1812, className : "Main", methodName : "onPortRemoved"});
 		}
 	}
 	,hardReset: function() {
@@ -4575,8 +4620,8 @@ Main.prototype = $extend(openfl_display_Sprite.prototype,{
 		}
 		var nodeCount = this._editorContext.currentEditor.getSelectedNodeCount();
 		var wireIds = this._editorContext.currentEditor.getSelectedWireIds();
-		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1922, className : "Main", methodName : "deleteSelectedOnCanvas"});
-		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1923, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: nodeCount=" + nodeCount + ", wireIds.length=" + wireIds.length,{ fileName : "src/Main.hx", lineNumber : 1998, className : "Main", methodName : "deleteSelectedOnCanvas"});
+		haxe_Log.trace("DEBUG: selectedNodeIds=" + Std.string(this._editorContext.currentEditor.getSelectedNodeIds()),{ fileName : "src/Main.hx", lineNumber : 1999, className : "Main", methodName : "deleteSelectedOnCanvas"});
 		if(nodeCount > 0) {
 			this._editorContext.currentEditor.deleteSelectedNodes();
 			this.updateSettingsStats();
@@ -14575,7 +14620,7 @@ var editor_NodeEditor = function(assembly,isNameTakenGlobally) {
 	this._canvas.addChild(this._bgHitArea);
 	this._bgHitArea.addEventListener("mouseDown",$bind(this,this.onCanvasMouseDown));
 	this._bgHitArea.addEventListener("rightClick",$bind(this,this.onCanvasRightClick));
-	this._viewport = new editor_ViewportManager(this._canvas);
+	this._viewport = new editor_ViewportManager(this._canvas,this._bgHitArea);
 	this._actions = new editor_EditorActionHandler(this._assembly,this._blueprint,this._isNameTakenGlobally);
 	this._wireRenderer = new editor_WireRenderer();
 	this._wireRenderer.configure(this._blueprint,this._assembly,this._canvas,$bind(this,this.getNodeViewById),$bind(this,this.getEdgePortById),function() {
@@ -16787,7 +16832,18 @@ editor_SelectionManager.prototype = {
 	}
 	,__class__: editor_SelectionManager
 };
-var editor_ViewportManager = function(canvas) {
+var editor_ViewportManager = function(canvas,bgHitArea) {
+	this._pinchCenterY = 0;
+	this._pinchCenterX = 0;
+	this._pinchStartScale = 1.0;
+	this._pinchStartDistance = 0;
+	this._pinchZooming = false;
+	this._touchPanStartCanvasY = 0;
+	this._touchPanStartCanvasX = 0;
+	this._touchPanStartY = 0;
+	this._touchPanStartX = 0;
+	this._touchPanning = false;
+	this._touchCount = 0;
 	this._lastVisibilityUpdate = 0;
 	this._pendingActivations = [];
 	this._zoomEndTimer = null;
@@ -16800,7 +16856,12 @@ var editor_ViewportManager = function(canvas) {
 	this._panStartX = 0;
 	this._isPanning = false;
 	this._canvas = canvas;
+	this._bgHitArea = bgHitArea;
 	this._theme = editor_EditorTheme.getInstance();
+	this._activeTouches = new haxe_ds_IntMap();
+	this._canvas.addEventListener("touchBegin",$bind(this,this.onTouchBegin));
+	this._canvas.addEventListener("touchMove",$bind(this,this.onTouchMove));
+	this._canvas.addEventListener("touchEnd",$bind(this,this.onTouchEnd));
 };
 $hxClasses["editor.ViewportManager"] = editor_ViewportManager;
 editor_ViewportManager.__name__ = "editor.ViewportManager";
@@ -16969,6 +17030,159 @@ editor_ViewportManager.prototype = {
 	}
 	,getCurrentScale: function() {
 		return this._canvas.get_scaleX();
+	}
+	,onTouchBegin: function(e) {
+		if(!this.isBackgroundTouch(e.target)) {
+			return;
+		}
+		if(!this._activeTouches.h.hasOwnProperty(e.touchPointID)) {
+			this._touchCount++;
+		}
+		this._activeTouches.h[e.touchPointID] = { x : e.stageX, y : e.stageY};
+		this.updateTouchState();
+	}
+	,onTouchMove: function(e) {
+		if(this._activeTouches.h.hasOwnProperty(e.touchPointID)) {
+			this._activeTouches.h[e.touchPointID] = { x : e.stageX, y : e.stageY};
+		}
+		this.updateTouchState();
+	}
+	,onTouchEnd: function(e) {
+		if(this._activeTouches.h.hasOwnProperty(e.touchPointID)) {
+			this._touchCount--;
+		}
+		this._activeTouches.remove(e.touchPointID);
+		this.updateTouchState();
+	}
+	,updateTouchState: function() {
+		if(this._touchCount == 1) {
+			if(!this._touchPanning) {
+				this._touchPanning = true;
+				this._pinchZooming = false;
+				editor_EditorState.setIsPanning(true);
+				editor_EditorState.setIsZooming(false);
+				var firstTouch = this.getFirstTouch();
+				this._touchPanStartX = firstTouch.x;
+				this._touchPanStartY = firstTouch.y;
+				this._touchPanStartCanvasX = this._canvas.get_x();
+				this._touchPanStartCanvasY = this._canvas.get_y();
+			} else {
+				var firstTouch = this.getFirstTouch();
+				var dx = firstTouch.x - this._touchPanStartX;
+				var dy = firstTouch.y - this._touchPanStartY;
+				this._canvas.set_x(this._touchPanStartCanvasX + dx);
+				this._canvas.set_y(this._touchPanStartCanvasY + dy);
+			}
+		} else if(this._touchCount == 2) {
+			if(!this._pinchZooming) {
+				this._pinchZooming = true;
+				this._touchPanning = false;
+				editor_EditorState.setIsPanning(false);
+				editor_EditorState.setIsZooming(true);
+				this._pinchStartDistance = this.calculatePinchDistance();
+				this._pinchStartScale = this._canvas.get_scaleX();
+				var center = this.getPinchCenter();
+				this._pinchCenterX = center.x;
+				this._pinchCenterY = center.y;
+			} else {
+				var currentDistance = this.calculatePinchDistance();
+				var scaleRatio = currentDistance / this._pinchStartDistance;
+				var newScale = this._pinchStartScale * scaleRatio;
+				if(newScale < this._zoomMin) {
+					newScale = this._zoomMin;
+				}
+				if(newScale > this._zoomMax) {
+					newScale = this._zoomMax;
+				}
+				var mouseLocal = this._canvas.globalToLocal(new openfl_geom_Point(this._pinchCenterX,this._pinchCenterY));
+				this._canvas.set_scaleX(newScale);
+				this._canvas.set_scaleY(newScale);
+				var targetGlobalPos = new openfl_geom_Point(this._pinchCenterX - mouseLocal.x * newScale,this._pinchCenterY - mouseLocal.y * newScale);
+				var container = this._canvas.parent;
+				if(container != null) {
+					var targetLocalPos = container.globalToLocal(targetGlobalPos);
+					this._canvas.set_x(targetLocalPos.x);
+					this._canvas.set_y(targetLocalPos.y);
+				}
+			}
+		} else if(this._touchCount == 0) {
+			this._touchPanning = false;
+			this._pinchZooming = false;
+			editor_EditorState.setIsPanning(false);
+			editor_EditorState.setIsZooming(false);
+		} else if(this._touchCount == 1 && this._pinchZooming) {
+			this._pinchZooming = false;
+			this._touchPanning = true;
+			editor_EditorState.setIsZooming(false);
+			editor_EditorState.setIsPanning(true);
+			var firstTouch = this.getFirstTouch();
+			this._touchPanStartX = firstTouch.x;
+			this._touchPanStartY = firstTouch.y;
+			this._touchPanStartCanvasX = this._canvas.get_x();
+			this._touchPanStartCanvasY = this._canvas.get_y();
+		}
+	}
+	,isBackgroundTouch: function(target) {
+		if(this._bgHitArea != null) {
+			if(target != this._bgHitArea) {
+				return target == this._canvas;
+			} else {
+				return true;
+			}
+		}
+		var current = target;
+		while(current != null && current != this._canvas) {
+			if(((current) instanceof editor_NodeView)) {
+				return false;
+			}
+			current = current.parent;
+		}
+		return true;
+	}
+	,getFirstTouch: function() {
+		var touch = this._activeTouches.iterator();
+		while(touch.hasNext()) {
+			var touch1 = touch.next();
+			return touch1;
+		}
+		return { x : 0, y : 0};
+	}
+	,calculatePinchDistance: function() {
+		var touches = [];
+		var t = this._activeTouches.iterator();
+		while(t.hasNext()) {
+			var t1 = t.next();
+			touches.push(t1);
+		}
+		if(touches.length >= 2) {
+			var dx = touches[1].x - touches[0].x;
+			var dy = touches[1].y - touches[0].y;
+			return Math.sqrt(dx * dx + dy * dy);
+		}
+		return 0;
+	}
+	,getPinchCenter: function() {
+		var touches = [];
+		var t = this._activeTouches.iterator();
+		while(t.hasNext()) {
+			var t1 = t.next();
+			touches.push(t1);
+		}
+		if(touches.length >= 2) {
+			return { x : (touches[0].x + touches[1].x) / 2, y : (touches[0].y + touches[1].y) / 2};
+		}
+		return { x : 0, y : 0};
+	}
+	,dispose: function() {
+		this._canvas.removeEventListener("touchBegin",$bind(this,this.onTouchBegin));
+		this._canvas.removeEventListener("touchMove",$bind(this,this.onTouchMove));
+		this._canvas.removeEventListener("touchEnd",$bind(this,this.onTouchEnd));
+		this._activeTouches = null;
+		this._pendingActivations = null;
+		if(this._zoomEndTimer != null) {
+			this._zoomEndTimer.stop();
+			this._zoomEndTimer = null;
+		}
 	}
 	,__class__: editor_ViewportManager
 };
@@ -41750,7 +41964,7 @@ var lime_utils_AssetCache = function() {
 	this.audio = new haxe_ds_StringMap();
 	this.font = new haxe_ds_StringMap();
 	this.image = new haxe_ds_StringMap();
-	this.version = 487663;
+	this.version = 521741;
 };
 $hxClasses["lime.utils.AssetCache"] = lime_utils_AssetCache;
 lime_utils_AssetCache.__name__ = "lime.utils.AssetCache";

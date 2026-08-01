@@ -292,7 +292,7 @@ class NodeEditor extends Sprite
 		_bgHitArea.addEventListener(MouseEvent.RIGHT_CLICK, onCanvasRightClick);
 
 		// Managers
-		_viewport = new ViewportManager(_canvas);
+		_viewport = new ViewportManager(_canvas, _bgHitArea);
 		_actions = new EditorActionHandler(_assembly, _blueprint, _isNameTakenGlobally); // v4.8: Pass callback
 		_wireRenderer = new WireRenderer();
 		_wireRenderer.configure(

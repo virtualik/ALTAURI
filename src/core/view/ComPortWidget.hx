@@ -23,15 +23,15 @@ import core.base.Contact;
  * ║  At compile time, Haxe selects the appropriate UI variant:                ║
  * ║                                                                           ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
- * ║  │                    COMPILATION FLOW                                 │
- * ║  │                                                                     │
+ * ║  │                    COMPILATION FLOW                                 │  ║
+ * ║  │                                                                     │  ║
  * ║  │  haxe -cpp  ──► #if cpp   ──► Port name text field (manual entry)   │  ║
- *   │  haxe -html5──► #if html5 ──► "Select Port" button (browser dialog) │  ║
+ * ║  │  haxe -html5──► #if html5 ──► "Select Port" button (browser dialog) │  ║
  * ║  │                                                                     │  ║
  * ║  │  Common code (TX/RX, indicators, open/close) is shared.             │  ║
  * ║  │  Platform-specific code is isolated in #if blocks.                  │  ║
- * ║  ─────────────────────────────────────────────────────────────────────  ║
- * ║
+ * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ * ║                                                                           ║
  * ║  v2.0 Changes (HTML5):                                                    ║
  * ║  - Added "Select Port" button (replaces manual port name entry)           ║
  * ║  - Added bufferSize/chunkSize/enabled configuration inputs                ║
@@ -39,43 +39,43 @@ import core.base.Contact;
  * ║  - Port name field shows selected port info (read-only)                   ║
  * ║                                                                           ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
- *                         ARCHITECTURE                                       ║
- * ═══════════════════════════════════════════════════════════════════════════╣
+ * ║                        ARCHITECTURE                                       ║
+ * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
- *   ┌─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │                     ComPortWidget                                   │  ║
  * ║  │                                                                     │  ║
- *   │  ┌───────────────────────────────────────────────────────────────┐  │
- * ║  │  │  COMMON LAYER (all targets)                                   │  │
- * ║  │  │  ─────────────────────────────────────────────────────────── │  │  ║
+ * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
+ * ║  │  │  COMMON LAYER (all targets)                                   │  │  ║
+ * ║  │  │  ───────────────────────────────────────────────────────────  │  │  ║
  * ║  │  │  • Contacts: baudRate, open, close, send, txData,             │  │  ║
  * ║  │  │    isOpen, rxData, rxTick, txTick, error, errorTick           │  │  ║
- *   │  │  • updatePulseTimers(): reset tick pulses                     │  │  ║
+ * ║  │  │  • updatePulseTimers(): reset tick pulses                     │  │  ║
  * ║  │  │  • readInputs(): input reading + dispatch                     │  │  ║
- * ║  │  └───────────────────────────────────────────────────────────────┘  │
- * ║  │                                                                     │
- * ║  │  ┌──────────────────────────┐  ┌────────────────────────────────┐ │  ║
- * ║  │  │  #if cpp                 │  │  #if html5                     │ │
- * ║  │  │  ────────               │  │  ──────────                    │ │  ║
- * ║  │  │  portName: TextField     │  │  selectPortBtn: Sprite         │ │  ║
- * ║  │  │  (manual COM1 entry)     │  │  (browser dialog trigger)      │ │  ║
- * ║  │  │                          │  │                                │ │  ║
- * ║  │  │  dtrBtn: visible         │  │  dtrBtn: hidden/disabled       │ │  ║
- * ║  │  │                          │  │                                │ │  ║
- * ║  │  │  (no extra config)       │  │  bufferSize/chunkSize/enabled  │ │  ║
- * ║  │  │                          │  │  configuration fields          │ │  ║
- * ║  │  └──────────────────────────┘  └──────────────────────────────── │  ║
+ * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
+ * ║  │                                                                     │  ║
+ * ║  │  ┌──────────────────────────┐  ┌─────────────────────────────────┐  │  ║
+ * ║  │  │  #if cpp                 │  │  #if html5                      │  │  ║
+ * ║  │  │  ────────                │  │  ──────────                     │  │  ║
+ * ║  │  │  portName: TextField     │  │  selectPortBtn: Sprite          │  │  ║
+ * ║  │  │  (manual COM1 entry)     │  │  (browser dialog trigger)       │  │  ║
+ * ║  │  │                          │  │                                 │  │  ║
+ * ║  │  │  dtrBtn: visible         │  │  dtrBtn: hidden/disabled        │  │  ║
+ * ║  │  │                          │  │                                 │  │  ║
+ * ║  │  │  (no extra config)       │  │  bufferSize/chunkSize/enabled   │  │  ║
+ * ║  │  │                          │  │  configuration fields           │  │  ║
+ * ║  │  └──────────────────────────┘  └─────────────────────────────────┘  │  ║
  * ║  │                                                                     │  ║
  * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
- * ║  │  │  DATABANK (Haxe fields, shared)                               │  │
- * ║  │  │  ─────────────────────────────────────────────────────────── │  │  ║
- * ║  │  │  _baudRateContact, _openContact, _closeContact               │  │  ║
- * ║  │  │  _sendContact, _txDataContact, _setDTRContact                │  │  ║
- * ║  │  │  _isOpenContact, _rxDataContact, _rxTickContact              │  │  ║
- * ║  │  │  _txTickContact, _errorContact, _errorTickContact            │  │
- * ║  │  │  _lastRxData, _lastError                                     │  │  ║
- * ║  │  │  _rxLedTimer, _txLedTimer, _errLedTimer                      │  │  ║
- * ║  │  │  _dtrState                                                   │  │  ║
+ * ║  │  │  DATABANK (Haxe fields, shared)                               │  │  ║
+ * ║  │  │  ───────────────────────────────────────────────────────────  │  │  ║
+ * ║  │  │  _baudRateContact, _openContact, _closeContact                │  │  ║
+ * ║  │  │  _sendContact, _txDataContact, _setDTRContact                 │  │  ║
+ * ║  │  │  _isOpenContact, _rxDataContact, _rxTickContact               │  │  ║
+ * ║  │  │  _txTickContact, _errorContact, _errorTickContact             │  │  ║
+ * ║  │  │  _lastRxData, _lastError                                      │  │  ║
+ * ║  │  │  _rxLedTimer, _txLedTimer, _errLedTimer                       │  │  ║
+ * ║  │  │  _dtrState                                                    │  │  ║
  * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║                                                                           ║
@@ -107,15 +107,15 @@ import core.base.Contact;
  * ║  [  OPEN  ]  [  CLOSE  ]                                                  ║
  * ║  ─────────────────────────────────────────────────────────────────────    ║
  * ║  Buffer: [4096]  Chunk: [256]  [Enabled ✓]                                ║
- * ║  ────────────────────────────────────────────────────────────────────    ║
+ * ║  ────────────────────────────────────────────────────────────────────     ║
  * ║  TX: [_________________________] [SEND]                                   ║
  * ║  ─────────────────────────────────────────────────────────────────────    ║
  * ║  RX DATA:                                                                 ║
- * ║  ─────────────────────────────────────────────────────────────────────┐  ║
+ * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │  Received text...                                                   │  ║
  * ║  └─────────────────────────────────────────────────────────────────────┘  ║
  * ║  RX: ●  TX: ●  ERR: ●                                                     ║
- * ║
+ * ║                                                                           ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 class ComPortWidget extends DeviceView
