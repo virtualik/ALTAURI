@@ -476,6 +476,8 @@ class Main extends Sprite
 			if (editor != null && !editor.isDisposed)
 			{
 				editor.forceFullRedraw();
+				// Center the viewport on the content after initial layout is ready
+				_editorContext.currentEditor.centerOnContent();
 			}
 // v3.0: Use DisplayConfig instead of _isPanelMode
 			if (DisplayConfig.getInstance().isDeviceMode())
@@ -502,24 +504,26 @@ class Main extends Sprite
 			var comport1Atom:Atom = cast rootAssembly.internalAtoms.get(comport1AtomId);
 			var txAtom:Atom = cast rootAssembly.internalAtoms.get(textInputTxDataId);
 			var textArea:Atom = cast rootAssembly.internalAtoms.get(textAreaRxDataId);
-			var comportledAtom:Atom = cast rootAssembly.internalAtoms.get(comportStatusLedId);
-			var openPortBtAtom:Atom = cast rootAssembly.internalAtoms.get(openPortButtonId);
-			var closePortBtAtom:Atom = cast rootAssembly.internalAtoms.get(closePortButtonId);
+//			var comportledAtom:Atom = cast rootAssembly.internalAtoms.get(comportStatusLedId);
+//			var openPortBtAtom:Atom = cast rootAssembly.internalAtoms.get(openPortButtonId);
+//			var closePortBtAtom:Atom = cast rootAssembly.internalAtoms.get(closePortButtonId);
 			var sendBtAtom:Atom = cast rootAssembly.internalAtoms.get(sendTxDataButtonId);
 			var openFileBtAtom:Atom = cast rootAssembly.internalAtoms.get(openFileButtonId);
 			var closeFileBtAtom:Atom = cast rootAssembly.internalAtoms.get(closeFileButtonId);
 			var fileLedAtom:Atom = cast rootAssembly.internalAtoms.get(fileWriterStatusLedId);
 
-			if (comport1Atom != null) _devicePanel.addDevice(comport1Atom, 10, 10);
-			if (txAtom != null) _devicePanel.addDevice(txAtom, 350, 50);
-			if (textArea != null) _devicePanel.addDevice(textArea, 550, 250);
-			if (comportledAtom != null) _devicePanel.addDevice(comportledAtom, 300, 270);
-			if (openPortBtAtom != null) _devicePanel.addDevice(openPortBtAtom, 100, 280);
-			if (closePortBtAtom != null) _devicePanel.addDevice(closePortBtAtom, 200, 280);
-			if (sendBtAtom != null) _devicePanel.addDevice(sendBtAtom, 500, 50);
-			if (openFileBtAtom != null) _devicePanel.addDevice(openFileBtAtom, 100, 450);
-			if (closeFileBtAtom != null) _devicePanel.addDevice(closeFileBtAtom, 200, 450);
-			if (fileLedAtom != null) _devicePanel.addDevice(fileLedAtom, 300, 440);
+			if (comport1Atom != null) _devicePanel.addDevice(comport1Atom, 20, 50);
+
+			if (txAtom != null) _devicePanel.addDevice(txAtom, 450, 450);
+			if (sendBtAtom != null) _devicePanel.addDevice(sendBtAtom, 600, 450);
+			
+			if (textArea != null) _devicePanel.addDevice(textArea, 400, 250);
+//			if (comportledAtom != null) _devicePanel.addDevice(comportledAtom, 250, 270);
+//			if (openPortBtAtom != null) _devicePanel.addDevice(openPortBtAtom, 50, 280);
+//			if (closePortBtAtom != null) _devicePanel.addDevice(closePortBtAtom, 150, 280);
+			if (openFileBtAtom != null) _devicePanel.addDevice(openFileBtAtom, 800, 250);
+			if (closeFileBtAtom != null) _devicePanel.addDevice(closeFileBtAtom, 900, 250);
+			if (fileLedAtom != null) _devicePanel.addDevice(fileLedAtom, 850, 140);
 
 // 3. SYNC CACHE
 // Crucial: saves the current panel layout to _cachedDeviceWindowState.
@@ -648,6 +652,8 @@ class Main extends Sprite
 					if (_editorContext.currentEditor != null)
 					{
 						_editorContext.currentEditor.forceFullRedraw();
+						// Center the viewport on the loaded content
+						_editorContext.currentEditor.centerOnContent();
 					}
 				}, 100);
 			}

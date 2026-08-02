@@ -1,5 +1,6 @@
 package editor;
 
+import flash.events.MouseEvent;
 import openfl.display.Sprite;
 import openfl.geom.Point;
 import openfl.events.TouchEvent;
@@ -51,7 +52,7 @@ class ViewportManager
 	// DEPENDENCIES
 	// =========================================================================
 	private var _canvas:Sprite;
-	private var _bgHitArea:Sprite;
+	private var _hitLayer:Sprite;
 	private var _theme:EditorTheme;
 	
 	// =========================================================================
@@ -128,18 +129,22 @@ class ViewportManager
 	*                  will ONLY trigger when this specific sprite is touched,
 	*                  preventing interference with NodeView/Port interactions.
 	*/
-	public function new(canvas:Sprite, ?bgHitArea:Sprite)
+	public function new(canvas:Sprite, ?hitLayer:Sprite)
 	{
 		_canvas = canvas;
-		_bgHitArea = bgHitArea;
+		_hitLayer = hitLayer;
 		_theme = EditorTheme.getInstance();
 		_activeTouches = new Map();
 		
-		_canvas.addEventListener(TouchEvent.TOUCH_BEGIN, onTouchBegin);
-		_canvas.addEventListener(TouchEvent.TOUCH_MOVE, onTouchMove);
-		_canvas.addEventListener(TouchEvent.TOUCH_END, onTouchEnd);
+		// Listen to the Glass Pane (Hit Layer)
+		// If hitLayer is null (fallback), listen to canvas, but canvas.mouseEnabled is false now, 
+		// so we really need hitLayer.
+		var target = _hitLayer != null ? _hitLayer : _canvas;
 		
-		_canvas.addEventListener(openfl.events.Event.ENTER_FRAME, onEnterFrame);
+		target.addEventListener(TouchEvent.TOUCH_BEGIN, onTouchBegin);
+		target.addEventListener(TouchEvent.TOUCH_MOVE, onTouchMove);
+		target.addEventListener(TouchEvent.TOUCH_END, onTouchEnd);
+		
 	}
 	
 	// =========================================================================
@@ -173,6 +178,9 @@ class ViewportManager
 		
 		_canvas.x = _canvasStartX + dx;
 		_canvas.y = _canvasStartY + dy;
+		
+		// Prevent panning outside the canvas
+		//clampCanvasBounds();
 	}
 	
 	/**
@@ -239,6 +247,9 @@ class ViewportManager
 		
 		_canvas.x = targetLocalPos.x;
 		_canvas.y = targetLocalPos.y;
+		
+		// Clamp to bounds ===
+		//clampZoomToBounds();
 	}
 	
 	// =========================================================================
@@ -268,6 +279,97 @@ class ViewportManager
 		
 		_canvas.scaleX = z;
 		_canvas.scaleY = z;
+	}
+	
+	/**
+	 * Clamps canvas position to prevent panning outside the canvas bounds.
+	 * Takes current zoom scale into account.
+	 */
+	private function clampCanvasBounds():Void
+	{
+		var stage = _canvas.stage;
+		if (stage == null) return;
+
+		var stageW = stage.stageWidth;
+		var stageH = stage.stageHeight;
+		
+		// Effective canvas dimensions considering current zoom
+		var effectiveWidth = 10000 * _canvas.scaleX;
+		var effectiveHeight = 10000 * _canvas.scaleY;
+
+		// Clamp X axis
+		if (effectiveWidth > stageW)
+		{
+			// Canvas wider than stage: clamp to [-(effectiveWidth - stageW), 0]
+			if (_canvas.x > 0) _canvas.x = 0;
+			if (_canvas.x < -(effectiveWidth - stageW)) _canvas.x = -(effectiveWidth - stageW);
+		}
+		else
+		{
+			// Canvas narrower than stage: allow movement but keep within [0, stageW - effectiveWidth]
+			var maxOffsetX = stageW - effectiveWidth;
+			if (_canvas.x < 0) _canvas.x = 0;
+			if (_canvas.x > maxOffsetX) _canvas.x = maxOffsetX;
+		}
+
+		// Clamp Y axis
+		if (effectiveHeight > stageH)
+		{
+			// Canvas taller than stage: clamp to [-(effectiveHeight - stageH), 0]
+			if (_canvas.y > 0) _canvas.y = 0;
+			if (_canvas.y < -(effectiveHeight - stageH)) _canvas.y = -(effectiveHeight - stageH);
+		}
+		else
+		{
+			// Canvas shorter than stage: allow movement but keep within [0, stageH - effectiveHeight]
+			var maxOffsetY = stageH - effectiveHeight;
+			if (_canvas.y < 0) _canvas.y = 0;
+			if (_canvas.y > maxOffsetY) _canvas.y = maxOffsetY;
+		}
+	}
+	
+	/**
+	* Clamp zoom and position to prevent canvas from going out of bounds.
+	* Adds a margin to prevent the canvas from snapping tightly to screen edges during zoom.
+	*/
+	private function clampZoomToBounds():Void
+	{
+		if (_canvas == null || _canvas.stage == null) return;
+		
+		var stageW = _canvas.stage.stageWidth;
+		var stageH = _canvas.stage.stageHeight;
+		
+		// Canvas dimensions in stage coordinates
+		var canvasW = 10000 * _canvas.scaleX;
+		var canvasH = 10000 * _canvas.scaleY;
+		
+		// Add margin to prevent canvas from snapping tightly to screen edges during zoom
+		var margin:Float = 100.0;
+		
+		// Clamp position: prevent canvas from going beyond stage edges + margin
+		if (canvasW < stageW)
+		{
+			// Canvas is smaller than stage - center it
+			_canvas.x = (stageW - canvasW) / 2;
+		}
+		else
+		{
+			// Canvas is larger than stage - clamp to edges with margin
+			if (_canvas.x > margin) _canvas.x = margin;
+			if (_canvas.x < stageW - canvasW - margin) _canvas.x = stageW - canvasW - margin;
+		}
+		
+		if (canvasH < stageH)
+		{
+			// Canvas is smaller than stage - center it
+			_canvas.y = (stageH - canvasH) / 2;
+		}
+		else
+		{
+			// Canvas is larger than stage - clamp to edges with margin
+			if (_canvas.y > margin) _canvas.y = margin;
+			if (_canvas.y < stageH - canvasH - margin) _canvas.y = stageH - canvasH - margin;
+		}
 	}
 	
 	// =========================================================================
@@ -485,11 +587,15 @@ class ViewportManager
 			}
 			else
 			{
+				// Continue pan with one finger
 				var firstTouch = getFirstTouch();
 				var dx = firstTouch.x - _touchPanStartX;
 				var dy = firstTouch.y - _touchPanStartY;
 				_canvas.x = _touchPanStartCanvasX + dx;
 				_canvas.y = _touchPanStartCanvasY + dy;
+				
+				// Prevent panning outside the canvas
+				//clampCanvasBounds();
 			}
 		}
 		else if (_touchCount == 2)
@@ -546,6 +652,8 @@ class ViewportManager
 					_canvas.x = targetLocalPos.x;
 					_canvas.y = targetLocalPos.y;
 				}
+				// Clamp to bounds ===
+				//clampZoomToBounds();
 			}
 		}
 		else if (_touchCount == 0)
@@ -593,22 +701,13 @@ class ViewportManager
 	*/
 	private function isBackgroundTouch(target:openfl.display.DisplayObject):Bool
 	{
-		if (_bgHitArea != null)
+		if (_hitLayer != null)
 		{
-			return (target == _bgHitArea || target == _canvas);
+			return (target == _hitLayer || target == _canvas);
 		}
 		
-		var current:openfl.display.DisplayObject = target;
-		while (current != null && current != _canvas)
-		{
-			if (Std.isOfType(current, NodeView)) 
-			{
-				return false;
-			}
-			current = current.parent;
-		}
-		
-		return true;
+		// background only where _canvas is drawn.
+		return (target == _canvas);
 	}
 
 	private function getFirstTouch():{x:Float, y:Float}

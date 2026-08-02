@@ -156,7 +156,6 @@ using StringTools;
 * │   │  - _assembly:Assembly           → Current assembly being edited │   │
 * │   │  - _blueprint:Blueprint         → Schematic definition          │   │
 * │   │  - _canvas:Sprite               → Pan/zoom container            │   │
-* │   │  - _bgHitArea:Sprite            → Canvas click target           │   │
 * │   │  - _nodes:Map<String,NodeView>  → All node views                │   │
 * │   │                                                                 │   │
 * │   │  MANAGERS:                                                      │   │
@@ -195,7 +194,7 @@ class NodeEditor extends Sprite
 	private var _blueprint:core.data.Blueprint;
 	private var _theme:EditorTheme;
 	private var _isNameTakenGlobally:(String, ?String) -> Bool; // v4.8: Global name uniqueness checker
-
+	private var _hitLayer:Sprite;
 	// =========================================================================
 	// MANAGERS
 	// =========================================================================
@@ -210,7 +209,7 @@ class NodeEditor extends Sprite
 	private var _nodes:Map<String, NodeView> = new Map();
 	private var _editorContainer:Sprite;
 	private var _canvas:Sprite;
-	private var _bgHitArea:Sprite;
+	
 	/**
 	* Creates atom in setted up lication with particular ID.
 	* It's good for demo-scheme creation with code.
@@ -334,24 +333,42 @@ class NodeEditor extends Sprite
 		_canvas.cacheAsBitmap = false;
 		_canvas.cacheAsBitmapMatrix = null;
 		
-		_canvas.graphics.lineStyle(3, 0xFF33FF);
-		_canvas.graphics.beginFill(_theme.CANVAS_BG_COLOR, 1);
-		_canvas.graphics.drawRect(-1, -1, 1500, 1500);
-		_canvas.graphics.endFill();
+		// Layers
+		_editorContainer = new Sprite();
+		addChild(_editorContainer);
 
-		_bgHitArea = new Sprite();
-		_bgHitArea.graphics.beginFill(_theme.CANVAS_HIT_AREA_COLOR, _theme.CANVAS_HIT_AREA_ALPHA);
-		_bgHitArea.graphics.drawRect(-1, -1, 10000, 10000);
-		_bgHitArea.graphics.endFill();
-		_bgHitArea.mouseEnabled = true;
-		_canvas.addChild(_bgHitArea);
+		// =========================================================================
+		// GLASS PANE PATTERN (Interaction Layer)
+		// =========================================================================
+		// This invisible sprite catches all mouse/touch events for panning/zooming.
+		// It sits at the bottom. _canvas sits on top but has mouseEnabled=false,
+		// so clicks on "empty space" pass through _canvas and hit _hitLayer.
+		// Clicks on Nodes (which have mouseEnabled=true) are caught by Nodes.
+		// =========================================================================
+		_hitLayer = new Sprite();
+		_hitLayer.graphics.beginFill(0x000000, 0.0); // Transparent
+		// Size it to the stage (viewport size). 
+		// We will update this in onResize if needed, but stage size is a good start.
+		var w = (stage != null) ? stage.stageWidth : 1024;
+		var h = (stage != null) ? stage.stageHeight : 600;
+		_hitLayer.graphics.drawRect(0, 0, w, h);
+		_hitLayer.graphics.endFill();
+		_hitLayer.mouseEnabled = true;
+		_editorContainer.addChild(_hitLayer);
 
-		// Listeners
-		_bgHitArea.addEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
-		_bgHitArea.addEventListener(MouseEvent.RIGHT_CLICK, onCanvasRightClick);
+		// Canvas holds the actual content (Nodes, Wires).
+		_canvas = new Sprite();
+		// CRITICAL: Disable mouse on canvas so events pass through to _hitLayer
+		_canvas.mouseEnabled = false; 
+		_canvas.mouseChildren = true; // But children (Nodes) can still catch clicks!
+		_editorContainer.addChild(_canvas);
 
+		// No need for _bgHitArea anymore. _hitLayer replaces it.
+		
 		// Managers
-		_viewport = new ViewportManager(_canvas, _bgHitArea);
+		// Pass _hitLayer instead of _bgHitArea
+		_viewport = new ViewportManager(_canvas, _hitLayer); 
+		
 		_actions = new EditorActionHandler(_assembly, _blueprint, _isNameTakenGlobally); // v4.8: Pass callback
 		_wireRenderer = new WireRenderer();
 		_wireRenderer.configure(
@@ -505,6 +522,15 @@ class NodeEditor extends Sprite
 	private function onResize(e:Event):Void
 	{
 		if (_forcedWidth == 0 && _forcedHeight == 0) drawFrame();
+		
+		// Update Glass Pane size to match new stage dimensions
+		if (_hitLayer != null && stage != null)
+		{
+			_hitLayer.graphics.clear();
+			_hitLayer.graphics.beginFill(0x000000, 0.0);
+			_hitLayer.graphics.drawRect(0, 0, stage.stageWidth, stage.stageHeight);
+			_hitLayer.graphics.endFill();
+		}
 	}
 
 	private function initListeners():Void
@@ -849,7 +875,7 @@ class NodeEditor extends Sprite
 	* Handle MOUSE_DOWN on canvas background.
 	* Initiates lasso selection (rectangle selection of multiple nodes).
 	*
-	* @param e Mouse event from _bgHitArea
+	* @param e Mouse event from _canvas
 	*/
 	private function onCanvasMouseDown(e:MouseEvent):Void
 	{

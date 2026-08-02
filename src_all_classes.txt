@@ -20510,7 +20510,7 @@ class GroupSelectionManager
 
 ================================================================================
 // FILE: editor\NodeEditor.hx
-// Lines: 1514 | Chars: 52595
+// Lines: 1509 | Chars: 52132
 ================================================================================
 
 package editor;
@@ -20671,7 +20671,6 @@ using StringTools;
 * │   │  - _assembly:Assembly           → Current assembly being edited │   │
 * │   │  - _blueprint:Blueprint         → Schematic definition          │   │
 * │   │  - _canvas:Sprite               → Pan/zoom container            │   │
-* │   │  - _bgHitArea:Sprite            → Canvas click target           │   │
 * │   │  - _nodes:Map<String,NodeView>  → All node views                │   │
 * │   │                                                                 │   │
 * │   │  MANAGERS:                                                      │   │
@@ -20725,7 +20724,7 @@ class NodeEditor extends Sprite
 	private var _nodes:Map<String, NodeView> = new Map();
 	private var _editorContainer:Sprite;
 	private var _canvas:Sprite;
-	private var _bgHitArea:Sprite;
+	
 	/**
 	* Creates atom in setted up lication with particular ID.
 	* It's good for demo-scheme creation with code.
@@ -20849,24 +20848,19 @@ class NodeEditor extends Sprite
 		_canvas.cacheAsBitmap = false;
 		_canvas.cacheAsBitmapMatrix = null;
 		
+		_canvas = new Sprite();
+		_editorContainer.addChild(_canvas);
 		_canvas.graphics.lineStyle(3, 0xFF33FF);
 		_canvas.graphics.beginFill(_theme.CANVAS_BG_COLOR, 1);
 		_canvas.graphics.drawRect(-1, -1, 1500, 1500);
 		_canvas.graphics.endFill();
 
-		_bgHitArea = new Sprite();
-		_bgHitArea.graphics.beginFill(_theme.CANVAS_HIT_AREA_COLOR, _theme.CANVAS_HIT_AREA_ALPHA);
-		_bgHitArea.graphics.drawRect(-1, -1, 10000, 10000);
-		_bgHitArea.graphics.endFill();
-		_bgHitArea.mouseEnabled = true;
-		_canvas.addChild(_bgHitArea);
-
 		// Listeners
-		_bgHitArea.addEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
-		_bgHitArea.addEventListener(MouseEvent.RIGHT_CLICK, onCanvasRightClick);
+		_canvas.addEventListener(MouseEvent.MOUSE_DOWN, onCanvasMouseDown);
+		_canvas.addEventListener(MouseEvent.RIGHT_CLICK, onCanvasRightClick);
 
 		// Managers
-		_viewport = new ViewportManager(_canvas, _bgHitArea);
+		_viewport = new ViewportManager(_canvas, null);
 		_actions = new EditorActionHandler(_assembly, _blueprint, _isNameTakenGlobally); // v4.8: Pass callback
 		_wireRenderer = new WireRenderer();
 		_wireRenderer.configure(
@@ -20875,15 +20869,19 @@ class NodeEditor extends Sprite
 			function() return _selection.getSelectedWireIds()
 		);
 
-		// ═══════════════════════════════════════════════════════════════════
-		// v4.9: ZOOM PERFORMANCE FIX (Android Touch Optimization)
-		// Subscribe to ViewportManager zoom callbacks to toggle cacheAsBitmap
-		// on all NodeViews during pinch-to-zoom gestures.
-		//
-		// During zoom:  cacheAsBitmap=false → cheaper dynamic rendering
-		// After zoom:   cacheAsBitmap=true  → crisp static rendering
-		//               + force wire redraw for vector clarity
-		// ═══════════════════════════════════════════════════════════════════
+		/**
+		* Subscribe to ViewportManager zoom callbacks to toggle cacheAsBitmap
+		* on all NodeViews during pinch-to-zoom gestures.
+		* 
+		* During zoom:  cacheAsBitmap=false → cheaper dynamic rendering
+		* After zoom:   cacheAsBitmap=true  → crisp static rendering
+		* 
+		* Wire redraw is deferred via haxe.Timer.delay to decouple the heavy
+		* rebuildAll() operation from the zoom gesture completion. The canvas
+		* is already scaled via the hardware display list, so the zoom feels
+		* immediate. The wire redraw happens asynchronously to make them crisp
+		* at the new scale without blocking the UI thread.
+		*/
 		_viewport.onZoomStart = function() {
 			for (view in _nodes) {
 				if (view != null) view.setCacheAsBitmapState(false);
@@ -20894,24 +20892,21 @@ class NodeEditor extends Sprite
 			for (view in _nodes) {
 				if (view != null) view.setCacheAsBitmapState(true);
 			}
-			// Force final wire redraw after zoom completes
-			// to ensure crisp vector rendering at the new scale
-			if (_wireRenderer != null) _wireRenderer.rebuildAll();
-		};
-		
-				_viewport.onZoomEnd = function() {
-			for (view in _nodes) {
-				if (view != null) view.setCacheAsBitmapState(true);
-			}
-			// Force final wire redraw after zoom completes
-			if (_wireRenderer != null) _wireRenderer.rebuildAll();
+			/**
+			* Defer wire redraw to allow the UI to settle after zoom.
+			* Wires are already scaled via the hardware display list,
+			* so the zoom feels immediate. The redraw makes them crisp
+			* at the new scale without blocking the gesture completion.
+			*/
+			haxe.Timer.delay(function() {
+				if (_wireRenderer != null) _wireRenderer.rebuildAll();
+			}, 100);
 		};
 
-		// ═══════════════════════════════════════════════════════════════
-		// КРИТИЧЕСКИЙ ФИКС: Обновляем видимость нод после завершения 
-		// любого тач-жеста (pan или zoom). Без этого атомы, заехавшие 
-		// в область видимости во время пана, остаются скрытыми.
-		// ═══════════════════════════════════════════════════════════════
+		/**
+		* Update node visibility after completing any touch gesture (pan or zoom).
+		* No wire redraw here — that is handled by onZoomEnd with a delay.
+		*/
 		_viewport.onTransformEnd = function() {
 			updateVisibility();
 		};
@@ -21363,7 +21358,7 @@ class NodeEditor extends Sprite
 	* Handle MOUSE_DOWN on canvas background.
 	* Initiates lasso selection (rectangle selection of multiple nodes).
 	*
-	* @param e Mouse event from _bgHitArea
+	* @param e Mouse event from _canvas
 	*/
 	private function onCanvasMouseDown(e:MouseEvent):Void
 	{
@@ -22030,7 +22025,7 @@ class NodeEditor extends Sprite
 
 ================================================================================
 // FILE: editor\NodeView.hx
-// Lines: 1820 | Chars: 61684
+// Lines: 1828 | Chars: 62116
 ================================================================================
 
 package editor;
@@ -22437,6 +22432,9 @@ class NodeView extends Sprite
 	 */
 	private function realignInlineEditors():Void
 	{
+		// RADICAL FREEZE: No coordinates needed during zoom/pan.
+		if (editor.EditorState.isZooming() || editor.EditorState.isPanning()) return;
+		
 		var inputs = atom.getInputs();
 		if (inputs == null || inputs.length == 0) return;
 
@@ -22881,6 +22879,7 @@ class NodeView extends Sprite
 	// ═══════════════════════════════════════════════════════════════
     // HARD GUARD AGAINST UI RECALCULATION DURING GESTURES
     // ═══════════════════════════════════════════════════════════════
+		// RADICAL FREEZE: No coordinates needed during zoom/pan.
 		if (EditorState.isZooming() || EditorState.isPanning()) {
 			return;
 		}
@@ -23734,6 +23733,10 @@ class NodeView extends Sprite
 	*/
 	public function getPortPosition(contactName:String): {x:Float, y:Float}
 	{
+		// RADICAL FREEZE: No coordinates needed during zoom/pan. 
+		// WireRenderer will skip rendering if it receives null, which is what we want.
+		if (editor.EditorState.isZooming() || editor.EditorState.isPanning()) return null;
+
 		var port = inputPorts.get(contactName);
 		if (port == null) port = outputPorts.get(contactName);
 		if (port == null) return null;
@@ -24266,7 +24269,7 @@ class SelectionManager
 
 ================================================================================
 // FILE: editor\ViewportManager.hx
-// Lines: 718 | Chars: 23990
+// Lines: 794 | Chars: 24117
 ================================================================================
 
 package editor;
@@ -24277,8 +24280,17 @@ import openfl.events.TouchEvent;
 import editor.NodeView;
 
 /**
-* VIEWPORT MANAGER v1.4 (Zoom Performance Fix + Touch Throttling + Smart Pan Target)
+* VIEWPORT MANAGER v1.5 (Async Transform End + Zero-Allocation Pinch Math)
 * Handles Pan, Zoom, Visibility culling, and Touch interactions.
+*
+* v1.5 Changes:
+* - Deferred onTransformEnd callback via haxe.Timer.delay to decouple
+*   heavy UI operations (rebuildAll, updateVisibility) from the touch
+*   event handler. This allows the browser to present the hardware-scaled
+*   canvas immediately after the gesture ends, making zoom feel responsive.
+* - Replaced array allocation in calculatePinchDistance() and getPinchCenter()
+*   with iterator-based traversal. Eliminates GC pressure on low-end Android
+*   devices where array allocation in hot paths causes micro-stutters.
 *
 * Architecture:
 * ┌─────────────────────────────────────────────────────────────────────────┐
@@ -24305,17 +24317,6 @@ import editor.NodeView;
 * │   │  - setViewState(state)   → Restore saved viewport               │   │
 * │   └─────────────────────────────────────────────────────────────────┘   │
 * │                                                                         │
-* │   v1.4 Changes:                                                         │
-* │   - ADDED: _hasPendingTransform flag for ENTER_FRAME throttling         │
-* │   - ADDED: onZoomStart / onZoomEnd callbacks for cacheAsBitmap toggle   │
-* │   - v1.3: Added isBackgroundTouch() to prevent pan hijacking            │
-* │   - v1.3: Added robust multi-touch tracking via touchPointID Map        │
-* │   - v1.3: Removed invalid `stage` references                            │
-* │   - v1.3: Removed non-existent TouchEvent.TOUCH_CANCEL                  │
-* │   - v1.3: Added lazy activation for DeviceView                          │
-* │   - v1.3: Added visibility update throttling                            │
-* │   - v1.3: Integrated EditorState for global zoom tracking               │
-* │                                                                         │
 * └─────────────────────────────────────────────────────────────────────────┘
 */
 class ViewportManager
@@ -24324,7 +24325,7 @@ class ViewportManager
 	// DEPENDENCIES
 	// =========================================================================
 	private var _canvas:Sprite;
-	private var _bgHitArea:Sprite; // Reference to the background hit area
+	private var _bgHitArea:Sprite;
 	private var _theme:EditorTheme;
 	
 	// =========================================================================
@@ -24353,8 +24354,8 @@ class ViewportManager
 	// THROTTLING
 	// =========================================================================
 	private var _lastVisibilityUpdate:Float = 0;
-	private static inline var VISIBILITY_THROTTLE:Float = 0.05; // 20 FPS max
-	private var _hasPendingTransform:Bool = false; // Флаг отложенного применения трансформаций
+	private static inline var VISIBILITY_THROTTLE:Float = 0.05;
+	private var _hasPendingTransform:Bool = false;
 	
 	// =========================================================================
 	// ZOOM CALLBACKS
@@ -24363,7 +24364,7 @@ class ViewportManager
 	public var onZoomEnd:Void -> Void;
 	
 	// =========================================================================
-	// TRANSFORM CALLBACKS (Update visibility after touch-pan/zoom)
+	// TRANSFORM CALLBACKS
 	// =========================================================================
 	public var onTransformEnd:Void -> Void;
 	
@@ -24385,7 +24386,7 @@ class ViewportManager
 	private var _pinchCenterY:Float = 0;
 
 	// =========================================================================
-	// Reusable Points for stop GC-spikes when Zooming on Android
+	// REUSABLE POINTS
 	// =========================================================================
 	private var _tempPoint1:openfl.geom.Point = new openfl.geom.Point();
 	private var _tempPoint2:openfl.geom.Point = new openfl.geom.Point();
@@ -24394,13 +24395,13 @@ class ViewportManager
 	// CONSTRUCTOR
 	// =========================================================================
 	/**
-	 * Create ViewportManager.
-	 * 
-	 * @param canvas The main canvas sprite.
-	 * @param bgHitArea Optional background hit area sprite. If provided, pan 
-	 *                  will ONLY trigger when this specific sprite is touched,
-	 *                  preventing interference with NodeView/Port interactions.
-	 */
+	* Create ViewportManager.
+	* 
+	* @param canvas The main canvas sprite.
+	* @param bgHitArea Optional background hit area sprite. If provided, pan 
+	*                  will ONLY trigger when this specific sprite is touched,
+	*                  preventing interference with NodeView/Port interactions.
+	*/
 	public function new(canvas:Sprite, ?bgHitArea:Sprite)
 	{
 		_canvas = canvas;
@@ -24408,14 +24409,10 @@ class ViewportManager
 		_theme = EditorTheme.getInstance();
 		_activeTouches = new Map();
 		
-		// Listen to touch events directly on the canvas.
-		// NOTE: OpenFL TouchEvent does NOT have TOUCH_CANCEL. 
-		// TOUCH_END reliably captures both finger lifts and system interruptions.
 		_canvas.addEventListener(TouchEvent.TOUCH_BEGIN, onTouchBegin);
 		_canvas.addEventListener(TouchEvent.TOUCH_MOVE, onTouchMove);
 		_canvas.addEventListener(TouchEvent.TOUCH_END, onTouchEnd);
 		
-		// ПУНКТ 3: Слушатель ENTER_FRAME для применения трансформаций строго 1 раз за кадр (60 FPS)
 		_canvas.addEventListener(openfl.events.Event.ENTER_FRAME, onEnterFrame);
 	}
 	
@@ -24423,8 +24420,8 @@ class ViewportManager
 	// PAN OPERATIONS
 	// =========================================================================
 	/**
-	 * Begin pan operation.
-	 */
+	* Begin pan operation.
+	*/
 	public function handlePanStart(stageX:Float, stageY:Float):Void
 	{
 		if (_isPanning) return;
@@ -24435,13 +24432,12 @@ class ViewportManager
 		_canvasStartX = _canvas.x;
 		_canvasStartY = _canvas.y;
 		
-		// Update global state
 		EditorState.setIsPanning(true);
 	}
 	
 	/**
-	 * Update canvas position during pan.
-	 */
+	* Update canvas position during pan.
+	*/
 	public function handlePanMove(stageX:Float, stageY:Float):Void
 	{
 		if (!_isPanning) return;
@@ -24451,11 +24447,14 @@ class ViewportManager
 		
 		_canvas.x = _canvasStartX + dx;
 		_canvas.y = _canvasStartY + dy;
+		
+		// Prevent panning outside the canvas
+		clampCanvasBounds();
 	}
 	
 	/**
-	 * End pan operation.
-	 */
+	* End pan operation.
+	*/
 	public function handlePanEnd():Void
 	{
 		_isPanning = false;
@@ -24465,14 +24464,14 @@ class ViewportManager
 	public function isPanning():Bool return _isPanning;
 	
 	// =========================================================================
-	// ZOOM OPERATIONS (WITH LAZY ACTIVATION)
+	// ZOOM OPERATIONS
 	// =========================================================================
 	/**
-	 * Handle zoom operation.
-	 * Scales canvas towards cursor position.
-	 * 
-	 * Uses lazy activation to prevent mass DeviceView activation during zoom.
-	 */
+	* Handle zoom operation.
+	* Scales canvas towards cursor position.
+	* 
+	* Uses lazy activation to prevent mass DeviceView activation during zoom.
+	*/
 	public function handleZoom(delta:Int, stageX:Float, stageY:Float, container:Sprite):Void
 	{
 		var zoomFactor:Float = 1.1;
@@ -24489,31 +24488,26 @@ class ViewportManager
 		if (newScale > _zoomMax) newScale = _zoomMax;
 		if (newScale == oldScale) return;
 		
-		// Mark as zooming
 		_isZooming = true;
 		EditorState.setIsZooming(true);
 		
-		// Reset zoom end timer
 		if (_zoomEndTimer != null)
 		{
 			_zoomEndTimer.stop();
 			_zoomEndTimer = null;
 		}
 		
-		// Schedule zoom end detection (15ms after last zoom)
 		_zoomEndTimer = haxe.Timer.delay(() -> {
 			_isZooming = false;
 			EditorState.setIsZooming(false);
 			_processPendingActivations();
 			
-			// Один rebuild после завершения зума
 			core.logic.Impulsys.quickEmit(core.logic.EventType.REDRAW_WIRES);
 		}, 15);
 		
 		_canvas.scaleX = newScale;
 		_canvas.scaleY = newScale;
 		
-		// Adjust position to zoom towards cursor
 		_tempPoint2.x = stageX - (mouseLocal.x * newScale);
 		_tempPoint2.y = stageY - (mouseLocal.y * newScale);
 		var targetGlobalPos:openfl.geom.Point = _tempPoint2;
@@ -24522,22 +24516,25 @@ class ViewportManager
 		
 		_canvas.x = targetLocalPos.x;
 		_canvas.y = targetLocalPos.y;
+		
+		// Clamp to bounds ===
+		clampZoomToBounds();
 	}
 	
 	// =========================================================================
 	// STATE MANAGEMENT
 	// =========================================================================
 	/**
-	 * Get current viewport state.
-	 */
+	* Get current viewport state.
+	*/
 	public function getViewState():{x:Float, y:Float, zoom:Float}
 	{
 		return { x: _canvas.x, y: _canvas.y, zoom: _canvas.scaleX };
 	}
 	
 	/**
-	 * Restore viewport state.
-	 */
+	* Restore viewport state.
+	*/
 	public function setViewState(state:{x:Float, y:Float, zoom:Float}):Void
 	{
 		if (state == null) return;
@@ -24553,18 +24550,108 @@ class ViewportManager
 		_canvas.scaleY = z;
 	}
 	
+	/**
+	 * Clamps canvas position to prevent panning outside the canvas bounds.
+	 * Takes current zoom scale into account.
+	 */
+	private function clampCanvasBounds():Void
+	{
+		var stage = _canvas.stage;
+		if (stage == null) return;
+
+		var stageW = stage.stageWidth;
+		var stageH = stage.stageHeight;
+		
+		// Effective canvas dimensions considering current zoom
+		var effectiveWidth = 10000 * _canvas.scaleX;
+		var effectiveHeight = 10000 * _canvas.scaleY;
+
+		// Clamp X axis
+		if (effectiveWidth > stageW)
+		{
+			// Canvas wider than stage: clamp to [-(effectiveWidth - stageW), 0]
+			if (_canvas.x > 0) _canvas.x = 0;
+			if (_canvas.x < -(effectiveWidth - stageW)) _canvas.x = -(effectiveWidth - stageW);
+		}
+		else
+		{
+			// Canvas narrower than stage: allow movement but keep within [0, stageW - effectiveWidth]
+			var maxOffsetX = stageW - effectiveWidth;
+			if (_canvas.x < 0) _canvas.x = 0;
+			if (_canvas.x > maxOffsetX) _canvas.x = maxOffsetX;
+		}
+
+		// Clamp Y axis
+		if (effectiveHeight > stageH)
+		{
+			// Canvas taller than stage: clamp to [-(effectiveHeight - stageH), 0]
+			if (_canvas.y > 0) _canvas.y = 0;
+			if (_canvas.y < -(effectiveHeight - stageH)) _canvas.y = -(effectiveHeight - stageH);
+		}
+		else
+		{
+			// Canvas shorter than stage: allow movement but keep within [0, stageH - effectiveHeight]
+			var maxOffsetY = stageH - effectiveHeight;
+			if (_canvas.y < 0) _canvas.y = 0;
+			if (_canvas.y > maxOffsetY) _canvas.y = maxOffsetY;
+		}
+	}
+	
+	/**
+	 * Clamp zoom and position to prevent canvas from going out of bounds.
+	 * 
+	 * Prevents:
+	 * - Zoom in making canvas smaller than stage
+	 * - Zoom out making canvas go beyond stage edges
+	 */
+	private function clampZoomToBounds():Void
+	{
+		if (_canvas == null || _canvas.stage == null) return;
+		
+		var stageW = _canvas.stage.stageWidth;
+		var stageH = _canvas.stage.stageHeight;
+		
+		// Canvas dimensions in stage coordinates
+		var canvasW = 10000 * _canvas.scaleX;
+		var canvasH = 10000 * _canvas.scaleY;
+		
+		// Clamp position: prevent canvas from going beyond stage edges
+		if (canvasW < stageW)
+		{
+			// Canvas is smaller than stage - center it
+			_canvas.x = (stageW - canvasW) / 2;
+		}
+		else
+		{
+			// Canvas is larger than stage - clamp to edges
+			if (_canvas.x > 0) _canvas.x = 0;
+			if (_canvas.x < stageW - canvasW) _canvas.x = stageW - canvasW;
+		}
+		
+		if (canvasH < stageH)
+		{
+			// Canvas is smaller than stage - center it
+			_canvas.y = (stageH - canvasH) / 2;
+		}
+		else
+		{
+			// Canvas is larger than stage - clamp to edges
+			if (_canvas.y > 0) _canvas.y = 0;
+			if (_canvas.y < stageH - canvasH) _canvas.y = stageH - canvasH;
+		}
+	}
+
 	// =========================================================================
-	// VISIBILITY CULLING (WITH LAZY ACTIVATION)
+	// VISIBILITY CULLING
 	// =========================================================================
 	/**
-	 * Update node visibility based on viewport bounds.
-	 * 
-	 * During zoom: only hide nodes, defer activation until zoom ends.
-	 * Throttled to 20 FPS max during rapid zoom.
-	 */
+	* Update node visibility based on viewport bounds.
+	* 
+	* During zoom: only hide nodes, defer activation until zoom ends.
+	* Throttled to 20 FPS max during rapid zoom.
+	*/
 	public function updateVisibility(nodes:Iterator<NodeView>, stageWidth:Float, stageHeight:Float):Void
 	{
-		// Throttle visibility updates during rapid zoom
 		var now = haxe.Timer.stamp();
 		if (_isZooming && (now - _lastVisibilityUpdate) < VISIBILITY_THROTTLE)
 		{
@@ -24574,7 +24661,6 @@ class ViewportManager
 		
 		var margin:Float = 150;
 		
-		// Calculate visible bounds in Canvas coordinates
 		var viewLeft:Float = (-_canvas.x / _canvas.scaleX) - margin;
 		var viewTop:Float = (-_canvas.y / _canvas.scaleY) - margin;
 		var viewRight:Float = viewLeft + (stageWidth / _canvas.scaleX) + (margin * 2);
@@ -24590,7 +24676,6 @@ class ViewportManager
 											
 			var wasVisible = view.visible;
 			var size = view.getNodeSize();
-			// AABB check: node is visible if any part of it is within viewport
 			var isVisible = (view.x + size.width > viewLeft && view.x < viewRight &&
 							 view.y + size.height > viewTop  && view.y < viewBottom);
 			
@@ -24598,30 +24683,25 @@ class ViewportManager
 			
 			if (view.visible != isVisible)
 			{
-				// During zoom, only hide nodes, defer activation
 				if (_isZooming)
 				{
 					if (isVisible && !wasVisible)
 					{
-						// Node became visible during zoom - defer activation
 						if (_pendingActivations.indexOf(view) == -1)
 						{
 							_pendingActivations.push(view);
 						}
-						// Still set visible for rendering
 						view.visible = true;
 						newlyVisible++;
 					}
 					else if (!isVisible && wasVisible)
 					{
-						// Node became hidden - deactivate immediately
 						view.visible = false;
 						newlyHidden++;
 					}
 				}
 				else
 				{
-					// Not zooming - full activation/deactivation
 					view.visible = isVisible;
 					if (isVisible && !wasVisible) newlyVisible++;
 					else if (!isVisible && wasVisible) newlyHidden++;
@@ -24629,7 +24709,6 @@ class ViewportManager
 			}
 		}
 		
-		// Log if many nodes changed visibility at once
 		if (newlyVisible > 3 || newlyHidden > 3)
 		{
 			//trace('VISIBILITY DEBUG: Zoom=${Std.string(_canvas.scaleX).substr(0, 5)}, Visible=${visibleCount}, NewVisible=${newlyVisible}, NewHidden=${newlyHidden}');
@@ -24637,16 +24716,15 @@ class ViewportManager
 	}
 	
 	/**
-	 * Process pending activations after zoom ends.
-	 * Activates in small batches to avoid single-frame spike.
-	 */
+	* Process pending activations after zoom ends.
+	* Activates in small batches to avoid single-frame spike.
+	*/
 	private function _processPendingActivations():Void
 	{
 		if (_pendingActivations.length == 0) return;
 		
 		//trace('VISIBILITY: Processing ${_pendingActivations.length} pending activations after zoom');
 		
-		// Activate in small batches to avoid single-frame spike
 		var batchSize = 5;
 		var processed = 0;
 		
@@ -24654,18 +24732,15 @@ class ViewportManager
 		{
 			if (view != null && view.visible)
 			{
-				// Re-trigger visible to activate DeviceView
 				view.visible = view.visible;
 				processed++;
 				
-				// Stop if batch limit reached (remaining will process next frame)
 				if (processed >= batchSize) break;
 			}
 		}
 		
 		_pendingActivations = _pendingActivations.slice(batchSize);
 		
-		// If still pending, schedule next batch
 		if (_pendingActivations.length > 0)
 		{
 			haxe.Timer.delay(() -> _processPendingActivations(), 50);
@@ -24687,12 +24762,12 @@ class ViewportManager
 	// =========================================================================
 	private function onTouchBegin(e:TouchEvent):Void
 	{
-		// ═══════════════════════════════════════════════════════════════
-		// Always track all touches for potential pinch gestures,
-		// even if the touch is not on the background (e.g., on a NodeView).
-		// The isBackgroundTouch check should only prevent starting a PAN,
-		// not prevent tracking the touch for potential PINCH.
-		// ═══════════════════════════════════════════════════════════════
+		/**
+		* Always track all touches for potential pinch gestures,
+		* even if the touch is not on the background (e.g., on a NodeView).
+		* The isBackgroundTouch check only prevents starting a PAN,
+		* not tracking the touch for potential PINCH.
+		*/
 		var isFirstTouch = !_activeTouches.exists(e.touchPointID);
 		if (isFirstTouch)
 		{
@@ -24700,14 +24775,11 @@ class ViewportManager
 		}
 		_activeTouches.set(e.touchPointID, {x: e.stageX, y: e.stageY});
 		
-		// Only start pan if this is the first finger AND it's on the background.
-		// For subsequent fingers, always call updateTouchState() to allow pinch to start.
 		if (isFirstTouch && _touchCount == 1 && !isBackgroundTouch(e.target))
 		{
-			// Don't start pan, but touch is tracked for potential pinch
 			return;
 		}
-		
+
 		updateTouchState();
 	}
 
@@ -24718,8 +24790,6 @@ class ViewportManager
 			_activeTouches.set(e.touchPointID, {x: e.stageX, y: e.stageY});
 		}
 		
-		// ПУНКТ 3: Пропускаем события тача через троттлинг.
-		// Обновляем масштаб строго 1 раз за кадр через ENTER_FRAME.
 		_hasPendingTransform = true;
 	}
 
@@ -24731,22 +24801,34 @@ class ViewportManager
 		}
 		_activeTouches.remove(e.touchPointID);
 		
-		// Force the application of the last state before completion
 		_hasPendingTransform = true;
 		updateTouchState();
 		
-		// We notify NodeEditor that it needs to update the visibility of nodes after the gesture
-		if (onTransformEnd != null) onTransformEnd();
+		/**
+		* Defer onTransformEnd to the next frame cycle.
+		* Heavy operations like updateVisibility() and rebuildAll() traverse
+		* the entire node graph and call localToGlobal() for each wire endpoint.
+		* On low-end Android devices this blocks the UI thread for seconds.
+		* By deferring, the browser presents the hardware-scaled canvas
+		* immediately after the gesture ends, making zoom feel responsive.
+		* The wire redraw happens asynchronously after the UI has settled.
+		*/
+		if (onTransformEnd != null)
+		{
+			var callback = onTransformEnd;
+			haxe.Timer.delay(function() {
+				if (callback != null) callback();
+			}, 16);
+		}
 	}
 
 	// =========================================================================
-	// TOUCH THROTTLING (ПУНКТ 3)
+	// TOUCH THROTTLING
 	// =========================================================================
 	private function onEnterFrame(e:openfl.events.Event):Void
 	{
 		if (_hasPendingTransform)
 		{
-			// Применяем трансформацию ровно 1 раз за кадр (60 FPS)
 			updateTouchState();
 			_hasPendingTransform = false;
 		}
@@ -24761,7 +24843,6 @@ class ViewportManager
 		{
 			if (!_touchPanning)
 			{
-				// One finger - start pan
 				_touchPanning = true;
 				_pinchZooming = false;
 				EditorState.setIsPanning(true);
@@ -24781,31 +24862,24 @@ class ViewportManager
 				var dy = firstTouch.y - _touchPanStartY;
 				_canvas.x = _touchPanStartCanvasX + dx;
 				_canvas.y = _touchPanStartCanvasY + dy;
+				
+				// Prevent panning outside the canvas
+				clampCanvasBounds();
 			}
 		}
 		else if (_touchCount == 2)
 		{
 			if (!_pinchZooming)
 			{
-				// Calculate initial distance between fingers
 				var initialDistance = calculatePinchDistance();
 				
-				// ═══════════════════════════════════════════════════════════════
-				// FIX: Only start pinch if fingers are far enough apart.
-				// If fingers are too close, the scale ratio becomes extremely
-				// sensitive, causing aggressive zoom/pan behavior.
-				// Minimum threshold: 50 pixels (about 1 cm on most screens).
-				// ═══════════════════════════════════════════════════════════════
 				if (initialDistance < 15)
 				{
-					// Fingers too close together — don't start pinch.
-					// Continue with whatever gesture was active (pan or nothing).
 					return;
 				}
 				
-				// Initialize pinch
 				_pinchZooming = true;
-				_touchPanning = false; // Explicitly reset pan state
+				_touchPanning = false;
 				EditorState.setIsPanning(false);
 				EditorState.setIsZooming(true);
 				_wasZooming = true;
@@ -24818,23 +24892,17 @@ class ViewportManager
 				_pinchCenterX = center.x;
 				_pinchCenterY = center.y;
 				
-				// Log for debugging
-				trace('Pinch started: distance=${_pinchStartDistance}, scale=${_pinchStartScale}, center=(${_pinchCenterX}, ${_pinchCenterY})');
+				//trace('Pinch started: distance=${_pinchStartDistance}, scale=${_pinchStartScale}, center=(${_pinchCenterX}, ${_pinchCenterY})');
 			}
-						else
+			else
 			{
-				// Continue pinch-to-zoom
 				var currentDistance = calculatePinchDistance();
 				var scaleRatio = currentDistance / _pinchStartDistance;
 				var newScale = _pinchStartScale * scaleRatio;
 				
-				// Clamp scale
 				if (newScale < _zoomMin) newScale = _zoomMin;
 				if (newScale > _zoomMax) newScale = _zoomMax;
 				
-				// ═══════════════════════════════════════════════════════════════
-				// FIX: Zero-GC point reuse for pinch zoom calculations
-				// ═══════════════════════════════════════════════════════════════
 				_tempPoint1.x = _pinchCenterX;
 				_tempPoint1.y = _pinchCenterY;
 				var mouseLocal:openfl.geom.Point = _canvas.globalToLocal(_tempPoint1);
@@ -24853,6 +24921,8 @@ class ViewportManager
 					_canvas.x = targetLocalPos.x;
 					_canvas.y = targetLocalPos.y;
 				}
+				// Clamp to bounds ===
+				clampZoomToBounds();
 			}
 		}
 		else if (_touchCount == 0)
@@ -24863,7 +24933,6 @@ class ViewportManager
 			EditorState.setIsPanning(false);
 			EditorState.setIsZooming(false);
 			
-			// Trigger end of Zoom
 			if (_wasZooming)
 			{
 				if (onZoomEnd != null) onZoomEnd();
@@ -24873,7 +24942,6 @@ class ViewportManager
 		}
 		else if (_touchCount == 1 && _pinchZooming)
 		{
-			// Transitioned from pinch to pan
 			_pinchZooming = false;
 			_touchPanning = true;
 			_isZooming = false;
@@ -24892,35 +24960,23 @@ class ViewportManager
 	// TOUCH HELPER METHODS
 	// =========================================================================
 	/**
-	 * Check if the touch target is the background (empty canvas space).
-	 * 
-	 * This prevents the viewport from hijacking interactions with Nodes, 
-	 * Ports, Wires, or Widgets.
-	 * 
-	 * @param target The DisplayObject that was touched.
-	 * @return true if the touch is on the background, false otherwise.
-	 */
+	* Check if the touch target is the background (empty canvas space).
+	* 
+	* This prevents the viewport from hijacking interactions with Nodes, 
+	* Ports, Wires, or Widgets.
+	* 
+	* @param target The DisplayObject that was touched.
+	* @return true if the touch is on the background, false otherwise.
+	*/
 	private function isBackgroundTouch(target:openfl.display.DisplayObject):Bool
 	{
-		// 1. Strict check: If we have a dedicated background hit area, ONLY allow pan if touched.
-		// This naturally excludes Nodes, Ports, Wires, and Widgets.
 		if (_bgHitArea != null)
 		{
 			return (target == _bgHitArea || target == _canvas);
 		}
 		
-		// 2. Fallback: Walk up the display list to ensure we didn't touch a NodeView.
-		var current:openfl.display.DisplayObject = target;
-		while (current != null && current != _canvas)
-		{
-			if (Std.isOfType(current, NodeView)) 
-			{
-				return false; // Touched a node or its child (port/widget)
-			}
-			current = current.parent;
-		}
-		
-		return true; // Reached canvas without hitting a NodeView
+		// background only where _canvas is drawn.
+		return (target == _canvas);
 	}
 
 	private function getFirstTouch():{x:Float, y:Float}
@@ -24932,32 +24988,55 @@ class ViewportManager
 		return {x: 0, y: 0};
 	}
 
+	/**
+	* Calculate distance between two active touch points.
+	* Uses iterator-based traversal instead of array allocation to avoid
+	* GC pressure on low-end Android devices where array allocation in
+	* hot paths (called every frame during pinch) causes micro-stutters.
+	*/
 	private function calculatePinchDistance():Float
 	{
-		// Calculate distance between two fingers
-		var touches = [];
-		for (t in _activeTouches) touches.push(t);
+		var first:Null<{x:Float, y:Float}> = null;
+		var second:Null<{x:Float, y:Float}> = null;
 		
-		if (touches.length >= 2)
+		for (t in _activeTouches)
 		{
-			var dx = touches[1].x - touches[0].x;
-			var dy = touches[1].y - touches[0].y;
+			if (first == null) first = t;
+			else if (second == null) second = t;
+			else break;
+		}
+		
+		if (first != null && second != null)
+		{
+			var dx = second.x - first.x;
+			var dy = second.y - first.y;
 			return Math.sqrt(dx * dx + dy * dy);
 		}
 		
 		return 0;
 	}
 
+	/**
+	* Calculate center point between two active touch points.
+	* Uses iterator-based traversal instead of array allocation.
+	*/
 	private function getPinchCenter():{x:Float, y:Float}
 	{
-		var touches = [];
-		for (t in _activeTouches) touches.push(t);
+		var first:Null<{x:Float, y:Float}> = null;
+		var second:Null<{x:Float, y:Float}> = null;
 		
-		if (touches.length >= 2)
+		for (t in _activeTouches)
+		{
+			if (first == null) first = t;
+			else if (second == null) second = t;
+			else break;
+		}
+		
+		if (first != null && second != null)
 		{
 			return {
-				x: (touches[0].x + touches[1].x) / 2,
-				y: (touches[0].y + touches[1].y) / 2
+				x: (first.x + second.x) / 2,
+				y: (first.y + second.y) / 2
 			};
 		}
 		
@@ -24968,8 +25047,8 @@ class ViewportManager
 	// CLEANUP
 	// =========================================================================
 	/**
-	 * Dispose resources and remove event listeners.
-	 */
+	* Dispose resources and remove event listeners.
+	*/
 	public function dispose():Void
 	{
 		_canvas.removeEventListener(TouchEvent.TOUCH_BEGIN, onTouchBegin);
@@ -24990,7 +25069,7 @@ class ViewportManager
 
 ================================================================================
 // FILE: editor\WireRenderer.hx
-// Lines: 916 | Chars: 33077
+// Lines: 918 | Chars: 33265
 ================================================================================
 
 package editor;
@@ -25329,11 +25408,13 @@ class WireRenderer {
 	public function rebuildAll():Void {
 		if (_isDisposed) return;
 		
-		// ПУНКТ 5: Отключаем перерисовку векторных линий во время зума.
-		// WebGL автоматически масштабирует содержимое _canvas, поэтому
-		// вызов Graphics.clear() и lineTo() на каждый тач-ивент лишь 
-		// создаёт ненужную нагрузку на CPU и GC, не улучшая визуал.
-		if (EditorState.isZooming()) return;
+		// Disable vector line repainting during zoom.
+		// WebGL automatically scales the _canvas contents, so
+		// calling Graphics.clear() and lineTo() on every touch event only
+		// creates unnecessary load on the CPU and GC without improving the visuals.
+		// RADICAL FREEZING: Completely disables recalculation of Bezier curves and matrices during a gesture.
+		// The GPU scales the _canvas, and Haxe rests.
+		if (editor.EditorState.isZooming() || editor.EditorState.isPanning()) return;
 		
 		trace('🎨 WireRenderer.rebuildAll: blueprint has ${_blueprint.internalConnections != null ? _blueprint.internalConnections.length : 0} connections');
 		
@@ -37361,7 +37442,7 @@ class ToggleAtom extends Atom
 
 ================================================================================
 // FILE: Main.hx
-// Lines: 2194 | Chars: 69759
+// Lines: 2197 | Chars: 69909
 ================================================================================
 
 package;
@@ -37876,7 +37957,7 @@ class Main extends Sprite
 			var closeFileBtAtom:Atom = cast rootAssembly.internalAtoms.get(closeFileButtonId);
 			var fileLedAtom:Atom = cast rootAssembly.internalAtoms.get(fileWriterStatusLedId);
 
-			if (comport1Atom != null) _devicePanel.addDevice(comport1Atom, 10, 10);
+			if (comport1Atom != null) _devicePanel.addDevice(comport1Atom, 810, 10);
 			if (txAtom != null) _devicePanel.addDevice(txAtom, 350, 50);
 			if (textArea != null) _devicePanel.addDevice(textArea, 550, 250);
 			if (comportledAtom != null) _devicePanel.addDevice(comportledAtom, 300, 270);
@@ -38411,23 +38492,26 @@ class Main extends Sprite
 			
 			if (_editorContext.currentEditor != null)
 			{
-				// 1. Ensure gesture flags are cleared before redrawing
+				// Reset gesture flags before redrawing
 				editor.EditorState.setIsZooming(false);
 				editor.EditorState.setIsPanning(false);
 				
-				// 2. Restoring widgets
+				// Restore widgets to NodeViews
 				_editorContext.currentEditor.restoreAllWidgets();
 				
-				// 3. Double repaint with forced WebGL wakeup
-				_editorContext.currentEditor.forceFullRedraw();
-				
-				haxe.Timer.delay(() -> {
+				/**
+				* Defer the full redraw to the next frame cycle.
+				* restoreAllWidgets() traverses all nodes and re-acquires their
+				* DeviceViews, which is heavy on low-end devices. By deferring
+				* the redraw, the browser presents the editor layer immediately,
+				* and the wire/node redraw happens asynchronously.
+				*/
+				haxe.Timer.delay(function() {
 					if (_editorContext.currentEditor != null && !_editorContext.currentEditor.isDisposed)
 					{
 						_editorContext.currentEditor.forceFullRedraw();
-						// CRITICAL FOR ANDROID:
-						// Force OpenFL to completely redraw the scene,
-						// resetting any cached hidden layer states
+						
+						// Force WebGL context to refresh cached layer states
 						if (stage != null) {
 							stage.invalidate();
 						}
