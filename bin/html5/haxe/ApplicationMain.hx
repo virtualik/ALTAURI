@@ -16,11 +16,11 @@ class ApplicationMain
 	#if !macro
 	public static function main()
 	{
-		lime.system.System.__registerEntryPoint("ALTAURI", create);
+		lime.system.System.__registerEntryPoint("ALTAURI_Web", create);
 
 		#if (js && html5)
 		#if (munit || (utest && openfl_enable_utest_legacy_mode))
-		lime.system.System.embed("ALTAURI", null, 1024, 600);
+		lime.system.System.embed("ALTAURI_Web", null, 1024, 600);
 		#end
 		#else
 		create(null);
@@ -35,9 +35,9 @@ class ApplicationMain
 		ManifestResources.init(config);
 		#end
 
-		app.meta["build"] = "174";
+		app.meta["build"] = "175";
 		app.meta["company"] = "ViRTUALiK";
-		app.meta["file"] = "ALTAURI";
+		app.meta["file"] = "ALTAURI_Web";
 		app.meta["name"] = "ALTAURI";
 		app.meta["packageName"] = "com.virtualik.altauri";
 		app.meta["version"] = "1.0.0";

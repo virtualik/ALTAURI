@@ -75,7 +75,7 @@ import sys.FileSystem;
 
 		var data, manifest, library, bundle;
 
-		data = '{"name":null,"assets":"aoy4:pathy25:assets%2Ffixed_classes.hxy4:sizei103582y4:typey4:TEXTy2:idR1y7:preloadtgoR0y36:assets%2Ficons%2Fatoms%2Fcomport.pngR2i4680R3y5:IMAGER5R7R6tgoR0y32:assets%2Ficons%2Fatoms%2Ffft.pngR2i4517R3R8R5R9R6tgoR0y19:assets%2Fopenfl.svgR2i62864R3R4R5R10R6tgoR0R7R2i4680R3R8R5R7R6tgoR0R9R2i4517R3R8R5R9R6tgh","rootPath":null,"version":2,"libraryArgs":[],"libraryType":null}';
+		data = '{"name":null,"assets":"aoy4:pathy20:assets%2Ffavicon.icoy4:sizei4286y4:typey6:BINARYy2:idR1y7:preloadtgoR0y25:assets%2Ffixed_classes.hxR2i103582R3y4:TEXTR5R7R6tgoR0y36:assets%2Ficons%2Fatoms%2Fcomport.pngR2i4680R3y5:IMAGER5R9R6tgoR0y32:assets%2Ficons%2Fatoms%2Ffft.pngR2i4517R3R10R5R11R6tgoR0y19:assets%2Fopenfl.svgR2i62864R3R8R5R12R6tgoR0R9R2i4680R3R10R5R9R6tgoR0R11R2i4517R3R10R5R11R6tgh","rootPath":null,"version":2,"libraryArgs":[],"libraryType":null}';
 		manifest = AssetManifest.parse (data, rootPath);
 		library = AssetLibrary.fromManifest (manifest);
 		Assets.registerLibrary ("default", library);
@@ -94,6 +94,7 @@ import sys.FileSystem;
 #if !display
 #if flash
 
+@:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_favicon_ico extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_fixed_classes_hx extends null { }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_icons_atoms_comport_png extends flash.display.BitmapData { public function new () { super (0, 0, true, 0); } }
 @:keep @:bind @:noCompletion #if display private #end class __ASSET__assets_icons_atoms_fft_png extends flash.display.BitmapData { public function new () { super (0, 0, true, 0); } }
@@ -105,6 +106,7 @@ import sys.FileSystem;
 
 #elseif (desktop || cpp)
 
+@:keep @:file("assets/favicon.ico") @:noCompletion #if display private #end class __ASSET__assets_favicon_ico extends haxe.io.Bytes {}
 @:keep @:file("assets/fixed_classes.hx") @:noCompletion #if display private #end class __ASSET__assets_fixed_classes_hx extends haxe.io.Bytes {}
 @:keep @:image("assets/icons/atoms/comport.png") @:noCompletion #if display private #end class __ASSET__assets_icons_atoms_comport_png extends lime.graphics.Image {}
 @:keep @:image("assets/icons/atoms/fft.png") @:noCompletion #if display private #end class __ASSET__assets_icons_atoms_fft_png extends lime.graphics.Image {}

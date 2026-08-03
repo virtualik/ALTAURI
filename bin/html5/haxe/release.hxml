@@ -22,6 +22,6 @@
 -D html5
 -D web
 --remap flash:openfl
--js bin/html5/bin/ALTAURI.js
+-js bin/html5/bin/ALTAURI_Web.js
 -cp bin/html5/haxe
 -D html5

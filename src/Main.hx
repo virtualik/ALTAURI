@@ -354,16 +354,24 @@ class Main extends Sprite
 			});
 		});
 
-		#if html5
-// Create demo project manually
-		createDemoProject();
-		#end
-
 		#if windows
-// Load project manually
+// WiNDOWS Target - Load project from file
+		//createDemoProject();
 		loadProject();
 		#end
+		
+		#if html5
+// HTML5 Target - Creation method
 
+		createDemoProject();
+		#end
+		
+		#if android
+// ANDROID Target - Creation method
+		createDemoProject(); 
+		//loadProject();
+		#end
+		
 // Pass control of the limit to TickGenerator
 		TickGenerator.getInstance().maxStepsPerFrame = 100;
 	}

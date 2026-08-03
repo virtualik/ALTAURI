@@ -1,7 +1,9 @@
 # Haxe/C++ build
-bin/windows/obj/
-bin/windows/haxe/
-bin/windows/bin/
+bin/
+databank/
+databank/archive/
+databank/fonts/
+databank/images/
 *.ndll
 *.exe
 .build

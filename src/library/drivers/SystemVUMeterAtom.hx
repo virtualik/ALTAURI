@@ -20,200 +20,252 @@ import system.managers.DriverManager;
 // C++ IMPLEMENTATION (CPP FILE CODE)
 // ============================================================================
 @:cppFileCode('
-// Protection from aggressive Windows macros
-#define WIN32_LEAN_AND_MEAN
-#define WIN32_NO_STATUS
-#define NOMINMAX
-#pragma comment(lib, "ole32.lib")
-#include <mmdeviceapi.h>
-#include <endpointvolume.h>
-#include <string>
-#include <mutex>
-#include <map>
+#if defined(_WIN32)
+    // Protection from aggressive Windows macros
+    #define WIN32_LEAN_AND_MEAN
+    #define WIN32_NO_STATUS
+    #define NOMINMAX
+    #pragma comment(lib, "ole32.lib")
+    #include <mmdeviceapi.h>
+    #include <endpointvolume.h>
+    #include <string>
+    #include <mutex>
+    #include <map>
 
-// ============================================================================
-// C++ STATE STRUCT — stores WASAPI objects for each Haxe instance
-// ============================================================================
-struct VuMeterState {
-    IMMDeviceEnumerator* pEnumerator;
-    IMMDevice* pDevice;
-    IAudioMeterInformation* pMeter;
-    
-    // Stereo peaks
-    float peakL;
-    float peakR;
-    float peakMono;
-    UINT32 channelCount;
-    bool isValid;
-    bool comInitialized;
-    
-    std::mutex mtx;
-    
-    VuMeterState()
-        : pEnumerator(nullptr)
-        , pDevice(nullptr)
-        , pMeter(nullptr)
-        , peakL(0.0f)
-        , peakR(0.0f)
-        , peakMono(0.0f)
-        , channelCount(0)
-        , isValid(false)
-        , comInitialized(false)
-    {}
-};
+    // ============================================================================
+    // C++ STATE STRUCT — stores WASAPI objects for each Haxe instance
+    // ============================================================================
+    struct VuMeterState {
+        IMMDeviceEnumerator* pEnumerator;
+        IMMDevice* pDevice;
+        IAudioMeterInformation* pMeter;
+        
+        // Stereo peaks
+        float peakL;
+        float peakR;
+        float peakMono;
+        unsigned int channelCount;
+        bool isValid;
+        bool comInitialized;
+        
+        std::mutex mtx;
+        
+        VuMeterState()
+            : pEnumerator(nullptr)
+            , pDevice(nullptr)
+            , pMeter(nullptr)
+            , peakL(0.0f)
+            , peakR(0.0f)
+            , peakMono(0.0f)
+            , channelCount(0)
+            , isValid(false)
+            , comInitialized(false)
+        {}
+    };
 
-// Global map: Haxe pointer → C++ state
-static std::map<void*, VuMeterState*> _vumeter_map;
-static std::mutex _vumeter_map_mutex;
+    // Global map: Haxe pointer → C++ state
+    static std::map<void*, VuMeterState*> _vumeter_map;
+    static std::mutex _vumeter_map_mutex;
 
-// ============================================================================
-// WASAPI INITIALIZATION
-// ============================================================================
-static void _vumeter_init(void* haxePtr, int mode) {
-    VuMeterState* st = new VuMeterState();
-    
-    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (SUCCEEDED(hr)) {
-        st->comInitialized = true;
-    } else if (hr == RPC_E_CHANGED_MODE) {
-        // COM already initialized in another thread — OK for us
-        st->comInitialized = false;
-    } else {
-        delete st;
-        return;
+    // ============================================================================
+    // WASAPI INITIALIZATION
+    // ============================================================================
+    static void _vumeter_init(void* haxePtr, int mode) {
+        VuMeterState* st = new VuMeterState();
+        
+        HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (SUCCEEDED(hr)) {
+            st->comInitialized = true;
+        } else if (hr == RPC_E_CHANGED_MODE) {
+            // COM already initialized in another thread — OK for us
+            st->comInitialized = false;
+        } else {
+            delete st;
+            return;
+        }
+        
+        hr = CoCreateInstance(
+            __uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
+            __uuidof(IMMDeviceEnumerator),
+            (void**)&st->pEnumerator
+        );
+        
+        if (FAILED(hr) || !st->pEnumerator) {
+            if (st->comInitialized) CoUninitialize();
+            delete st;
+            return;
+        }
+        
+        EDataFlow flow = (mode == 1) ? eCapture : eRender;
+        
+        hr = st->pEnumerator->GetDefaultAudioEndpoint(
+            flow, eMultimedia, &st->pDevice
+        );
+        
+        if (FAILED(hr) || !st->pDevice) {
+            st->pEnumerator->Release();
+            st->pEnumerator = nullptr;
+            if (st->comInitialized) CoUninitialize();
+            delete st;
+            return;
+        }
+        
+        hr = st->pDevice->Activate(
+            __uuidof(IAudioMeterInformation), CLSCTX_ALL, NULL,
+            (void**)&st->pMeter
+        );
+        
+        if (SUCCEEDED(hr) && st->pMeter) {
+            // Get device channel count
+            st->pMeter->GetMeteringChannelCount(&st->channelCount);
+            st->isValid = true;
+        }
+        
+        {
+            std::lock_guard<std::mutex> lock(_vumeter_map_mutex);
+            _vumeter_map[haxePtr] = st;
+        }
     }
-    
-    hr = CoCreateInstance(
-        __uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
-        __uuidof(IMMDeviceEnumerator),
-        (void**)&st->pEnumerator
-    );
-    
-    if (FAILED(hr) || !st->pEnumerator) {
-        if (st->comInitialized) CoUninitialize();
-        delete st;
-        return;
+
+    // ============================================================================
+    // WASAPI RELEASE
+    // ============================================================================
+    static void _vumeter_release(void* haxePtr) {
+        VuMeterState* st = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(_vumeter_map_mutex);
+            auto it = _vumeter_map.find(haxePtr);
+            if (it != _vumeter_map.end()) {
+                st = it->second;
+                _vumeter_map.erase(it);
+            }
+        }
+        
+        if (st) {
+            if (st->pMeter) { st->pMeter->Release(); st->pMeter = nullptr; }
+            if (st->pDevice) { st->pDevice->Release(); st->pDevice = nullptr; }
+            if (st->pEnumerator) { st->pEnumerator->Release(); st->pEnumerator = nullptr; }
+            if (st->comInitialized) {
+                CoUninitialize();
+            }
+            delete st;
+        }
     }
-    
-    EDataFlow flow = (mode == 1) ? eCapture : eRender;
-    
-    hr = st->pEnumerator->GetDefaultAudioEndpoint(
-        flow, eMultimedia, &st->pDevice
-    );
-    
-    if (FAILED(hr) || !st->pDevice) {
-        st->pEnumerator->Release();
-        st->pEnumerator = nullptr;
-        if (st->comInitialized) CoUninitialize();
-        delete st;
-        return;
+
+    // ============================================================================
+    // STEREO PEAK VALUE READING
+    // ============================================================================
+    struct StereoPeakResult {
+        float peakL;
+        float peakR;
+        float peakMono;
+        unsigned int channels;
+        bool valid;
+    };
+
+    static StereoPeakResult _vumeter_get_stereo_peak(void* haxePtr) {
+        StereoPeakResult result = {0.0f, 0.0f, 0.0f, 0, false};
+        
+        VuMeterState* st = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(_vumeter_map_mutex);
+            auto it = _vumeter_map.find(haxePtr);
+            if (it != _vumeter_map.end()) {
+                st = it->second;
+            }
+        }
+        
+        if (!st || !st->isValid || !st->pMeter) return result;
+        
+        result.channels = st->channelCount;
+        
+        // If device has 2+ channels — use stereo method
+        if (st->channelCount >= 2) {
+            float channelPeaks[2] = {0.0f, 0.0f};
+            HRESULT hr = st->pMeter->GetChannelsPeakValues(2, channelPeaks);
+            
+            if (SUCCEEDED(hr)) {
+                std::lock_guard<std::mutex> lock(st->mtx);
+                st->peakL = channelPeaks[0];
+                st->peakR = channelPeaks[1];
+                st->peakMono = (channelPeaks[0] > channelPeaks[1]) ? channelPeaks[0] : channelPeaks[1];
+                
+                result.peakL = st->peakL;
+                result.peakR = st->peakR;
+                result.peakMono = st->peakMono;
+                result.valid = true;
+            }
+        } else {
+            // Mono device — duplicate value to both channels
+            float peak = 0.0f;
+            HRESULT hr = st->pMeter->GetPeakValue(&peak);
+            
+            if (SUCCEEDED(hr)) {
+                std::lock_guard<std::mutex> lock(st->mtx);
+                st->peakL = peak;
+                st->peakR = peak;
+                st->peakMono = peak;
+                
+                result.peakL = peak;
+                result.peakR = peak;
+                result.peakMono = peak;
+                result.valid = true;
+            }
+        }
+        
+        return result;
     }
-    
-    hr = st->pDevice->Activate(
-        __uuidof(IAudioMeterInformation), CLSCTX_ALL, NULL,
-        (void**)&st->pMeter
-    );
-    
-    if (SUCCEEDED(hr) && st->pMeter) {
-        // Get device channel count
-        st->pMeter->GetMeteringChannelCount(&st->channelCount);
-        st->isValid = true;
-    }
-    
-    {
+
+#else
+    // ============================================================================
+    // STUB IMPLEMENTATION FOR NON-WINDOWS PLATFORMS (Android, iOS, Linux)
+    // Prevents "file not found" errors for Windows-exclusive WASAPI headers.
+    // Provides safe, zeroed fallback values so Haxe logic compiles seamlessly.
+    // ============================================================================
+    #include <string>
+    #include <mutex>
+    #include <map>
+
+    struct VuMeterState {
+        bool isValid;
+        std::mutex mtx;
+        VuMeterState() : isValid(false) {}
+    };
+
+    static std::map<void*, VuMeterState*> _vumeter_map;
+    static std::mutex _vumeter_map_mutex;
+
+    static void _vumeter_init(void* haxePtr, int mode) {
+        // Stub: Initialize an empty state for non-Windows platforms
+        VuMeterState* st = new VuMeterState();
         std::lock_guard<std::mutex> lock(_vumeter_map_mutex);
         _vumeter_map[haxePtr] = st;
     }
-}
 
-// ============================================================================
-// WASAPI RELEASE
-// ============================================================================
-static void _vumeter_release(void* haxePtr) {
-    VuMeterState* st = nullptr;
-    {
+    static void _vumeter_release(void* haxePtr) {
+        // Stub: Clean up the map
         std::lock_guard<std::mutex> lock(_vumeter_map_mutex);
         auto it = _vumeter_map.find(haxePtr);
         if (it != _vumeter_map.end()) {
-            st = it->second;
+            delete it->second;
             _vumeter_map.erase(it);
         }
     }
-    
-    if (st) {
-        if (st->pMeter) { st->pMeter->Release(); st->pMeter = nullptr; }
-        if (st->pDevice) { st->pDevice->Release(); st->pDevice = nullptr; }
-        if (st->pEnumerator) { st->pEnumerator->Release(); st->pEnumerator = nullptr; }
-        if (st->comInitialized) {
-            CoUninitialize();
-        }
-        delete st;
-    }
-}
 
-// ============================================================================
-// STEREO PEAK VALUE READING
-// ============================================================================
-struct StereoPeakResult {
-    float peakL;
-    float peakR;
-    float peakMono;
-    UINT32 channels;
-    bool valid;
-};
+    struct StereoPeakResult {
+        float peakL;
+        float peakR;
+        float peakMono;
+        unsigned int channels;
+        bool valid;
+    };
 
-static StereoPeakResult _vumeter_get_stereo_peak(void* haxePtr) {
-    StereoPeakResult result = {0.0f, 0.0f, 0.0f, 0, false};
-    
-    VuMeterState* st = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(_vumeter_map_mutex);
-        auto it = _vumeter_map.find(haxePtr);
-        if (it != _vumeter_map.end()) {
-            st = it->second;
-        }
+    static StereoPeakResult _vumeter_get_stereo_peak(void* haxePtr) {
+        // Stub: Return zeroed values for non-Windows platforms
+        StereoPeakResult result = {0.0f, 0.0f, 0.0f, 0, false};
+        return result;
     }
-    
-    if (!st || !st->isValid || !st->pMeter) return result;
-    
-    result.channels = st->channelCount;
-    
-    // If device has 2+ channels — use stereo method
-    if (st->channelCount >= 2) {
-        float channelPeaks[2] = {0.0f, 0.0f};
-        HRESULT hr = st->pMeter->GetChannelsPeakValues(2, channelPeaks);
-        
-        if (SUCCEEDED(hr)) {
-            std::lock_guard<std::mutex> lock(st->mtx);
-            st->peakL = channelPeaks[0];
-            st->peakR = channelPeaks[1];
-            st->peakMono = (channelPeaks[0] > channelPeaks[1]) ? channelPeaks[0] : channelPeaks[1];
-            
-            result.peakL = st->peakL;
-            result.peakR = st->peakR;
-            result.peakMono = st->peakMono;
-            result.valid = true;
-        }
-    } else {
-        // Mono device — duplicate value to both channels
-        float peak = 0.0f;
-        HRESULT hr = st->pMeter->GetPeakValue(&peak);
-        
-        if (SUCCEEDED(hr)) {
-            std::lock_guard<std::mutex> lock(st->mtx);
-            st->peakL = peak;
-            st->peakR = peak;
-            st->peakMono = peak;
-            
-            result.peakL = peak;
-            result.peakR = peak;
-            result.peakMono = peak;
-            result.valid = true;
-        }
-    }
-    
-    return result;
-}
+#endif
 ')
 
 /**

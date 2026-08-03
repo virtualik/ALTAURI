@@ -1,4 +1,5 @@
 bin/windows/bin/index.html
+bin/windows/bin/assets/favicon.ico
 bin/windows/bin/assets/fixed_classes.hx
 bin/windows/bin/assets/icons/atoms/comport.png
 bin/windows/bin/assets/icons/atoms/fft.png

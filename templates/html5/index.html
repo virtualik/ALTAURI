@@ -304,7 +304,7 @@
     window.addEventListener('load', function() {
         if (typeof lime !== 'undefined' && typeof lime.embed === 'function') {
             // Pass ID as string — Lime will locate the div and construct the full DOM structure
-            lime.embed("ALTAURI", "openfl-content", 1024, 600);
+            lime.embed("::APP_FILE::", "openfl-content", 0, 0);
         }
     });
     </script>

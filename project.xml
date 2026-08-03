@@ -10,11 +10,15 @@
 	<!-- ========================================================================= -->
 	<!-- APPLICATION ENTRY POINTS                                                  -->
 	<!-- ========================================================================= -->
-	<!-- Используем единый класс Main для обеих платформ -->
-	<app main="Main" file="ALTAURI" path="bin" />
+	<!-- Используем единый класс Main для разных платформ -->
+	<app main="Main" file="ALTAURI_Windows"  path="bin" if="windows" />
+	<app main="Main" file="ALTAURI_Android"  path="bin" if="android" />
+	<app main="Main" file="ALTAURI_Web"      path="bin" if="html5" />
 	
-	<!-- Для C++ явно указываем тип вывода -->
-	<output type="Application" mainClass="Main" />
+	<!-- Для Android явно указываем тип вывода -->
+	<!-- <output type="Application" mainClass="Main" /> -->
+	
+	
 	
 	<!-- ========================================================================= -->
 	<!-- WINDOW SETTINGS                                                           -->
@@ -41,6 +45,8 @@
 	<window if="html5" width="1024" height="600" background="#1E1E1E" />
 	<window if="html5" render="webgl" hardware="true" vsync="true" />
 	<template path="templates/html5/index.html" rename="index.html" />
+	
+	<config:android sdk="C:\AndroidSDK" ndk="C:\AndroidSDK\ndk\21.4.7075529" />
 
 	<!-- ========================================================================= -->
 	<!-- ENVIRONMENT VARIABLES (C++ Only)                                          -->
@@ -60,7 +66,7 @@
 	
 	<assets path="assets" />
 	<assets path="assets/icons/atoms" rename="assets/icons/atoms" recursive="true" />
-	<icon path="assets/openfl.svg" />
+	<icon path="assets/favicon.ico" />
 	
 	<!-- После успешной сборки HTML5, синхронизируем с ATELIER -->
 	<postbuild command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1" />

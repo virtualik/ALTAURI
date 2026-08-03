@@ -1,4 +1,3 @@
-// FILE: system\managers\ProjectManager.hx
 package system.managers;
 import haxe.Json;
 import core.base.Assembly;
@@ -9,6 +8,7 @@ import library.AtomRegistry;
 import utils.UID;
 using StringTools;
 #if sys
+	import lime.system.System;
 	import sys.FileSystem;
 	import sys.io.File;
 #end
@@ -95,32 +95,48 @@ class ProjectManager
 	public function init():Void
 	{
 		#if sys
-		var home = Sys.getEnv("HOME");
-		if (home == null) home = Sys.getEnv("USERPROFILE");
-		if (home != null)
-		{
-			home = home.replace("\\", "/");
-			if (!home.endsWith("/")) home += "/";
-			documentsPath = home + "Documents";
-		}
-		else {
-			documentsPath = Sys.getCwd();
-		}
-		var altauriRoot = documentsPath + "/ALTAURI";
-		libraryPath = altauriRoot + "/Library";
-		selfrunPath = altauriRoot + "/Selfrun.atom";
-// Create directory structure
+			#if android
+			// On Android, use secure, isolated app storage.
+			var altauriRoot = lime.system.System.applicationStorageDirectory;
+			// Make sure the path ends with a slash so the names don't stick together.
+			if (!altauriRoot.endsWith("/")) altauriRoot += "/";
+			
+			documentsPath = altauriRoot; 
+			libraryPath = altauriRoot + "Library";
+			selfrunPath = altauriRoot + "Selfrun.atom";
+			#else
+			// Old, proven code for Windows, Mac, and Linux
+			var home = Sys.getEnv("HOME");
+			if (home == null) home = Sys.getEnv("USERPROFILE");
+			if (home != null)
+			{
+				home = home.replace("\\", "/");
+				if (!home.endsWith("/")) home += "/";
+				documentsPath = home + "Documents";
+			}
+			else {
+				documentsPath = Sys.getCwd();
+			}
+			var altauriRoot = documentsPath + "/ALTAURI";
+			libraryPath = altauriRoot + "/Library";
+			selfrunPath = altauriRoot + "/Selfrun.atom";
+			#end
+
+		// Create directory structure
 		if (!FileSystem.exists(altauriRoot)) FileSystem.createDirectory(altauriRoot);
 		if (!FileSystem.exists(libraryPath)) FileSystem.createDirectory(libraryPath);
-// Set custom library path for AtomRegistry
+		
+		// Set custom library path for AtomRegistry
 		AtomRegistry.customLibraryPath = libraryPath;
-// Scan library for custom atoms
+		
+		// Scan library for custom atoms
 		AtomRegistry.scanFolder(libraryPath);
 		#else
 		selfrunPath = "Selfrun.atom";
 		libraryPath = "library";
 		#end
 	}
+	
 	/**
 	* Save root project (Selfrun).
 	* v2.3: Pins serialized with externalName support.
