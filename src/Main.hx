@@ -121,6 +121,7 @@ using StringTools;
 *  │      TickGenerator.getInstance().update(dt);                        │
 *  │  }                                                                  │
 *  │                                                                     │
+*  │  TRYDENT Architecture - Windows | Android | HTML5                   │
 *  └─────────────────────────────────────────────────────────────────────┘
 *
 *  v2.9 Changes:
@@ -309,7 +310,7 @@ class Main extends Sprite
 		#end
 		
 // Перехватываем trace() для отправки в DebugConsoleAtom
-		var originalTrace = haxe.Log.trace;
+
 		haxe.Log.trace = function(v:Dynamic, ?infos:haxe.PosInfos)
 		{
 // 1. Стандартный вывод в консоль браузера (только для HTML5 target)
@@ -1729,6 +1730,7 @@ Impulsys.subscribeToImpulse(EventType.FULLSCREEN_TOGGLED, _onFullscreenToggled);
 	private function mapCount<K,V>(map:Map<K,V>):Int
 	{
 		var count = 0;
+
 		for (k in map.keys()) count++;
 		return count;
 	}
