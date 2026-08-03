@@ -359,7 +359,7 @@ class Main extends Sprite
 		//createDemoProject();
 		loadProject();
 		#end
-		
+				
 		#if html5
 // HTML5 Target - Creation method
 

@@ -35,7 +35,7 @@ class ApplicationMain
 		ManifestResources.init(config);
 		#end
 
-		app.meta["build"] = "175";
+		app.meta["build"] = "176";
 		app.meta["company"] = "ViRTUALiK";
 		app.meta["file"] = "ALTAURI_Web";
 		app.meta["name"] = "ALTAURI";
