@@ -351,4 +351,26 @@ abstract EventType(String) from String to String {
 
     /** Menu closed (new context menu system) */
     public static var MENU_CLOSED(default, never) = new EventType("MENU_CLOSED");
+	
+    // =====================================================================
+    // v1.5: COM PORT EVENTS (Added for ComPortAtom/Widget integration)
+    // =====================================================================
+
+    /**
+     * ComPort connection status changed.
+     * Payload: String (e.g., "Connected to COM3", "Disconnected", "Requesting USB permission...")
+     */
+    public static var COMPORT_STATUS(default, never) = new EventType("COMPORT_STATUS");
+
+    /**
+     * ComPort received new data chunk.
+     * Payload: String (the received data)
+     */
+    public static var COMPORT_RX_DATA(default, never) = new EventType("COMPORT_RX_DATA");
+
+    /**
+     * ComPort encountered an error.
+     * Payload: String (error message, e.g., "Android Rx Err:-1 (check cable/driver)")
+     */
+    public static var COMPORT_ERROR(default, never) = new EventType("COMPORT_ERROR");
 }
