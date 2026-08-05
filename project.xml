@@ -71,21 +71,14 @@
 	<!-- После успешной сборки HTML5, синхронизируем с ATELIER -->
 	<postbuild command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1" />
 
-	<!-- ========================================================================= -->
-	<!-- ANDROID CONFIGURATION & USB SERIAL DEPENDENCIES                            -->
-	<!-- ========================================================================= -->
-    <section if="android">
-        <!-- USB Host feature (Обязательно для работы с шиной) -->
-        <android feature="android.hardware.usb.host" />
-        
-        <!-- Включаем менеджер слияния манифестов для интеграции Receiver -->
-        <android manifest-merger="true" />
-        
-        <!-- Инжектируем BroadcastReceiver для отлова системного клика на "Разрешить" -->
-        <config:android gradle-repository="https://jitpack.io" />
-        <dependency name="com.github.mik3y:usb-serial-for-android" version="3.8.0" />
-        
-        <template path="templates/AndroidManifest.xml" rename="AndroidManifest.xml" if="custom_template" />
-    </section>
-	
+    <!-- ========================================================================= -->
+    <!-- ANDROID CONFIGURATION & USB SERIAL DEPENDENCIES                           -->
+    <!-- ========================================================================= -->
+	<section if="android">
+		<!-- USB Host feature -->
+		<android feature="android.hardware.usb.host" />
+		
+		<!-- Подключаем распакованный classes.jar из .aar файла -->
+		<java path="libs/usb-serial-extracted/classes.jar" />
+	</section>
 </project>

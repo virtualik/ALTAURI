@@ -126,7 +126,6 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
 }
 
 extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int searchVid, int searchPid, const char** outError) {
-    // 1. Получаем JNIEnv и Context через стандартный NDK-приём
     JNIEnv* env = GetJniEnv();
     if (env == nullptr) {
         if (outError) *outError = "Failed to get JNI Env via JNI_OnLoad";
@@ -139,28 +138,20 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
         return false;
     }
     
-    // 2. Получаем UsbManager (ваша исходная логика)
     jclass ctxClass = env->GetObjectClass(context);
     jmethodID getSysServ = env->GetMethodID(ctxClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
     jstring usbStr = env->NewStringUTF("usb");
     jobject usbManager = env->CallObjectMethod(context, getSysServ, usbStr);
     env->DeleteLocalRef(usbStr);
     if (usbManager == nullptr) {
-        env->DeleteLocalRef(ctxClass);
-        env->DeleteLocalRef(context);
         if (outError) *outError = "UsbManager is null";
         return false;
     }
     
-    // 3. Получаем список устройств (ваша исходная логика)
     jclass mgrClass = env->GetObjectClass(usbManager);
     jmethodID getDeviceList = env->GetMethodID(mgrClass, "getDeviceList", "()Ljava/util/HashMap;");
     jobject deviceMap = env->CallObjectMethod(usbManager, getDeviceList);
     if (deviceMap == nullptr) {
-        env->DeleteLocalRef(mgrClass);
-        env->DeleteLocalRef(usbManager);
-        env->DeleteLocalRef(ctxClass);
-        env->DeleteLocalRef(context);
         if (outError) *outError = "getDeviceList returned null";
         return false;
     }
@@ -201,15 +192,11 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
     env->DeleteLocalRef(deviceMap);
     
     if (targetDevice == nullptr) { 
-        env->DeleteLocalRef(mgrClass); 
-        env->DeleteLocalRef(usbManager); 
-        env->DeleteLocalRef(ctxClass); 
-        env->DeleteLocalRef(context); 
         if (outError) *outError = "No USB Serial Devices Found on Android"; 
         return false; 
     }
     
-    // 4. Проверка и запрос разрешения (ваша исходная логика с FLAG_MUTABLE)
+    // 4. Проверка и запрос разрешения
     jmethodID hasPermMethod = env->GetMethodID(mgrClass, "hasPermission", "(Landroid/hardware/usb/UsbDevice;)Z");
     jboolean hasPermission = env->CallBooleanMethod(usbManager, hasPermMethod, targetDevice);
     if (!hasPermission) {
@@ -228,6 +215,8 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
         if (reqPermMethod != nullptr) {
             env->CallVoidMethod(usbManager, reqPermMethod, targetDevice, pendingIntent);
         }
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        
         env->DeleteLocalRef(pendingIntent); 
         env->DeleteLocalRef(pendingIntentClass); 
         env->DeleteLocalRef(intent); 
@@ -240,65 +229,109 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
         env->DeleteLocalRef(ctxClass); 
         env->DeleteLocalRef(context);
         if (outError) *outError = "Requesting USB permission... Please ALLOW in the dialog and press OPEN again.";
-        return false; // Прерываем, ждем действия пользователя через BroadcastReceiver
+        return false; 
     }
     
-    // 5. Открытие устройства через usb-serial-for-android (ваша исходная логика)
+    // 5. Открытие устройства через usb-serial-for-android (Bulletproof version)
     jclass proberClass = env->FindClass("com/hoho/android/usbserial/driver/UsbSerialProber");
     bool opened = false;
-    if (proberClass != nullptr) {
+    
+    if (proberClass == nullptr) {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        if (outError) *outError = "UsbSerialProber class not found! Check .aar file.";
+    } else {
         jmethodID getDefaultProber = env->GetStaticMethodID(proberClass, "getDefaultProber", "()Lcom/hoho/android/usbserial/driver/UsbSerialProber;");
-        if (getDefaultProber != nullptr) {
+        if (getDefaultProber == nullptr) {
+            if (env->ExceptionCheck()) env->ExceptionClear();
+            if (outError) *outError = "getDefaultProber method not found";
+        } else {
             jobject prober = env->CallStaticObjectMethod(proberClass, getDefaultProber);
-            if (prober != nullptr) {
+            if (prober == nullptr) {
+                if (env->ExceptionCheck()) env->ExceptionClear();
+                if (outError) *outError = "getDefaultProber returned null";
+            } else {
                 jmethodID probeDevice = env->GetMethodID(proberClass, "probeDevice", "(Landroid/hardware/usb/UsbDevice;)Lcom/hoho/android/usbserial/driver/UsbSerialDriver;");
-                jobject driver = env->CallObjectMethod(prober, probeDevice, targetDevice);
-                if (driver != nullptr) {
-                    jmethodID openConn = env->GetMethodID(mgrClass, "openDevice", "(Landroid/hardware/usb/UsbDevice;)Landroid/hardware/usb/UsbDeviceConnection;");
-                    jobject connection = env->CallObjectMethod(usbManager, openConn, targetDevice);
-                    if (connection != nullptr) {
-                        jclass drvClass = env->GetObjectClass(driver);
-                        jmethodID getPorts = env->GetMethodID(drvClass, "getPorts", "()Ljava/util/List;");
-                        jobject portsList = env->CallObjectMethod(driver, getPorts);
-                        jclass listClass = env->GetObjectClass(portsList);
-                        jmethodID getElem = env->GetMethodID(listClass, "get", "(I)Ljava/lang/Object;");
-                        jobject port = env->CallObjectMethod(portsList, getElem, 0);
-                        jclass portClass = env->GetObjectClass(port);
-                        jmethodID portOpen = env->GetMethodID(portClass, "open", "(Landroid/hardware/usb/UsbDeviceConnection;)V");
-                        jmethodID setParams = env->GetMethodID(portClass, "setParameters", "(IIII)V");
-                        if (portOpen != nullptr && setParams != nullptr) {
-                            env->CallVoidMethod(port, portOpen, connection);
-                            env->CallVoidMethod(port, setParams, baudRate, 8, 1, 0);
-                            st->jPort = env->NewGlobalRef(port);
-                            st->jConnection = env->NewGlobalRef(connection);
-                            opened = true;
-                        } else { 
-                            if (outError) *outError = "JNI Method Not Found in UsbSerialDriver"; 
+                if (probeDevice == nullptr) {
+                    if (env->ExceptionCheck()) env->ExceptionClear();
+                    if (outError) *outError = "probeDevice method not found";
+                } else {
+                    jobject driver = env->CallObjectMethod(prober, probeDevice, targetDevice);
+                    if (driver == nullptr) {
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        if (outError) *outError = "No usb-serial driver found for this VID/PID";
+                    } else {
+                        jmethodID openConn = env->GetMethodID(mgrClass, "openDevice", "(Landroid/hardware/usb/UsbDevice;)Landroid/hardware/usb/UsbDeviceConnection;");
+                        jobject connection = env->CallObjectMethod(usbManager, openConn, targetDevice);
+                        if (connection == nullptr) {
+                            if (env->ExceptionCheck()) env->ExceptionClear();
+                            if (outError) *outError = "USB Connection Failed (Check cable/OTG)";
+                        } else {
+                            jclass drvClass = env->GetObjectClass(driver);
+                            jmethodID getPorts = env->GetMethodID(drvClass, "getPorts", "()Ljava/util/List;");
+                            if (getPorts == nullptr) {
+                                if (env->ExceptionCheck()) env->ExceptionClear();
+                                if (outError) *outError = "getPorts method not found (Wrong library version?)";
+                            } else {
+                                jobject portsList = env->CallObjectMethod(driver, getPorts);
+                                if (portsList == nullptr) {
+                                    if (env->ExceptionCheck()) env->ExceptionClear();
+                                    if (outError) *outError = "getPorts returned null";
+                                } else {
+                                    jclass listClass = env->GetObjectClass(portsList);
+                                    jmethodID getElem = env->GetMethodID(listClass, "get", "(I)Ljava/lang/Object;");
+                                    jobject port = env->CallObjectMethod(portsList, getElem, 0);
+                                    if (port == nullptr) {
+                                        if (env->ExceptionCheck()) env->ExceptionClear();
+                                        if (outError) *outError = "Port 0 is null";
+                                    } else {
+                                        jclass portClass = env->GetObjectClass(port);
+                                        jmethodID portOpen = env->GetMethodID(portClass, "open", "(Landroid/hardware/usb/UsbDeviceConnection;)V");
+                                        jmethodID setParams = env->GetMethodID(portClass, "setParameters", "(IIII)V");
+                                        
+                                        if (portOpen == nullptr || setParams == nullptr) {
+                                            if (env->ExceptionCheck()) env->ExceptionClear();
+                                            if (outError) *outError = "open or setParameters method not found";
+                                        } else {
+                                            env->CallVoidMethod(port, portOpen, connection);
+                                            if (env->ExceptionCheck()) {
+                                                env->ExceptionClear();
+                                                if (outError) *outError = "Java Exception in port.open()";
+                                            } else {
+                                                env->CallVoidMethod(port, setParams, baudRate, 8, 1, 0);
+                                                if (env->ExceptionCheck()) {
+                                                    env->ExceptionClear();
+                                                    if (outError) *outError = "Java Exception in setParameters()";
+                                                } else {
+                                                    st->jPort = env->NewGlobalRef(port);
+                                                    st->jConnection = env->NewGlobalRef(connection);
+                                                    opened = true;
+                                                }
+                                            }
+                                        }
+                                        env->DeleteLocalRef(portClass); 
+                                        env->DeleteLocalRef(port); 
+                                    }
+                                    env->DeleteLocalRef(portsList); 
+                                    env->DeleteLocalRef(listClass); 
+                                }
+                            }
+                            env->DeleteLocalRef(drvClass);
                         }
-                        env->DeleteLocalRef(portClass); 
-                        env->DeleteLocalRef(port); 
-                        env->DeleteLocalRef(portsList); 
-                        env->DeleteLocalRef(listClass); 
-                        env->DeleteLocalRef(drvClass);
-                    } else { 
-                        if (outError) *outError = "USB Connection Failed (Check cable/OTG)"; 
+                        env->DeleteLocalRef(driver);
                     }
-                    env->DeleteLocalRef(driver);
-                } else { 
-                    if (outError) *outError = "No usb-serial driver found for this VID/PID"; 
+                    env->DeleteLocalRef(prober);
                 }
-                env->DeleteLocalRef(prober);
             }
         }
         env->DeleteLocalRef(proberClass);
     }
     
-    // 6. Финальная очистка и возврат
+    // 6. Финальная очистка
     env->DeleteLocalRef(targetDevice); 
     env->DeleteLocalRef(mgrClass); 
     env->DeleteLocalRef(usbManager); 
     env->DeleteLocalRef(ctxClass); 
-    env->DeleteLocalRef(context); // Очищаем ссылку на Activity, полученную от SDL
+    env->DeleteLocalRef(context); 
     
     return opened;
 }
@@ -1019,8 +1052,8 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     _serialPort = null; _isOpenFlag = false; _connectionType = "none";
                     var openOut = getOutput("isOpen"); if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
                     Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
-                    trace('ComPortAtom: Closed Web Serial port');
-                }).catch(function(err) { setError("Error closing Web Serial port: " + Std.string(err)); });
+                    trace('ComPortAtom: Closed Web Serial port'); })
+					['catch'](function(err) { setError("Error closing Web Serial port: " + Std.string(err)); });
             } catch (e:Dynamic) { setError("Exception closing Web Serial port: " + Std.string(e)); }
         }
         else if (_connectionType == "usb" && _usbDevice != null)
@@ -1030,8 +1063,8 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 dev.releaseInterface(_usbInterfaceNumber).then(function(_) { return dev.close(); }).then(function(_) {
                     var openOut = getOutput("isOpen"); if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
                     Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
-                    trace('ComPortAtom: Closed WebUSB device');
-                }).catch(function(err) { setError("Error closing WebUSB device: " + Std.string(err)); });
+                    trace('ComPortAtom: Closed WebUSB device'); })
+					['catch'](function(err) { setError("Error closing WebUSB device: " + Std.string(err)); });
             } catch (e:Dynamic) { setError("Exception closing WebUSB device: " + Std.string(e)); }
         }
         #end
@@ -1077,14 +1110,14 @@ class ComPortAtom extends Atom implements system.managers.Driver
             try {
                 var encoder = Syntax.code("new TextEncoder()"); var dataArray = encoder.encode(dataStr);
                 var writer = _serialPort.writable.getWriter();
-                writer.write(dataArray).then(function(_) { writer.releaseLock(); }).catch(function(err) { writer.releaseLock(); setError("Web Serial TX Error: " + Std.string(err)); });
+                writer.write(dataArray).then(function(_) { writer.releaseLock(); })['catch'](function(err) { writer.releaseLock(); setError("Web Serial TX Error: " + Std.string(err)); });
             } catch (e:Dynamic) { setError("Web Serial TX Exception: " + Std.string(e)); }
         }
         else if (_connectionType == "usb" && _usbDevice != null && _usbEndpointOut > 0)
         {
             try {
                 var encoder = Syntax.code("new TextEncoder()"); var dataArray = encoder.encode(dataStr);
-                _usbDevice.transferOut(_usbEndpointOut, dataArray).catch(function(err) { setError("WebUSB TX Error: " + Std.string(err)); });
+                _usbDevice.transferOut(_usbEndpointOut, dataArray)['catch'](function(err) { setError("WebUSB TX Error: " + Std.string(err)); });
             } catch (e:Dynamic) { setError("WebUSB TX Exception: " + Std.string(e)); }
         }
         #end
@@ -1119,7 +1152,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
         {
             try {
                 var signals:Dynamic = { dataTerminalReady: state };
-                _serialPort.setSignals(signals).catch(function(err) { setError("Web Serial DTR Error: " + Std.string(err)); });
+                _serialPort.setSignals(signals)['catch'](function(err) { setError("Web Serial DTR Error: " + Std.string(err)); });
             } catch (e:Dynamic) { setError("Web Serial DTR Exception: " + Std.string(e)); }
         }
         #end
@@ -1140,7 +1173,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected via Web Serial");
                 trace('ComPortAtom: Opened Web Serial port at $baudRate baud');
                 startWebSerialReadLoop();
-            }).catch(function(err) { setError("Web Serial Open Error: " + Std.string(err)); });
+            })['catch'](function(err) { setError("Web Serial Open Error: " + Std.string(err)); });
         } catch (e:Dynamic) { setError("Web Serial Exception: " + Std.string(e)); }
     }
 
@@ -1162,7 +1195,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     }
                     _reader.releaseLock(); _reader = null;
                     if (_isReading) readChunk();
-                }).catch(function(err) {
+                })['catch'](function(err) {
                     if (_reader != null) { try { _reader.releaseLock(); } catch(e:Dynamic) {} _reader = null; }
                     setError("Web Serial Read Loop Error: " + Std.string(err));
                 });
@@ -1195,7 +1228,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected via WebUSB");
                 trace('ComPortAtom: Opened WebUSB device (VID: 0x' + StringTools.hex(_usbDevice.vendorId, 4) + ') at $baudRate baud');
                 startWebUSBReadLoop();
-            }).catch(function(err) { setError("WebUSB Open Error: " + Std.string(err)); });
+            })['catch'](function(err) { setError("WebUSB Open Error: " + Std.string(err)); });
         } catch (e:Dynamic) { setError("WebUSB Exception: " + Std.string(e)); }
     }
 
@@ -1259,7 +1292,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                         writeToBuffer(bytesArray);
                     }
                     if (_isReading) readChunk();
-                }).catch(function(err) { setError("WebUSB Read Loop Error: " + Std.string(err)); });
+                })['catch'](function(err) { setError("WebUSB Read Loop Error: " + Std.string(err)); });
             } catch (e:Dynamic) { setError("WebUSB Read Loop Exception: " + Std.string(e)); }
         };
         readChunk();

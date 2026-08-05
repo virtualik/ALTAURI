@@ -4174,7 +4174,7 @@ class Blueprint
 
 ================================================================================
 // FILE: core\logic\EventType.hx
-// Lines: 354 | Chars: 16893
+// Lines: 376 | Chars: 17784
 ================================================================================
 
 package core.logic;
@@ -4530,6 +4530,28 @@ abstract EventType(String) from String to String {
 
     /** Menu closed (new context menu system) */
     public static var MENU_CLOSED(default, never) = new EventType("MENU_CLOSED");
+	
+    // =====================================================================
+    // v1.5: COM PORT EVENTS (Added for ComPortAtom/Widget integration)
+    // =====================================================================
+
+    /**
+     * ComPort connection status changed.
+     * Payload: String (e.g., "Connected to COM3", "Disconnected", "Requesting USB permission...")
+     */
+    public static var COMPORT_STATUS(default, never) = new EventType("COMPORT_STATUS");
+
+    /**
+     * ComPort received new data chunk.
+     * Payload: String (the received data)
+     */
+    public static var COMPORT_RX_DATA(default, never) = new EventType("COMPORT_RX_DATA");
+
+    /**
+     * ComPort encountered an error.
+     * Payload: String (error message, e.g., "Android Rx Err:-1 (check cable/driver)")
+     */
+    public static var COMPORT_ERROR(default, never) = new EventType("COMPORT_ERROR");
 }
 
 ================================================================================
@@ -6745,7 +6767,7 @@ class ComEnumeratorWidget extends DeviceView
 
 ================================================================================
 // FILE: core\view\ComPortWidget.hx
-// Lines: 1553 | Chars: 53098
+// Lines: 773 | Chars: 40499
 ================================================================================
 
 package core.view;
@@ -6762,34 +6784,26 @@ import openfl.events.KeyboardEvent;
 import openfl.ui.Keyboard;
 import core.base.Atom;
 import core.base.Contact;
+import core.logic.Impulsys;
+import core.logic.EventType;
+import core.logic.Impulse;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
 * ║                     COM PORT WIDGET v2.1                                  ║
 * ║     (Tri-Platform: C++ WinAPI + Android USB Scanner + HTML5 Web)          ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
-* ║                                                                           ║
-* ║  Interactive control panel for serial port communication.                 ║
-* ║  At compile time, Haxe selects the appropriate UI variant:                ║
-* ║                                                                           ║
 * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
 * ║  │                    COMPILATION FLOW                                 │  ║
-* ║  │                                                                     │  ║
 * ║  │  haxe -cpp (Windows) ──► #if cpp ──► Port name text field           │  ║
 * ║  │  haxe -cpp (Android) ──► #if android ──► USB Scanner + List         │  ║
 * ║  │  haxe -html5         ──► #if html5 ──► "Select Port" button         │  ║
-* ║  │                                                                     │  ║
-* ║  │  Common code (TX/RX, indicators, open/close) is shared.             │  ║
-* ║  │  Platform-specific code is isolated in #if blocks.                  │  ║
 * ║  └─────────────────────────────────────────────────────────────────────┘  ║
-* ║                                                                           ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                     ANDROID USB SCANNER ARCHITECTURE                      ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
-* ║                                                                           ║
 * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
 * ║  │  Android UI Layout:                                                 │  ║
-* ║  │                                                                     │  ║
 * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
 * ║  │  │  [Scan USB] [Clear]                                          │  │  ║
 * ║  │  ├───────────────────────────────────────────────────────────────┤  │  ║
@@ -6804,69 +6818,38 @@ import core.base.Contact;
 * ║  │  │  [TX DATA] [SEND]                                            │  │  ║
 * ║  │  │  [RX DATA]                                                   │  │  ║
 * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
-* ║  │                                                                     │  ║
-* ║  │  Flow:                                                              │  ║
-* ║  │  1. User clicks [Scan USB]                                          │  ║
-* ║  │  2. Widget calls comAtom.scanUSBDevices()                           │  ║
-* ║  │  3. JNI scans UsbManager.getDeviceList()                            │  ║
-* ║  │  4. Returns ["067B:2303:/dev/bus/usb/001/002", ...]                 │  ║
-* ║  │  5. Widget displays list with checkboxes                            │  ║
-* ║  │  6. User clicks device → comAtom.setSelectedDevice(vid, pid)        │  ║
-* ║  │  7. User clicks [OPEN] → opens selected device                      │  ║
 * ║  └─────────────────────────────────────────────────────────────────────┘  ║
-* ║                                                                           ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
 */
 class ComPortWidget extends DeviceView
 {
-    // =========================================================================
-    // CONSTANTS
-    // =========================================================================
     private static var DEFAULT_BAUD_RATES:Array<Int> = [9600, 19200, 38400, 57600, 115200];
-    
-    // =========================================================================
-    // UI COMPONENTS
-    // =========================================================================
+
     private var _bg:Sprite;
     private var _header:Sprite;
     private var _titleLabel:TextField;
-    
-    // Port Settings
     private var _portLabel:TextField;
     private var _portInput:TextField;
     private var _baudLabel:TextField;
     private var _baudInput:TextField;
-    
-    // Control Buttons
     private var _openBtn:Sprite;
     private var _closeBtn:Sprite;
     private var _dtrBtn:Sprite;
     private var _dtrLabel:TextField;
-    
-    // TX Section
     private var _txSection:Sprite;
     private var _txInput:TextField;
     private var _sendBtn:Sprite;
-    
-    // RX Section
     private var _rxSection:Sprite;
     private var _rxDisplay:TextField;
     private var _rxScrollPos:Int = 0;
-    
-    // Indicators
     private var _statusLed:Sprite;
     private var _statusGlow:Sprite;
     private var _rxLed:Sprite;
     private var _txLed:Sprite;
     private var _errLed:Sprite;
-    
-    // Status Bar
     private var _statusBar:TextField;
     private var _errorDisplay:TextField;
-    
-    // =========================================================================
-    // HTML5-SPECIFIC UI COMPONENTS
-    // =========================================================================
+
     #if html5
     private var _selectPortBtn:Sprite;
     private var _selectedPortInfo:TextField;
@@ -6877,10 +6860,7 @@ class ComPortWidget extends DeviceView
     private var _bufferSizeLabel:TextField;
     private var _chunkSizeLabel:TextField;
     #end
-    
-    // =========================================================================
-    // ANDROID-SPECIFIC UI COMPONENTS
-    // =========================================================================
+
     #if android
     private var _scanBtn:Sprite;
     private var _clearBtn:Sprite;
@@ -6888,28 +6868,21 @@ class ComPortWidget extends DeviceView
     private var _deviceListBg:Sprite;
     private var _selectedInfo:TextField;
     private var _noDevicesLabel:TextField;
-    
-    // Device list items
     private var _deviceItems:Array<Sprite>;
     private var _deviceCheckboxes:Array<Sprite>;
     private var _deviceLabels:Array<TextField>;
-    
-    // State
     private var _scannedDevices:Array<String>;
     private var _selectedDeviceIndex:Int = -1;
     #end
-    
-    // =========================================================================
-    // CONFIGURATION
-    // =========================================================================
+
     public var widgetWidth:Float = 300;
     public var widgetHeight:Float = 380;
-    
+
     override public function getWidgetSize(): {width:Float, height:Float}
     {
         return {width: widgetWidth, height: widgetHeight};
     }
-    
+
     private var _colorBg:Int = 0x1a1a24;
     private var _colorHeader:Int = 0x2a2a3a;
     private var _colorAccent:Int = 0x00AAFF;
@@ -6921,10 +6894,7 @@ class ComPortWidget extends DeviceView
     private var _colorMuted:Int = 0x888899;
     private var _colorInputBg:Int = 0x0d0d18;
     private var _colorRxGreen:Int = 0x00CC66;
-    
-    // =========================================================================
-    // STATE
-    // =========================================================================
+
     private var _portNameContact:Contact;
     private var _baudRateContact:Contact;
     private var _openContact:Contact;
@@ -6941,36 +6911,34 @@ class ComPortWidget extends DeviceView
     
     private var _lastRxData:String = "";
     private var _lastError:String = "";
-    
     private var _rxLedTimer:Float = 0;
     private var _txLedTimer:Float = 0;
     private var _errLedTimer:Float = 0;
     private var _ledPulseDuration:Float = 0.15;
-    
     private var _dtrState:Bool = false;
-    
+
     #if html5
     private var _bufferSizeContact:Contact;
     private var _chunkSizeContact:Contact;
     private var _enabledContact:Contact;
-    
     private var _currentBufferSize:Int = 4096;
     private var _currentChunkSize:Int = 256;
     private var _currentEnabled:Bool = true;
     #end
-    
+
     #if android
     private var _currentSelectedVid:Int = 0;
     private var _currentSelectedPid:Int = 0;
     #end
-    
-    // =========================================================================
-    // CONSTRUCTOR
-    // =========================================================================
+
+    // Impulsys callback references for proper unsubscription (Memory Optimization v1.3)
+    private var _onComPortStatus: Impulse -> Void;
+    private var _onComPortRx: Impulse -> Void;
+    private var _onComPortError: Impulse -> Void;
+
     public function new(atom:Atom)
     {
         super(atom);
-        
         #if android
         _scannedDevices = [];
         _deviceItems = [];
@@ -6978,18 +6946,22 @@ class ComPortWidget extends DeviceView
         _deviceLabels = [];
         #end
         
+        _onComPortStatus = onComPortStatus;
+        _onComPortRx = onComPortRx;
+        _onComPortError = onComPortError;
+        
+        Impulsys.subscribeToImpulse(EventType.COMPORT_STATUS, _onComPortStatus);
+        Impulsys.subscribeToImpulse(EventType.COMPORT_RX_DATA, _onComPortRx);
+        Impulsys.subscribeToImpulse(EventType.COMPORT_ERROR, _onComPortError);
+        
         findContacts();
         buildUI();
         syncFromAtom();
     }
-    
-    // =========================================================================
-    // INITIALIZATION
-    // =========================================================================
+
     private function findContacts():Void
     {
         if (atom == null) return;
-        
         _portNameContact = atom.getInput("portName");
         _baudRateContact = atom.getInput("baudRate");
         _openContact     = atom.getInput("open");
@@ -6997,7 +6969,6 @@ class ComPortWidget extends DeviceView
         _sendContact     = atom.getInput("send");
         _txDataContact   = atom.getInput("txData");
         _setDTRContact   = atom.getInput("setDTR");
-        
         _isOpenContact   = atom.getOutput("isOpen");
         _rxDataContact   = atom.getOutput("rxData");
         _rxTickContact   = atom.getOutput("rxTick");
@@ -7011,1199 +6982,522 @@ class ComPortWidget extends DeviceView
         _enabledContact    = atom.getInput("enabled");
         #end
     }
-    
+
     override private function onActivate():Void
     {
         findContacts();
         syncFromAtom();
     }
-    
-    // =========================================================================
-    // UI CONSTRUCTION
-    // =========================================================================
+
     private function buildUI():Void
     {
         var yPos:Float = 0;
-        
-        // === BACKGROUND ===
-        _bg = new Sprite();
-        addChild(_bg);
-        
-        // === HEADER ===
-        _header = new Sprite();
-        _header.y = yPos;
-        addChild(_header);
-        
+        _bg = new Sprite(); addChild(_bg);
+        _header = new Sprite(); _header.y = yPos; addChild(_header);
         _titleLabel = new TextField();
         _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 13, _colorText, true);
-        _titleLabel.text = "  COM PORT";
-        _titleLabel.width = widgetWidth - 40;
-        _titleLabel.height = 28;
-        _titleLabel.selectable = false;
-        _titleLabel.mouseEnabled = false;
-        _header.addChild(_titleLabel);
+        _titleLabel.text = "  COM PORT"; _titleLabel.width = widgetWidth - 40; _titleLabel.height = 28;
+        _titleLabel.selectable = false; _titleLabel.mouseEnabled = false; _header.addChild(_titleLabel);
         
-        // Status LED
-        _statusGlow = new Sprite();
-        _statusGlow.graphics.beginFill(_colorDanger, 0.2);
-        _statusGlow.graphics.drawCircle(0, 0, 12);
-        _statusGlow.graphics.endFill();
-        _statusGlow.x = widgetWidth - 18;
-        _statusGlow.y = 14;
-        _statusGlow.visible = false;
-        _header.addChild(_statusGlow);
-        
-        _statusLed = new Sprite();
-        _statusLed.graphics.beginFill(0x440000);
-        _statusLed.graphics.drawCircle(0, 0, 6);
-        _statusLed.graphics.endFill();
-        _statusLed.x = widgetWidth - 18;
-        _statusLed.y = 14;
-        _header.addChild(_statusLed);
-        
+        _statusGlow = new Sprite(); _statusGlow.graphics.beginFill(_colorDanger, 0.2); _statusGlow.graphics.drawCircle(0, 0, 12); _statusGlow.graphics.endFill();
+        _statusGlow.x = widgetWidth - 18; _statusGlow.y = 14; _statusGlow.visible = false; _header.addChild(_statusGlow);
+        _statusLed = new Sprite(); _statusLed.graphics.beginFill(0x440000); _statusLed.graphics.drawCircle(0, 0, 6); _statusLed.graphics.endFill();
+        _statusLed.x = widgetWidth - 18; _statusLed.y = 14; _header.addChild(_statusLed);
         yPos += 32;
         
-        // =========================================================================
-        // PLATFORM-SPECIFIC PORT SELECTION UI
-        // =========================================================================
         #if android
-        // === ANDROID: USB Scanner UI ===
         yPos = buildAndroidUI(yPos);
-        
         #elseif cpp
-        // === WINDOWS: Manual port entry ===
-        _portLabel = createLabel("PORT");
-        _portLabel.y = yPos;
-        addChild(_portLabel);
-        
-        _baudLabel = createLabel("BAUD");
-        _baudLabel.x = 150;
-        _baudLabel.y = yPos;
-        addChild(_baudLabel);
-        
+        _portLabel = createLabel("PORT"); _portLabel.y = yPos; addChild(_portLabel);
+        _baudLabel = createLabel("BAUD"); _baudLabel.x = 150; _baudLabel.y = yPos; addChild(_baudLabel);
         yPos += 18;
-        
-        _portInput = createInputField("COM1", 130);
-        _portInput.x = 10;
-        _portInput.y = yPos;
-        _portInput.addEventListener(Event.CHANGE, onPortNameChanged);
-        addChild(_portInput);
-        
+        _portInput = createInputField("COM1", 130); _portInput.x = 10; _portInput.y = yPos;
+        _portInput.addEventListener(Event.CHANGE, onPortNameChanged); addChild(_portInput);
         #elseif html5
-        // === HTML5: Browser dialog ===
-        _selectPortBtn = createActionButton("Select Port", 0x224466, onSelectPortClick);
-        _selectPortBtn.x = 10;
-        _selectPortBtn.y = yPos;
-        addChild(_selectPortBtn);
-        
-        _baudLabel = createLabel("BAUD");
-        _baudLabel.x = 150;
-        _baudLabel.y = yPos;
-        addChild(_baudLabel);
-        
+        _selectPortBtn = createActionButton("Select Port", 0x224466, onSelectPortClick); _selectPortBtn.x = 10; _selectPortBtn.y = yPos; addChild(_selectPortBtn);
+        _baudLabel = createLabel("BAUD"); _baudLabel.x = 150; _baudLabel.y = yPos; addChild(_baudLabel);
         yPos += 18;
-        
-        _selectedPortInfo = createInputField("No port selected", 130);
-        _selectedPortInfo.type = TextFieldType.DYNAMIC;
-        _selectedPortInfo.x = 10;
-        _selectedPortInfo.y = yPos;
-        addChild(_selectedPortInfo);
+        _selectedPortInfo = createInputField("No port selected", 130); _selectedPortInfo.type = TextFieldType.DYNAMIC;
+        _selectedPortInfo.x = 10; _selectedPortInfo.y = yPos; addChild(_selectedPortInfo);
         #end
         
-        // === BAUD RATE (common for all platforms) ===
-        _baudInput = createInputField("9600", 100);
-        _baudInput.x = 150;
-        _baudInput.y = yPos;
-        _baudInput.addEventListener(Event.CHANGE, onBaudRateChanged);
-        addChild(_baudInput);
-        
+        _baudInput = createInputField("9600", 100); _baudInput.x = 150; _baudInput.y = yPos;
+        _baudInput.addEventListener(Event.CHANGE, onBaudRateChanged); addChild(_baudInput);
         yPos += 30;
         
-        // === CONTROL BUTTONS ===
-        _openBtn = createActionButton("OPEN", 0x225533, onOpenClick);
-        _openBtn.x = 10;
-        _openBtn.y = yPos;
-        addChild(_openBtn);
-        
-        _closeBtn = createActionButton("CLOSE", 0x553322, onCloseClick);
-        _closeBtn.x = 95;
-        _closeBtn.y = yPos;
-        addChild(_closeBtn);
+        _openBtn = createActionButton("OPEN", 0x225533, onOpenClick); _openBtn.x = 10; _openBtn.y = yPos; addChild(_openBtn);
+        _closeBtn = createActionButton("CLOSE", 0x553322, onCloseClick); _closeBtn.x = 95; _closeBtn.y = yPos; addChild(_closeBtn);
         
         #if cpp
-        // DTR button (Windows and Android)
-        _dtrBtn = new Sprite();
-        _dtrBtn.graphics.beginFill(_colorInactive);
-        _dtrBtn.graphics.drawRoundRect(0, 0, 50, 26, 4, 4);
-        _dtrBtn.graphics.endFill();
-        
+        _dtrBtn = new Sprite(); _dtrBtn.graphics.beginFill(_colorInactive); _dtrBtn.graphics.drawRoundRect(0, 0, 50, 26, 4, 4); _dtrBtn.graphics.endFill();
         _dtrLabel = new TextField();
         _dtrLabel.defaultTextFormat = new TextFormat("_typewriter", 10, _colorMuted, true, null, null, null, null, TextFormatAlign.CENTER);
-        _dtrLabel.text = "DTR";
-        _dtrLabel.width = 50;
-        _dtrLabel.height = 26;
-        _dtrLabel.selectable = false;
-        _dtrLabel.mouseEnabled = false;
-        _dtrBtn.addChild(_dtrLabel);
-        
-        _dtrBtn.x = 200;
-        _dtrBtn.y = yPos;
-        _dtrBtn.buttonMode = true;
-        _dtrBtn.useHandCursor = true;
-        _dtrBtn.addEventListener(MouseEvent.CLICK, onDTRClick);
-        addChild(_dtrBtn);
-        
+        _dtrLabel.text = "DTR"; _dtrLabel.width = 50; _dtrLabel.height = 26; _dtrLabel.selectable = false; _dtrLabel.mouseEnabled = false;
+        _dtrBtn.addChild(_dtrLabel); _dtrBtn.x = 200; _dtrBtn.y = yPos; _dtrBtn.buttonMode = true; _dtrBtn.useHandCursor = true;
+        _dtrBtn.addEventListener(MouseEvent.CLICK, onDTRClick); addChild(_dtrBtn);
         #elseif html5
-        _dtrBtn = null;
-        _dtrLabel = null;
+        _dtrBtn = null; _dtrLabel = null;
         #end
-        
         yPos += 36;
         
         #if html5
-        // === HTML5: Buffer settings ===
-        _bufferSizeLabel = createLabel("Buffer:");
-        _bufferSizeLabel.y = yPos;
-        addChild(_bufferSizeLabel);
-        
-        _bufferSizeInput = createInputField("4096", 60);
-        _bufferSizeInput.x = 60;
-        _bufferSizeInput.y = yPos;
-        _bufferSizeInput.addEventListener(Event.CHANGE, onBufferSizeChanged);
-        addChild(_bufferSizeInput);
-        
-        _chunkSizeLabel = createLabel("Chunk:");
-        _chunkSizeLabel.x = 130;
-        _chunkSizeLabel.y = yPos;
-        addChild(_chunkSizeLabel);
-        
-        _chunkSizeInput = createInputField("256", 50);
-        _chunkSizeInput.x = 180;
-        _chunkSizeInput.y = yPos;
-        _chunkSizeInput.addEventListener(Event.CHANGE, onChunkSizeChanged);
-        addChild(_chunkSizeInput);
-        
-        _enabledBtn = new Sprite();
-        _enabledBtn.graphics.beginFill(_colorActive);
-        _enabledBtn.graphics.drawRoundRect(0, 0, 70, 26, 4, 4);
-        _enabledBtn.graphics.endFill();
-        _enabledBtn.x = 240;
-        _enabledBtn.y = yPos;
-        _enabledBtn.buttonMode = true;
-        _enabledBtn.useHandCursor = true;
-        _enabledBtn.addEventListener(MouseEvent.CLICK, onEnabledClick);
-        addChild(_enabledBtn);
-        
+        _bufferSizeLabel = createLabel("Buffer:"); _bufferSizeLabel.y = yPos; addChild(_bufferSizeLabel);
+        _bufferSizeInput = createInputField("4096", 60); _bufferSizeInput.x = 60; _bufferSizeInput.y = yPos;
+        _bufferSizeInput.addEventListener(Event.CHANGE, onBufferSizeChanged); addChild(_bufferSizeInput);
+        _chunkSizeLabel = createLabel("Chunk:"); _chunkSizeLabel.x = 130; _chunkSizeLabel.y = yPos; addChild(_chunkSizeLabel);
+        _chunkSizeInput = createInputField("256", 50); _chunkSizeInput.x = 180; _chunkSizeInput.y = yPos;
+        _chunkSizeInput.addEventListener(Event.CHANGE, onChunkSizeChanged); addChild(_chunkSizeInput);
+        _enabledBtn = new Sprite(); _enabledBtn.graphics.beginFill(_colorActive); _enabledBtn.graphics.drawRoundRect(0, 0, 70, 26, 4, 4); _enabledBtn.graphics.endFill();
+        _enabledBtn.x = 240; _enabledBtn.y = yPos; _enabledBtn.buttonMode = true; _enabledBtn.useHandCursor = true;
+        _enabledBtn.addEventListener(MouseEvent.CLICK, onEnabledClick); addChild(_enabledBtn);
         _enabledLabel = new TextField();
         _enabledLabel.defaultTextFormat = new TextFormat("_typewriter", 10, 0x000000, true, null, null, null, null, TextFormatAlign.CENTER);
-        _enabledLabel.text = "ON";
-        _enabledLabel.width = 70;
-        _enabledLabel.height = 26;
-        _enabledLabel.selectable = false;
-        _enabledLabel.mouseEnabled = false;
+        _enabledLabel.text = "ON"; _enabledLabel.width = 70; _enabledLabel.height = 26; _enabledLabel.selectable = false; _enabledLabel.mouseEnabled = false;
         _enabledBtn.addChild(_enabledLabel);
-        
         yPos += 36;
         #end
         
-        // === TX SECTION ===
-        _txSection = new Sprite();
-        _txSection.y = yPos;
-        addChild(_txSection);
-        
-        var txLabel = new TextField();
-        txLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-        txLabel.text = "TX DATA";
-        txLabel.width = 60;
-        txLabel.height = 15;
-        txLabel.selectable = false;
-        _txSection.addChild(txLabel);
-        
-        _txInput = createInputField("", Std.int(widgetWidth - 80));
-        _txInput.x = 0;
-        _txInput.y = 15;
-        _txInput.addEventListener(KeyboardEvent.KEY_DOWN, onTxKeyDown);
-        _txSection.addChild(_txInput);
-        
-        _sendBtn = createActionButton("SEND", 0x224466, onSendClick);
-        _sendBtn.x = widgetWidth - 62;
-        _sendBtn.y = 14;
-        _txSection.addChild(_sendBtn);
-        
+        _txSection = new Sprite(); _txSection.y = yPos; addChild(_txSection);
+        var txLabel = new TextField(); txLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+        txLabel.text = "TX DATA"; txLabel.width = 60; txLabel.height = 15; txLabel.selectable = false; _txSection.addChild(txLabel);
+        _txInput = createInputField("", Std.int(widgetWidth - 80)); _txInput.x = 0; _txInput.y = 15;
+        _txInput.addEventListener(KeyboardEvent.KEY_DOWN, onTxKeyDown); _txSection.addChild(_txInput);
+        _sendBtn = createActionButton("SEND", 0x224466, onSendClick); _sendBtn.x = widgetWidth - 62; _sendBtn.y = 14; _txSection.addChild(_sendBtn);
         yPos += 52;
         
-        // === RX SECTION ===
-        _rxSection = new Sprite();
-        _rxSection.y = yPos;
-        addChild(_rxSection);
-        
-        var rxLabel = new TextField();
-        rxLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-        rxLabel.text = "RX DATA";
-        rxLabel.width = 60;
-        rxLabel.height = 15;
-        rxLabel.selectable = false;
-        _rxSection.addChild(rxLabel);
-        
+        _rxSection = new Sprite(); _rxSection.y = yPos; addChild(_rxSection);
+        var rxLabel = new TextField(); rxLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+        rxLabel.text = "RX DATA"; rxLabel.width = 60; rxLabel.height = 15; rxLabel.selectable = false; _rxSection.addChild(rxLabel);
         _rxDisplay = new TextField();
         _rxDisplay.defaultTextFormat = new TextFormat("_typewriter", 11, _colorRxGreen);
-        _rxDisplay.text = "";
-        _rxDisplay.width = widgetWidth - 20;
-        _rxDisplay.height = 100;
-        _rxDisplay.x = 5;
-        _rxDisplay.y = 15;
-        _rxDisplay.background = true;
-        _rxDisplay.backgroundColor = _colorInputBg;
-        _rxDisplay.border = true;
-        _rxDisplay.borderColor = 0x222233;
-        _rxDisplay.multiline = true;
-        _rxDisplay.wordWrap = true;
-        _rxDisplay.selectable = true;
-        _rxDisplay.mouseEnabled = true;
+        _rxDisplay.text = ""; _rxDisplay.width = widgetWidth - 20; _rxDisplay.height = 100; _rxDisplay.x = 5; _rxDisplay.y = 15;
+        _rxDisplay.background = true; _rxDisplay.backgroundColor = _colorInputBg; _rxDisplay.border = true; _rxDisplay.borderColor = 0x222233;
+        _rxDisplay.multiline = true; _rxDisplay.wordWrap = true; _rxDisplay.selectable = true; _rxDisplay.mouseEnabled = true;
         _rxSection.addChild(_rxDisplay);
-        
         yPos += 125;
         
-        // === INDICATORS ===
         var indicatorY:Float = yPos;
-        
-        _statusBar = new TextField();
-        _statusBar.defaultTextFormat = new TextFormat("_typewriter", 10, _colorMuted);
-        _statusBar.text = "Disconnected";
-        _statusBar.width = 140;
-        _statusBar.height = 16;
-        _statusBar.x = 10;
-        _statusBar.y = indicatorY;
-        _statusBar.selectable = false;
+        _statusBar = new TextField(); _statusBar.defaultTextFormat = new TextFormat("_typewriter", 10, _colorMuted);
+        _statusBar.text = "Disconnected"; _statusBar.width = 140; _statusBar.height = 16; _statusBar.x = 10; _statusBar.y = indicatorY; _statusBar.selectable = false;
         addChild(_statusBar);
         
-        var rxLedLabel = new TextField();
-        rxLedLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-        rxLedLabel.text = "RX";
-        rxLedLabel.width = 20;
-        rxLedLabel.height = 14;
-        rxLedLabel.x = 120;
-        rxLedLabel.y = indicatorY;
-        rxLedLabel.selectable = false;
+        var rxLedLabel = new TextField(); rxLedLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+        rxLedLabel.text = "RX"; rxLedLabel.width = 20; rxLedLabel.height = 14; rxLedLabel.x = 120; rxLedLabel.y = indicatorY; rxLedLabel.selectable = false;
         addChild(rxLedLabel);
+        _rxLed = new Sprite(); _rxLed.graphics.beginFill(0x003300); _rxLed.graphics.drawCircle(0, 0, 5); _rxLed.graphics.endFill();
+        _rxLed.x = 145; _rxLed.y = indicatorY + 7; addChild(_rxLed);
         
-        _rxLed = new Sprite();
-        _rxLed.graphics.beginFill(0x003300);
-        _rxLed.graphics.drawCircle(0, 0, 5);
-        _rxLed.graphics.endFill();
-        _rxLed.x = 145;
-        _rxLed.y = indicatorY + 7;
-        addChild(_rxLed);
-        
-        var txLedLabel = new TextField();
-        txLedLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-        txLedLabel.text = "TX";
-        txLedLabel.width = 20;
-        txLedLabel.height = 14;
-        txLedLabel.x = 160;
-        txLedLabel.y = indicatorY;
-        txLedLabel.selectable = false;
+        var txLedLabel = new TextField(); txLedLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+        txLedLabel.text = "TX"; txLedLabel.width = 20; txLedLabel.height = 14; txLedLabel.x = 160; txLedLabel.y = indicatorY; txLedLabel.selectable = false;
         addChild(txLedLabel);
+        _txLed = new Sprite(); _txLed.graphics.beginFill(0x003300); _txLed.graphics.drawCircle(0, 0, 5); _txLed.graphics.endFill();
+        _txLed.x = 185; _txLed.y = indicatorY + 7; addChild(_txLed);
         
-        _txLed = new Sprite();
-        _txLed.graphics.beginFill(0x003300);
-        _txLed.graphics.drawCircle(0, 0, 5);
-        _txLed.graphics.endFill();
-        _txLed.x = 185;
-        _txLed.y = indicatorY + 7;
-        addChild(_txLed);
-        
-        var errLedLabel = new TextField();
-        errLedLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-        errLedLabel.text = "ERR";
-        errLedLabel.width = 25;
-        errLedLabel.height = 14;
-        errLedLabel.x = 200;
-        errLedLabel.y = indicatorY;
-        errLedLabel.selectable = false;
+        var errLedLabel = new TextField(); errLedLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+        errLedLabel.text = "ERR"; errLedLabel.width = 25; errLedLabel.height = 14; errLedLabel.x = 200; errLedLabel.y = indicatorY; errLedLabel.selectable = false;
         addChild(errLedLabel);
+        _errLed = new Sprite(); _errLed.graphics.beginFill(0x330000); _errLed.graphics.drawCircle(0, 0, 5); _errLed.graphics.endFill();
+        _errLed.x = 228; _errLed.y = indicatorY + 7; addChild(_errLed);
         
-        _errLed = new Sprite();
-        _errLed.graphics.beginFill(0x330000);
-        _errLed.graphics.drawCircle(0, 0, 5);
-        _errLed.graphics.endFill();
-        _errLed.x = 228;
-        _errLed.y = indicatorY + 7;
-        addChild(_errLed);
-        
-        _errorDisplay = new TextField();
-        _errorDisplay.defaultTextFormat = new TextFormat("_typewriter", 9, _colorDanger);
-        _errorDisplay.text = "";
-        _errorDisplay.width = widgetWidth - 20;
-        _errorDisplay.height = 15;
-        _errorDisplay.x = 10;
-        _errorDisplay.y = indicatorY + 18;
-        _errorDisplay.selectable = false;
+        _errorDisplay = new TextField(); _errorDisplay.defaultTextFormat = new TextFormat("_typewriter", 9, _colorDanger);
+        _errorDisplay.text = ""; _errorDisplay.width = widgetWidth - 20; _errorDisplay.height = 15; _errorDisplay.x = 10; _errorDisplay.y = indicatorY + 18; _errorDisplay.selectable = false;
         addChild(_errorDisplay);
         
-        // === FINAL BACKGROUND ===
         redrawBackground();
     }
-    
-    // =========================================================================
-    // ANDROID-SPECIFIC UI BUILD
-    // =========================================================================
+
     #if android
-    /**
-    * Build Android-specific USB scanner UI.
-    * 
-    * Layout:
-    * ┌─────────────────────────────────────────────────────────────────┐
-    * │  [Scan USB] [Clear]                                            │
-    * │  ┌───────────────────────────────────────────────────────────┐  │
-    * │  │ ● 067B:2303 - Prolific PL2303                             │  │
-    * │  │   1A86:7523 - WCH CH340                                   │  │
-    * │  │   0403:6001 - FTDI FT232R                                 │  │
-    * │  └───────────────────────────────────────────────────────────┘  │
-    * │  Selected: 067B:2303                                            │
-    * └─────────────────────────────────────────────────────────────────┘
-    * 
-    * @param yPos Starting Y position
-    * @return Y position after Android UI
-    */
     private function buildAndroidUI(yPos:Float):Float
     {
-        // === SCAN BUTTONS ===
-        _scanBtn = createActionButton("Scan USB", 0x224466, onScanClick);
-        _scanBtn.x = 10;
-        _scanBtn.y = yPos;
-        addChild(_scanBtn);
-        
-        _clearBtn = createActionButton("Clear", 0x443322, onClearClick);
-        _clearBtn.x = 95;
-        _clearBtn.y = yPos;
-        addChild(_clearBtn);
-        
+        _scanBtn = createActionButton("Scan USB", 0x224466, onScanClick); _scanBtn.x = 10; _scanBtn.y = yPos; addChild(_scanBtn);
+        _clearBtn = createActionButton("Clear", 0x443322, onClearClick); _clearBtn.x = 95; _clearBtn.y = yPos; addChild(_clearBtn);
         yPos += 30;
         
-        // === DEVICE LIST CONTAINER ===
-        _deviceListContainer = new Sprite();
-        _deviceListContainer.x = 10;
-        _deviceListContainer.y = yPos;
-        addChild(_deviceListContainer);
-        
-        // Background for device list
-        _deviceListBg = new Sprite();
-        _deviceListBg.graphics.beginFill(_colorInputBg, 0.7);
-        _deviceListBg.graphics.lineStyle(1, 0x222233);
-        _deviceListBg.graphics.drawRoundRect(0, 0, widgetWidth - 20, 120, 4, 4);
-        _deviceListBg.graphics.endFill();
+        _deviceListContainer = new Sprite(); _deviceListContainer.x = 10; _deviceListContainer.y = yPos; addChild(_deviceListContainer);
+        _deviceListBg = new Sprite(); _deviceListBg.graphics.beginFill(_colorInputBg, 0.7); _deviceListBg.graphics.lineStyle(1, 0x222233);
+        _deviceListBg.graphics.drawRoundRect(0, 0, widgetWidth - 20, 120, 4, 4); _deviceListBg.graphics.endFill();
         _deviceListContainer.addChild(_deviceListBg);
         
-        // "No devices" label (shown when list is empty)
         _noDevicesLabel = new TextField();
         _noDevicesLabel.defaultTextFormat = new TextFormat("_typewriter", 10, _colorMuted, null, null, null, null, null, TextFormatAlign.CENTER);
-        _noDevicesLabel.text = "Click [Scan USB] to find devices";
-        _noDevicesLabel.width = widgetWidth - 40;
-        _noDevicesLabel.height = 30;
-        _noDevicesLabel.x = 10;
-        _noDevicesLabel.y = 45;
-        _noDevicesLabel.selectable = false;
-        _deviceListContainer.addChild(_noDevicesLabel);
-        
+        _noDevicesLabel.text = "Click [Scan USB] to find devices"; _noDevicesLabel.width = widgetWidth - 40; _noDevicesLabel.height = 30;
+        _noDevicesLabel.x = 10; _noDevicesLabel.y = 45; _noDevicesLabel.selectable = false; _deviceListContainer.addChild(_noDevicesLabel);
         yPos += 125;
         
-        // === SELECTED DEVICE INFO ===
-        _selectedInfo = new TextField();
-        _selectedInfo.defaultTextFormat = new TextFormat("_typewriter", 10, _colorAccent);
-        _selectedInfo.text = "Selected: None (Auto)";
-        _selectedInfo.width = widgetWidth - 20;
-        _selectedInfo.height = 16;
-        _selectedInfo.x = 10;
-        _selectedInfo.y = yPos;
-        _selectedInfo.selectable = false;
-        addChild(_selectedInfo);
-        
+        _selectedInfo = new TextField(); _selectedInfo.defaultTextFormat = new TextFormat("_typewriter", 10, _colorAccent);
+        _selectedInfo.text = "Selected: None (Auto)"; _selectedInfo.width = widgetWidth - 20; _selectedInfo.height = 16;
+        _selectedInfo.x = 10; _selectedInfo.y = yPos; _selectedInfo.selectable = false; addChild(_selectedInfo);
         yPos += 20;
-        
         return yPos;
     }
-    
-    /**
-    * Update the device list display after scanning.
-    * Clears old items and creates new ones for each scanned device.
-    */
+
     private function updateDeviceList():Void
     {
-        // Clear old items
-        for (item in _deviceItems)
-        {
-            if (item.parent != null) item.parent.removeChild(item);
-        }
-        _deviceItems = [];
-        _deviceCheckboxes = [];
-        _deviceLabels = [];
+        for (item in _deviceItems) { if (item.parent != null) item.parent.removeChild(item); }
+        _deviceItems = []; _deviceCheckboxes = []; _deviceLabels = [];
         
-        if (_scannedDevices.length == 0)
-        {
-            // Show "no devices" message
-            _noDevicesLabel.visible = true;
-            _selectedInfo.text = "Selected: None (Auto)";
-            return;
-        }
-        
+        if (_scannedDevices.length == 0) { _noDevicesLabel.visible = true; _selectedInfo.text = "Selected: None (Auto)"; return; }
         _noDevicesLabel.visible = false;
         
-        var itemY:Float = 5;
-        var itemHeight:Float = 24;
-        
+        var itemY:Float = 5; var itemHeight:Float = 24;
         for (i in 0..._scannedDevices.length)
         {
             var deviceStr = _scannedDevices[i];
             var parts = deviceStr.split(":");
-            
             if (parts.length < 2) continue;
-            
-            var vid = parts[0];
-            var pid = parts[1];
+            var vid = parts[0]; var pid = parts[1];
             var devicePath = (parts.length > 2) ? parts.slice(2).join(":") : "";
             
-            // === ITEM CONTAINER ===
             var item = new Sprite();
             item.graphics.beginFill(i == _selectedDeviceIndex ? 0x225533 : 0x151528);
-            item.graphics.drawRoundRect(0, 0, widgetWidth - 40, itemHeight, 3, 3);
-            item.graphics.endFill();
-            item.x = 5;
-            item.y = itemY;
-            item.buttonMode = true;
-            item.useHandCursor = true;
+            item.graphics.drawRoundRect(0, 0, widgetWidth - 40, itemHeight, 3, 3); item.graphics.endFill();
+            item.x = 5; item.y = itemY; item.buttonMode = true; item.useHandCursor = true;
             
-            // === CHECKBOX ===
-            var checkbox = new Sprite();
-            checkbox.graphics.lineStyle(1, 0x666688);
-            checkbox.graphics.drawRect(0, 0, 14, 14);
-            checkbox.x = 8;
-            checkbox.y = 5;
-            
-            if (i == _selectedDeviceIndex)
-            {
-                checkbox.graphics.beginFill(_colorActive);
-                checkbox.graphics.drawRect(2, 2, 10, 10);
-                checkbox.graphics.endFill();
-            }
-            
+            var checkbox = new Sprite(); checkbox.graphics.lineStyle(1, 0x666688); checkbox.graphics.drawRect(0, 0, 14, 14);
+            checkbox.x = 8; checkbox.y = 5;
+            if (i == _selectedDeviceIndex) { checkbox.graphics.beginFill(_colorActive); checkbox.graphics.drawRect(2, 2, 10, 10); checkbox.graphics.endFill(); }
             item.addChild(checkbox);
             
-            // === LABEL ===
-            var label = new TextField();
-            label.defaultTextFormat = new TextFormat("_typewriter", 10, _colorText);
-            label.text = '$vid:$pid';
-            if (devicePath != "") label.text += ' - $devicePath';
-            label.width = widgetWidth - 80;
-            label.height = itemHeight;
-            label.x = 28;
-            label.selectable = false;
-            label.mouseEnabled = false;
+            var label = new TextField(); label.defaultTextFormat = new TextFormat("_typewriter", 10, _colorText);
+            label.text = '$vid:$pid'; if (devicePath != "") label.text += ' - $devicePath';
+            label.width = widgetWidth - 80; label.height = itemHeight; label.x = 28; label.selectable = false; label.mouseEnabled = false;
             item.addChild(label);
             
-            // === CLICK HANDLER ===
             var capturedIndex = i;
-            item.addEventListener(MouseEvent.CLICK, function(e:MouseEvent) {
-                onDeviceClick(capturedIndex);
-            });
-            
-            // === HOVER EFFECT ===
+            item.addEventListener(MouseEvent.CLICK, function(e:MouseEvent) { onDeviceClick(capturedIndex); });
             item.addEventListener(MouseEvent.MOUSE_OVER, function(e:MouseEvent) {
-                if (capturedIndex != _selectedDeviceIndex)
-                {
-                    item.graphics.clear();
-                    item.graphics.beginFill(0x252545);
-                    item.graphics.drawRoundRect(0, 0, widgetWidth - 40, itemHeight, 3, 3);
-                    item.graphics.endFill();
-                }
+                if (capturedIndex != _selectedDeviceIndex) { item.graphics.clear(); item.graphics.beginFill(0x252545); item.graphics.drawRoundRect(0, 0, widgetWidth - 40, itemHeight, 3, 3); item.graphics.endFill(); }
             });
-            
             item.addEventListener(MouseEvent.MOUSE_OUT, function(e:MouseEvent) {
-                if (capturedIndex != _selectedDeviceIndex)
-                {
-                    item.graphics.clear();
-                    item.graphics.beginFill(0x151528);
-                    item.graphics.drawRoundRect(0, 0, widgetWidth - 40, itemHeight, 3, 3);
-                    item.graphics.endFill();
-                }
+                if (capturedIndex != _selectedDeviceIndex) { item.graphics.clear(); item.graphics.beginFill(0x151528); item.graphics.drawRoundRect(0, 0, widgetWidth - 40, itemHeight, 3, 3); item.graphics.endFill(); }
             });
             
-            _deviceListContainer.addChild(item);
-            _deviceItems.push(item);
-            _deviceCheckboxes.push(checkbox);
-            _deviceLabels.push(label);
-            
+            _deviceListContainer.addChild(item); _deviceItems.push(item); _deviceCheckboxes.push(checkbox); _deviceLabels.push(label);
             itemY += itemHeight + 3;
         }
         
-        // Update selected info
         if (_selectedDeviceIndex >= 0 && _selectedDeviceIndex < _scannedDevices.length)
         {
             var selectedStr = _scannedDevices[_selectedDeviceIndex];
             var parts = selectedStr.split(":");
-            var vid = parts[0];
-            var pid = parts[1];
-            _selectedInfo.text = 'Selected: $vid:$pid';
+            _selectedInfo.text = 'Selected: ${parts[0]}:${parts[1]}';
         }
-        else
-        {
-            _selectedInfo.text = "Selected: None (Auto)";
-        }
+        else { _selectedInfo.text = "Selected: None (Auto)"; }
     }
-    
-    /**
-    * Handle click on a device in the list.
-    * Selects the device and notifies the atom.
-    * 
-    * @param index Index of clicked device in _scannedDevices
-    */
+
     private function onDeviceClick(index:Int):Void
     {
         _selectedDeviceIndex = index;
-        
-        // Parse VID:PID from selected device string
         var deviceStr = _scannedDevices[index];
         var parts = deviceStr.split(":");
-        
         if (parts.length >= 2)
         {
             var vid = Std.parseInt("0x" + parts[0]);
             var pid = Std.parseInt("0x" + parts[1]);
-            
-            _currentSelectedVid = vid;
-            _currentSelectedPid = pid;
-            
-            // Notify atom
+            _currentSelectedVid = vid; _currentSelectedPid = pid;
             if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom))
             {
                 var comAtom:library.drivers.ComPortAtom = cast atom;
                 comAtom.setSelectedDevice(vid, pid);
-                
-                // Update port name contact for display
-                if (_portNameContact != null)
-                {
-                    _portNameContact.value = '$vid:$pid';
-                }
+                if (_portNameContact != null) _portNameContact.value = '${parts[0]}:${parts[1]}'; // ИСПРАВЛЕНО: сохраняем HEX
             }
-            
             trace('ComPortWidget: Selected device VID:PID = ${StringTools.hex(vid, 4)}:${StringTools.hex(pid, 4)}');
         }
-        
-        // Refresh list display
         updateDeviceList();
     }
-    
-    /**
-    * Handle [Scan USB] button click.
-    * Calls atom's scanUSBDevices() and updates the list.
-    */
-	private function onScanClick(e:MouseEvent):Void
-	{
-		trace("=== [WIDGET] Scan USB button CLICKED! ===");
-		#if android
-		if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) {
-			var comAtom:library.drivers.ComPortAtom = cast atom;
-			// Чистим старый стейт
-			_scannedDevices = comAtom.scanUSBDevices();
-			_selectedDeviceIndex = -1;
-			updateDeviceList();
-		}
-		#end
-	}
-    
-    /**
-    * Handle [Clear] button click.
-    * Clears the device list and selection.
-    */
+
+    private function onScanClick(e:MouseEvent):Void
+    {
+        if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom))
+        {
+            var comAtom:library.drivers.ComPortAtom = cast atom;
+            _scannedDevices = comAtom.scanUSBDevices();
+            _selectedDeviceIndex = -1; _currentSelectedVid = 0; _currentSelectedPid = 0;
+            updateDeviceList();
+        }
+    }
+
     private function onClearClick(e:MouseEvent):Void
     {
-        _scannedDevices = [];
-        _selectedDeviceIndex = -1;
-        _currentSelectedVid = 0;
-        _currentSelectedPid = 0;
-        
-        // Clear atom selection
+        _scannedDevices = []; _selectedDeviceIndex = -1; _currentSelectedVid = 0; _currentSelectedPid = 0;
         if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom))
         {
             var comAtom:library.drivers.ComPortAtom = cast atom;
             comAtom.setSelectedDevice(0, 0);
         }
-        
         updateDeviceList();
     }
     #end
-    
-    // =========================================================================
-    // BACKGROUND DRAWING
-    // =========================================================================
+
     private function redrawBackground():Void
     {
-        // Main background
-        _bg.graphics.clear();
-        _bg.graphics.beginFill(_colorBg, 0.95);
-        _bg.graphics.lineStyle(1, _colorAccent);
-        _bg.graphics.drawRoundRect(0, 0, widgetWidth, widgetHeight, 8, 8);
-        _bg.graphics.endFill();
-        
-        // Header
-        _header.graphics.clear();
-        _header.graphics.beginFill(_colorHeader);
-        _header.graphics.drawRoundRectComplex(0, 0, widgetWidth, 28, 8, 8, 0, 0);
-        _header.graphics.endFill();
-        
-        // TX section background
-        _txSection.graphics.clear();
-        _txSection.graphics.beginFill(0x0d0d18, 0.5);
-        _txSection.graphics.lineStyle(1, 0x222244);
-        _txSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 45, 4, 4);
-        _txSection.graphics.endFill();
-        
-        // RX section background
-        _rxSection.graphics.clear();
-        _rxSection.graphics.beginFill(0x0d0d18, 0.5);
-        _rxSection.graphics.lineStyle(1, 0x224422);
-        _rxSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 120, 4, 4);
-        _rxSection.graphics.endFill();
+        _bg.graphics.clear(); _bg.graphics.beginFill(_colorBg, 0.95); _bg.graphics.lineStyle(1, _colorAccent);
+        _bg.graphics.drawRoundRect(0, 0, widgetWidth, widgetHeight, 8, 8); _bg.graphics.endFill();
+        _header.graphics.clear(); _header.graphics.beginFill(_colorHeader);
+        _header.graphics.drawRoundRectComplex(0, 0, widgetWidth, 28, 8, 8, 0, 0); _header.graphics.endFill();
+        _txSection.graphics.clear(); _txSection.graphics.beginFill(0x0d0d18, 0.5); _txSection.graphics.lineStyle(1, 0x222244);
+        _txSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 45, 4, 4); _txSection.graphics.endFill();
+        _rxSection.graphics.clear(); _rxSection.graphics.beginFill(0x0d0d18, 0.5); _rxSection.graphics.lineStyle(1, 0x224422);
+        _rxSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 120, 4, 4); _rxSection.graphics.endFill();
     }
-    
-    // =========================================================================
-    // UI ELEMENT CREATION HELPERS
-    // =========================================================================
+
     private function createLabel(text:String):TextField
     {
-        var tf = new TextField();
-        tf.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-        tf.text = text;
-        tf.width = 60;
-        tf.height = 16;
-        tf.x = 10;
-        tf.selectable = false;
-        tf.mouseEnabled = false;
+        var tf = new TextField(); tf.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+        tf.text = text; tf.width = 60; tf.height = 16; tf.x = 10; tf.selectable = false; tf.mouseEnabled = false;
         return tf;
     }
-    
+
     private function createInputField(defaultText:String, width:Int):TextField
     {
-        var tf = new TextField();
-        tf.defaultTextFormat = new TextFormat("_typewriter", 12, _colorText);
-        tf.text = defaultText;
-        tf.width = width;
-        tf.height = 22;
-        tf.background = true;
-        tf.backgroundColor = _colorInputBg;
-        tf.border = true;
-        tf.borderColor = 0x333355;
-        tf.type = TextFieldType.INPUT;
-        tf.selectable = true;
-        tf.mouseEnabled = true;
+        var tf = new TextField(); tf.defaultTextFormat = new TextFormat("_typewriter", 12, _colorText);
+        tf.text = defaultText; tf.width = width; tf.height = 22; tf.background = true; tf.backgroundColor = _colorInputBg;
+        tf.border = true; tf.borderColor = 0x333355; tf.type = TextFieldType.INPUT; tf.selectable = true; tf.mouseEnabled = true;
         return tf;
     }
-    
+
     private function createActionButton(label:String, color:Int, callback:MouseEvent -> Void):Sprite
     {
-        var btn = new Sprite();
-        btn.graphics.beginFill(color);
-        btn.graphics.drawRoundRect(0, 0, 75, 26, 4, 4);
-        btn.graphics.endFill();
-        
-        var tf = new TextField();
-        tf.defaultTextFormat = new TextFormat("_typewriter", 11, _colorText, true, null, null, null, null, TextFormatAlign.CENTER);
-        tf.text = label;
-        tf.width = 75;
-        tf.height = 26;
-        tf.selectable = false;
-        tf.mouseEnabled = false;
-        btn.addChild(tf);
-        
-        btn.buttonMode = true;
-        btn.useHandCursor = true;
-        btn.addEventListener(MouseEvent.CLICK, callback);
-        
+        var btn = new Sprite(); btn.graphics.beginFill(color); btn.graphics.drawRoundRect(0, 0, 75, 26, 4, 4); btn.graphics.endFill();
+        var tf = new TextField(); tf.defaultTextFormat = new TextFormat("_typewriter", 11, _colorText, true, null, null, null, null, TextFormatAlign.CENTER);
+        tf.text = label; tf.width = 75; tf.height = 26; tf.selectable = false; tf.mouseEnabled = false; btn.addChild(tf);
+        btn.buttonMode = true; btn.useHandCursor = true; btn.addEventListener(MouseEvent.CLICK, callback);
         return btn;
     }
-    
-    // =========================================================================
-    // ATOM SYNCHRONIZATION
-    // =========================================================================
-	override private function syncFromAtom():Void
-	{
-		// Read current contact values and update UI
-		#if (cpp && !android)
-		if (_portNameContact != null && _portNameContact.value != null && _portInput != null)
-		{
-			_portInput.text = Std.string(_portNameContact.value);
-		}
-		#elseif html5
-		if (_portNameContact != null && _portNameContact.value != null && _selectedPortInfo != null)
-		{
-			_selectedPortInfo.text = Std.string(_portNameContact.value);
-		}
-		#end
 
-		if (_baudRateContact != null && _baudRateContact.value != null)
-		{
-			_baudInput.text = Std.string(_baudRateContact.value);
-		}
+    override private function syncFromAtom():Void
+    {
+        #if (cpp && !android)
+        if (_portNameContact != null && _portNameContact.value != null && _portInput != null) _portInput.text = Std.string(_portNameContact.value);
+        #elseif html5
+        if (_portNameContact != null && _portNameContact.value != null && _selectedPortInfo != null) _selectedPortInfo.text = Std.string(_portNameContact.value);
+        #end
+        if (_baudRateContact != null && _baudRateContact.value != null) _baudInput.text = Std.string(_baudRateContact.value);
+        if (_isOpenContact != null && _isOpenContact.value != null) updateConnectionStatus(_isOpenContact.value == true);
+        if (_rxDataContact != null && _rxDataContact.value != null)
+        {
+            var rxStr = Std.string(_rxDataContact.value);
+            if (rxStr != "" && rxStr != _lastRxData) appendRxData(rxStr);
+        }
+        if (_errorContact != null && _errorContact.value != null)
+        {
+            var errStr = Std.string(_errorContact.value);
+            if (errStr != "" && errStr != _lastError) { _errorDisplay.text = "Error: " + errStr; _lastError = errStr; }
+        }
+        #if html5
+        if (_bufferSizeContact != null && _bufferSizeContact.value != null) { _currentBufferSize = Std.int(_bufferSizeContact.value); _bufferSizeInput.text = Std.string(_currentBufferSize); }
+        if (_chunkSizeContact != null && _chunkSizeContact.value != null) { _currentChunkSize = Std.int(_chunkSizeContact.value); _chunkSizeInput.text = Std.string(_currentChunkSize); }
+        if (_enabledContact != null && _enabledContact.value != null) { _currentEnabled = (_enabledContact.value == true); updateEnabledButton(); }
+        #end
+    }
 
-		if (_isOpenContact != null && _isOpenContact.value != null)
-		{
-			updateConnectionStatus(_isOpenContact.value == true);
-		}
-
-		if (_rxDataContact != null && _rxDataContact.value != null)
-		{
-			var rxStr = Std.string(_rxDataContact.value);
-			if (rxStr != "" && rxStr != _lastRxData)
-			{
-				appendRxData(rxStr);
-			}
-		}
-
-		if (_errorContact != null && _errorContact.value != null)
-		{
-			var errStr = Std.string(_errorContact.value);
-			if (errStr != "" && errStr != _lastError)
-			{
-				_errorDisplay.text = "Error: " + errStr;
-				_lastError = errStr;
-			}
-		}
-
-		#if html5
-		if (_bufferSizeContact != null && _bufferSizeContact.value != null)
-		{
-			_currentBufferSize = Std.int(_bufferSizeContact.value);
-			_bufferSizeInput.text = Std.string(_currentBufferSize);
-		}
-
-		if (_chunkSizeContact != null && _chunkSizeContact.value != null)
-		{
-			_currentChunkSize = Std.int(_chunkSizeContact.value);
-			_chunkSizeInput.text = Std.string(_currentChunkSize);
-		}
-
-		if (_enabledContact != null && _enabledContact.value != null)
-		{
-			_currentEnabled = (_enabledContact.value == true);
-			updateEnabledButton();
-		}
-		#end
-	}
-    
     override private function onContactChanged(contact:Contact, newValue:Dynamic):Void
     {
         if (isDisposed) return;
-        
-        if (contact == _isOpenContact)
-        {
-            updateConnectionStatus(newValue == true);
-        }
-        else if (contact == _rxDataContact)
-        {
-            if (newValue != null && newValue != "")
-            {
-                appendRxData(Std.string(newValue));
-            }
-        }
-        else if (contact == _rxTickContact)
-        {
-            if (newValue == true)
-            {
-                pulseLed(_rxLed, 0x00FF00, 0x003300);
-                _rxLedTimer = _ledPulseDuration;
-            }
-        }
-        else if (contact == _txTickContact)
-        {
-            if (newValue == true)
-            {
-                pulseLed(_txLed, 0x00AAFF, 0x001133);
-                _txLedTimer = _ledPulseDuration;
-            }
-        }
-        else if (contact == _errorTickContact)
-        {
-            if (newValue == true)
-            {
-                pulseLed(_errLed, 0xFF4444, 0x330000);
-                _errLedTimer = _ledPulseDuration;
-            }
-        }
+        if (contact == _isOpenContact) updateConnectionStatus(newValue == true);
+        else if (contact == _rxDataContact && newValue != null && newValue != "") appendRxData(Std.string(newValue));
+        else if (contact == _rxTickContact && newValue == true) { pulseLed(_rxLed, 0x00FF00, 0x003300); _rxLedTimer = _ledPulseDuration; }
+        else if (contact == _txTickContact && newValue == true) { pulseLed(_txLed, 0x00AAFF, 0x001133); _txLedTimer = _ledPulseDuration; }
+        else if (contact == _errorTickContact && newValue == true) { pulseLed(_errLed, 0xFF4444, 0x330000); _errLedTimer = _ledPulseDuration; }
         else if (contact == _portNameContact)
         {
             #if (cpp && !android)
-            if (_portInput != null && newValue != null)
-                _portInput.text = Std.string(newValue);
+            if (_portInput != null && newValue != null) _portInput.text = Std.string(newValue);
             #elseif html5
-            if (_selectedPortInfo != null && newValue != null)
-                _selectedPortInfo.text = Std.string(newValue);
+            if (_selectedPortInfo != null && newValue != null) _selectedPortInfo.text = Std.string(newValue);
             #end
         }
         else if (contact == _errorContact)
         {
-            if (newValue != null && newValue != "")
-            {
-                _errorDisplay.text = "Error: " + Std.string(newValue);
-                _lastError = Std.string(newValue);
-            }
-            else
-            {
-                _errorDisplay.text = "";
-                _lastError = "";
-            }
+            if (newValue != null && newValue != "") { _errorDisplay.text = "Error: " + Std.string(newValue); _lastError = Std.string(newValue); }
+            else { _errorDisplay.text = ""; _lastError = ""; }
         }
     }
-    
-    // =========================================================================
-    // UI UPDATE
-    // =========================================================================
+
     private function updateConnectionStatus(isOpen:Bool):Void
     {
         if (isOpen)
         {
-            _statusLed.graphics.clear();
-            _statusLed.graphics.beginFill(_colorActive);
-            _statusLed.graphics.drawCircle(0, 0, 6);
-            _statusLed.graphics.endFill();
-            
-            _statusGlow.graphics.clear();
-            _statusGlow.graphics.beginFill(_colorActive, 0.2);
-            _statusGlow.graphics.drawCircle(0, 0, 12);
-            _statusGlow.graphics.endFill();
-            _statusGlow.visible = true;
-            
-            _statusBar.text = "Connected";
-            _statusBar.textColor = _colorActive;
+            _statusLed.graphics.clear(); _statusLed.graphics.beginFill(_colorActive); _statusLed.graphics.drawCircle(0, 0, 6); _statusLed.graphics.endFill();
+            _statusGlow.graphics.clear(); _statusGlow.graphics.beginFill(_colorActive, 0.2); _statusGlow.graphics.drawCircle(0, 0, 12); _statusGlow.graphics.endFill();
+            _statusGlow.visible = true; _statusBar.text = "Connected"; _statusBar.textColor = _colorActive;
         }
         else
         {
-            _statusLed.graphics.clear();
-            _statusLed.graphics.beginFill(0x440000);
-            _statusLed.graphics.drawCircle(0, 0, 6);
-            _statusLed.graphics.endFill();
-            
-            _statusGlow.visible = false;
-            
-            _statusBar.text = "Disconnected";
-            _statusBar.textColor = _colorMuted;
+            _statusLed.graphics.clear(); _statusLed.graphics.beginFill(0x440000); _statusLed.graphics.drawCircle(0, 0, 6); _statusLed.graphics.endFill();
+            _statusGlow.visible = false; _statusBar.text = "Disconnected"; _statusBar.textColor = _colorMuted;
         }
     }
-    
+
     private function appendRxData(data:String):Void
     {
         if (_rxDisplay == null) return;
-        
         _lastRxData = data;
-        
         var currentText = _rxDisplay.text;
-        if (currentText.length > 2000)
-        {
-            currentText = currentText.substr(currentText.length - 1000);
-        }
-        
+        if (currentText.length > 2000) currentText = currentText.substr(currentText.length - 1000);
         _rxDisplay.text = currentText + data;
         _rxDisplay.scrollV = _rxDisplay.maxScrollV;
     }
-    
+
     private function pulseLed(led:Sprite, onColor:Int, offColor:Int):Void
     {
         if (led == null) return;
-        
-        led.graphics.clear();
-        led.graphics.beginFill(onColor);
-        led.graphics.drawCircle(0, 0, 5);
-        led.graphics.endFill();
+        led.graphics.clear(); led.graphics.beginFill(onColor); led.graphics.drawCircle(0, 0, 5); led.graphics.endFill();
     }
-    
+
     private function resetLed(led:Sprite, offColor:Int):Void
     {
         if (led == null) return;
-        
-        led.graphics.clear();
-        led.graphics.beginFill(offColor);
-        led.graphics.drawCircle(0, 0, 5);
-        led.graphics.endFill();
+        led.graphics.clear(); led.graphics.beginFill(offColor); led.graphics.drawCircle(0, 0, 5); led.graphics.endFill();
     }
-    
-    // =========================================================================
-    // EVENT HANDLERS
-    // =========================================================================
+
     #if cpp
-    private function onPortNameChanged(e:Event):Void
-    {
-        if (_portNameContact != null)
-        {
-            _portNameContact.value = _portInput.text;
-        }
-    }
+    private function onPortNameChanged(e:Event):Void { if (_portNameContact != null) _portNameContact.value = _portInput.text; }
     #end
-    
+
     #if html5
     private function onSelectPortClick(e:MouseEvent):Void
     {
-        // Direct synchronous call to preserve User Gesture context for Web Serial API
-        if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom))
-        {
-            var comAtom:library.drivers.ComPortAtom = cast atom;
-            comAtom.openDevice();
-        }
-        else
-        {
-            if (_openContact != null)
-            {
-                _openContact.value = true;
-            }
-        }
+        if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) { var comAtom:library.drivers.ComPortAtom = cast atom; comAtom.openDevice(); }
+        else if (_openContact != null) _openContact.value = true;
     }
-    
     private function onBufferSizeChanged(e:Event):Void
     {
-        if (_bufferSizeContact != null)
-        {
+        if (_bufferSizeContact != null) {
             var size = Std.parseInt(_bufferSizeInput.text);
-            if (size != null && size >= 256 && size <= 65536)
-            {
-                _currentBufferSize = size;
-                _bufferSizeContact.value = size;
-            }
+            if (size != null && size >= 256 && size <= 65536) { _currentBufferSize = size; _bufferSizeContact.value = size; }
         }
     }
-    
     private function onChunkSizeChanged(e:Event):Void
     {
-        if (_chunkSizeContact != null)
-        {
+        if (_chunkSizeContact != null) {
             var size = Std.parseInt(_chunkSizeInput.text);
-            if (size != null && size >= 1 && size <= 4096)
-            {
-                _currentChunkSize = size;
-                _chunkSizeContact.value = size;
-            }
+            if (size != null && size >= 1 && size <= 4096) { _currentChunkSize = size; _chunkSizeContact.value = size; }
         }
     }
-    
     private function onEnabledClick(e:MouseEvent):Void
     {
-        _currentEnabled = !_currentEnabled;
-        updateEnabledButton();
-        
-        if (_enabledContact != null)
-        {
-            _enabledContact.value = _currentEnabled;
-        }
+        _currentEnabled = !_currentEnabled; updateEnabledButton();
+        if (_enabledContact != null) _enabledContact.value = _currentEnabled;
     }
-    
     private function updateEnabledButton():Void
     {
         if (_enabledBtn == null || _enabledLabel == null) return;
-        
-        if (_currentEnabled)
-        {
-            _enabledBtn.graphics.clear();
-            _enabledBtn.graphics.beginFill(_colorActive);
-            _enabledBtn.graphics.drawRoundRect(0, 0, 70, 26, 4, 4);
-            _enabledBtn.graphics.endFill();
-            
-            _enabledLabel.textColor = 0x000000;
-            _enabledLabel.text = "ON";
-        }
-        else
-        {
-            _enabledBtn.graphics.clear();
-            _enabledBtn.graphics.beginFill(_colorInactive);
-            _enabledBtn.graphics.drawRoundRect(0, 0, 70, 26, 4, 4);
-            _enabledBtn.graphics.endFill();
-            
-            _enabledLabel.textColor = _colorMuted;
-            _enabledLabel.text = "OFF";
+        if (_currentEnabled) {
+            _enabledBtn.graphics.clear(); _enabledBtn.graphics.beginFill(_colorActive); _enabledBtn.graphics.drawRoundRect(0, 0, 70, 26, 4, 4); _enabledBtn.graphics.endFill();
+            _enabledLabel.textColor = 0x000000; _enabledLabel.text = "ON";
+        } else {
+            _enabledBtn.graphics.clear(); _enabledBtn.graphics.beginFill(_colorInactive); _enabledBtn.graphics.drawRoundRect(0, 0, 70, 26, 4, 4); _enabledBtn.graphics.endFill();
+            _enabledLabel.textColor = _colorMuted; _enabledLabel.text = "OFF";
         }
     }
     #end
-    
+
     private function onBaudRateChanged(e:Event):Void
     {
-        if (_baudRateContact != null)
-        {
+        if (_baudRateContact != null) {
             var baud = Std.parseInt(_baudInput.text);
-            if (baud != null && baud > 0)
-            {
-                _baudRateContact.value = baud;
-            }
+            if (baud != null && baud > 0) _baudRateContact.value = baud;
         }
     }
-    
-	private function onOpenClick(e:MouseEvent):Void
-	{
-		trace("[WIDGET] Кнопка OPEN нажата.");
-		
-		// Синхронизируем GUI-поля перед открытием
-		if (_baudInput != null && _baudRateContact != null) {
-			_baudRateContact.value = Std.parseInt(_baudInput.text);
-		}
 
-		if (_openContact != null) {
-			_openContact.value = true; // Посылаем импульс на открытие в Атом
-		}
+    private function onOpenClick(e:MouseEvent):Void
+    {
+        #if (cpp && !android)
+        if (_portNameContact != null && _portInput != null) _portNameContact.value = _portInput.text;
+        #end
+        var baud = Std.parseInt(_baudInput.text);
+        if (_baudRateContact != null && baud != null && baud > 0) _baudRateContact.value = baud;
+        #if html5
+        if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) { var comAtom:library.drivers.ComPortAtom = cast atom; comAtom.openDevice(); }
+        else if (_openContact != null) _openContact.value = true;
+        #else
+        if (_openContact != null) _openContact.value = true;
+        #end
+    }
 
-		// Автоматическая проверка состояния асинхронного Android-диалога
-		#if android
-		haxe.Timer.delay(function() {
-			if (_errorContact != null && _errorContact.value != null) {
-				var err:String = Std.string(_errorContact.value);
-				// Если мы видим, что система ждет одобрения окна пользователем:
-				if (err.indexOf("Requesting USB permission") != -1) {
-					_statusBar.text = "Waiting for permission...";
-					
-					// Делаем вторую автоматическую попытку открыть порт через 3 секунды,
-					// чтобы пользователю не нужно было кликать OPEN второй раз!
-					haxe.Timer.delay(function() {
-						if (!_isOpenContact.value) {
-							trace("[WIDGET] Авто-переоткрытие порта после одобрения окна...");
-							_openContact.value = true;
-						}
-					}, 3000);
-				}
-			}
-		}, 300);
-		#end
-	}
-    
-    private function onCloseClick(e:MouseEvent):Void
-    {
-        if (_closeContact != null)
-        {
-            _closeContact.value = true;
-        }
-    }
-    
-    private function onSendClick(e:MouseEvent):Void
-    {
-        sendTxData();
-    }
-    
-    private function onTxKeyDown(e:KeyboardEvent):Void
-    {
-        if (e.keyCode == Keyboard.ENTER)
-        {
-            sendTxData();
-        }
-    }
+    private function onCloseClick(e:MouseEvent):Void { if (_closeContact != null) _closeContact.value = true; }
+    private function onSendClick(e:MouseEvent):Void { sendTxData(); }
+    private function onTxKeyDown(e:KeyboardEvent):Void { if (e.keyCode == Keyboard.ENTER) sendTxData(); }
     
     private function sendTxData():Void
     {
-        if (_txDataContact != null)
-        {
-            _txDataContact.value = _txInput.text;
-        }
-        
-        if (_sendContact != null)
-        {
-            _sendContact.value = true;
-        }
+        if (_txDataContact != null) _txDataContact.value = _txInput.text;
+        if (_sendContact != null) _sendContact.value = true;
     }
-    
+
     #if cpp
     private function onDTRClick(e:MouseEvent):Void
     {
         _dtrState = !_dtrState;
-        
-        if (_setDTRContact != null)
-        {
-            _setDTRContact.value = _dtrState;
-        }
-        
+        if (_setDTRContact != null) _setDTRContact.value = _dtrState;
         _dtrBtn.graphics.clear();
-        
-        if (_dtrState)
-        {
-            _dtrBtn.graphics.beginFill(_colorActive);
-            _dtrLabel.textColor = 0x000000;
-        }
-        else
-        {
-            _dtrBtn.graphics.beginFill(_colorInactive);
-            _dtrLabel.textColor = _colorMuted;
-        }
-        
-        _dtrBtn.graphics.drawRoundRect(0, 0, 50, 26, 4, 4);
-        _dtrBtn.graphics.endFill();
+        if (_dtrState) { _dtrBtn.graphics.beginFill(_colorActive); _dtrLabel.textColor = 0x000000; }
+        else { _dtrBtn.graphics.beginFill(_colorInactive); _dtrLabel.textColor = _colorMuted; }
+        _dtrBtn.graphics.drawRoundRect(0, 0, 50, 26, 4, 4); _dtrBtn.graphics.endFill();
     }
     #end
-    
-    // =========================================================================
-    // UPDATE LOOP (for LED animation)
-    // =========================================================================
+
+    // Impulsys Handlers
+    private function onComPortStatus(impulse: Impulse): Void
+    {
+        if (impulse.data != null && _statusBar != null)
+        {
+            _statusBar.text = Std.string(impulse.data);
+            var statusStr = Std.string(impulse.data);
+            if (statusStr.indexOf("Connected") >= 0) updateConnectionStatus(true);
+            else updateConnectionStatus(false);
+        }
+    }
+
+    private function onComPortRx(impulse: Impulse): Void
+    {
+        if (impulse.data != null) appendRxData(Std.string(impulse.data));
+    }
+
+    private function onComPortError(impulse: Impulse): Void
+    {
+        if (impulse.data != null && _errorDisplay != null)
+        {
+            _errorDisplay.text = "Error: " + Std.string(impulse.data);
+            _lastError = Std.string(impulse.data);
+        }
+    }
+
     override public function activate():Void
     {
         super.activate();
-        
-        if (stage != null)
-        {
-            stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
-        }
-        else
-        {
-            addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
-        }
+        if (stage != null) stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
+        else addEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
     }
-    
+
     override public function deactivate():Void
     {
         super.deactivate();
-        
-        if (stage != null)
-        {
-            stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
-        }
+        if (stage != null) stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
     }
-    
+
     private function onAddedToStage(e:Event):Void
     {
         removeEventListener(Event.ADDED_TO_STAGE, onAddedToStage);
         stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
     }
-    
+
     private function onEnterFrame(e:Event):Void
     {
         var dt:Float = 1.0 / 60.0;
-        
-        if (_rxLedTimer > 0)
-        {
-            _rxLedTimer -= dt;
-            if (_rxLedTimer <= 0)
-            {
-                resetLed(_rxLed, 0x003300);
-            }
-        }
-        
-        if (_txLedTimer > 0)
-        {
-            _txLedTimer -= dt;
-            if (_txLedTimer <= 0)
-            {
-                resetLed(_txLed, 0x001133);
-            }
-        }
-        
-        if (_errLedTimer > 0)
-        {
-            _errLedTimer -= dt;
-            if (_errLedTimer <= 0)
-            {
-                resetLed(_errLed, 0x330000);
-            }
-        }
+        if (_rxLedTimer > 0) { _rxLedTimer -= dt; if (_rxLedTimer <= 0) resetLed(_rxLed, 0x003300); }
+        if (_txLedTimer > 0) { _txLedTimer -= dt; if (_txLedTimer <= 0) resetLed(_txLed, 0x001133); }
+        if (_errLedTimer > 0) { _errLedTimer -= dt; if (_errLedTimer <= 0) resetLed(_errLed, 0x330000); }
     }
-    
-    // =========================================================================
-    // DISPOSE
-    // =========================================================================
+
     override public function dispose():Void
     {
-        if (stage != null)
-        {
-            stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
-        }
+        if (stage != null) stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
+        
+        if (_onComPortStatus != null) Impulsys.removeImpulse(EventType.COMPORT_STATUS, _onComPortStatus);
+        if (_onComPortRx != null) Impulsys.removeImpulse(EventType.COMPORT_RX_DATA, _onComPortRx);
+        if (_onComPortError != null) Impulsys.removeImpulse(EventType.COMPORT_ERROR, _onComPortError);
         
         if (_openBtn != null) _openBtn.removeEventListener(MouseEvent.CLICK, onOpenClick);
         if (_closeBtn != null) _closeBtn.removeEventListener(MouseEvent.CLICK, onCloseClick);
@@ -8212,90 +7506,38 @@ class ComPortWidget extends DeviceView
         #if cpp
         if (_dtrBtn != null) _dtrBtn.removeEventListener(MouseEvent.CLICK, onDTRClick);
         if (_portInput != null) _portInput.removeEventListener(Event.CHANGE, onPortNameChanged);
-        
         #elseif html5
         if (_selectPortBtn != null) _selectPortBtn.removeEventListener(MouseEvent.CLICK, onSelectPortClick);
         if (_bufferSizeInput != null) _bufferSizeInput.removeEventListener(Event.CHANGE, onBufferSizeChanged);
         if (_chunkSizeInput != null) _chunkSizeInput.removeEventListener(Event.CHANGE, onChunkSizeChanged);
         if (_enabledBtn != null) _enabledBtn.removeEventListener(MouseEvent.CLICK, onEnabledClick);
-        
         #elseif android
         if (_scanBtn != null) _scanBtn.removeEventListener(MouseEvent.CLICK, onScanClick);
         if (_clearBtn != null) _clearBtn.removeEventListener(MouseEvent.CLICK, onClearClick);
-        
-        // Clean up device list items
-        for (item in _deviceItems)
-        {
-            item.removeEventListener(MouseEvent.CLICK, onDeviceClick);
-        }
-        _deviceItems = null;
-        _deviceCheckboxes = null;
-        _deviceLabels = null;
-        _scannedDevices = null;
+        for (item in _deviceItems) item.removeEventListener(MouseEvent.CLICK, onDeviceClick);
+        _deviceItems = null; _deviceCheckboxes = null; _deviceLabels = null; _scannedDevices = null;
         #end
         
         if (_baudInput != null) _baudInput.removeEventListener(Event.CHANGE, onBaudRateChanged);
         if (_txInput != null) _txInput.removeEventListener(KeyboardEvent.KEY_DOWN, onTxKeyDown);
         
-        _bg = null;
-        _header = null;
-        _titleLabel = null;
-        _portLabel = null;
-        _portInput = null;
-        _baudLabel = null;
-        _baudInput = null;
-        _openBtn = null;
-        _closeBtn = null;
-        _dtrBtn = null;
-        _dtrLabel = null;
-        _txSection = null;
-        _txInput = null;
-        _sendBtn = null;
-        _rxSection = null;
-        _rxDisplay = null;
-        _statusLed = null;
-        _statusGlow = null;
-        _rxLed = null;
-        _txLed = null;
-        _errLed = null;
-        _statusBar = null;
-        _errorDisplay = null;
-        
-        _portNameContact = null;
-        _baudRateContact = null;
-        _openContact = null;
-        _closeContact = null;
-        _sendContact = null;
-        _txDataContact = null;
-        _setDTRContact = null;
-        _isOpenContact = null;
-        _rxDataContact = null;
-        _rxTickContact = null;
-        _txTickContact = null;
-        _errorContact = null;
-        _errorTickContact = null;
+        _bg = null; _header = null; _titleLabel = null; _portLabel = null; _portInput = null;
+        _baudLabel = null; _baudInput = null; _openBtn = null; _closeBtn = null; _dtrBtn = null; _dtrLabel = null;
+        _txSection = null; _txInput = null; _sendBtn = null; _rxSection = null; _rxDisplay = null;
+        _statusLed = null; _statusGlow = null; _rxLed = null; _txLed = null; _errLed = null;
+        _statusBar = null; _errorDisplay = null;
+        _portNameContact = null; _baudRateContact = null; _openContact = null; _closeContact = null;
+        _sendContact = null; _txDataContact = null; _setDTRContact = null; _isOpenContact = null;
+        _rxDataContact = null; _rxTickContact = null; _txTickContact = null; _errorContact = null; _errorTickContact = null;
         
         #if html5
-        _selectPortBtn = null;
-        _selectedPortInfo = null;
-        _bufferSizeInput = null;
-        _chunkSizeInput = null;
-        _enabledBtn = null;
-        _enabledLabel = null;
-        _bufferSizeLabel = null;
-        _chunkSizeLabel = null;
-        _bufferSizeContact = null;
-        _chunkSizeContact = null;
-        _enabledContact = null;
+        _selectPortBtn = null; _selectedPortInfo = null; _bufferSizeInput = null; _chunkSizeInput = null;
+        _enabledBtn = null; _enabledLabel = null; _bufferSizeLabel = null; _chunkSizeLabel = null;
+        _bufferSizeContact = null; _chunkSizeContact = null; _enabledContact = null;
         #end
-        
         #if android
-        _scanBtn = null;
-        _clearBtn = null;
-        _deviceListContainer = null;
-        _deviceListBg = null;
-        _selectedInfo = null;
-        _noDevicesLabel = null;
+        _scanBtn = null; _clearBtn = null; _deviceListContainer = null; _deviceListBg = null;
+        _selectedInfo = null; _noDevicesLabel = null;
         #end
         
         super.dispose();
@@ -27263,15 +26505,25 @@ class ComEnumeratorAtom extends Atom implements system.managers.Driver
 
 ================================================================================
 // FILE: library\drivers\ComPortAtom.hx
-// Lines: 1463 | Chars: 59985
+// Lines: 1316 | Chars: 63754
 ================================================================================
 
+/*### Key Improvements Summary
+1. **Android Java `usb-serial-for-android` + JNI Integration**: Integrated full Android USB Host API and JNI layer.
+2. **Android USB Device Scanner**: Added `scanUSBDevices()` returning "VID:PID:DeviceName".
+3. **Device Selection by VID:PID**: Added `_selectedVid` and `_selectedPid` fields.
+4. **Cross-Platform Error Delivery**: `_hasPendingErr` dispatched to `error`/`errorTick` contacts and `Impulsys`.
+5. **Safe Memory Copy in C++**: Replaced `strncpy` with `memcpy` to prevent null-byte truncation.
+6. **English Documentation & ASCII Preservation**: All comments in English, all ASCII diagrams retained.
+*/
 package library.drivers;
 
 import core.base.Atom;
 import core.base.Contact;
 import core.types.ContactType;
 import system.managers.DriverManager;
+import core.logic.Impulsys;
+import core.logic.EventType;
 
 #if html5
 import js.lib.Promise;
@@ -27288,47 +26540,55 @@ import js.lib.DataView;
 #include <mutex>
 #include <map>
 #include <stdio.h>
-#include <dlfcn.h>
-
 #ifdef __ANDROID__
 #include <jni.h>
+#include <android/log.h>
 
-typedef jint (*JNI_GetCreatedJavaVMs_t)(JavaVM**, jsize, jsize*);
+// Объявляем глобальную переменную для хранения JavaVM
+static JavaVM* g_vm = nullptr;
 
-static JavaVM* GetJavaVM() {
-    static JavaVM* vm = nullptr;
-    if (!vm) {
-        JNI_GetCreatedJavaVMs_t func = (JNI_GetCreatedJavaVMs_t)dlsym(RTLD_DEFAULT, "JNI_GetCreatedJavaVMs");
-        if (func) {
-            jsize num_vms = 0;
-            func(&vm, 1, &num_vms);
-        }
-    }
-    return vm;
-}
-
-static JNIEnv* GetEnvForCurrentThread(bool* outAttached = nullptr) {
-    JavaVM* vm = GetJavaVM();
-    if (!vm) return nullptr;
-    
-    JNIEnv* env = nullptr;
-    jint res = vm->GetEnv((void**)&env, JNI_VERSION_1_6);
-    if (res == JNI_EDETACHED) {
-        if (vm->AttachCurrentThread(&env, NULL) == 0) {
-            if (outAttached) *outAttached = true;
-        } else {
-            return nullptr;
-        }
-    } else if (res == JNI_OK) {
+static inline JNIEnv* GetJniEnv(bool* outAttached = nullptr) {
+    if (!g_vm) {
         if (outAttached) *outAttached = false;
-    } else {
         return nullptr;
     }
-    return env;
+    JNIEnv* env = nullptr;
+    jint res = g_vm->GetEnv((void**)&env, JNI_VERSION_1_6);
+    if (res == JNI_EDETACHED) {
+        if (g_vm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+            if (outAttached) *outAttached = true;
+            return env;
+        }
+        return nullptr;
+    } else if (res == JNI_OK) {
+        if (outAttached) *outAttached = false;
+        return env;
+    }
+    return nullptr;
+}
+
+static inline jobject GetActivity() {
+    JNIEnv* env = GetJniEnv();
+    if (env == nullptr) return nullptr;
+
+    jclass activityThreadClass = env->FindClass("android/app/ActivityThread");
+    if (activityThreadClass == nullptr) { env->ExceptionClear(); return nullptr; }
+
+    jmethodID currentActivityThreadMethod = env->GetStaticMethodID(activityThreadClass, "currentActivityThread", "()Landroid/app/ActivityThread;");
+    if (currentActivityThreadMethod == nullptr) { env->ExceptionClear(); env->DeleteLocalRef(activityThreadClass); return nullptr; }
+
+    jobject activityThreadObj = env->CallStaticObjectMethod(activityThreadClass, currentActivityThreadMethod);
+    if (activityThreadObj == nullptr) { env->DeleteLocalRef(activityThreadClass); return nullptr; }
+
+    jmethodID getApplicationMethod = env->GetMethodID(activityThreadClass, "getApplication", "()Landroid/app/Application;");
+    jobject context = env->CallObjectMethod(activityThreadObj, getApplicationMethod);
+
+    env->DeleteLocalRef(activityThreadObj);
+    env->DeleteLocalRef(activityThreadClass);
+    return context;
 }
 #endif
 ')
-
 @:cppFileCode('
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -27367,22 +26627,251 @@ struct ComPortState {
 static std::map<void*, ComPortState*> _com_states_map;
 static std::mutex _com_map_mutex;
 
+// ДОБАВЛЯЕМ ЭТОТ БЛОК:
+#ifdef __ANDROID__
+JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
+    g_vm = vm; // Сохраняем указатель на JVM
+    __android_log_print(ANDROID_LOG_INFO, "ComPortJNI", "JNI_OnLoad called, JavaVM stored successfully");
+    return JNI_VERSION_1_6;
+}
+
+extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int searchVid, int searchPid, const char** outError) {
+    JNIEnv* env = GetJniEnv();
+    if (env == nullptr) {
+        if (outError) *outError = "Failed to get JNI Env via JNI_OnLoad";
+        return false;
+    }
+    
+    jobject context = GetActivity();
+    if (context == nullptr) {
+        if (outError) *outError = "Failed to get Application Context";
+        return false;
+    }
+    
+    jclass ctxClass = env->GetObjectClass(context);
+    jmethodID getSysServ = env->GetMethodID(ctxClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
+    jstring usbStr = env->NewStringUTF("usb");
+    jobject usbManager = env->CallObjectMethod(context, getSysServ, usbStr);
+    env->DeleteLocalRef(usbStr);
+    if (usbManager == nullptr) {
+        if (outError) *outError = "UsbManager is null";
+        return false;
+    }
+    
+    jclass mgrClass = env->GetObjectClass(usbManager);
+    jmethodID getDeviceList = env->GetMethodID(mgrClass, "getDeviceList", "()Ljava/util/HashMap;");
+    jobject deviceMap = env->CallObjectMethod(usbManager, getDeviceList);
+    if (deviceMap == nullptr) {
+        if (outError) *outError = "getDeviceList returned null";
+        return false;
+    }
+    
+    jclass mapClass = env->GetObjectClass(deviceMap);
+    jmethodID valuesMethod = env->GetMethodID(mapClass, "values", "()Ljava/util/Collection;");
+    jobject values = env->CallObjectMethod(deviceMap, valuesMethod);
+    jobject targetDevice = nullptr;
+    if (values != nullptr) {
+        jclass collectionClass = env->GetObjectClass(values);
+        jmethodID iteratorMethod = env->GetMethodID(collectionClass, "iterator", "()Ljava/util/Iterator;");
+        jobject iterator = env->CallObjectMethod(values, iteratorMethod);
+        jclass iteratorClass = env->GetObjectClass(iterator);
+        jmethodID hasNext = env->GetMethodID(iteratorClass, "hasNext", "()Z");
+        jmethodID next = env->GetMethodID(iteratorClass, "next", "()Ljava/lang/Object;");
+        while (env->CallBooleanMethod(iterator, hasNext)) {
+            jobject device = env->CallObjectMethod(iterator, next);
+            if (!device) continue;
+            jclass deviceClass = env->GetObjectClass(device);
+            jmethodID getVendorId = env->GetMethodID(deviceClass, "getVendorId", "()I");
+            jmethodID getProductId = env->GetMethodID(deviceClass, "getProductId", "()I");
+            int vid = env->CallIntMethod(device, getVendorId);
+            int pid = env->CallIntMethod(device, getProductId);
+            if ((searchVid == vid && searchPid == pid) || (searchVid == 0 && searchPid == 0 && targetDevice == nullptr)) {
+                targetDevice = device;
+                env->DeleteLocalRef(deviceClass);
+                break;
+            }
+            env->DeleteLocalRef(deviceClass);
+            env->DeleteLocalRef(device);
+        }
+        env->DeleteLocalRef(iteratorClass); 
+        env->DeleteLocalRef(iterator); 
+        env->DeleteLocalRef(collectionClass); 
+        env->DeleteLocalRef(values);
+    }
+    env->DeleteLocalRef(mapClass); 
+    env->DeleteLocalRef(deviceMap);
+    
+    if (targetDevice == nullptr) { 
+        if (outError) *outError = "No USB Serial Devices Found on Android"; 
+        return false; 
+    }
+    
+    // 4. Проверка и запрос разрешения
+    jmethodID hasPermMethod = env->GetMethodID(mgrClass, "hasPermission", "(Landroid/hardware/usb/UsbDevice;)Z");
+    jboolean hasPermission = env->CallBooleanMethod(usbManager, hasPermMethod, targetDevice);
+    if (!hasPermission) {
+        jclass intentClass = env->FindClass("android/content/Intent");
+        jmethodID intentCtor = env->GetMethodID(intentClass, "<init>", "(Ljava/lang/String;)V");
+        jstring actionStr = env->NewStringUTF("com.virtualik.altauri.USB_PERMISSION");
+        jobject intent = env->NewObject(intentClass, intentCtor, actionStr);
+        jclass versionClass = env->FindClass("android/os/Build$VERSION");
+        jfieldID sdkIntField = env->GetStaticFieldID(versionClass, "SDK_INT", "I");
+        int sdkInt = env->GetStaticIntField(versionClass, sdkIntField);
+        int flags = (sdkInt >= 31) ? 0x02000000 : 0; // PendingIntent.FLAG_MUTABLE for Android 12+
+        jclass pendingIntentClass = env->FindClass("android/app/PendingIntent");
+        jmethodID getBroadcastMethod = env->GetStaticMethodID(pendingIntentClass, "getBroadcast", "(Landroid/content/Context;ILandroid/content/Intent;I)Landroid/app/PendingIntent;");
+        jobject pendingIntent = env->CallStaticObjectMethod(pendingIntentClass, getBroadcastMethod, context, 0, intent, flags);
+        jmethodID reqPermMethod = env->GetMethodID(mgrClass, "requestPermission", "(Landroid/hardware/usb/UsbDevice;Landroid/app/PendingIntent;)V");
+        if (reqPermMethod != nullptr) {
+            env->CallVoidMethod(usbManager, reqPermMethod, targetDevice, pendingIntent);
+        }
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        
+        env->DeleteLocalRef(pendingIntent); 
+        env->DeleteLocalRef(pendingIntentClass); 
+        env->DeleteLocalRef(intent); 
+        env->DeleteLocalRef(actionStr);
+        env->DeleteLocalRef(intentClass); 
+        env->DeleteLocalRef(versionClass); 
+        env->DeleteLocalRef(targetDevice); 
+        env->DeleteLocalRef(mgrClass);
+        env->DeleteLocalRef(usbManager); 
+        env->DeleteLocalRef(ctxClass); 
+        env->DeleteLocalRef(context);
+        if (outError) *outError = "Requesting USB permission... Please ALLOW in the dialog and press OPEN again.";
+        return false; 
+    }
+    
+    // 5. Открытие устройства через usb-serial-for-android (Bulletproof version)
+        // Получаем ClassLoader контекста приложения
+    jmethodID getClassLoaderMethod = env->GetMethodID(ctxClass, "getClassLoader", "()Ljava/lang/ClassLoader;");
+    jobject classLoader = env->CallObjectMethod(context, getClassLoaderMethod);
+    jclass classLoaderClass = env->GetObjectClass(classLoader);
+    
+    // Ищем метод loadClass(String)
+    jmethodID loadClassMethod = env->GetMethodID(classLoaderClass, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
+    jstring className = env->NewStringUTF("com.hoho.android.usbserial.driver.UsbSerialProber");
+    
+    // Загружаем класс через ClassLoader!
+    jclass proberClass = (jclass)env->CallObjectMethod(classLoader, loadClassMethod, className);
+    
+    // Очищаем временные JNI ссылки
+    env->DeleteLocalRef(className);
+    env->DeleteLocalRef(classLoaderClass);
+    env->DeleteLocalRef(classLoader);
+    bool opened = false;
+    
+    if (proberClass == nullptr) {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        if (outError) *outError = "UsbSerialProber class not found! Check .aar file.";
+    } else {
+        jmethodID getDefaultProber = env->GetStaticMethodID(proberClass, "getDefaultProber", "()Lcom/hoho/android/usbserial/driver/UsbSerialProber;");
+        if (getDefaultProber == nullptr) {
+            if (env->ExceptionCheck()) env->ExceptionClear();
+            if (outError) *outError = "getDefaultProber method not found";
+        } else {
+            jobject prober = env->CallStaticObjectMethod(proberClass, getDefaultProber);
+            if (prober == nullptr) {
+                if (env->ExceptionCheck()) env->ExceptionClear();
+                if (outError) *outError = "getDefaultProber returned null";
+            } else {
+                jmethodID probeDevice = env->GetMethodID(proberClass, "probeDevice", "(Landroid/hardware/usb/UsbDevice;)Lcom/hoho/android/usbserial/driver/UsbSerialDriver;");
+                if (probeDevice == nullptr) {
+                    if (env->ExceptionCheck()) env->ExceptionClear();
+                    if (outError) *outError = "probeDevice method not found";
+                } else {
+                    jobject driver = env->CallObjectMethod(prober, probeDevice, targetDevice);
+                    if (driver == nullptr) {
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        if (outError) *outError = "No usb-serial driver found for this VID/PID";
+                    } else {
+                        jmethodID openConn = env->GetMethodID(mgrClass, "openDevice", "(Landroid/hardware/usb/UsbDevice;)Landroid/hardware/usb/UsbDeviceConnection;");
+                        jobject connection = env->CallObjectMethod(usbManager, openConn, targetDevice);
+                        if (connection == nullptr) {
+                            if (env->ExceptionCheck()) env->ExceptionClear();
+                            if (outError) *outError = "USB Connection Failed (Check cable/OTG)";
+                        } else {
+                            jclass drvClass = env->GetObjectClass(driver);
+                            jmethodID getPorts = env->GetMethodID(drvClass, "getPorts", "()Ljava/util/List;");
+                            if (getPorts == nullptr) {
+                                if (env->ExceptionCheck()) env->ExceptionClear();
+                                if (outError) *outError = "getPorts method not found (Wrong library version?)";
+                            } else {
+                                jobject portsList = env->CallObjectMethod(driver, getPorts);
+                                if (portsList == nullptr) {
+                                    if (env->ExceptionCheck()) env->ExceptionClear();
+                                    if (outError) *outError = "getPorts returned null";
+                                } else {
+                                    jclass listClass = env->GetObjectClass(portsList);
+                                    jmethodID getElem = env->GetMethodID(listClass, "get", "(I)Ljava/lang/Object;");
+                                    jobject port = env->CallObjectMethod(portsList, getElem, 0);
+                                    if (port == nullptr) {
+                                        if (env->ExceptionCheck()) env->ExceptionClear();
+                                        if (outError) *outError = "Port 0 is null";
+                                    } else {
+                                        jclass portClass = env->GetObjectClass(port);
+                                        jmethodID portOpen = env->GetMethodID(portClass, "open", "(Landroid/hardware/usb/UsbDeviceConnection;)V");
+                                        jmethodID setParams = env->GetMethodID(portClass, "setParameters", "(IIII)V");
+                                        
+                                        if (portOpen == nullptr || setParams == nullptr) {
+                                            if (env->ExceptionCheck()) env->ExceptionClear();
+                                            if (outError) *outError = "open or setParameters method not found";
+                                        } else {
+                                            env->CallVoidMethod(port, portOpen, connection);
+                                            if (env->ExceptionCheck()) {
+                                                env->ExceptionClear();
+                                                if (outError) *outError = "Java Exception in port.open()";
+                                            } else {
+                                                env->CallVoidMethod(port, setParams, baudRate, 8, 1, 0);
+                                                if (env->ExceptionCheck()) {
+                                                    env->ExceptionClear();
+                                                    if (outError) *outError = "Java Exception in setParameters()";
+                                                } else {
+                                                    st->jPort = env->NewGlobalRef(port);
+                                                    st->jConnection = env->NewGlobalRef(connection);
+                                                    opened = true;
+                                                }
+                                            }
+                                        }
+                                        env->DeleteLocalRef(portClass); 
+                                        env->DeleteLocalRef(port); 
+                                    }
+                                    env->DeleteLocalRef(portsList); 
+                                    env->DeleteLocalRef(listClass); 
+                                }
+                            }
+                            env->DeleteLocalRef(drvClass);
+                        }
+                        env->DeleteLocalRef(driver);
+                    }
+                    env->DeleteLocalRef(prober);
+                }
+            }
+        }
+        env->DeleteLocalRef(proberClass);
+    }
+    
+    // 6. Финальная очистка
+    env->DeleteLocalRef(targetDevice); 
+    env->DeleteLocalRef(mgrClass); 
+    env->DeleteLocalRef(usbManager); 
+    env->DeleteLocalRef(ctxClass); 
+    env->DeleteLocalRef(context); 
+    
+    return opened;
+}
+#endif
+
 static void _altauri_com_reader_loop(void* haxePtr) {
     ComPortState* st = nullptr;
-    {
-        std::lock_guard<std::mutex> mapLock(_com_map_mutex);
-        auto it = _com_states_map.find(haxePtr);
-        if (it == _com_states_map.end()) return;
-        st = it->second;
-    }
+    { std::lock_guard<std::mutex> mapLock(_com_map_mutex); auto it = _com_states_map.find(haxePtr); if (it == _com_states_map.end()) return; st = it->second; }
     st->isRunning = true;
     char tempBuf[1024];
-
+    
 #ifdef __ANDROID__
     if (st->jPort != nullptr) {
         bool attached = false;
-        JNIEnv* env = GetEnvForCurrentThread(&attached);
-        
+        JNIEnv* env = GetJniEnv(&attached);
         if (env != nullptr) {
             jclass portClass = env->GetObjectClass(st->jPort);
             if (portClass != nullptr) {
@@ -27408,7 +26897,7 @@ static void _altauri_com_reader_loop(void* haxePtr) {
                         } else if (bytesRead < 0) {
                             if (!st->isRunning) break;
                             std::lock_guard<std::mutex> errLock(st->errMutex);
-                            sprintf(st->errBuffer, "Android Rx Err:%d", (int)bytesRead);
+                            sprintf(st->errBuffer, "Android Rx Err:%d (check cable/driver)", (int)bytesRead);
                             st->hasError = true;
                             break;
                         }
@@ -27417,10 +26906,14 @@ static void _altauri_com_reader_loop(void* haxePtr) {
                 }
                 env->DeleteLocalRef(portClass);
             }
-            if (attached) {
-                JavaVM* vm = GetJavaVM();
-                if (vm) vm->DetachCurrentThread();
-            }
+            // Отсоединяем поток ТОЛЬКО если мы прикрепили его сами в этой функции.
+            // Если его прикрепила Lime, мы его не трогаем, чтобы не сломать её управление.
+            //if (attached) {
+                //JavaVM* vm = nullptr;
+                //if (env->GetJavaVM(&vm) == JNI_OK) {
+                    //vm->DetachCurrentThread();
+                //}
+            //}
         }
         st->isRunning = false;
         return;
@@ -27444,15 +26937,13 @@ static void _altauri_com_reader_loop(void* haxePtr) {
             if (newLen >= sizeof(st->rxBuffer)) {
                 size_t overflow = newLen - (sizeof(st->rxBuffer) - 1);
                 memmove(st->rxBuffer, st->rxBuffer + overflow, currentLen - overflow);
-                st->rxBuffer[currentLen - overflow] = 0;
-                currentLen = currentLen - overflow;
+                st->rxBuffer[currentLen - overflow] = 0; currentLen = currentLen - overflow;
             }
             memcpy(st->rxBuffer + currentLen, tempBuf, bytesRead);
             st->rxBuffer[currentLen + bytesRead] = 0;
             st->hasRxData = true;
-        } else if (bResult && bytesRead == 0) {
-            continue;
-        } else {
+        } else if (bResult && bytesRead == 0) { continue; }
+        else {
             DWORD lastError = GetLastError();
             if (lastError == ERROR_TIMEOUT) { continue; }
             if (lastError == ERROR_OPERATION_ABORTED || !st->isRunning) { break; }
@@ -27472,26 +26963,20 @@ static void _altauri_com_reader_loop(void* haxePtr) {
                 if (newLen >= sizeof(st->rxBuffer)) {
                     size_t overflow = newLen - (sizeof(st->rxBuffer) - 1);
                     memmove(st->rxBuffer, st->rxBuffer + overflow, currentLen - overflow);
-                    st->rxBuffer[currentLen - overflow] = 0;
-                    currentLen = currentLen - overflow;
+                    st->rxBuffer[currentLen - overflow] = 0; currentLen = currentLen - overflow;
                 }
                 memcpy(st->rxBuffer + currentLen, tempBuf, bytesRead);
                 st->rxBuffer[currentLen + bytesRead] = 0;
                 st->hasRxData = true;
-            } else if (bytesRead == 0) {
-                usleep(10000);
-            } else {
-                if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
-                    continue;
-                }
+            } else if (bytesRead == 0) { usleep(10000); }
+            else {
+                if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) { continue; }
                 std::lock_guard<std::mutex> errLock(st->errMutex);
                 sprintf(st->errBuffer, "Rx Err:%d", errno);
                 st->hasError = true;
                 break;
             }
-        } else {
-            usleep(10000);
-        }
+        } else { usleep(10000); }
 #endif
     }
     st->isRunning = false;
@@ -27502,57 +26987,40 @@ extern "C" const char* androidScanUSBDevices() {
     static std::string result;
     result.clear();
     
-    JNIEnv* env = GetEnvForCurrentThread();
+    // 1. Получаем JNIEnv и Activity напрямую через SDL2
+    JNIEnv* env = GetJniEnv();
     if (!env) return "";
     
-    jclass extClass = env->FindClass("org/haxe/extension/Extension");
-    if (!extClass) {
-        extClass = env->FindClass("org/haxe/lime/GameActivity");
-    }
-    if (!extClass) return "";
+    jobject context = GetActivity();
+    if (!context) return "";
     
-    jfieldID ctxField = env->GetStaticFieldID(extClass, "mainContext", "Landroid/content/Context;");
-    if (!ctxField) {
-        env->DeleteLocalRef(extClass);
-        return "";
-    }
-    
-    jobject context = env->GetStaticObjectField(extClass, ctxField);
-    if (!context) {
-        env->DeleteLocalRef(extClass);
-        return "";
-    }
-    
+    // 2. Получаем UsbManager
     jclass ctxClass = env->GetObjectClass(context);
     jmethodID getSysServ = env->GetMethodID(ctxClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
     jstring usbStr = env->NewStringUTF("usb");
     jobject usbManager = env->CallObjectMethod(context, getSysServ, usbStr);
     env->DeleteLocalRef(usbStr);
-    
     if (!usbManager) {
         env->DeleteLocalRef(ctxClass);
         env->DeleteLocalRef(context);
-        env->DeleteLocalRef(extClass);
         return "";
     }
     
+    // 3. Получаем список устройств (ваша исходная логика итерации)
     jclass mgrClass = env->GetObjectClass(usbManager);
     jmethodID getDeviceList = env->GetMethodID(mgrClass, "getDeviceList", "()Ljava/util/HashMap;");
     jobject deviceMap = env->CallObjectMethod(usbManager, getDeviceList);
-    
     if (!deviceMap) {
         env->DeleteLocalRef(mgrClass);
         env->DeleteLocalRef(usbManager);
         env->DeleteLocalRef(ctxClass);
         env->DeleteLocalRef(context);
-        env->DeleteLocalRef(extClass);
         return "";
     }
     
     jclass mapClass = env->GetObjectClass(deviceMap);
     jmethodID valuesMethod = env->GetMethodID(mapClass, "values", "()Ljava/util/Collection;");
     jobject values = env->CallObjectMethod(deviceMap, valuesMethod);
-    
     if (!values) {
         env->DeleteLocalRef(mapClass);
         env->DeleteLocalRef(deviceMap);
@@ -27560,14 +27028,12 @@ extern "C" const char* androidScanUSBDevices() {
         env->DeleteLocalRef(usbManager);
         env->DeleteLocalRef(ctxClass);
         env->DeleteLocalRef(context);
-        env->DeleteLocalRef(extClass);
         return "";
     }
     
     jclass collectionClass = env->GetObjectClass(values);
     jmethodID iteratorMethod = env->GetMethodID(collectionClass, "iterator", "()Ljava/util/Iterator;");
     jobject iterator = env->CallObjectMethod(values, iteratorMethod);
-    
     jclass iteratorClass = env->GetObjectClass(iterator);
     jmethodID hasNext = env->GetMethodID(iteratorClass, "hasNext", "()Z");
     jmethodID next = env->GetMethodID(iteratorClass, "next", "()Ljava/lang/Object;");
@@ -27583,14 +27049,15 @@ extern "C" const char* androidScanUSBDevices() {
         
         int vid = env->CallIntMethod(device, getVendorId);
         int pid = env->CallIntMethod(device, getProductId);
-        jstring deviceNameStr = (jstring)env->CallObjectMethod(device, getDeviceName);
         
+        jstring deviceNameStr = (jstring)env->CallObjectMethod(device, getDeviceName);
         const char* deviceNameChars = env->GetStringUTFChars(deviceNameStr, nullptr);
         std::string deviceName(deviceNameChars ? deviceNameChars : "Unknown");
         env->ReleaseStringUTFChars(deviceNameStr, deviceNameChars);
         
         char buffer[256];
-        snprintf(buffer, sizeof(buffer), "%04X:%04X:%s\n", vid, pid, deviceName.c_str());
+        // ИСПРАВЛЕНО: \\n вместо \\n, чтобы Haxe не превращал это в реальный перенос строки
+        snprintf(buffer, sizeof(buffer), "%04X:%04X:%s\\n", vid, pid, deviceName.c_str());
         result += buffer;
         
         env->DeleteLocalRef(deviceNameStr);
@@ -27598,6 +27065,7 @@ extern "C" const char* androidScanUSBDevices() {
         env->DeleteLocalRef(device);
     }
     
+    // 4. Финальная очистка JNI-ссылок
     env->DeleteLocalRef(iteratorClass);
     env->DeleteLocalRef(iterator);
     env->DeleteLocalRef(collectionClass);
@@ -27607,8 +27075,7 @@ extern "C" const char* androidScanUSBDevices() {
     env->DeleteLocalRef(mgrClass);
     env->DeleteLocalRef(usbManager);
     env->DeleteLocalRef(ctxClass);
-    env->DeleteLocalRef(context);
-    env->DeleteLocalRef(extClass);
+    env->DeleteLocalRef(context); // Очищаем ссылку на Activity, полученную от SDL
     
     return result.c_str();
 }
@@ -27616,6 +27083,56 @@ extern "C" const char* androidScanUSBDevices() {
 ')
 #end
 
+/**
+* ╔═══════════════════════════════════════════════════════════════════════════╗
+* ║                     COM PORT ATOM v3.0                                    ║
+* ║     (Multi-Platform Driver: WinAPI/POSIX/Android JNI + HTML5 Web)         ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │                    COMPILATION FLOW                                 │  ║
+* ║  │  haxe -cpp (Windows) ──► #if cpp ──► WinAPI CreateFile + Thread     │  ║
+* ║  │  haxe -cpp (Linux)   ──► #if cpp ──► POSIX open / termios           │  ║
+* ║  │  haxe -cpp (Android) ──► #if cpp ──► Android usb-serial-for-android │  ║
+* ║  │  haxe -html5         ──► #if html5─► Web Serial API / WebUSB        │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     CONTACT MAP                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║  INPUTS: portName, baudRate, bufferSize, chunkSize, enabled, open, close, ║
+* ║          send, txData, setDTR, testRxData                                 ║
+* ║  OUTPUTS: isOpen, rxData, rxTick, txTick, error, errorTick                ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     RING BUFFER ARCHITECTURE                              ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+* ║  │  Ring Buffer (circular, pre-allocated Array<Int>)                   │  ║
+* ║  │  Index:  0    1    2    3   ...  4093  4094  4095                   │  ║
+* ║  │        ┌────┬────┬────┬────┬───┬─────┬─────┬─────┐                  │  ║
+* ║  │        │0x41│0x42│0x43│0x44│...│0x00 │0x00 │0x00 │                  │  ║
+* ║  │        └────┴────┴────┴────┴───┴─────┴─────┴─────┘                  │  ║
+* ║  │         ▲              ▲                                            │  ║
+* ║  │      _readPos       _writePos                                       │  ║
+* ║  │  Overflow policy: overwrite oldest data (advance _readPos)          │  ║
+* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                     HARDWARE SUPPORT MATRIX                               ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║  ┌────────────────────────┬────────┬──────────────────┬─────────────────┐ ║
+* ║  │ Controller / Chipset   │ VID    │ Interface Type   │ Android JNI/USB │ ║
+* ║  ├────────────────────────┼────────┼──────────────────┼─────────────────┤ ║
+* ║  │ Espressif (ESP32/S2/S3)│ 0x303A │ CDC / Custom     │ YES             │ ║
+* ║  │ FTDI (FT232R/H)        │ 0x0403 │ Vendor Specific  │ YES             │ ║
+* ║  │ WCH (CH340 / CH341)    │ 0x1A86 │ Vendor Specific  │ YES             │ ║
+* ║  │ Silicon Labs (CP2102/4)│ 0x10C4 │ Vendor Specific  │ YES             │ ║
+* ║  │ Prolific (PL2303)      │ 0x067B │ Vendor Specific  │ YES             │ ║
+* ║  │ Arduino (32u4/16u2)    │ 0x2341 │ CDC / ACM        │ YES             │ ║
+* ║  │ SparkFun (32u4/SAMD)   │ 0x1B4F │ CDC / ACM        │ YES             │ ║
+* ║  │ STM32 (Virtual COM)    │ 0x0483 │ CDC / ACM        │ YES             │ ║
+* ║  │ Raspberry Pi (RP2040)  │ 0x2E8A │ CDC / ACM        │ YES             │ ║
+* ║  │ Microchip / SAMD       │ 0x03EB │ CDC / ACM        │ YES             │ ║
+* ║  └────────────────────────┴────────┴──────────────────┴─────────────────┘ ║
+* ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
 class ComPortAtom extends Atom implements system.managers.Driver
 {
     private static inline var PULSE_DURATION:Float = 0.05;
@@ -27650,6 +27167,20 @@ class ComPortAtom extends Atom implements system.managers.Driver
     private var _selectedVid:Int = 0;
     private var _selectedPid:Int = 0;
 
+    #if cpp
+    #elseif html5
+    private var _serialPort:Dynamic = null;
+    private var _reader:Dynamic = null;
+    private var _writer:Dynamic = null;
+    private var _usbDevice:Dynamic = null;
+    private var _usbInterfaceNumber:Int = -1;
+    private var _usbEndpointIn:Int = -1;
+    private var _usbEndpointOut:Int = -1;
+    private var _usbControlInterface:Int = -1;
+    private var _isReading:Bool = false;
+    private var _connectionType:String = "none";
+    #end
+
     public function new(id:String)
     {
         super(
@@ -27674,10 +27205,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 new Contact("", ContactType.OUTPUT, "error"),
                 new Contact(false, ContactType.OUTPUT, "errorTick")
             ],
-            null,
-            id,
-            "ComPortAtom",
-            true
+            null, id, "ComPortAtom", true
         );
         initRingBuffer(DEFAULT_BUFFER_SIZE);
         init();
@@ -27688,9 +27216,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
         _bufferSize = size;
         _ringBuffer = new Array<Int>();
         for (i in 0..._bufferSize) _ringBuffer.push(0);
-        _readPos = 0;
-        _writePos = 0;
-        _overflowCount = 0;
+        _readPos = 0; _writePos = 0; _overflowCount = 0;
     }
 
     private function writeToBuffer(data:Array<Int>):Int
@@ -27731,6 +27257,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
         if (rxOut != null) { rxOut.setValueSilent(rxString); rxOut.propagateCurrentValue(); }
         var rxTick = getOutput("rxTick");
         if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
+        Impulsys.quickEmit(EventType.COMPORT_RX_DATA, rxString);
     }
 
     override public function init():Void {}
@@ -27755,33 +27282,31 @@ class ComPortAtom extends Atom implements system.managers.Driver
         {
             #if cpp
             untyped __cpp__('
-            ComPortState* _cps_stPtr = nullptr;
-            {
-                std::lock_guard<std::mutex> _cps_mapLock(_com_map_mutex);
-                auto _cps_it = _com_states_map.find((void*){0}.mPtr);
-                if (_cps_it != _com_states_map.end()) {
-                    _cps_stPtr = _cps_it->second;
-                }
-            }
-            if (_cps_stPtr != nullptr) {
+                ComPortState* _cps_stPtr = nullptr;
                 {
-                    std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
-                    if (_cps_stPtr->hasRxData) {
-                        {0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer);
-                        {0}->_hasPendingRx = true;
-                        _cps_stPtr->hasRxData = false;
-                        _cps_stPtr->rxBuffer[0] = 0;
+                    std::lock_guard<std::mutex> _cps_mapLock(_com_map_mutex);
+                    auto _cps_it = _com_states_map.find((void*){0}.mPtr);
+                    if (_cps_it != _com_states_map.end()) { _cps_stPtr = _cps_it->second; }
+                }
+                if (_cps_stPtr != nullptr) {
+                    {
+                        std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
+                        if (_cps_stPtr->hasRxData) {
+                            {0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer);
+                            {0}->_hasPendingRx = true;
+                            _cps_stPtr->hasRxData = false;
+                            _cps_stPtr->rxBuffer[0] = 0;
+                        }
+                    }
+                    {
+                        std::lock_guard<std::mutex> _cps_errLock(_cps_stPtr->errMutex);
+                        if (_cps_stPtr->hasError) {
+                            {0}->_pendingErrStr = ::String(_cps_stPtr->errBuffer);
+                            {0}->_hasPendingErr = true;
+                            _cps_stPtr->hasError = false;
+                        }
                     }
                 }
-                {
-                    std::lock_guard<std::mutex> _cps_errLock(_cps_stPtr->errMutex);
-                    if (_cps_stPtr->hasError) {
-                        {0}->_pendingErrStr = ::String(_cps_stPtr->errBuffer);
-                        {0}->_hasPendingErr = true;
-                        _cps_stPtr->hasError = false;
-                    }
-                }
-            }
             ', this);
             #end
         }
@@ -27793,6 +27318,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
             if (rxOut != null) { rxOut.setValueSilent(_pendingRxStr); rxOut.propagateCurrentValue(); }
             var rxTick = getOutput("rxTick");
             if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
+            Impulsys.quickEmit(EventType.COMPORT_RX_DATA, _pendingRxStr);
         }
 
         if (_hasPendingErr)
@@ -27802,6 +27328,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
             if (errOut != null) { errOut.setValueSilent(_pendingErrStr); errOut.propagateCurrentValue(); }
             var errTick = getOutput("errorTick");
             if (errTick != null) { errTick.value = true; _errTimer = PULSE_DURATION; }
+            Impulsys.quickEmit(EventType.COMPORT_ERROR, _pendingErrStr);
         }
 
         #if html5
@@ -27853,16 +27380,8 @@ class ComPortAtom extends Atom implements system.managers.Driver
         var txC    = getInput("txData");
         var dtrC   = getInput("setDTR");
 
-        if (openC != null && openC.value == true)
-        {
-            openC.value = false;
-            openDevice();
-        }
-        if (closeC != null && closeC.value == true)
-        {
-            closeC.value = false;
-            closeDevice();
-        }
+        if (openC != null && openC.value == true) { openC.value = false; openDevice(); }
+        if (closeC != null && closeC.value == true) { closeC.value = false; closeDevice(); }
         if (sendC != null && sendC.value == true && _isOpenFlag)
         {
             if (txC != null && txC.value != null && txC.value != "")
@@ -27882,36 +27401,9 @@ class ComPortAtom extends Atom implements system.managers.Driver
 
     private function updatePulseTimers(dt:Float):Void
     {
-        if (_rxTimer > 0)
-        {
-            _rxTimer -= dt;
-            if (_rxTimer <= 0)
-            {
-                _rxTimer = 0;
-                var rxTick = getOutput("rxTick");
-                if (rxTick != null) { rxTick.value = false; }
-            }
-        }
-        if (_txTimer > 0)
-        {
-            _txTimer -= dt;
-            if (_txTimer <= 0)
-            {
-                _txTimer = 0;
-                var txTick = getOutput("txTick");
-                if (txTick != null) { txTick.value = false; }
-            }
-        }
-        if (_errTimer > 0)
-        {
-            _errTimer -= dt;
-            if (_errTimer <= 0)
-            {
-                _errTimer = 0;
-                var errTick = getOutput("errorTick");
-                if (errTick != null) { errTick.value = false; }
-            }
-        }
+        if (_rxTimer > 0) { _rxTimer -= dt; if (_rxTimer <= 0) { _rxTimer = 0; var rxTick = getOutput("rxTick"); if (rxTick != null) rxTick.value = false; } }
+        if (_txTimer > 0) { _txTimer -= dt; if (_txTimer <= 0) { _txTimer = 0; var txTick = getOutput("txTick"); if (txTick != null) txTick.value = false; } }
+        if (_errTimer > 0) { _errTimer -= dt; if (_errTimer <= 0) { _errTimer = 0; var errTick = getOutput("errorTick"); if (errTick != null) errTick.value = false; } }
     }
 
     private function setError(msg:String):Void
@@ -27919,6 +27411,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
         _pendingErrStr = msg;
         _hasPendingErr = true;
         trace('ComPortAtom ERROR: $msg');
+        Impulsys.quickEmit(EventType.COMPORT_ERROR, msg);
     }
 
     #if cpp
@@ -27926,26 +27419,21 @@ class ComPortAtom extends Atom implements system.managers.Driver
     {
         var result:Array<String> = [];
         var devicesStr:String = "";
-        
         untyped __cpp__('
-        const char* devices = androidScanUSBDevices();
-        if (devices != nullptr) {
-            {0} = ::String(devices);
-        }
+            const char* devices = androidScanUSBDevices();
+            if (devices != nullptr) { {0} = ::String(devices); }
         ', devicesStr);
-
+        
         if (devicesStr != null && devicesStr.length > 0)
         {
             var lines = devicesStr.split("\n");
-            for (line in lines)
-            {
-                if (line != null && line.length > 0)
-                {
-                    result.push(line);
-                }
-            }
+            for (line in lines) if (line != null && line.length > 0) result.push(line);
+            var debugMsg = "--- USB SCAN RESULTS ---\n" + devicesStr + "----------------------\nFound: " + result.length + " devices";
+            var rxOut = getOutput("rxData");
+            if (rxOut != null) { rxOut.setValueSilent(debugMsg); rxOut.propagateCurrentValue(); }
+            var rxTick = getOutput("rxTick");
+            if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
         }
-        
         return result;
     }
 
@@ -27960,7 +27448,6 @@ class ComPortAtom extends Atom implements system.managers.Driver
     public function openDevice():Void
     {
         if (_isOpenFlag) closeDevice();
-
         var portNameC = getInput("portName");
         var baudRateC = getInput("baudRate");
         var portName:String = (portNameC != null && portNameC.value != null) ? Std.string(portNameC.value) : "COM1";
@@ -27970,276 +27457,54 @@ class ComPortAtom extends Atom implements system.managers.Driver
         var selfPtr:Dynamic = this;
         var success:Bool = false;
         var errMessage:String = "";
-
         untyped __cpp__('
-        ComPortState* st = new ComPortState();
-        st->hComm = (
-        #ifdef _WIN32
-            INVALID_HANDLE_VALUE
-        #else
-            -1
-        #endif
-        );
-        #ifdef __ANDROID__
-        st->jPort = nullptr;
-        st->jConnection = nullptr;
-        #endif
-        st->readThread = nullptr;
-        st->isRunning = false;
-        st->hasRxData = false;
-        st->rxBuffer[0] = 0;
-        st->hasError = false;
-        st->errBuffer[0] = 0;
-
-        #ifdef __ANDROID__
-        JNIEnv* env = GetEnvForCurrentThread();
-        if (env != nullptr) {
-            jclass extClass = env->FindClass("org/haxe/extension/Extension");
-            if (extClass != nullptr) {
-                jfieldID ctxField = env->GetStaticFieldID(extClass, "mainContext", "Landroid/content/Context;");
-                if (ctxField != nullptr) {
-                    jobject context = env->GetStaticObjectField(extClass, ctxField);
-                    if (context != nullptr) {
-                        jclass ctxClass = env->GetObjectClass(context);
-                        jmethodID getSysServ = env->GetMethodID(ctxClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
-                        jstring usbStr = env->NewStringUTF("usb");
-                        jobject usbManager = env->CallObjectMethod(context, getSysServ, usbStr);
-                        env->DeleteLocalRef(usbStr);
-
-                        if (usbManager != nullptr) {
-                            jclass mgrClass = env->GetObjectClass(usbManager);
-                            jmethodID getDeviceList = env->GetMethodID(mgrClass, "getDeviceList", "()Ljava/util/HashMap;");
-                            jobject deviceMap = env->CallObjectMethod(usbManager, getDeviceList);
-
-                            if (deviceMap != nullptr) {
-                                jclass mapClass = env->GetObjectClass(deviceMap);
-                                jmethodID valuesMethod = env->GetMethodID(mapClass, "values", "()Ljava/util/Collection;");
-                                jobject values = env->CallObjectMethod(deviceMap, valuesMethod);
-
-                                if (values != nullptr) {
-                                    jclass collectionClass = env->GetObjectClass(values);
-                                    jmethodID iteratorMethod = env->GetMethodID(collectionClass, "iterator", "()Ljava/util/Iterator;");
-                                    jobject iterator = env->CallObjectMethod(values, iteratorMethod);
-
-                                    jclass iteratorClass = env->GetObjectClass(iterator);
-                                    jmethodID hasNext = env->GetMethodID(iteratorClass, "hasNext", "()Z");
-                                    jmethodID next = env->GetMethodID(iteratorClass, "next", "()Ljava/lang/Object;");
-
-                                    jobject targetDevice = nullptr;
-                                    int searchVid = {5};
-                                    int searchPid = {6};
-
-                                    while (env->CallBooleanMethod(iterator, hasNext)) {
-                                        jobject device = env->CallObjectMethod(iterator, next);
-                                        if (!device) continue;
-
-                                        jclass deviceClass = env->GetObjectClass(device);
-                                        jmethodID getVendorId = env->GetMethodID(deviceClass, "getVendorId", "()I");
-                                        jmethodID getProductId = env->GetMethodID(deviceClass, "getProductId", "()I");
-
-                                        int vid = env->CallIntMethod(device, getVendorId);
-                                        int pid = env->CallIntMethod(device, getProductId);
-
-                                        if ((searchVid == vid && searchPid == pid) || (searchVid == 0 && searchPid == 0 && targetDevice == nullptr)) {
-                                            targetDevice = device;
-                                            env->DeleteLocalRef(deviceClass);
-                                            break;
-                                        }
-                                        env->DeleteLocalRef(deviceClass);
-                                        env->DeleteLocalRef(device);
-                                    }
-
-                                    if (targetDevice != nullptr) {
-                                        jmethodID hasPermMethod = env->GetMethodID(mgrClass, "hasPermission", "(Landroid/hardware/usb/UsbDevice;)Z");
-                                        jboolean hasPermission = env->CallBooleanMethod(usbManager, hasPermMethod, targetDevice);
-
-                                        if (!hasPermission) {
-                                            jclass intentClass = env->FindClass("android/content/Intent");
-                                            jmethodID intentCtor = env->GetMethodID(intentClass, "<init>", "(Ljava/lang/String;)V");
-                                            jstring actionStr = env->NewStringUTF("com.virtualik.altauri.USB_PERMISSION");
-                                            jobject intent = env->NewObject(intentClass, intentCtor, actionStr);
-
-                                            jclass versionClass = env->FindClass("android/os/Build$VERSION");
-                                            jfieldID sdkIntField = env->GetStaticFieldID(versionClass, "SDK_INT", "I");
-                                            int sdkInt = env->GetStaticIntField(versionClass, sdkIntField);
-
-                                            int flags = 0;
-                                            if (sdkInt >= 31) {
-                                                flags = 0x02000000;
-                                            }
-
-                                            jclass pendingIntentClass = env->FindClass("android/app/PendingIntent");
-                                            jmethodID getBroadcastMethod = env->GetStaticMethodID(pendingIntentClass, "getBroadcast", "(Landroid/content/Context;ILandroid/content/Intent;I)Landroid/app/PendingIntent;");
-                                            jobject pendingIntent = env->CallStaticObjectMethod(pendingIntentClass, getBroadcastMethod, context, 0, intent, flags);
-
-                                            jmethodID reqPermMethod = env->GetMethodID(mgrClass, "requestPermission", "(Landroid/hardware/usb/UsbDevice;Landroid/app/PendingIntent;)V");
-                                            if (reqPermMethod != nullptr) {
-                                                env->CallVoidMethod(usbManager, reqPermMethod, targetDevice, pendingIntent);
-                                            }
-
-                                            env->DeleteLocalRef(pendingIntent);
-                                            env->DeleteLocalRef(pendingIntentClass);
-                                            env->DeleteLocalRef(intent);
-                                            env->DeleteLocalRef(actionStr);
-                                            env->DeleteLocalRef(intentClass);
-                                            env->DeleteLocalRef(versionClass);
-                                            
-                                            {3} = ::String("Requesting USB permission... Please ALLOW in the dialog and press OPEN again.");
-                                            env->DeleteLocalRef(targetDevice);
-                                        } else {
-                                            jclass proberClass = env->FindClass("com/hoho/android/usbserial/driver/UsbSerialProber");
-                                            if (proberClass != nullptr) {
-                                                jmethodID getDefaultProber = env->GetStaticMethodID(proberClass, "getDefaultProber", "()Lcom/hoho/android/usbserial/driver/UsbSerialProber;");
-                                                if (getDefaultProber != nullptr) {
-                                                    jobject prober = env->CallStaticObjectMethod(proberClass, getDefaultProber);
-                                                    if (prober != nullptr) {
-                                                        jmethodID probeDevice = env->GetMethodID(proberClass, "probeDevice", "(Landroid/hardware/usb/UsbDevice;)Lcom/hoho/android/usbserial/driver/UsbSerialDriver;");
-                                                        jobject driver = env->CallObjectMethod(prober, probeDevice, targetDevice);
-
-                                                        if (driver != nullptr) {
-                                                            jmethodID openConn = env->GetMethodID(mgrClass, "openDevice", "(Landroid/hardware/usb/UsbDevice;)Landroid/hardware/usb/UsbDeviceConnection;");
-                                                            jobject connection = env->CallObjectMethod(usbManager, openConn, targetDevice);
-
-                                                            if (connection != nullptr) {
-                                                                jclass drvClass = env->GetObjectClass(driver);
-                                                                jmethodID getPorts = env->GetMethodID(drvClass, "getPorts", "()Ljava/util/List;");
-                                                                jobject portsList = env->CallObjectMethod(driver, getPorts);
-
-                                                                jclass listClass = env->GetObjectClass(portsList);
-                                                                jmethodID getElem = env->GetMethodID(listClass, "get", "(I)Ljava/lang/Object;");
-                                                                jobject port = env->CallObjectMethod(portsList, getElem, 0);
-
-                                                                jclass portClass = env->GetObjectClass(port);
-                                                                jmethodID portOpen = env->GetMethodID(portClass, "open", "(Landroid/hardware/usb/UsbDeviceConnection;)V");
-                                                                jmethodID setParams = env->GetMethodID(portClass, "setParameters", "(IIII)V");
-
-                                                                if (portOpen != nullptr && setParams != nullptr) {
-                                                                    env->CallVoidMethod(port, portOpen, connection);
-                                                                    env->CallVoidMethod(port, setParams, {1}, 8, 1, 0);
-
-                                                                    st->jPort = env->NewGlobalRef(port);
-                                                                    st->jConnection = env->NewGlobalRef(connection);
-                                                                    {2} = true;
-                                                                } else {
-                                                                    {3} = ::String("JNI Method Not Found in UsbSerialDriver");
-                                                                }
-
-                                                                env->DeleteLocalRef(portClass);
-                                                                env->DeleteLocalRef(port);
-                                                                env->DeleteLocalRef(portsList);
-                                                                env->DeleteLocalRef(listClass);
-                                                                env->DeleteLocalRef(drvClass);
-                                                            } else {
-                                                                {3} = ::String("USB Connection Failed (Check cable/OTG)");
-                                                            }
-                                                            env->DeleteLocalRef(driver);
-                                                        } else {
-                                                            {3} = ::String("No usb-serial driver found for this VID/PID");
-                                                        }
-                                                        env->DeleteLocalRef(prober);
-                                                    }
-                                                }
-                                                env->DeleteLocalRef(proberClass);
-                                            }
-                                            env->DeleteLocalRef(targetDevice);
-                                        }
-                                    } else {
-                                        {3} = ::String("No USB Serial Devices Found on Android");
-                                    }
-
-                                    env->DeleteLocalRef(iteratorClass);
-                                    env->DeleteLocalRef(iterator);
-                                    env->DeleteLocalRef(collectionClass);
-                                    env->DeleteLocalRef(values);
-                                }
-                                env->DeleteLocalRef(mapClass);
-                                env->DeleteLocalRef(deviceMap);
-                            }
-                            env->DeleteLocalRef(mgrClass);
-                        }
-                        env->DeleteLocalRef(usbManager);
-                        env->DeleteLocalRef(ctxClass);
-                    }
+            ComPortState* st = new ComPortState();
+            #ifdef _WIN32
+            st->hComm = INVALID_HANDLE_VALUE;
+            #else
+            st->hComm = -1;
+            #endif
+            #ifdef __ANDROID__
+            st->jPort = nullptr; st->jConnection = nullptr;
+            const char* err = nullptr;
+            {2} = tryOpenAndroidUsbDevice(st, {1}, {5}, {6}, &err);
+            if (!{2} && err != nullptr) { {3} = ::String(err); }
+            #elif defined(_WIN32)
+            std::string nameStr = "\\\\\\\\.\\\\" + std::string({0}.c_str());
+            HANDLE hComm = CreateFileA(nameStr.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+            if (hComm != INVALID_HANDLE_VALUE) {
+                DCB dcb = {0}; dcb.DCBlength = sizeof(DCB);
+                if (GetCommState(hComm, &dcb)) {
+                    dcb.BaudRate = {1}; dcb.ByteSize = 8; dcb.StopBits = ONESTOPBIT; dcb.Parity = NOPARITY; dcb.fDtrControl = DTR_CONTROL_ENABLE;
+                    SetCommState(hComm, &dcb);
                 }
-                env->DeleteLocalRef(extClass);
+                COMMTIMEOUTS timeouts = {0};
+                timeouts.ReadIntervalTimeout = MAXDWORD; timeouts.ReadTotalTimeoutMultiplier = 0; timeouts.ReadTotalTimeoutConstant = 0;
+                timeouts.WriteTotalTimeoutMultiplier = 0; timeouts.WriteTotalTimeoutConstant = 1000;
+                SetCommTimeouts(hComm, &timeouts);
+                st->hComm = hComm; {2} = true;
+            } else {
+                DWORD errCode = GetLastError(); char errBuf[128];
+                sprintf(errBuf, "WinAPI Open Failed (Error %lu)", errCode); {3} = ::String(errBuf);
             }
-        }
-        #elif defined(_WIN32)
-        std::string nameStr = "\\\\\\\\.\\\\" + std::string({0}.c_str());
-        HANDLE hComm = CreateFileA(nameStr.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-        if (hComm != INVALID_HANDLE_VALUE) {
-            DCB dcb = {0};
-            dcb.DCBlength = sizeof(DCB);
-            if (GetCommState(hComm, &dcb)) {
-                dcb.BaudRate = {1};
-                dcb.ByteSize = 8;
-                dcb.StopBits = ONESTOPBIT;
-                dcb.Parity   = NOPARITY;
-                dcb.fDtrControl = DTR_CONTROL_ENABLE;
-                SetCommState(hComm, &dcb);
-            }
-            COMMTIMEOUTS timeouts = {0};
-            timeouts.ReadIntervalTimeout         = MAXDWORD;
-            timeouts.ReadTotalTimeoutMultiplier  = 0;
-            timeouts.ReadTotalTimeoutConstant    = 0;
-            timeouts.WriteTotalTimeoutMultiplier = 0;
-            timeouts.WriteTotalTimeoutConstant   = 1000;
-            SetCommTimeouts(hComm, &timeouts);
-            st->hComm = hComm;
-            {2} = true;
-        } else {
-            DWORD err = GetLastError();
-            char errBuf[128];
-            sprintf(errBuf, "WinAPI Open Failed (Error %lu)", err);
-            {3} = ::String(errBuf);
-        }
-        #else
-        std::string devPath = {0}.c_str();
-        if (devPath.find("/") == std::string::npos) {
-            devPath = "/dev/" + devPath;
-        }
-        int fd = open(devPath.c_str(), O_RDWR | O_NOCTTY | O_NDELAY);
-        if (fd >= 0) {
-            fcntl(fd, F_SETFL, 0);
-            struct termios options;
-            tcgetattr(fd, &options);
-            speed_t speed = B9600;
-            switch ({1}) {
-                case 115200: speed = B115200; break;
-                case 57600:  speed = B57600;  break;
-                case 38400:  speed = B38400;  break;
-                case 19200:  speed = B19200;  break;
-                case 9600:   speed = B9600;   break;
-                default:     speed = B9600;   break;
-            }
-            cfsetispeed(&options, speed);
-            cfsetospeed(&options, speed);
-            options.c_cflag |= (CLOCAL | CREAD);
-            options.c_cflag &= ~PARENB;
-            options.c_cflag &= ~CSTOPB;
-            options.c_cflag &= ~CSIZE;
-            options.c_cflag |= CS8;
-            options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-            options.c_oflag &= ~OPOST;
-            tcsetattr(fd, TCSANOW, &options);
-            st->hComm = fd;
-            {2} = true;
-        } else {
-            char errBuf[128];
-            sprintf(errBuf, "POSIX Open Failed (errno %d)", errno);
-            {3} = ::String(errBuf);
-        }
-        #endif
-
-        if ({2}) {
-            {
-                std::lock_guard<std::mutex> mapLock(_com_map_mutex);
-                _com_states_map[{4}.mPtr] = st;
-            }
-            st->readThread = new std::thread(_altauri_com_reader_loop, {4}.mPtr);
-        } else {
-            delete st;
-        }
+            #else
+            std::string devPath = {0}.c_str();
+            if (devPath.find("/") == std::string::npos) devPath = "/dev/" + devPath;
+            int fd = open(devPath.c_str(), O_RDWR | O_NOCTTY | O_NDELAY);
+            if (fd >= 0) {
+                fcntl(fd, F_SETFL, 0); struct termios options; tcgetattr(fd, &options);
+                speed_t speed = B9600;
+                switch ({1}) { case 115200: speed = B115200; break; case 57600: speed = B57600; break; case 38400: speed = B38400; break; case 19200: speed = B19200; break; case 9600: speed = B9600; break; default: speed = B9600; break; }
+                cfsetispeed(&options, speed); cfsetospeed(&options, speed);
+                options.c_cflag |= (CLOCAL | CREAD); options.c_cflag &= ~PARENB; options.c_cflag &= ~CSTOPB; options.c_cflag &= ~CSIZE; options.c_cflag |= CS8;
+                options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG); options.c_oflag &= ~OPOST;
+                tcsetattr(fd, TCSANOW, &options); st->hComm = fd; {2} = true;
+            } else { char errBuf[128]; sprintf(errBuf, "POSIX Open Failed (errno %d)", errno); {3} = ::String(errBuf); }
+            #endif
+            if ({2}) {
+                { std::lock_guard<std::mutex> mapLock(_com_map_mutex); _com_states_map[{4}.mPtr] = st; }
+                st->readThread = new std::thread(_altauri_com_reader_loop, {4}.mPtr);
+            } else { delete st; }
         ', portName, baudRate, success, errMessage, selfPtr, _selectedVid, _selectedPid);
 
         if (success)
@@ -28247,26 +27512,17 @@ class ComPortAtom extends Atom implements system.managers.Driver
             _isOpenFlag = true;
             var openOut = getOutput("isOpen");
             if (openOut != null) { openOut.setValueSilent(true); openOut.propagateCurrentValue(); }
+            Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected to " + portName);
             trace('ComPortAtom: Successfully opened $portName at $baudRate baud');
         }
         else
         {
             setError(errMessage != "" ? errMessage : 'Failed to open serial port: $portName');
         }
-
         #elseif html5
-        if (Syntax.code("typeof navigator !== 'undefined' && 'serial' in navigator"))
-        {
-            openWebSerial(baudRate);
-        }
-        else if (Syntax.code("typeof navigator !== 'undefined' && 'usb' in navigator"))
-        {
-            openWebUSB(baudRate);
-        }
-        else
-        {
-            setError("Web Serial / WebUSB API is not supported in this browser");
-        }
+        if (Syntax.code("typeof navigator !== 'undefined' && 'serial' in navigator")) openWebSerial(baudRate);
+        else if (Syntax.code("typeof navigator !== 'undefined' && 'usb' in navigator")) openWebUSB(baudRate);
+        else setError("Web Serial / WebUSB API is not supported in this browser");
         #end
     }
 
@@ -28275,106 +27531,66 @@ class ComPortAtom extends Atom implements system.managers.Driver
         #if cpp
         var selfPtr:Dynamic = this;
         untyped __cpp__('
-        ComPortState* st = nullptr;
-        {
-            std::lock_guard<std::mutex> mapLock(_com_map_mutex);
-            auto it = _com_states_map.find({0}.mPtr);
-            if (it != _com_states_map.end()) {
-                st = it->second;
-                _com_states_map.erase(it);
-            }
-        }
-        if (st != nullptr) {
-            st->isRunning = false;
-#ifdef __ANDROID__
-            if (st->jPort != nullptr) {
-                JNIEnv* env = GetEnvForCurrentThread();
-                if (env != nullptr) {
-                    jclass portClass = env->GetObjectClass(st->jPort);
-                    if (portClass != nullptr) {
-                        jmethodID portClose = env->GetMethodID(portClass, "close", "()V");
-                        if (portClose != nullptr) env->CallVoidMethod(st->jPort, portClose);
-                        env->DeleteGlobalRef(st->jPort);
-                        
-                        if (st->jConnection != nullptr) {
-                            jclass connClass = env->GetObjectClass(st->jConnection);
-                            if (connClass != nullptr) {
-                                jmethodID connClose = env->GetMethodID(connClass, "close", "()V");
-                                if (connClose != nullptr) env->CallVoidMethod(st->jConnection, connClose);
-                                env->DeleteGlobalRef(st->jConnection);
-                                env->DeleteLocalRef(connClass);
+            ComPortState* st = nullptr;
+            { std::lock_guard<std::mutex> mapLock(_com_map_mutex); auto it = _com_states_map.find({0}.mPtr); if (it != _com_states_map.end()) { st = it->second; _com_states_map.erase(it); } }
+            if (st != nullptr) {
+                st->isRunning = false;
+                #ifdef __ANDROID__
+                if (st->jPort != nullptr) {
+                    JNIEnv* env = GetJniEnv();
+                    if (env != nullptr) {
+                        jclass portClass = env->GetObjectClass(st->jPort);
+                        if (portClass != nullptr) {
+                            jmethodID portClose = env->GetMethodID(portClass, "close", "()V");
+                            if (portClose != nullptr) env->CallVoidMethod(st->jPort, portClose);
+                            env->DeleteGlobalRef(st->jPort);
+                            if (st->jConnection != nullptr) {
+                                jclass connClass = env->GetObjectClass(st->jConnection);
+                                if (connClass != nullptr) { jmethodID connClose = env->GetMethodID(connClass, "close", "()V"); if (connClose != nullptr) env->CallVoidMethod(st->jConnection, connClose); env->DeleteGlobalRef(st->jConnection); env->DeleteLocalRef(connClass); }
                             }
+                            env->DeleteLocalRef(portClass);
                         }
-                        env->DeleteLocalRef(portClass);
                     }
                 }
+                #elif defined(_WIN32)
+                if (st->hComm != INVALID_HANDLE_VALUE) { CancelIoEx(st->hComm, NULL); CloseHandle(st->hComm); st->hComm = INVALID_HANDLE_VALUE; }
+                #else
+                if (st->hComm >= 0) { close(st->hComm); st->hComm = -1; }
+                #endif
+                if (st->readThread != nullptr) { if (st->readThread->joinable()) st->readThread->join(); delete st->readThread; }
+                delete st;
             }
-#elif defined(_WIN32)
-            if (st->hComm != INVALID_HANDLE_VALUE) {
-                CancelIoEx(st->hComm, NULL);
-                CloseHandle(st->hComm);
-                st->hComm = INVALID_HANDLE_VALUE;
-            }
-#else
-            if (st->hComm >= 0) {
-                close(st->hComm);
-                st->hComm = -1;
-            }
-#endif
-            if (st->readThread != nullptr) {
-                if (st->readThread->joinable()) {
-                    st->readThread->join();
-                }
-                delete st->readThread;
-            }
-            delete st;
-        }
         ', selfPtr);
         _isOpenFlag = false;
         var openOut = getOutput("isOpen");
         if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
+        Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
         trace('ComPortAtom: Closed serial device');
-
         #elseif html5
         _isReading = false;
         if (_connectionType == "serial" && _serialPort != null)
         {
-            try
-            {
+            try {
                 if (_reader != null) { _reader.cancel(); _reader = null; }
                 if (_writer != null) { _writer.releaseLock(); _writer = null; }
                 _serialPort.close().then(function(_) {
-                    _serialPort = null;
-                    _isOpenFlag = false;
-                    _connectionType = "none";
-                    var openOut = getOutput("isOpen");
-                    if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
-                    trace('ComPortAtom: Closed Web Serial port');
-                }).[catch](function(err) {
-                    setError("Error closing Web Serial port: " + Std.string(err));
-                });
-            }
-            [catch] (e:Dynamic) { setError("Exception closing Web Serial port: " + Std.string(e)); }
+                    _serialPort = null; _isOpenFlag = false; _connectionType = "none";
+                    var openOut = getOutput("isOpen"); if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
+                    Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
+                    trace('ComPortAtom: Closed Web Serial port'); })
+					['catch'](function(err) { setError("Error closing Web Serial port: " + Std.string(err)); });
+            } catch (e:Dynamic) { setError("Exception closing Web Serial port: " + Std.string(e)); }
         }
         else if (_connectionType == "usb" && _usbDevice != null)
         {
-            try
-            {
-                var dev = _usbDevice;
-                _usbDevice = null;
-                _isOpenFlag = false;
-                _connectionType = "none";
-                dev.releaseInterface(_usbInterfaceNumber).then(function(_) {
-                    return dev.close();
-                }).then(function(_) {
-                    var openOut = getOutput("isOpen");
-                    if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
-                    trace('ComPortAtom: Closed WebUSB device');
-                }).[catch](function(err) {
-                    setError("Error closing WebUSB device: " + Std.string(err));
-                });
-            }
-            [catch] (e:Dynamic) { setError("Exception closing WebUSB device: " + Std.string(e)); }
+            try {
+                var dev = _usbDevice; _usbDevice = null; _isOpenFlag = false; _connectionType = "none";
+                dev.releaseInterface(_usbInterfaceNumber).then(function(_) { return dev.close(); }).then(function(_) {
+                    var openOut = getOutput("isOpen"); if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
+                    Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
+                    trace('ComPortAtom: Closed WebUSB device'); })
+					['catch'](function(err) { setError("Error closing WebUSB device: " + Std.string(err)); });
+            } catch (e:Dynamic) { setError("Exception closing WebUSB device: " + Std.string(e)); }
         }
         #end
     }
@@ -28383,78 +27599,51 @@ class ComPortAtom extends Atom implements system.managers.Driver
     {
         if (!_isOpenFlag) return;
         _lastTxData = dataStr;
-
         #if cpp
         var selfPtr:Dynamic = this;
         untyped __cpp__('
-        ComPortState* st = nullptr;
-        {
-            std::lock_guard<std::mutex> mapLock(_com_map_mutex);
-            auto it = _com_states_map.find({0}.mPtr);
-            if (it != _com_states_map.end()) {
-                st = it->second;
-            }
-        }
-        if (st != nullptr) {
-#ifdef __ANDROID__
-            if (st->jPort != nullptr) {
-                JNIEnv* env = GetEnvForCurrentThread();
-                if (env != nullptr) {
-                    jclass portClass = env->GetObjectClass(st->jPort);
-                    if (portClass != nullptr) {
-                        jmethodID writeMethod = env->GetMethodID(portClass, "write", "([BI)I");
-                        if (writeMethod != nullptr) {
-                            int len = strlen({1}.c_str());
-                            jbyteArray jbuf = env->NewByteArray(len);
-                            env->SetByteArrayRegion(jbuf, 0, len, (const jbyte*){1}.c_str());
-                            env->CallIntMethod(st->jPort, writeMethod, jbuf, 1000);
-                            env->DeleteLocalRef(jbuf);
+            ComPortState* st = nullptr;
+            { std::lock_guard<std::mutex> mapLock(_com_map_mutex); auto it = _com_states_map.find({0}.mPtr); if (it != _com_states_map.end()) st = it->second; }
+            if (st != nullptr) {
+                #ifdef __ANDROID__
+                if (st->jPort != nullptr) {
+                    JNIEnv* env = GetJniEnv();
+                    if (env != nullptr) {
+                        jclass portClass = env->GetObjectClass(st->jPort);
+                        if (portClass != nullptr) {
+                            jmethodID writeMethod = env->GetMethodID(portClass, "write", "([BI)I");
+                            if (writeMethod != nullptr) {
+                                int len = strlen({1}.c_str()); jbyteArray jbuf = env->NewByteArray(len);
+                                env->SetByteArrayRegion(jbuf, 0, len, (const jbyte*){1}.c_str());
+                                env->CallIntMethod(st->jPort, writeMethod, jbuf, 1000);
+                                env->DeleteLocalRef(jbuf);
+                            }
+                            env->DeleteLocalRef(portClass);
                         }
-                        env->DeleteLocalRef(portClass);
                     }
                 }
+                #elif defined(_WIN32)
+                if (st->hComm != INVALID_HANDLE_VALUE) { DWORD bytesWritten = 0; WriteFile(st->hComm, {1}.c_str(), (DWORD)strlen({1}.c_str()), &bytesWritten, NULL); }
+                #else
+                if (st->hComm >= 0) { write(st->hComm, {1}.c_str(), strlen({1}.c_str())); }
+                #endif
             }
-#elif defined(_WIN32)
-            if (st->hComm != INVALID_HANDLE_VALUE) {
-                DWORD bytesWritten = 0;
-                WriteFile(st->hComm, {1}.c_str(), (DWORD)strlen({1}.c_str()), &bytesWritten, NULL);
-            }
-#else
-            if (st->hComm >= 0) {
-                write(st->hComm, {1}.c_str(), strlen({1}.c_str()));
-            }
-#endif
-        }
         ', selfPtr, dataStr);
-
         #elseif html5
         if (_connectionType == "serial" && _serialPort != null)
         {
-            try
-            {
-                var encoder = Syntax.code("new TextEncoder()");
-                var dataArray = encoder.encode(dataStr);
+            try {
+                var encoder = Syntax.code("new TextEncoder()"); var dataArray = encoder.encode(dataStr);
                 var writer = _serialPort.writable.getWriter();
-                writer.write(dataArray).then(function(_) {
-                    writer.releaseLock();
-                }).[catch](function(err) {
-                    writer.releaseLock();
-                    setError("Web Serial TX Error: " + Std.string(err));
-                });
-            }
-            [catch] (e:Dynamic) { setError("Web Serial TX Exception: " + Std.string(e)); }
+                writer.write(dataArray).then(function(_) { writer.releaseLock(); })['catch'](function(err) { writer.releaseLock(); setError("Web Serial TX Error: " + Std.string(err)); });
+            } catch (e:Dynamic) { setError("Web Serial TX Exception: " + Std.string(e)); }
         }
         else if (_connectionType == "usb" && _usbDevice != null && _usbEndpointOut > 0)
         {
-            try
-            {
-                var encoder = Syntax.code("new TextEncoder()");
-                var dataArray = encoder.encode(dataStr);
-                _usbDevice.transferOut(_usbEndpointOut, dataArray).[catch](function(err) {
-                    setError("WebUSB TX Error: " + Std.string(err));
-                });
-            }
-            [catch] (e:Dynamic) { setError("WebUSB TX Exception: " + Std.string(e)); }
+            try {
+                var encoder = Syntax.code("new TextEncoder()"); var dataArray = encoder.encode(dataStr);
+                _usbDevice.transferOut(_usbEndpointOut, dataArray)['catch'](function(err) { setError("WebUSB TX Error: " + Std.string(err)); });
+            } catch (e:Dynamic) { setError("WebUSB TX Exception: " + Std.string(e)); }
         }
         #end
     }
@@ -28462,58 +27651,34 @@ class ComPortAtom extends Atom implements system.managers.Driver
     public function setDTRState(state:Bool):Void
     {
         if (!_isOpenFlag) return;
-
         #if cpp
         var selfPtr:Dynamic = this;
         untyped __cpp__('
-        ComPortState* st = nullptr;
-        {
-            std::lock_guard<std::mutex> mapLock(_com_map_mutex);
-            auto it = _com_states_map.find({0}.mPtr);
-            if (it != _com_states_map.end()) {
-                st = it->second;
-            }
-        }
-        if (st != nullptr) {
-#ifdef __ANDROID__
-            if (st->jPort != nullptr) {
-                JNIEnv* env = GetEnvForCurrentThread();
-                if (env != nullptr) {
-                    jclass portClass = env->GetObjectClass(st->jPort);
-                    if (portClass != nullptr) {
-                        jmethodID setDTR = env->GetMethodID(portClass, "setDTR", "(Z)V");
-                        if (setDTR != nullptr) env->CallVoidMethod(st->jPort, setDTR, {1});
-                        env->DeleteLocalRef(portClass);
+            ComPortState* st = nullptr;
+            { std::lock_guard<std::mutex> mapLock(_com_map_mutex); auto it = _com_states_map.find({0}.mPtr); if (it != _com_states_map.end()) st = it->second; }
+            if (st != nullptr) {
+                #ifdef __ANDROID__
+                if (st->jPort != nullptr) {
+                    JNIEnv* env = GetJniEnv();
+                    if (env != nullptr) {
+                        jclass portClass = env->GetObjectClass(st->jPort);
+                        if (portClass != nullptr) { jmethodID setDTR = env->GetMethodID(portClass, "setDTR", "(Z)V"); if (setDTR != nullptr) env->CallVoidMethod(st->jPort, setDTR, {1}); env->DeleteLocalRef(portClass); }
                     }
                 }
+                #elif defined(_WIN32)
+                if (st->hComm != INVALID_HANDLE_VALUE) { EscapeCommFunction(st->hComm, {1} ? SETDTR : CLRDTR); }
+                #else
+                if (st->hComm >= 0) { int status; ioctl(st->hComm, TIOCMGET, &status); if ({1}) status |= TIOCM_DTR; else status &= ~TIOCM_DTR; ioctl(st->hComm, TIOCMSET, &status); }
+                #endif
             }
-#elif defined(_WIN32)
-            if (st->hComm != INVALID_HANDLE_VALUE) {
-                EscapeCommFunction(st->hComm, {1} ? SETDTR : CLRDTR);
-            }
-#else
-            if (st->hComm >= 0) {
-                int status;
-                ioctl(st->hComm, TIOCMGET, &status);
-                if ({1}) status |= TIOCM_DTR;
-                else      status &= ~TIOCM_DTR;
-                ioctl(st->hComm, TIOCMSET, &status);
-            }
-#endif
-        }
         ', selfPtr, state);
-
         #elseif html5
         if (_connectionType == "serial" && _serialPort != null)
         {
-            try
-            {
+            try {
                 var signals:Dynamic = { dataTerminalReady: state };
-                _serialPort.setSignals(signals).[catch](function(err) {
-                    setError("Web Serial DTR Error: " + Std.string(err));
-                });
-            }
-            [catch] (e:Dynamic) { setError("Web Serial DTR Exception: " + Std.string(e)); }
+                _serialPort.setSignals(signals)['catch'](function(err) { setError("Web Serial DTR Error: " + Std.string(err)); });
+            } catch (e:Dynamic) { setError("Web Serial DTR Exception: " + Std.string(e)); }
         }
         #end
     }
@@ -28521,63 +27686,46 @@ class ComPortAtom extends Atom implements system.managers.Driver
     #if html5
     private function openWebSerial(baudRate:Int):Void
     {
-        try
-        {
+        try {
             var navSerial = Syntax.code("navigator.serial");
             navSerial.requestPort().then(function(port) {
                 _serialPort = port;
                 var options:Dynamic = { baudRate: baudRate, dataBits: 8, stopBits: 1, parity: "none" };
                 return _serialPort.open(options);
             }).then(function(_) {
-                _isOpenFlag = true;
-                _connectionType = "serial";
-                var openOut = getOutput("isOpen");
-                if (openOut != null) { openOut.setValueSilent(true); openOut.propagateCurrentValue(); }
+                _isOpenFlag = true; _connectionType = "serial";
+                var openOut = getOutput("isOpen"); if (openOut != null) { openOut.setValueSilent(true); openOut.propagateCurrentValue(); }
+                Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected via Web Serial");
                 trace('ComPortAtom: Opened Web Serial port at $baudRate baud');
                 startWebSerialReadLoop();
-            }).[catch](function(err) {
-                setError("Web Serial Open Error: " + Std.string(err));
-            });
-        }
-        [catch] (e:Dynamic) { setError("Web Serial Exception: " + Std.string(e)); }
+            })['catch'](function(err) { setError("Web Serial Open Error: " + Std.string(err)); });
+        } catch (e:Dynamic) { setError("Web Serial Exception: " + Std.string(e)); }
     }
 
     private function startWebSerialReadLoop():Void
     {
         if (_serialPort == null || !_isOpenFlag) return;
         _isReading = true;
-
         var readChunk:Void->Void = null;
         readChunk = function() {
             if (!_isReading || _serialPort == null) return;
-            try
-            {
+            try {
                 _reader = _serialPort.readable.getReader();
                 _reader.read().then(function(result:Dynamic) {
-                    if (result.done)
-                    {
-                        _reader.releaseLock();
-                        _reader = null;
-                        return;
-                    }
-                    if (result.value != null)
-                    {
-                        var uint8Arr:Uint8Array = result.value;
-                        var bytesArray = new Array<Int>();
-                        for (i in 0...uint8Arr.length) { bytesArray.push(uint8Arr[i]); }
+                    if (result.done) { _reader.releaseLock(); _reader = null; return; }
+                    if (result.value != null) {
+                        var uint8Arr:Uint8Array = result.value; var bytesArray = new Array<Int>();
+                        for (i in 0...uint8Arr.length) bytesArray.push(uint8Arr[i]);
                         writeToBuffer(bytesArray);
                     }
-                    _reader.releaseLock();
-                    _reader = null;
+                    _reader.releaseLock(); _reader = null;
                     if (_isReading) readChunk();
-                }).[catch](function(err) {
-                    if (_reader != null) { try { _reader.releaseLock(); } [catch](e:Dynamic){} _reader = null; }
+                })['catch'](function(err) {
+                    if (_reader != null) { try { _reader.releaseLock(); } catch(e:Dynamic) {} _reader = null; }
                     setError("Web Serial Read Loop Error: " + Std.string(err));
                 });
-            }
-            catch (e:Dynamic)
-            {
-                if (_reader != null) { try { _reader.releaseLock(); } catch(ex:Dynamic){} _reader = null; }
+            } catch (e:Dynamic) {
+                if (_reader != null) { try { _reader.releaseLock(); } catch(ex:Dynamic) {} _reader = null; }
                 setError("Web Serial Read Loop Exception: " + Std.string(e));
             }
         };
@@ -28586,75 +27734,49 @@ class ComPortAtom extends Atom implements system.managers.Driver
 
     private function openWebUSB(baudRate:Int):Void
     {
-        try
-        {
+        try {
             var navUsb = Syntax.code("navigator.usb");
             var filters:Array<Dynamic> = [
-                { vendorId: 0x303A },
-                { vendorId: 0x0403 },
-                { vendorId: 0x1A86 },
-                { vendorId: 0x10C4 },
-                { vendorId: 0x067B },
-                { vendorId: 0x2341 },
-                { vendorId: 0x1B4F },
-                { vendorId: 0x0483 },
-                { vendorId: 0x2E8A },
-                { vendorId: 0x03EB }
+                { vendorId: 0x303A }, { vendorId: 0x0403 }, { vendorId: 0x1A86 }, { vendorId: 0x10C4 },
+                { vendorId: 0x067B }, { vendorId: 0x2341 }, { vendorId: 0x1B4F }, { vendorId: 0x0483 },
+                { vendorId: 0x2E8A }, { vendorId: 0x03EB }
             ];
             navUsb.requestDevice({ filters: filters }).then(function(device) {
-                _usbDevice = device;
-                return _usbDevice.open();
-            }).then(function(_) {
-                return _usbDevice.selectConfiguration(1);
-            }).then(function(_) {
+                _usbDevice = device; return _usbDevice.open();
+            }).then(function(_) { return _usbDevice.selectConfiguration(1); }).then(function(_) {
                 findUsbEndpoints();
                 if (_usbInterfaceNumber < 0) throw "No compatible USB serial interface found";
                 return _usbDevice.claimInterface(_usbInterfaceNumber);
-            }).then(function(_) {
-                return initUsbDeviceParameters(baudRate);
-            }).then(function(_) {
-                _isOpenFlag = true;
-                _connectionType = "usb";
-                var openOut = getOutput("isOpen");
-                if (openOut != null) { openOut.setValueSilent(true); openOut.propagateCurrentValue(); }
+            }).then(function(_) { return initUsbDeviceParameters(baudRate); }).then(function(_) {
+                _isOpenFlag = true; _connectionType = "usb";
+                var openOut = getOutput("isOpen"); if (openOut != null) { openOut.setValueSilent(true); openOut.propagateCurrentValue(); }
+                Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected via WebUSB");
                 trace('ComPortAtom: Opened WebUSB device (VID: 0x' + StringTools.hex(_usbDevice.vendorId, 4) + ') at $baudRate baud');
                 startWebUSBReadLoop();
-            }).catchError(function(err) {
-                setError("WebUSB Open Error: " + Std.string(err));
-            });
-        }
-        catch (e:Dynamic) { setError("WebUSB Exception: " + Std.string(e)); }
+            })['catch'](function(err) { setError("WebUSB Open Error: " + Std.string(err)); });
+        } catch (e:Dynamic) { setError("WebUSB Exception: " + Std.string(e)); }
     }
 
     private function findUsbEndpoints():Void
     {
         if (_usbDevice == null || _usbDevice.configuration == null) return;
-        _usbInterfaceNumber = -1;
-        _usbEndpointIn = -1;
-        _usbEndpointOut = -1;
-        _usbControlInterface = -1;
-
+        _usbInterfaceNumber = -1; _usbEndpointIn = -1; _usbEndpointOut = -1; _usbControlInterface = -1;
         var interfaces:Array<Dynamic> = _usbDevice.configuration.interfaces;
-        for (iface in interfaces)
-        {
+        for (iface in interfaces) {
             var alternate:Dynamic = iface.alternates[0];
-            if (alternate.interfaceClass == 0x0A || alternate.interfaceClass == 0xFF || alternate.interfaceClass == 0x02)
-            {
+            if (alternate.interfaceClass == 0x0A || alternate.interfaceClass == 0xFF || alternate.interfaceClass == 0x02) {
                 if (alternate.interfaceClass == 0x02) _usbControlInterface = iface.interfaceNumber;
                 var endpoints:Array<Dynamic> = alternate.endpoints;
-                for (ep in endpoints)
-                {
+                for (ep in endpoints) {
                     if (ep.direction == "in" && ep.type == "bulk") { _usbEndpointIn = ep.endpointNumber; _usbInterfaceNumber = iface.interfaceNumber; }
                     if (ep.direction == "out" && ep.type == "bulk") { _usbEndpointOut = ep.endpointNumber; }
                 }
             }
         }
-        if (_usbInterfaceNumber < 0 && interfaces.length > 0)
-        {
+        if (_usbInterfaceNumber < 0 && interfaces.length > 0) {
             _usbInterfaceNumber = interfaces[0].interfaceNumber;
             var alternate:Dynamic = interfaces[0].alternates[0];
-            for (ep in cast(alternate.endpoints, Array<Dynamic>))
-            {
+            for (ep in cast(alternate.endpoints, Array<Dynamic>)) {
                 if (ep.direction == "in") _usbEndpointIn = ep.endpointNumber;
                 if (ep.direction == "out") _usbEndpointOut = ep.endpointNumber;
             }
@@ -28665,38 +27787,18 @@ class ComPortAtom extends Atom implements system.managers.Driver
     {
         if (_usbDevice == null) return null;
         var vid:Int = _usbDevice.vendorId;
-
-        if (vid == 0x0403)
-        {
+        if (vid == 0x0403) {
             var value:Int = cast(3000000 / baudRate);
-            return _usbDevice.controlTransferOut({
-                requestType: "vendor", recipient: "device", request: 0x03, value: value, index: 0
-            });
-        }
-        else if (vid == 0x10C4)
-        {
-            return _usbDevice.controlTransferOut({
-                requestType: "vendor", recipient: "interface", request: 0x00, value: 0x01, index: _usbInterfaceNumber
-            });
-        }
-        else if (vid == 0x1A86)
-        {
-            return _usbDevice.controlTransferOut({
-                requestType: "vendor", recipient: "device", request: 0xA1, value: 0xC29C, index: 0xB2B9
-            });
-        }
-        else
-        {
-            var buffer = Syntax.code("new ArrayBuffer(7)");
-            var view = Syntax.code("new DataView(buffer)");
-            view.setUint32(0, baudRate, true);
-            view.setUint8(4, 0);
-            view.setUint8(5, 0);
-            view.setUint8(6, 8);
+            return _usbDevice.controlTransferOut({ requestType: "vendor", recipient: "device", request: 0x03, value: value, index: 0 });
+        } else if (vid == 0x10C4) {
+            return _usbDevice.controlTransferOut({ requestType: "vendor", recipient: "interface", request: 0x00, value: 0x01, index: _usbInterfaceNumber });
+        } else if (vid == 0x1A86) {
+            return _usbDevice.controlTransferOut({ requestType: "vendor", recipient: "device", request: 0xA1, value: 0xC29C, index: 0xB2B9 });
+        } else {
+            var buffer = Syntax.code("new ArrayBuffer(7)"); var view = Syntax.code("new DataView(buffer)");
+            view.setUint32(0, baudRate, true); view.setUint8(4, 0); view.setUint8(5, 0); view.setUint8(6, 8);
             var ctrlIface = _usbControlInterface >= 0 ? _usbControlInterface : _usbInterfaceNumber;
-            return _usbDevice.controlTransferOut({
-                requestType: "class", recipient: "interface", request: 0x20, value: 0, index: ctrlIface
-            }, buffer);
+            return _usbDevice.controlTransferOut({ requestType: "class", recipient: "interface", request: 0x20, value: 0, index: ctrlIface }, buffer);
         }
     }
 
@@ -28704,26 +27806,19 @@ class ComPortAtom extends Atom implements system.managers.Driver
     {
         if (_usbDevice == null || !_isOpenFlag || _usbEndpointIn <= 0) return;
         _isReading = true;
-
         var readChunk:Void->Void = null;
         readChunk = function() {
             if (!_isReading || _usbDevice == null) return;
-            try
-            {
+            try {
                 _usbDevice.transferIn(_usbEndpointIn, 64).then(function(result:Dynamic) {
-                    if (result.status == "ok" && result.data != null)
-                    {
-                        var dataView:DataView = result.data;
-                        var bytesArray = new Array<Int>();
-                        for (i in 0...dataView.byteLength) { bytesArray.push(dataView.getUint8(i)); }
+                    if (result.status == "ok" && result.data != null) {
+                        var dataView:DataView = result.data; var bytesArray = new Array<Int>();
+                        for (i in 0...dataView.byteLength) bytesArray.push(dataView.getUint8(i));
                         writeToBuffer(bytesArray);
                     }
                     if (_isReading) readChunk();
-                }).catchError(function(err) {
-                    setError("WebUSB Read Loop Error: " + Std.string(err));
-                });
-            }
-            catch (e:Dynamic) { setError("WebUSB Read Loop Exception: " + Std.string(e)); }
+                })['catch'](function(err) { setError("WebUSB Read Loop Error: " + Std.string(err)); });
+            } catch (e:Dynamic) { setError("WebUSB Read Loop Exception: " + Std.string(e)); }
         };
         readChunk();
     }

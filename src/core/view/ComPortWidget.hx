@@ -427,7 +427,7 @@ class ComPortWidget extends DeviceView
             {
                 var comAtom:library.drivers.ComPortAtom = cast atom;
                 comAtom.setSelectedDevice(vid, pid);
-                if (_portNameContact != null) _portNameContact.value = '$vid:$pid';
+                if (_portNameContact != null) _portNameContact.value = '${parts[0]}:${parts[1]}'; // ИСПРАВЛЕНО: сохраняем HEX
             }
             trace('ComPortWidget: Selected device VID:PID = ${StringTools.hex(vid, 4)}:${StringTools.hex(pid, 4)}');
         }
