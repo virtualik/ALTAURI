@@ -522,7 +522,31 @@ class ComPortWidget extends DeviceView
     override private function onContactChanged(contact:Contact, newValue:Dynamic):Void
     {
         if (isDisposed) return;
-        if (contact == _isOpenContact) updateConnectionStatus(newValue == true);
+        if (contact == _isOpenContact) {
+            var isOpen:Bool = (newValue == true);
+            updateConnectionStatus(isOpen);
+            
+            #if android
+            // Если порт был закрыт (например, из-за отключения USB), очищаем список устройств
+            if (!isOpen) {
+                _currentSelectedVid = 0;
+                _currentSelectedPid = 0;
+                _selectedDeviceIndex = -1;
+                _scannedDevices = [];
+                
+                // Сбрасываем выбор в самом драйвере
+                if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) {
+                    var comAtom:library.drivers.ComPortAtom = cast atom;
+                    comAtom.setSelectedDevice(0, 0);
+                }
+                
+                // Очищаем визуальный список в UI
+                if (_deviceListContainer != null) {
+                    updateDeviceList();
+                }
+            }
+            #end
+        }
         else if (contact == _rxDataContact && newValue != null && newValue != "") appendRxData(Std.string(newValue));
         else if (contact == _rxTickContact && newValue == true) { pulseLed(_rxLed, 0x00FF00, 0x003300); _rxLedTimer = _ledPulseDuration; }
         else if (contact == _txTickContact && newValue == true) { pulseLed(_txLed, 0x00AAFF, 0x001133); _txLedTimer = _ledPulseDuration; }
@@ -650,6 +674,8 @@ class ComPortWidget extends DeviceView
     
     private function sendTxData():Void
     {
+		
+		
         if (_txDataContact != null) _txDataContact.value = _txInput.text;
         if (_sendContact != null) _sendContact.value = true;
     }
@@ -671,8 +697,27 @@ class ComPortWidget extends DeviceView
     {
         if (impulse.data != null && _statusBar != null)
         {
-            _statusBar.text = Std.string(impulse.data);
             var statusStr = Std.string(impulse.data);
+            
+            #if android
+            if (statusStr == "USB_DEVICES_CHANGED") {
+                trace("ComPortWidget: Received USB_DEVICES_CHANGED signal!");
+                if (_isOpenContact != null && _isOpenContact.value != true) {
+                    if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) {
+                        var comAtom:library.drivers.ComPortAtom = cast atom;
+                        _scannedDevices = comAtom.scanUSBDevices();
+                        _selectedDeviceIndex = -1; 
+                        _currentSelectedVid = 0; 
+                        _currentSelectedPid = 0;
+                        updateDeviceList();
+                        trace("ComPortWidget: Device list updated automatically.");
+                    }
+                }
+                return; // Выходим, чтобы не писать это в статусбар
+            }
+            #end
+
+            _statusBar.text = statusStr;
             if (statusStr.indexOf("Connected") >= 0) updateConnectionStatus(true);
             else updateConnectionStatus(false);
         }

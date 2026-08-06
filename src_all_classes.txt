@@ -26505,7 +26505,7 @@ class ComEnumeratorAtom extends Atom implements system.managers.Driver
 
 ================================================================================
 // FILE: library\drivers\ComPortAtom.hx
-// Lines: 1349 | Chars: 65047
+// Lines: 1379 | Chars: 66513
 ================================================================================
 
 /*### Key Improvements Summary
@@ -26808,15 +26808,24 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
                                                 env->ExceptionClear();
                                                 if (outError) *outError = "Java Exception in port.open()";
                                             } else {
-                                                env->CallVoidMethod(port, setParams, baudRate, 8, 1, 0);
-                                                if (env->ExceptionCheck()) {
-                                                    env->ExceptionClear();
-                                                    if (outError) *outError = "Java Exception in setParameters()";
-                                                } else {
-                                                    st->jPort = env->NewGlobalRef(port);
-                                                    st->jConnection = env->NewGlobalRef(connection);
-                                                    opened = true;
-                                                }
+												env->CallVoidMethod(port, setParams, baudRate, 8, 1, 0);
+												if (env->ExceptionCheck()) {
+													env->ExceptionClear();
+													if (outError) *outError = "Java Exception in setParameters()";
+												} else {
+													// === ВАЖНО ДЛЯ PL2303: Принудительно поднимаем DTR и RTS ===
+													// Без этого многие адаптеры (PL2303, CH340) не передают данные в USB (RX).
+													jmethodID setDTRMethod = env->GetMethodID(portClass, "setDTR", "(Z)V");
+													jmethodID setRTSMethod = env->GetMethodID(portClass, "setRTS", "(Z)V");
+													if (setDTRMethod != nullptr) env->CallVoidMethod(port, setDTRMethod, JNI_TRUE);
+													if (setRTSMethod != nullptr) env->CallVoidMethod(port, setRTSMethod, JNI_TRUE);
+													if (env->ExceptionCheck()) env->ExceptionClear();
+													// =========================================================
+
+													st->jPort = env->NewGlobalRef(port);
+													st->jConnection = env->NewGlobalRef(connection);
+													opened = true;
+												}
                                             }
                                         }
                                         env->DeleteLocalRef(portClass); 
@@ -26862,6 +26871,7 @@ static void _altauri_com_reader_loop(void* haxePtr) {
         if (env != nullptr) {
             jclass portClass = env->GetObjectClass(st->jPort);
             if (portClass != nullptr) {
+                // Ищем метод read: int read(byte[] dest, int timeout)
                 jmethodID readMethod = env->GetMethodID(portClass, "read", "([BI)I");
                 if (readMethod != nullptr) {
                     jbyteArray jbuf = env->NewByteArray(1024);
@@ -26871,7 +26881,7 @@ static void _altauri_com_reader_loop(void* haxePtr) {
                             if (env->ExceptionCheck()) {
                                 env->ExceptionClear();
                                 std::lock_guard<std::mutex> errLock(st->errMutex);
-                                sprintf(st->errBuffer, "Android Rx Java Exception");
+                                sprintf(st->errBuffer, "Android Rx Java Exception in read()");
                                 st->hasError = true;
                                 break;
                             }
@@ -26892,26 +26902,46 @@ static void _altauri_com_reader_loop(void* haxePtr) {
                             } else if (bytesRead < 0) {
                                 if (!st->isRunning) break;
                                 std::lock_guard<std::mutex> errLock(st->errMutex);
-                                sprintf(st->errBuffer, "Android Rx Err:%d (check cable/driver)", (int)bytesRead);
+                                sprintf(st->errBuffer, "Android Rx Err:%d", (int)bytesRead);
                                 st->hasError = true;
                                 break;
                             }
                         }
                         env->DeleteLocalRef(jbuf);
                     } else {
+                        // ОШИБКА: Не удалось создать буфер
                         if (env->ExceptionCheck()) env->ExceptionClear();
+                        std::lock_guard<std::mutex> errLock(st->errMutex);
+                        sprintf(st->errBuffer, "Android RX: NewByteArray failed");
+                        st->hasError = true;
                     }
                 } else {
+                    // ОШИБКА: Метод read не найден (signature mismatch?)
                     if (env->ExceptionCheck()) env->ExceptionClear();
+                    std::lock_guard<std::mutex> errLock(st->errMutex);
+                    sprintf(st->errBuffer, "Android RX: read([BI)I method not found!");
+                    st->hasError = true;
                 }
                 env->DeleteLocalRef(portClass);
+            } else {
+                // ОШИБКА: Класс порта не получен
+                if (env->ExceptionCheck()) env->ExceptionClear();
+                std::lock_guard<std::mutex> errLock(st->errMutex);
+                sprintf(st->errBuffer, "Android RX: portClass is null");
+                st->hasError = true;
             }
+            
             if (attached) {
                 JavaVM* vm = nullptr;
                 if (env->GetJavaVM(&vm) == JNI_OK) {
                     vm->DetachCurrentThread();
                 }
             }
+        } else {
+            // ОШИБКА: JNIEnv недоступен
+            std::lock_guard<std::mutex> errLock(st->errMutex);
+            sprintf(st->errBuffer, "Android RX: GetJniEnv failed");
+            st->hasError = true;
         }
         st->isRunning = false;
         return;
