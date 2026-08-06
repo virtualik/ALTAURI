@@ -107,6 +107,7 @@ struct ComPortState {
     std::thread* readThread;
     volatile bool isRunning;
     char rxBuffer[1024];
+    int rxLen; // Хранит реальную длину бинарных данных (без зависимости от \\0)
     bool hasRxData;
     std::mutex rxMutex;
     char errBuffer[256];
@@ -341,6 +342,7 @@ static void _altauri_com_reader_loop(void* haxePtr) {
     ComPortState* st = nullptr;
     { std::lock_guard<std::mutex> mapLock(_com_map_mutex); auto it = _com_states_map.find(haxePtr); if (it == _com_states_map.end()) return; st = it->second; }
     st->isRunning = true;
+    st->rxLen = 0;
     char tempBuf[1024];
     
 #ifdef __ANDROID__
@@ -353,42 +355,53 @@ static void _altauri_com_reader_loop(void* haxePtr) {
                 jmethodID readMethod = env->GetMethodID(portClass, "read", "([BI)I");
                 if (readMethod != nullptr) {
                     jbyteArray jbuf = env->NewByteArray(1024);
-                    while (st->isRunning) {
-                        jint bytesRead = env->CallIntMethod(st->jPort, readMethod, jbuf, 100);
-                        if (bytesRead > 0) {
-                            env->GetByteArrayRegion(jbuf, 0, bytesRead, (jbyte*)tempBuf);
-                            std::lock_guard<std::mutex> rxLock(st->rxMutex);
-                            size_t currentLen = strlen(st->rxBuffer);
-                            size_t newLen = currentLen + bytesRead;
-                            if (newLen >= sizeof(st->rxBuffer)) {
-                                size_t overflow = newLen - (sizeof(st->rxBuffer) - 1);
-                                memmove(st->rxBuffer, st->rxBuffer + overflow, currentLen - overflow);
-                                st->rxBuffer[currentLen - overflow] = 0;
-                                currentLen = currentLen - overflow;
+                    if (jbuf != nullptr) {
+                        while (st->isRunning) {
+                            jint bytesRead = env->CallIntMethod(st->jPort, readMethod, jbuf, 100);
+                            if (env->ExceptionCheck()) {
+                                env->ExceptionClear();
+                                std::lock_guard<std::mutex> errLock(st->errMutex);
+                                sprintf(st->errBuffer, "Android Rx Java Exception");
+                                st->hasError = true;
+                                break;
                             }
-                            memcpy(st->rxBuffer + currentLen, tempBuf, bytesRead);
-                            st->rxBuffer[currentLen + bytesRead] = 0;
-                            st->hasRxData = true;
-                        } else if (bytesRead < 0) {
-                            if (!st->isRunning) break;
-                            std::lock_guard<std::mutex> errLock(st->errMutex);
-                            sprintf(st->errBuffer, "Android Rx Err:%d (check cable/driver)", (int)bytesRead);
-                            st->hasError = true;
-                            break;
+                            if (bytesRead > 0) {
+                                env->GetByteArrayRegion(jbuf, 0, bytesRead, (jbyte*)tempBuf);
+                                std::lock_guard<std::mutex> rxLock(st->rxMutex);
+                                int currentLen = st->rxLen;
+                                int newLen = currentLen + bytesRead;
+                                if (newLen >= sizeof(st->rxBuffer)) {
+                                    int overflow = newLen - (sizeof(st->rxBuffer) - 1);
+                                    memmove(st->rxBuffer, st->rxBuffer + overflow, currentLen - overflow);
+                                    st->rxLen = currentLen - overflow;
+                                    currentLen = st->rxLen;
+                                }
+                                memcpy(st->rxBuffer + currentLen, tempBuf, bytesRead);
+                                st->rxLen += bytesRead;
+                                st->hasRxData = true;
+                            } else if (bytesRead < 0) {
+                                if (!st->isRunning) break;
+                                std::lock_guard<std::mutex> errLock(st->errMutex);
+                                sprintf(st->errBuffer, "Android Rx Err:%d (check cable/driver)", (int)bytesRead);
+                                st->hasError = true;
+                                break;
+                            }
                         }
+                        env->DeleteLocalRef(jbuf);
+                    } else {
+                        if (env->ExceptionCheck()) env->ExceptionClear();
                     }
-                    env->DeleteLocalRef(jbuf);
+                } else {
+                    if (env->ExceptionCheck()) env->ExceptionClear();
                 }
                 env->DeleteLocalRef(portClass);
             }
-            // Отсоединяем поток ТОЛЬКО если мы прикрепили его сами в этой функции.
-            // Если его прикрепила Lime, мы его не трогаем, чтобы не сломать её управление.
-            //if (attached) {
-                //JavaVM* vm = nullptr;
-                //if (env->GetJavaVM(&vm) == JNI_OK) {
-                    //vm->DetachCurrentThread();
-                //}
-            //}
+            if (attached) {
+                JavaVM* vm = nullptr;
+                if (env->GetJavaVM(&vm) == JNI_OK) {
+                    vm->DetachCurrentThread();
+                }
+            }
         }
         st->isRunning = false;
         return;
@@ -405,19 +418,22 @@ static void _altauri_com_reader_loop(void* haxePtr) {
         bytesRead = 0;
         BOOL bResult = ReadFile(st->hComm, tempBuf, sizeof(tempBuf) - 1, &bytesRead, NULL);
         if (bResult && bytesRead > 0) {
-            tempBuf[bytesRead] = 0;
             std::lock_guard<std::mutex> rxLock(st->rxMutex);
-            size_t currentLen = strlen(st->rxBuffer);
-            size_t newLen = currentLen + bytesRead;
+            int currentLen = st->rxLen;
+            int newLen = currentLen + bytesRead;
             if (newLen >= sizeof(st->rxBuffer)) {
-                size_t overflow = newLen - (sizeof(st->rxBuffer) - 1);
+                int overflow = newLen - (sizeof(st->rxBuffer) - 1);
                 memmove(st->rxBuffer, st->rxBuffer + overflow, currentLen - overflow);
-                st->rxBuffer[currentLen - overflow] = 0; currentLen = currentLen - overflow;
+                st->rxLen = currentLen - overflow;
+                currentLen = st->rxLen;
             }
             memcpy(st->rxBuffer + currentLen, tempBuf, bytesRead);
-            st->rxBuffer[currentLen + bytesRead] = 0;
+            st->rxLen += bytesRead;
             st->hasRxData = true;
-        } else if (bResult && bytesRead == 0) { continue; }
+        } else if (bResult && bytesRead == 0) { 
+            Sleep(1); 
+            continue; 
+        }
         else {
             DWORD lastError = GetLastError();
             if (lastError == ERROR_TIMEOUT) { continue; }
@@ -431,21 +447,24 @@ static void _altauri_com_reader_loop(void* haxePtr) {
         if (st->hComm > 0) {
             bytesRead = read(st->hComm, tempBuf, sizeof(tempBuf) - 1);
             if (bytesRead > 0) {
-                tempBuf[bytesRead] = 0;
                 std::lock_guard<std::mutex> rxLock(st->rxMutex);
-                size_t currentLen = strlen(st->rxBuffer);
-                size_t newLen = currentLen + bytesRead;
+                int currentLen = st->rxLen;
+                int newLen = currentLen + bytesRead;
                 if (newLen >= sizeof(st->rxBuffer)) {
-                    size_t overflow = newLen - (sizeof(st->rxBuffer) - 1);
+                    int overflow = newLen - (sizeof(st->rxBuffer) - 1);
                     memmove(st->rxBuffer, st->rxBuffer + overflow, currentLen - overflow);
-                    st->rxBuffer[currentLen - overflow] = 0; currentLen = currentLen - overflow;
+                    st->rxLen = currentLen - overflow;
+                    currentLen = st->rxLen;
                 }
                 memcpy(st->rxBuffer + currentLen, tempBuf, bytesRead);
-                st->rxBuffer[currentLen + bytesRead] = 0;
+                st->rxLen += bytesRead;
                 st->hasRxData = true;
-            } else if (bytesRead == 0) { usleep(10000); }
+            } else if (bytesRead == 0) { 
+                usleep(10000); 
+            }
             else {
                 if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) { continue; }
+                if (errno == EBADF) { break; } 
                 std::lock_guard<std::mutex> errLock(st->errMutex);
                 sprintf(st->errBuffer, "Rx Err:%d", errno);
                 st->hasError = true;
@@ -767,10 +786,11 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     {
                         std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
                         if (_cps_stPtr->hasRxData) {
-                            {0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer);
+                            // Передаем точную длину, чтобы не обрезать бинарные \\0
+                            {0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer, _cps_stPtr->rxLen);
                             {0}->_hasPendingRx = true;
                             _cps_stPtr->hasRxData = false;
-                            _cps_stPtr->rxBuffer[0] = 0;
+                            _cps_stPtr->rxLen = 0; 
                         }
                     }
                     {
@@ -784,7 +804,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 }
             ', this);
             #end
-        }
+		}
 
         if (_hasPendingRx)
         {
@@ -973,6 +993,10 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 cfsetispeed(&options, speed); cfsetospeed(&options, speed);
                 options.c_cflag |= (CLOCAL | CREAD); options.c_cflag &= ~PARENB; options.c_cflag &= ~CSTOPB; options.c_cflag &= ~CSIZE; options.c_cflag |= CS8;
                 options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG); options.c_oflag &= ~OPOST;
+                // ФИКС POSIX: Сбрасываем input flags и ставим таймаут чтения (VMIN/VTIME)
+                options.c_iflag &= ~(IXON | IXOFF | IXANY | ICRNL | INLCR | IGNCR);
+                options.c_cc[VMIN] = 0;  
+                options.c_cc[VTIME] = 1; // Таймаут 0.1 сек (возвращает управление потока)
                 tcsetattr(fd, TCSANOW, &options); st->hComm = fd; {2} = true;
             } else { char errBuf[128]; sprintf(errBuf, "POSIX Open Failed (errno %d)", errno); {3} = ::String(errBuf); }
             #endif
@@ -1087,20 +1111,37 @@ class ComPortAtom extends Atom implements system.managers.Driver
                         jclass portClass = env->GetObjectClass(st->jPort);
                         if (portClass != nullptr) {
                             jmethodID writeMethod = env->GetMethodID(portClass, "write", "([BI)I");
-                            if (writeMethod != nullptr) {
-                                int len = strlen({1}.c_str()); jbyteArray jbuf = env->NewByteArray(len);
-                                env->SetByteArrayRegion(jbuf, 0, len, (const jbyte*){1}.c_str());
-                                env->CallIntMethod(st->jPort, writeMethod, jbuf, 1000);
-                                env->DeleteLocalRef(jbuf);
+                            if (writeMethod == nullptr) {
+                                if (env->ExceptionCheck()) env->ExceptionClear();
+                            } else {
+                                int len = {1}.length; 
+                                if (len > 0) {
+                                    jbyteArray jbuf = env->NewByteArray(len);
+                                    if (jbuf != nullptr) {
+                                        env->SetByteArrayRegion(jbuf, 0, len, (const jbyte*){1}.c_str());
+                                        env->CallIntMethod(st->jPort, writeMethod, jbuf, 1000);
+                                        if (env->ExceptionCheck()) {
+                                            env->ExceptionClear(); 
+                                            std::lock_guard<std::mutex> errLock(st->errMutex);
+                                            sprintf(st->errBuffer, "Android TX Exception (Device disconnected?)");
+                                            st->hasError = true;
+                                        }
+                                        env->DeleteLocalRef(jbuf);
+                                    } else {
+                                        if (env->ExceptionCheck()) env->ExceptionClear();
+                                    }
+                                }
                             }
                             env->DeleteLocalRef(portClass);
+                        } else {
+                            if (env->ExceptionCheck()) env->ExceptionClear();
                         }
                     }
                 }
                 #elif defined(_WIN32)
-                if (st->hComm != INVALID_HANDLE_VALUE) { DWORD bytesWritten = 0; WriteFile(st->hComm, {1}.c_str(), (DWORD)strlen({1}.c_str()), &bytesWritten, NULL); }
+                if (st->hComm != INVALID_HANDLE_VALUE) { DWORD bytesWritten = 0; WriteFile(st->hComm, {1}.c_str(), (DWORD){1}.length, &bytesWritten, NULL); }
                 #else
-                if (st->hComm >= 0) { write(st->hComm, {1}.c_str(), strlen({1}.c_str())); }
+                if (st->hComm >= 0) { write(st->hComm, {1}.c_str(), {1}.length); }
                 #endif
             }
         ', selfPtr, dataStr);
@@ -1137,7 +1178,18 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     JNIEnv* env = GetJniEnv();
                     if (env != nullptr) {
                         jclass portClass = env->GetObjectClass(st->jPort);
-                        if (portClass != nullptr) { jmethodID setDTR = env->GetMethodID(portClass, "setDTR", "(Z)V"); if (setDTR != nullptr) env->CallVoidMethod(st->jPort, setDTR, {1}); env->DeleteLocalRef(portClass); }
+                        if (portClass != nullptr) { 
+                            jmethodID setDTR = env->GetMethodID(portClass, "setDTR", "(Z)V"); 
+                            if (setDTR == nullptr) {
+                                if (env->ExceptionCheck()) env->ExceptionClear();
+                            } else {
+                                env->CallVoidMethod(st->jPort, setDTR, {1}); 
+                                if (env->ExceptionCheck()) env->ExceptionClear();
+                            }
+                            env->DeleteLocalRef(portClass); 
+                        } else {
+                            if (env->ExceptionCheck()) env->ExceptionClear();
+                        }
                     }
                 }
                 #elif defined(_WIN32)
@@ -1181,28 +1233,24 @@ class ComPortAtom extends Atom implements system.managers.Driver
     {
         if (_serialPort == null || !_isOpenFlag) return;
         _isReading = true;
+        
+        // Получаем ридер один раз
+        _reader = _serialPort.readable.getReader();
+        
         var readChunk:Void->Void = null;
         readChunk = function() {
-            if (!_isReading || _serialPort == null) return;
-            try {
-                _reader = _serialPort.readable.getReader();
-                _reader.read().then(function(result:Dynamic) {
-                    if (result.done) { _reader.releaseLock(); _reader = null; return; }
-                    if (result.value != null) {
-                        var uint8Arr:Uint8Array = result.value; var bytesArray = new Array<Int>();
-                        for (i in 0...uint8Arr.length) bytesArray.push(uint8Arr[i]);
-                        writeToBuffer(bytesArray);
-                    }
-                    _reader.releaseLock(); _reader = null;
-                    if (_isReading) readChunk();
-                })['catch'](function(err) {
-                    if (_reader != null) { try { _reader.releaseLock(); } catch(e:Dynamic) {} _reader = null; }
-                    setError("Web Serial Read Loop Error: " + Std.string(err));
-                });
-            } catch (e:Dynamic) {
-                if (_reader != null) { try { _reader.releaseLock(); } catch(ex:Dynamic) {} _reader = null; }
-                setError("Web Serial Read Loop Exception: " + Std.string(e));
-            }
+            if (!_isReading || _serialPort == null || _reader == null) return;
+            _reader.read().then(function(result:Dynamic) {
+                if (result.done) { return; }
+                if (result.value != null) {
+                    var uint8Arr:Uint8Array = result.value; var bytesArray = new Array<Int>();
+                    for (i in 0...uint8Arr.length) bytesArray.push(uint8Arr[i]);
+                    writeToBuffer(bytesArray);
+                }
+                if (_isReading) readChunk();
+            })['catch'](function(err) {
+                setError("Web Serial Read Loop Error: " + Std.string(err));
+            });
         };
         readChunk();
     }
