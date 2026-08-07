@@ -36,7 +36,7 @@ import js.lib.DataView;
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "ComPortJNI", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", __VA_ARGS__)
 
-// Объявляем глобальную переменную для хранения JavaVM
+// Declare global variable for JavaVM
 static JavaVM* g_vm = nullptr;
 
 static inline JNIEnv* GetJniEnv(bool* outAttached = nullptr) {
@@ -61,19 +61,47 @@ static inline JNIEnv* GetJniEnv(bool* outAttached = nullptr) {
 
 static inline jobject GetActivity() {
     JNIEnv* env = GetJniEnv();
-    if (env == nullptr) return nullptr;
+    if (env == nullptr) {
+        __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: GetJniEnv failed");
+        return nullptr;
+    }
 
     jclass activityThreadClass = env->FindClass("android/app/ActivityThread");
-    if (activityThreadClass == nullptr) { env->ExceptionClear(); return nullptr; }
+    if (activityThreadClass == nullptr) { 
+        env->ExceptionClear(); 
+        __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: FindClass ActivityThread failed");
+        return nullptr; 
+    }
 
     jmethodID currentActivityThreadMethod = env->GetStaticMethodID(activityThreadClass, "currentActivityThread", "()Landroid/app/ActivityThread;");
-    if (currentActivityThreadMethod == nullptr) { env->ExceptionClear(); env->DeleteLocalRef(activityThreadClass); return nullptr; }
+    if (currentActivityThreadMethod == nullptr) { 
+        env->ExceptionClear(); 
+        env->DeleteLocalRef(activityThreadClass); 
+        __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: GetStaticMethodID currentActivityThread failed");
+        return nullptr; 
+    }
 
     jobject activityThreadObj = env->CallStaticObjectMethod(activityThreadClass, currentActivityThreadMethod);
-    if (activityThreadObj == nullptr) { env->DeleteLocalRef(activityThreadClass); return nullptr; }
+    if (activityThreadObj == nullptr) { 
+        env->DeleteLocalRef(activityThreadClass); 
+        __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: currentActivityThread returned null");
+        return nullptr; 
+    }
 
     jmethodID getApplicationMethod = env->GetMethodID(activityThreadClass, "getApplication", "()Landroid/app/Application;");
+    if (getApplicationMethod == nullptr) {
+        env->DeleteLocalRef(activityThreadObj);
+        env->DeleteLocalRef(activityThreadClass);
+        __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: GetMethodID getApplication failed");
+        return nullptr;
+    }
+
     jobject context = env->CallObjectMethod(activityThreadObj, getApplicationMethod);
+    if (context == nullptr) {
+        __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: getApplication returned null");
+    } else {
+        __android_log_print(ANDROID_LOG_INFO, "ComPortJNI", "GetActivity: Successfully got Application context");
+    }
 
     env->DeleteLocalRef(activityThreadObj);
     env->DeleteLocalRef(activityThreadClass);
@@ -109,7 +137,7 @@ struct ComPortState {
     std::thread* readThread;
     volatile bool isRunning;
     char rxBuffer[1024];
-    int rxLen; // Хранит реальную длину бинарных данных (без зависимости от \\0)
+    int rxLen; // Stores actual length of binary data (independent of null-terminator)
     bool hasRxData;
     std::mutex rxMutex;
     char errBuffer[256];
@@ -120,10 +148,9 @@ struct ComPortState {
 static std::map<void*, ComPortState*> _com_states_map;
 static std::mutex _com_map_mutex;
 
-// ДОБАВЛЯЕМ ЭТОТ БЛОК:
 #ifdef __ANDROID__
 JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
-    g_vm = vm; // Сохраняем указатель на JVM
+    g_vm = vm; // Store JVM pointer
     __android_log_print(ANDROID_LOG_INFO, "ComPortJNI", "JNI_OnLoad called, JavaVM stored successfully");
     return JNI_VERSION_1_6;
 }
@@ -199,7 +226,7 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
         return false; 
     }
     
-    // 4. Проверка и запрос разрешения
+    // 4. Check and request permission
     jmethodID hasPermMethod = env->GetMethodID(mgrClass, "hasPermission", "(Landroid/hardware/usb/UsbDevice;)Z");
     jboolean hasPermission = env->CallBooleanMethod(usbManager, hasPermMethod, targetDevice);
     if (!hasPermission) {
@@ -235,7 +262,7 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
         return false; 
     }
     
-    // 5. Открытие устройства через usb-serial-for-android (Bulletproof version)
+    // 5. Open device via usb-serial-for-android
     jclass proberClass = env->FindClass("com/hoho/android/usbserial/driver/UsbSerialProber");
     bool opened = false;
     
@@ -300,24 +327,24 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
                                                 env->ExceptionClear();
                                                 if (outError) *outError = "Java Exception in port.open()";
                                             } else {
-												env->CallVoidMethod(port, setParams, baudRate, 8, 1, 0);
-												if (env->ExceptionCheck()) {
-													env->ExceptionClear();
-													if (outError) *outError = "Java Exception in setParameters()";
-												} else {
-													// === ВАЖНО ДЛЯ PL2303: Принудительно поднимаем DTR и RTS ===
-													// Без этого многие адаптеры (PL2303, CH340) не передают данные в USB (RX).
-													jmethodID setDTRMethod = env->GetMethodID(portClass, "setDTR", "(Z)V");
-													jmethodID setRTSMethod = env->GetMethodID(portClass, "setRTS", "(Z)V");
-													if (setDTRMethod != nullptr) env->CallVoidMethod(port, setDTRMethod, JNI_TRUE);
-													if (setRTSMethod != nullptr) env->CallVoidMethod(port, setRTSMethod, JNI_TRUE);
-													if (env->ExceptionCheck()) env->ExceptionClear();
-													// =========================================================
+                                                env->CallVoidMethod(port, setParams, baudRate, 8, 1, 0);
+                                                if (env->ExceptionCheck()) {
+                                                    env->ExceptionClear();
+                                                    if (outError) *outError = "Java Exception in setParameters()";
+                                                } else {
+                                                    // === IMPORTANT FOR PL2303: Force DTR and RTS high ===
+                                                    // Without this, many adapters (PL2303, CH340) wont pass USB data (RX).
+                                                    jmethodID setDTRMethod = env->GetMethodID(portClass, "setDTR", "(Z)V");
+                                                    jmethodID setRTSMethod = env->GetMethodID(portClass, "setRTS", "(Z)V");
+                                                    if (setDTRMethod != nullptr) env->CallVoidMethod(port, setDTRMethod, JNI_TRUE);
+                                                    if (setRTSMethod != nullptr) env->CallVoidMethod(port, setRTSMethod, JNI_TRUE);
+                                                    if (env->ExceptionCheck()) env->ExceptionClear();
+                                                    // =========================================================
 
-													st->jPort = env->NewGlobalRef(port);
-													st->jConnection = env->NewGlobalRef(connection);
-													opened = true;
-												}
+                                                    st->jPort = env->NewGlobalRef(port);
+                                                    st->jConnection = env->NewGlobalRef(connection);
+                                                    opened = true;
+                                                }
                                             }
                                         }
                                         env->DeleteLocalRef(portClass); 
@@ -338,7 +365,7 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
         env->DeleteLocalRef(proberClass);
     }
     
-    // 6. Финальная очистка
+    // 6. Final cleanup
     env->DeleteLocalRef(targetDevice); 
     env->DeleteLocalRef(mgrClass); 
     env->DeleteLocalRef(usbManager); 
@@ -468,7 +495,6 @@ static void _altauri_com_reader_loop(void* haxePtr) {
         if (env != nullptr) {
             jclass portClass = env->GetObjectClass(st->jPort);
             if (portClass != nullptr) {
-                // Ищем метод read: int read(byte[] dest, int timeout)
                 jmethodID readMethod = env->GetMethodID(portClass, "read", "([BI)I");
                 if (readMethod != nullptr) {
                     jbyteArray jbuf = env->NewByteArray(1024);
@@ -529,7 +555,6 @@ static void _altauri_com_reader_loop(void* haxePtr) {
                 }
                 env->DeleteLocalRef(portClass);
             } else {
-                // ОШИБКА: Класс порта не получен
                 if (env->ExceptionCheck()) env->ExceptionClear();
                 std::lock_guard<std::mutex> errLock(st->errMutex);
                 sprintf(st->errBuffer, "Android RX: portClass is null");
@@ -543,7 +568,6 @@ static void _altauri_com_reader_loop(void* haxePtr) {
                 }
             }
         } else {
-            // ОШИБКА: JNIEnv недоступен
             std::lock_guard<std::mutex> errLock(st->errMutex);
             sprintf(st->errBuffer, "Android RX: GetJniEnv failed");
             st->hasError = true;
@@ -626,14 +650,12 @@ extern "C" const char* androidScanUSBDevices() {
     static std::string result;
     result.clear();
     
-    // 1. Получаем JNIEnv и Activity напрямую через SDL2
     JNIEnv* env = GetJniEnv();
     if (!env) return "";
     
     jobject context = GetActivity();
     if (!context) return "";
     
-    // 2. Получаем UsbManager
     jclass ctxClass = env->GetObjectClass(context);
     jmethodID getSysServ = env->GetMethodID(ctxClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
     jstring usbStr = env->NewStringUTF("usb");
@@ -645,7 +667,6 @@ extern "C" const char* androidScanUSBDevices() {
         return "";
     }
     
-    // 3. Получаем список устройств (ваша исходная логика итерации)
     jclass mgrClass = env->GetObjectClass(usbManager);
     jmethodID getDeviceList = env->GetMethodID(mgrClass, "getDeviceList", "()Ljava/util/HashMap;");
     jobject deviceMap = env->CallObjectMethod(usbManager, getDeviceList);
@@ -695,7 +716,7 @@ extern "C" const char* androidScanUSBDevices() {
         env->ReleaseStringUTFChars(deviceNameStr, deviceNameChars);
         
         char buffer[256];
-        // ИСПРАВЛЕНО: \\n вместо \\n, чтобы Haxe не превращал это в реальный перенос строки
+        // Fixed: using \\n to prevent Haxe from turning it into a real newline
         snprintf(buffer, sizeof(buffer), "%04X:%04X:%s\\n", vid, pid, deviceName.c_str());
         result += buffer;
         
@@ -704,7 +725,6 @@ extern "C" const char* androidScanUSBDevices() {
         env->DeleteLocalRef(device);
     }
     
-    // 4. Финальная очистка JNI-ссылок
     env->DeleteLocalRef(iteratorClass);
     env->DeleteLocalRef(iterator);
     env->DeleteLocalRef(collectionClass);
@@ -714,7 +734,7 @@ extern "C" const char* androidScanUSBDevices() {
     env->DeleteLocalRef(mgrClass);
     env->DeleteLocalRef(usbManager);
     env->DeleteLocalRef(ctxClass);
-    env->DeleteLocalRef(context); // Очищаем ссылку на Activity, полученную от SDL
+    env->DeleteLocalRef(context);
     
     return result.c_str();
 }
@@ -804,7 +824,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
     private var _isWaitingForUsbPermission:Bool = false;
     private var _usbPermissionTimeout:Float = 0.0;
     #end
-	
+    
     private var _rxTimer:Float = 0.0;
     private var _txTimer:Float = 0.0;
     private var _errTimer:Float = 0.0;
@@ -814,10 +834,10 @@ class ComPortAtom extends Atom implements system.managers.Driver
 
     // ===  Для авто-детекта usb подключений ===
     #if android
-    private var _usbPollTimer:Float = 1.0;
+    private var _usbPollAccumulator:Float = 0.0;
     private var _lastUsbDeviceCount:Int = -1;
     #end
-	
+    
     #if cpp
     #elseif html5
     private var _serialPort:Dynamic = null;
@@ -859,7 +879,6 @@ class ComPortAtom extends Atom implements system.managers.Driver
             null, id, "ComPortAtom", true
         );
         initRingBuffer(DEFAULT_BUFFER_SIZE);
-        init();
     }
 
     private function initRingBuffer(size:Int):Void
@@ -911,56 +930,48 @@ class ComPortAtom extends Atom implements system.managers.Driver
         Impulsys.quickEmit(EventType.COMPORT_RX_DATA, rxString);
     }
 
-    override public function init():Void {}
-
     override public function update(dt:Float):Void
     {
         if (_isDisposed) return;
         readConfiguration();
         if (!_enabled) return;
-
+        
         #if android
-        // === Авто-детект подключения/отключения USB ===
-        if (!_isOpenFlag) { // Опрашиваем только если порт закрыт
-            _usbPollTimer -= dt;
-            if (_usbPollTimer <= 0) {
-                _usbPollTimer = 1.0; // Проверяем раз в секунду
-                var currentCount = getUsbDeviceCount();
-                
+        // === Надежный авто-детект USB через update(dt) ===
+        _usbPollAccumulator += dt;
+        if (_usbPollAccumulator >= 1.0) { // Проверяем ровно 1 раз в секунду
+            _usbPollAccumulator = 0.0;
+            
+            // Проверяем только если порт сейчас НЕ открыт
+            if (!_isOpenFlag) {
+                var currentCount:Int = getUsbDeviceCount();
                 trace("ComPortAtom USB Poll: Count = " + currentCount + ", Last = " + _lastUsbDeviceCount);
                 
                 if (currentCount != _lastUsbDeviceCount && currentCount >= 0) {
                     _lastUsbDeviceCount = currentCount;
-                    trace("ComPortAtom: USB devices changed! Emitting signal...");
-                    // Отправляем сигнал виджету, что список изменился
+                    trace("ComPortAtom: USB devices changed! Count is now " + currentCount);
                     Impulsys.quickEmit(EventType.COMPORT_STATUS, "USB_DEVICES_CHANGED");
                 }
             }
-        }
-        #end
-		
-        #if android
-        // === Авто-открытие порта после выдачи прав Android ===
-        if (_isWaitingForUsbPermission && !_isOpenFlag) {
-            _usbPermissionTimeout -= dt;
-            if (_usbPermissionTimeout <= 0) {
-                _isWaitingForUsbPermission = false;
-                setError("USB Permission request timed out or denied.");
-            } else {
-                var hasPerm:Bool = false;
-                untyped __cpp__('
-                    {0} = checkAndroidUsbPermission({1}, {2});
-                ', hasPerm, _selectedVid, _selectedPid);
-
-                if (hasPerm) {
-                    trace("ComPortAtom: USB Permission granted! Auto-opening port...");
+            
+            // === Авто-открытие порта после выдачи прав Android ===
+            if (_isWaitingForUsbPermission) {
+                _usbPermissionTimeout -= 1.0; // Отнимаем 1 секунду, так как мы здесь раз в секунду
+                if (_usbPermissionTimeout <= 0) {
                     _isWaitingForUsbPermission = false;
-                    openDevice(); // Пробуем открыть еще раз!
+                    setError("USB Permission request timed out or denied.");
+                } else {
+                    var hasPerm:Bool = untyped __cpp__('(bool)checkAndroidUsbPermission({0}, {1})', _selectedVid, _selectedPid);
+                    if (hasPerm) {
+                        trace("ComPortAtom: USB Permission granted! Auto-opening port...");
+                        _isWaitingForUsbPermission = false;
+                        openDevice(); // Пробуем открыть еще раз!
+                    }
                 }
             }
         }
         #end
-		
+        
         var testRxC = getInput("testRxData");
         if (testRxC != null && testRxC.value != null && testRxC.value != "")
         {
@@ -985,7 +996,6 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     {
                         std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
                         if (_cps_stPtr->hasRxData) {
-                            // Передаем точную длину, чтобы не обрезать бинарные \\0
                             {0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer, _cps_stPtr->rxLen);
                             {0}->_hasPendingRx = true;
                             _cps_stPtr->hasRxData = false;
@@ -1003,7 +1013,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 }
             ', this);
             #end
-		}
+        }
 
         if (_hasPendingRx)
         {
@@ -1024,16 +1034,11 @@ class ComPortAtom extends Atom implements system.managers.Driver
             if (errTick != null) { errTick.value = true; _errTimer = PULSE_DURATION; }
             Impulsys.quickEmit(EventType.COMPORT_ERROR, _pendingErrStr);
             
-            // === Аварийное закрытие при ошибке (например, отключение USB) ===
             if (_isOpenFlag) {
                 trace('ComPortAtom: Port error detected. Forcing closeDevice()...');
                 closeDevice();
-                
-                // --- Сбрасываем выбранное устройство ---
                 _selectedVid = 0;
                 _selectedPid = 0;
-                
-                // Сообщаем UI, что статус изменился (порт закрыт, устройство потеряно)
                 Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
             }
         }
@@ -1143,17 +1148,13 @@ class ComPortAtom extends Atom implements system.managers.Driver
         }
         return result;
     }
-	
-	#if android
+    
+    #if android
     public function getUsbDeviceCount():Int {
-        var count:Int = -1;
-        untyped __cpp__('
-            {0} = getUsbDeviceCount();
-        ', count);
-        return count;
+        return untyped __cpp__('(int)getUsbDeviceCount()');
     }
     #end
-	
+    
     public function setSelectedDevice(vid:Int, pid:Int):Void
     {
         _selectedVid = vid;
@@ -1215,10 +1216,10 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 cfsetispeed(&options, speed); cfsetospeed(&options, speed);
                 options.c_cflag |= (CLOCAL | CREAD); options.c_cflag &= ~PARENB; options.c_cflag &= ~CSTOPB; options.c_cflag &= ~CSIZE; options.c_cflag |= CS8;
                 options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG); options.c_oflag &= ~OPOST;
-                // ФИКС POSIX: Сбрасываем input flags и ставим таймаут чтения (VMIN/VTIME)
+                // POSIX FIX: Reset input flags and set read timeout (VMIN/VTIME)
                 options.c_iflag &= ~(IXON | IXOFF | IXANY | ICRNL | INLCR | IGNCR);
                 options.c_cc[VMIN] = 0;  
-                options.c_cc[VTIME] = 1; // Таймаут 0.1 сек (возвращает управление потока)
+                options.c_cc[VTIME] = 1; // Timeout 0.1 sec (returns control to thread)
                 tcsetattr(fd, TCSANOW, &options); st->hComm = fd; {2} = true;
             } else { char errBuf[128]; sprintf(errBuf, "POSIX Open Failed (errno %d)", errno); {3} = ::String(errBuf); }
             #endif
@@ -1238,11 +1239,10 @@ class ComPortAtom extends Atom implements system.managers.Driver
         }
         else
         {
-			#if android
-            // Если ошибка связана с запросом прав, включаем авто-ожидание
+            #if android
             if (errMessage.indexOf("Requesting USB permission") >= 0) {
                 _isWaitingForUsbPermission = true;
-                _usbPermissionTimeout = 15.0; // Ждем до 15 секунд
+                _usbPermissionTimeout = 15.0;
                 setError("Waiting for USB permission...");
             } else {
                 _isWaitingForUsbPermission = false;
@@ -1252,7 +1252,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
             setError(errMessage != "" ? errMessage : 'Failed to open serial port: $portName');
             #end
         }
-		
+        
         #elseif html5
         if (Syntax.code("typeof navigator !== 'undefined' && 'serial' in navigator")) openWebSerial(baudRate);
         else if (Syntax.code("typeof navigator !== 'undefined' && 'usb' in navigator")) openWebUSB(baudRate);
@@ -1278,11 +1278,11 @@ class ComPortAtom extends Atom implements system.managers.Driver
                             jmethodID portClose = env->GetMethodID(portClass, "close", "()V");
                             if (portClose != nullptr) {
                                 env->CallVoidMethod(st->jPort, portClose);
-                                // === ВАЖНО: Игнорируем ошибку, если устройство уже физически отключено ===
+                                // IMPORTANT: Ignore error if device is already physically disconnected
                                 if (env->ExceptionCheck()) env->ExceptionClear();
                             }
                             env->DeleteGlobalRef(st->jPort);
-                            st->jPort = nullptr; // Очищаем указатель, чтобы не закрыть дважды
+                            st->jPort = nullptr; // Clear pointer to prevent double close
                             
                             if (st->jConnection != nullptr) {
                                 jclass connClass = env->GetObjectClass(st->jConnection);
@@ -1290,7 +1290,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                                     jmethodID connClose = env->GetMethodID(connClass, "close", "()V"); 
                                     if (connClose != nullptr) {
                                         env->CallVoidMethod(st->jConnection, connClose);
-                                        if (env->ExceptionCheck()) env->ExceptionClear(); // Игнорируем ошибку
+                                        if (env->ExceptionCheck()) env->ExceptionClear();
                                     } 
                                     env->DeleteLocalRef(connClass); 
                                 }
@@ -1327,7 +1327,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     var openOut = getOutput("isOpen"); if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
                     Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
                     trace('ComPortAtom: Closed Web Serial port'); })
-					['catch'](function(err) { setError("Error closing Web Serial port: " + Std.string(err)); });
+                    ['catch'](function(err) { setError("Error closing Web Serial port: " + Std.string(err)); });
             } catch (e:Dynamic) { setError("Exception closing Web Serial port: " + Std.string(e)); }
         }
         else if (_connectionType == "usb" && _usbDevice != null)
@@ -1338,7 +1338,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     var openOut = getOutput("isOpen"); if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
                     Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
                     trace('ComPortAtom: Closed WebUSB device'); })
-					['catch'](function(err) { setError("Error closing WebUSB device: " + Std.string(err)); });
+                    ['catch'](function(err) { setError("Error closing WebUSB device: " + Std.string(err)); });
             } catch (e:Dynamic) { setError("Exception closing WebUSB device: " + Std.string(e)); }
         }
         #end
@@ -1360,12 +1360,12 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     if (env != nullptr) {
                         jclass portClass = env->GetObjectClass(st->jPort);
                         if (portClass != nullptr) {
-							jmethodID writeMethod = env->GetMethodID(portClass, "write", "([BI)V"); // V вместо I (void не int)
+                            jmethodID writeMethod = env->GetMethodID(portClass, "write", "([BI)V"); // V instead of I (void not int)
                             if (writeMethod == nullptr) {
                                 if (env->ExceptionCheck()) env->ExceptionClear();
                                 LOGE("Android TX: write method not found");
                             } else {
-                                // БЕЗОПАСНОЕ получение длины строки
+                                // SAFE string length retrieval
                                 const char* dataChars = {1}.c_str();
                                 int len = strlen(dataChars);
                                 if (len > 0) {
@@ -1378,7 +1378,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                                         env->CallVoidMethod(st->jPort, writeMethod, jbuf, 1000);
                                         
                                         if (env->ExceptionCheck()) {
-                                            env->ExceptionDescribe(); // Выведет Java стектрейс в Logcat!
+                                            env->ExceptionDescribe(); // Will print Java stacktrace to Logcat
                                             env->ExceptionClear();
                                             LOGE("Android TX Java Exception in write()");
                                             std::lock_guard<std::mutex> errLock(st->errMutex);
@@ -1495,7 +1495,6 @@ class ComPortAtom extends Atom implements system.managers.Driver
         if (_serialPort == null || !_isOpenFlag) return;
         _isReading = true;
         
-        // Получаем ридер один раз
         _reader = _serialPort.readable.getReader();
         
         var readChunk:Void->Void = null;
