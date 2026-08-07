@@ -1,11 +1,3 @@
-/*### Key Improvements Summary
-1. **Android Java `usb-serial-for-android` + JNI Integration**: Integrated full Android USB Host API and JNI layer.
-2. **Android USB Device Scanner**: Added `scanUSBDevices()` returning "VID:PID:DeviceName".
-3. **Device Selection by VID:PID**: Added `_selectedVid` and `_selectedPid` fields.
-4. **Cross-Platform Error Delivery**: `_hasPendingErr` dispatched to `error`/`errorTick` contacts and `Impulsys`.
-5. **Safe Memory Copy in C++**: Replaced `strncpy` with `memcpy` to prevent null-byte truncation.
-6. **English Documentation & ASCII Preservation**: All comments in English, all ASCII diagrams retained.
-*/
 package library.drivers;
 
 import core.base.Atom;
@@ -30,6 +22,7 @@ import js.lib.DataView;
 #include <mutex>
 #include <map>
 #include <stdio.h>
+
 #ifdef __ANDROID__
 #include <jni.h>
 #include <android/log.h>
@@ -65,29 +58,25 @@ static inline jobject GetActivity() {
         __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: GetJniEnv failed");
         return nullptr;
     }
-
     jclass activityThreadClass = env->FindClass("android/app/ActivityThread");
-    if (activityThreadClass == nullptr) { 
-        env->ExceptionClear(); 
+    if (activityThreadClass == nullptr) {
+        env->ExceptionClear();
         __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: FindClass ActivityThread failed");
-        return nullptr; 
+        return nullptr;
     }
-
     jmethodID currentActivityThreadMethod = env->GetStaticMethodID(activityThreadClass, "currentActivityThread", "()Landroid/app/ActivityThread;");
-    if (currentActivityThreadMethod == nullptr) { 
-        env->ExceptionClear(); 
-        env->DeleteLocalRef(activityThreadClass); 
+    if (currentActivityThreadMethod == nullptr) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(activityThreadClass);
         __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: GetStaticMethodID currentActivityThread failed");
-        return nullptr; 
+        return nullptr;
     }
-
     jobject activityThreadObj = env->CallStaticObjectMethod(activityThreadClass, currentActivityThreadMethod);
-    if (activityThreadObj == nullptr) { 
-        env->DeleteLocalRef(activityThreadClass); 
+    if (activityThreadObj == nullptr) {
+        env->DeleteLocalRef(activityThreadClass);
         __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: currentActivityThread returned null");
-        return nullptr; 
+        return nullptr;
     }
-
     jmethodID getApplicationMethod = env->GetMethodID(activityThreadClass, "getApplication", "()Landroid/app/Application;");
     if (getApplicationMethod == nullptr) {
         env->DeleteLocalRef(activityThreadObj);
@@ -95,20 +84,19 @@ static inline jobject GetActivity() {
         __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: GetMethodID getApplication failed");
         return nullptr;
     }
-
     jobject context = env->CallObjectMethod(activityThreadObj, getApplicationMethod);
     if (context == nullptr) {
         __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: getApplication returned null");
     } else {
         __android_log_print(ANDROID_LOG_INFO, "ComPortJNI", "GetActivity: Successfully got Application context");
     }
-
     env->DeleteLocalRef(activityThreadObj);
     env->DeleteLocalRef(activityThreadClass);
     return context;
 }
 #endif
 ')
+
 @:cppFileCode('
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -161,7 +149,6 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
         if (outError) *outError = "Failed to get JNI Env via JNI_OnLoad";
         return false;
     }
-    
     jobject context = GetActivity();
     if (context == nullptr) {
         if (outError) *outError = "Failed to get Application Context";
@@ -173,6 +160,7 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
     jstring usbStr = env->NewStringUTF("usb");
     jobject usbManager = env->CallObjectMethod(context, getSysServ, usbStr);
     env->DeleteLocalRef(usbStr);
+    
     if (usbManager == nullptr) {
         if (outError) *outError = "UsbManager is null";
         return false;
@@ -190,6 +178,7 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
     jmethodID valuesMethod = env->GetMethodID(mapClass, "values", "()Ljava/util/Collection;");
     jobject values = env->CallObjectMethod(deviceMap, valuesMethod);
     jobject targetDevice = nullptr;
+    
     if (values != nullptr) {
         jclass collectionClass = env->GetObjectClass(values);
         jmethodID iteratorMethod = env->GetMethodID(collectionClass, "iterator", "()Ljava/util/Iterator;");
@@ -197,14 +186,26 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
         jclass iteratorClass = env->GetObjectClass(iterator);
         jmethodID hasNext = env->GetMethodID(iteratorClass, "hasNext", "()Z");
         jmethodID next = env->GetMethodID(iteratorClass, "next", "()Ljava/lang/Object;");
+        
         while (env->CallBooleanMethod(iterator, hasNext)) {
+            if (env->ExceptionCheck()) { env->ExceptionClear(); break; }
             jobject device = env->CallObjectMethod(iterator, next);
+            if (env->ExceptionCheck()) { env->ExceptionClear(); if(device) env->DeleteLocalRef(device); continue; }
             if (!device) continue;
+            
             jclass deviceClass = env->GetObjectClass(device);
+            if (!deviceClass) { // ЗАЩИТА ОТ ZOMBIE-ОБЪЕКТОВ
+                if (env->ExceptionCheck()) env->ExceptionClear();
+                env->DeleteLocalRef(device);
+                continue;
+            }
+            
             jmethodID getVendorId = env->GetMethodID(deviceClass, "getVendorId", "()I");
             jmethodID getProductId = env->GetMethodID(deviceClass, "getProductId", "()I");
             int vid = env->CallIntMethod(device, getVendorId);
             int pid = env->CallIntMethod(device, getProductId);
+            if (env->ExceptionCheck()) env->ExceptionClear();
+            
             if ((searchVid == vid && searchPid == pid) || (searchVid == 0 && searchPid == 0 && targetDevice == nullptr)) {
                 targetDevice = device;
                 env->DeleteLocalRef(deviceClass);
@@ -213,53 +214,60 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
             env->DeleteLocalRef(deviceClass);
             env->DeleteLocalRef(device);
         }
-        env->DeleteLocalRef(iteratorClass); 
-        env->DeleteLocalRef(iterator); 
-        env->DeleteLocalRef(collectionClass); 
+        if (env->ExceptionCheck()) env->ExceptionClear();
+		
+        env->DeleteLocalRef(iteratorClass);
+        env->DeleteLocalRef(iterator);
+        env->DeleteLocalRef(collectionClass);
         env->DeleteLocalRef(values);
     }
-    env->DeleteLocalRef(mapClass); 
+    env->DeleteLocalRef(mapClass);
     env->DeleteLocalRef(deviceMap);
     
-    if (targetDevice == nullptr) { 
-        if (outError) *outError = "No USB Serial Devices Found on Android"; 
-        return false; 
+    if (targetDevice == nullptr) {
+        if (outError) *outError = "No USB Serial Devices Found on Android";
+        return false;
     }
     
     // 4. Check and request permission
     jmethodID hasPermMethod = env->GetMethodID(mgrClass, "hasPermission", "(Landroid/hardware/usb/UsbDevice;)Z");
     jboolean hasPermission = env->CallBooleanMethod(usbManager, hasPermMethod, targetDevice);
+    
     if (!hasPermission) {
         jclass intentClass = env->FindClass("android/content/Intent");
         jmethodID intentCtor = env->GetMethodID(intentClass, "<init>", "(Ljava/lang/String;)V");
         jstring actionStr = env->NewStringUTF("com.virtualik.altauri.USB_PERMISSION");
         jobject intent = env->NewObject(intentClass, intentCtor, actionStr);
+        
         jclass versionClass = env->FindClass("android/os/Build$VERSION");
         jfieldID sdkIntField = env->GetStaticFieldID(versionClass, "SDK_INT", "I");
         int sdkInt = env->GetStaticIntField(versionClass, sdkIntField);
         int flags = (sdkInt >= 31) ? 0x02000000 : 0; // PendingIntent.FLAG_MUTABLE for Android 12+
+        
         jclass pendingIntentClass = env->FindClass("android/app/PendingIntent");
         jmethodID getBroadcastMethod = env->GetStaticMethodID(pendingIntentClass, "getBroadcast", "(Landroid/content/Context;ILandroid/content/Intent;I)Landroid/app/PendingIntent;");
         jobject pendingIntent = env->CallStaticObjectMethod(pendingIntentClass, getBroadcastMethod, context, 0, intent, flags);
+        
         jmethodID reqPermMethod = env->GetMethodID(mgrClass, "requestPermission", "(Landroid/hardware/usb/UsbDevice;Landroid/app/PendingIntent;)V");
         if (reqPermMethod != nullptr) {
             env->CallVoidMethod(usbManager, reqPermMethod, targetDevice, pendingIntent);
         }
         if (env->ExceptionCheck()) env->ExceptionClear();
         
-        env->DeleteLocalRef(pendingIntent); 
-        env->DeleteLocalRef(pendingIntentClass); 
-        env->DeleteLocalRef(intent); 
+        env->DeleteLocalRef(pendingIntent);
+        env->DeleteLocalRef(pendingIntentClass);
+        env->DeleteLocalRef(intent);
         env->DeleteLocalRef(actionStr);
-        env->DeleteLocalRef(intentClass); 
-        env->DeleteLocalRef(versionClass); 
-        env->DeleteLocalRef(targetDevice); 
+        env->DeleteLocalRef(intentClass);
+        env->DeleteLocalRef(versionClass);
+        env->DeleteLocalRef(targetDevice);
         env->DeleteLocalRef(mgrClass);
-        env->DeleteLocalRef(usbManager); 
-        env->DeleteLocalRef(ctxClass); 
+        env->DeleteLocalRef(usbManager);
+        env->DeleteLocalRef(ctxClass);
         env->DeleteLocalRef(context);
+        
         if (outError) *outError = "Requesting USB permission... Please ALLOW in the dialog and press OPEN again.";
-        return false; 
+        return false;
     }
     
     // 5. Open device via usb-serial-for-android
@@ -317,7 +325,6 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
                                         jclass portClass = env->GetObjectClass(port);
                                         jmethodID portOpen = env->GetMethodID(portClass, "open", "(Landroid/hardware/usb/UsbDeviceConnection;)V");
                                         jmethodID setParams = env->GetMethodID(portClass, "setParameters", "(IIII)V");
-                                        
                                         if (portOpen == nullptr || setParams == nullptr) {
                                             if (env->ExceptionCheck()) env->ExceptionClear();
                                             if (outError) *outError = "open or setParameters method not found";
@@ -327,31 +334,34 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
                                                 env->ExceptionClear();
                                                 if (outError) *outError = "Java Exception in port.open()";
                                             } else {
+                                                // Пытаемся установить параметры
                                                 env->CallVoidMethod(port, setParams, baudRate, 8, 1, 0);
                                                 if (env->ExceptionCheck()) {
                                                     env->ExceptionClear();
-                                                    if (outError) *outError = "Java Exception in setParameters()";
-                                                } else {
-                                                    // === IMPORTANT FOR PL2303: Force DTR and RTS high ===
-                                                    // Without this, many adapters (PL2303, CH340) wont pass USB data (RX).
-                                                    jmethodID setDTRMethod = env->GetMethodID(portClass, "setDTR", "(Z)V");
-                                                    jmethodID setRTSMethod = env->GetMethodID(portClass, "setRTS", "(Z)V");
-                                                    if (setDTRMethod != nullptr) env->CallVoidMethod(port, setDTRMethod, JNI_TRUE);
-                                                    if (setRTSMethod != nullptr) env->CallVoidMethod(port, setRTSMethod, JNI_TRUE);
-                                                    if (env->ExceptionCheck()) env->ExceptionClear();
-                                                    // =========================================================
-
-                                                    st->jPort = env->NewGlobalRef(port);
-                                                    st->jConnection = env->NewGlobalRef(connection);
-                                                    opened = true;
+                                                    // CDC devices (like Arduino Leonardo) often reject setParameters.
+                                                    // We ignore this error and continue, as the port is already open.
+                                                    LOGI("Java Exception in setParameters() ignored (CDC device?).");
                                                 }
+                                                
+                                                // === IMPORTANT FOR PL2303: Force DTR and RTS high ===
+                                                // Этот блок теперь выполнится ВСЕГДА, даже если setParameters упала
+                                                jmethodID setDTRMethod = env->GetMethodID(portClass, "setDTR", "(Z)V");
+                                                jmethodID setRTSMethod = env->GetMethodID(portClass, "setRTS", "(Z)V");
+                                                if (setDTRMethod != nullptr) env->CallVoidMethod(port, setDTRMethod, JNI_TRUE);
+                                                if (setRTSMethod != nullptr) env->CallVoidMethod(port, setRTSMethod, JNI_TRUE);
+                                                if (env->ExceptionCheck()) env->ExceptionClear();
+                                                // =========================================================
+
+                                                st->jPort = env->NewGlobalRef(port);
+                                                st->jConnection = env->NewGlobalRef(connection);
+                                                opened = true;
                                             }
-                                        }
-                                        env->DeleteLocalRef(portClass); 
-                                        env->DeleteLocalRef(port); 
+                                        }									
+                                        env->DeleteLocalRef(portClass);
+                                        env->DeleteLocalRef(port);
                                     }
-                                    env->DeleteLocalRef(portsList); 
-                                    env->DeleteLocalRef(listClass); 
+                                    env->DeleteLocalRef(portsList);
+                                    env->DeleteLocalRef(listClass);
                                 }
                             }
                             env->DeleteLocalRef(drvClass);
@@ -362,16 +372,15 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
                 }
             }
         }
-        env->DeleteLocalRef(proberClass);
     }
+    env->DeleteLocalRef(proberClass);
     
     // 6. Final cleanup
-    env->DeleteLocalRef(targetDevice); 
-    env->DeleteLocalRef(mgrClass); 
-    env->DeleteLocalRef(usbManager); 
-    env->DeleteLocalRef(ctxClass); 
-    env->DeleteLocalRef(context); 
-    
+    env->DeleteLocalRef(targetDevice);
+    env->DeleteLocalRef(mgrClass);
+    env->DeleteLocalRef(usbManager);
+    env->DeleteLocalRef(ctxClass);
+    env->DeleteLocalRef(context);
     return opened;
 }
 #endif
@@ -382,24 +391,24 @@ extern "C" bool checkAndroidUsbPermission(int searchVid, int searchPid) {
     if (!env) return false;
     jobject context = GetActivity();
     if (!context) return false;
-
+    
     jclass ctxClass = env->GetObjectClass(context);
     jmethodID getSysServ = env->GetMethodID(ctxClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
     jstring usbStr = env->NewStringUTF("usb");
     jobject usbManager = env->CallObjectMethod(context, getSysServ, usbStr);
     env->DeleteLocalRef(usbStr);
     if (!usbManager) { env->DeleteLocalRef(ctxClass); env->DeleteLocalRef(context); return false; }
-
+    
     jclass mgrClass = env->GetObjectClass(usbManager);
     jmethodID getDeviceList = env->GetMethodID(mgrClass, "getDeviceList", "()Ljava/util/HashMap;");
     jobject deviceMap = env->CallObjectMethod(usbManager, getDeviceList);
     if (!deviceMap) { env->DeleteLocalRef(mgrClass); env->DeleteLocalRef(usbManager); env->DeleteLocalRef(ctxClass); env->DeleteLocalRef(context); return false; }
-
+    
     jclass mapClass = env->GetObjectClass(deviceMap);
     jmethodID valuesMethod = env->GetMethodID(mapClass, "values", "()Ljava/util/Collection;");
     jobject values = env->CallObjectMethod(deviceMap, valuesMethod);
     bool hasPermission = false;
-
+    
     if (values != nullptr) {
         jclass collectionClass = env->GetObjectClass(values);
         jmethodID iteratorMethod = env->GetMethodID(collectionClass, "iterator", "()Ljava/util/Iterator;");
@@ -407,26 +416,41 @@ extern "C" bool checkAndroidUsbPermission(int searchVid, int searchPid) {
         jclass iteratorClass = env->GetObjectClass(iterator);
         jmethodID hasNext = env->GetMethodID(iteratorClass, "hasNext", "()Z");
         jmethodID next = env->GetMethodID(iteratorClass, "next", "()Ljava/lang/Object;");
-
+        
         while (env->CallBooleanMethod(iterator, hasNext)) {
+            if (env->ExceptionCheck()) { env->ExceptionClear(); break; }
             jobject device = env->CallObjectMethod(iterator, next);
+            if (env->ExceptionCheck()) { env->ExceptionClear(); if(device) env->DeleteLocalRef(device); continue; }
             if (!device) continue;
+            
             jclass deviceClass = env->GetObjectClass(device);
+            if (!deviceClass) { // ЗАЩИТА ОТ ZOMBIE-ОБЪЕКТОВ
+                if (env->ExceptionCheck()) env->ExceptionClear();
+                env->DeleteLocalRef(device);
+                continue;
+            }
+            
             jmethodID getVendorId = env->GetMethodID(deviceClass, "getVendorId", "()I");
             jmethodID getProductId = env->GetMethodID(deviceClass, "getProductId", "()I");
             int vid = env->CallIntMethod(device, getVendorId);
             int pid = env->CallIntMethod(device, getProductId);
-
-            if (searchVid == vid && searchPid == pid) {
+            if (env->ExceptionCheck()) env->ExceptionClear();
+            
+            bool match = (searchVid == vid && searchPid == pid) || (searchVid == 0 && searchPid == 0);
+            if (match) {
                 jmethodID hasPermMethod = env->GetMethodID(mgrClass, "hasPermission", "(Landroid/hardware/usb/UsbDevice;)Z");
                 hasPermission = env->CallBooleanMethod(usbManager, hasPermMethod, device);
+                if (env->ExceptionCheck()) env->ExceptionClear();
                 env->DeleteLocalRef(deviceClass);
                 env->DeleteLocalRef(device);
                 break;
+            } else {
+                env->DeleteLocalRef(deviceClass);
+                env->DeleteLocalRef(device);
             }
-            env->DeleteLocalRef(deviceClass);
-            env->DeleteLocalRef(device);
         }
+        if (env->ExceptionCheck()) env->ExceptionClear();
+		
         env->DeleteLocalRef(iteratorClass); env->DeleteLocalRef(iterator); env->DeleteLocalRef(collectionClass); env->DeleteLocalRef(values);
     }
     env->DeleteLocalRef(mapClass); env->DeleteLocalRef(deviceMap); env->DeleteLocalRef(mgrClass); env->DeleteLocalRef(usbManager); env->DeleteLocalRef(ctxClass); env->DeleteLocalRef(context);
@@ -437,9 +461,9 @@ extern "C" bool checkAndroidUsbPermission(int searchVid, int searchPid) {
 #ifdef __ANDROID__
 extern "C" int getUsbDeviceCount() {
     JNIEnv* env = GetJniEnv();
-    if (!env) { LOGE("getUsbDeviceCount: JNIEnv is null"); return -1; }
+    if (!env) return -1;
     jobject context = GetActivity();
-    if (!context) { LOGE("getUsbDeviceCount: Context is null"); return -1; }
+    if (!context) return -1;
 
     jclass ctxClass = env->GetObjectClass(context);
     jmethodID getSysServ = env->GetMethodID(ctxClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
@@ -450,7 +474,7 @@ extern "C" int getUsbDeviceCount() {
     env->DeleteLocalRef(usbStr);
     if (env->ExceptionCheck()) env->ExceptionClear();
     
-    if (!usbManager) { env->DeleteLocalRef(ctxClass); env->DeleteLocalRef(context); LOGE("getUsbDeviceCount: UsbManager is null"); return -1; }
+    if (!usbManager) { env->DeleteLocalRef(ctxClass); env->DeleteLocalRef(context); return -1; }
 
     jclass mgrClass = env->GetObjectClass(usbManager);
     jmethodID getDeviceList = env->GetMethodID(mgrClass, "getDeviceList", "()Ljava/util/HashMap;");
@@ -466,11 +490,8 @@ extern "C" int getUsbDeviceCount() {
         if (env->ExceptionCheck()) env->ExceptionClear();
         count = env->CallIntMethod(deviceMap, sizeMethod);
         if (env->ExceptionCheck()) env->ExceptionClear();
-        LOGI("getUsbDeviceCount: Found %d devices", count);
         env->DeleteLocalRef(mapClass);
         env->DeleteLocalRef(deviceMap);
-    } else {
-        LOGE("getUsbDeviceCount: deviceMap is null");
     }
 
     env->DeleteLocalRef(mgrClass);
@@ -483,11 +504,16 @@ extern "C" int getUsbDeviceCount() {
 
 static void _altauri_com_reader_loop(void* haxePtr) {
     ComPortState* st = nullptr;
-    { std::lock_guard<std::mutex> mapLock(_com_map_mutex); auto it = _com_states_map.find(haxePtr); if (it == _com_states_map.end()) return; st = it->second; }
+    { 
+        std::lock_guard<std::mutex> mapLock(_com_map_mutex); 
+        auto it = _com_states_map.find(haxePtr); 
+        if (it == _com_states_map.end()) return; 
+        st = it->second; 
+    }
     st->isRunning = true;
     st->rxLen = 0;
     char tempBuf[1024];
-    
+
 #ifdef __ANDROID__
     if (st->jPort != nullptr) {
         bool attached = false;
@@ -502,21 +528,19 @@ static void _altauri_com_reader_loop(void* haxePtr) {
                     if (jbuf != nullptr) {
                         while (st->isRunning) {
                             jint bytesRead = env->CallIntMethod(st->jPort, readMethod, jbuf, 100);
-                            
                             if (env->ExceptionCheck()) {
-                                env->ExceptionDescribe();
-                                env->ExceptionClear();
-                                LOGE("Android Rx Java Exception in read()");
+                                env->ExceptionClear(); // Скрываем длинный стектрейс из Logcat
+                                LOGE("Android Rx Exception -> Device Disconnected");
                                 std::lock_guard<std::mutex> errLock(st->errMutex);
-                                sprintf(st->errBuffer, "Android Rx Java Exception");
+                                sprintf(st->errBuffer, "Device disconnected"); // Дружелюбный текст
                                 st->hasError = true;
                                 break;
                             }
-                            
                             if (bytesRead > 0) {
                                 LOGI("RX: Received %d bytes", (int)bytesRead);
                                 env->GetByteArrayRegion(jbuf, 0, bytesRead, (jbyte*)tempBuf);
                                 if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
+                                
                                 std::lock_guard<std::mutex> rxLock(st->rxMutex);
                                 int currentLen = st->rxLen;
                                 int newLen = currentLen + bytesRead;
@@ -560,7 +584,6 @@ static void _altauri_com_reader_loop(void* haxePtr) {
                 sprintf(st->errBuffer, "Android RX: portClass is null");
                 st->hasError = true;
             }
-            
             if (attached) {
                 JavaVM* vm = nullptr;
                 if (env->GetJavaVM(&vm) == JNI_OK) {
@@ -582,6 +605,7 @@ static void _altauri_com_reader_loop(void* haxePtr) {
 #else
     ssize_t bytesRead;
 #endif
+
     while (st->isRunning) {
 #ifdef _WIN32
         bytesRead = 0;
@@ -599,11 +623,10 @@ static void _altauri_com_reader_loop(void* haxePtr) {
             memcpy(st->rxBuffer + currentLen, tempBuf, bytesRead);
             st->rxLen += bytesRead;
             st->hasRxData = true;
-        } else if (bResult && bytesRead == 0) { 
-            Sleep(1); 
-            continue; 
-        }
-        else {
+        } else if (bResult && bytesRead == 0) {
+            Sleep(1);
+            continue;
+        } else {
             DWORD lastError = GetLastError();
             if (lastError == ERROR_TIMEOUT) { continue; }
             if (lastError == ERROR_OPERATION_ABORTED || !st->isRunning) { break; }
@@ -628,18 +651,19 @@ static void _altauri_com_reader_loop(void* haxePtr) {
                 memcpy(st->rxBuffer + currentLen, tempBuf, bytesRead);
                 st->rxLen += bytesRead;
                 st->hasRxData = true;
-            } else if (bytesRead == 0) { 
-                usleep(10000); 
-            }
-            else {
+            } else if (bytesRead == 0) {
+                usleep(10000);
+            } else {
                 if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) { continue; }
-                if (errno == EBADF) { break; } 
+                if (errno == EBADF) { break; }
                 std::lock_guard<std::mutex> errLock(st->errMutex);
                 sprintf(st->errBuffer, "Rx Err:%d", errno);
                 st->hasError = true;
                 break;
             }
-        } else { usleep(10000); }
+        } else { 
+            usleep(10000); 
+        }
 #endif
     }
     st->isRunning = false;
@@ -649,10 +673,8 @@ static void _altauri_com_reader_loop(void* haxePtr) {
 extern "C" const char* androidScanUSBDevices() {
     static std::string result;
     result.clear();
-    
     JNIEnv* env = GetJniEnv();
     if (!env) return "";
-    
     jobject context = GetActivity();
     if (!context) return "";
     
@@ -699,32 +721,48 @@ extern "C" const char* androidScanUSBDevices() {
     jmethodID next = env->GetMethodID(iteratorClass, "next", "()Ljava/lang/Object;");
     
     while (env->CallBooleanMethod(iterator, hasNext)) {
+        if (env->ExceptionCheck()) { env->ExceptionClear(); break; }
         jobject device = env->CallObjectMethod(iterator, next);
+        if (env->ExceptionCheck()) { env->ExceptionClear(); if(device) env->DeleteLocalRef(device); continue; }
         if (!device) continue;
         
         jclass deviceClass = env->GetObjectClass(device);
+        if (!deviceClass) { // ЗАЩИТА ОТ ZOMBIE-ОБЪЕКТОВ
+            if (env->ExceptionCheck()) env->ExceptionClear();
+            env->DeleteLocalRef(device);
+            continue;
+        }
+        
         jmethodID getVendorId = env->GetMethodID(deviceClass, "getVendorId", "()I");
         jmethodID getProductId = env->GetMethodID(deviceClass, "getProductId", "()I");
         jmethodID getDeviceName = env->GetMethodID(deviceClass, "getDeviceName", "()Ljava/lang/String;");
         
         int vid = env->CallIntMethod(device, getVendorId);
         int pid = env->CallIntMethod(device, getProductId);
+        if (env->ExceptionCheck()) env->ExceptionClear();
         
         jstring deviceNameStr = (jstring)env->CallObjectMethod(device, getDeviceName);
-        const char* deviceNameChars = env->GetStringUTFChars(deviceNameStr, nullptr);
-        std::string deviceName(deviceNameChars ? deviceNameChars : "Unknown");
-        env->ReleaseStringUTFChars(deviceNameStr, deviceNameChars);
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        
+        std::string deviceName = "Unknown";
+        if (deviceNameStr != nullptr) {
+            const char* deviceNameChars = env->GetStringUTFChars(deviceNameStr, nullptr);
+            if (deviceNameChars) {
+                deviceName = std::string(deviceNameChars);
+                env->ReleaseStringUTFChars(deviceNameStr, deviceNameChars);
+            }
+            env->DeleteLocalRef(deviceNameStr);
+        }
         
         char buffer[256];
-        // Fixed: using \\n to prevent Haxe from turning it into a real newline
         snprintf(buffer, sizeof(buffer), "%04X:%04X:%s\\n", vid, pid, deviceName.c_str());
         result += buffer;
         
-        env->DeleteLocalRef(deviceNameStr);
         env->DeleteLocalRef(deviceClass);
         env->DeleteLocalRef(device);
     }
-    
+    if (env->ExceptionCheck()) env->ExceptionClear();
+	
     env->DeleteLocalRef(iteratorClass);
     env->DeleteLocalRef(iterator);
     env->DeleteLocalRef(collectionClass);
@@ -735,7 +773,6 @@ extern "C" const char* androidScanUSBDevices() {
     env->DeleteLocalRef(usbManager);
     env->DeleteLocalRef(ctxClass);
     env->DeleteLocalRef(context);
-    
     return result.c_str();
 }
 #endif
@@ -809,7 +846,6 @@ class ComPortAtom extends Atom implements system.managers.Driver
     private var _bufferSize:Int = DEFAULT_BUFFER_SIZE;
     private var _chunkSize:Int = DEFAULT_CHUNK_SIZE;
     private var _enabled:Bool = true;
-
     private var _lastTxData:String = "";
     private var _lastDTR:Bool = false;
     private var _isOpenFlag:Bool = false;
@@ -824,20 +860,13 @@ class ComPortAtom extends Atom implements system.managers.Driver
     private var _isWaitingForUsbPermission:Bool = false;
     private var _usbPermissionTimeout:Float = 0.0;
     #end
-    
+
     private var _rxTimer:Float = 0.0;
     private var _txTimer:Float = 0.0;
     private var _errTimer:Float = 0.0;
-
     private var _selectedVid:Int = 0;
     private var _selectedPid:Int = 0;
 
-    // ===  Для авто-детекта usb подключений ===
-    #if android
-    private var _usbPollAccumulator:Float = 0.0;
-    private var _lastUsbDeviceCount:Int = -1;
-    #end
-    
     #if cpp
     #elseif html5
     private var _serialPort:Dynamic = null;
@@ -935,43 +964,27 @@ class ComPortAtom extends Atom implements system.managers.Driver
         if (_isDisposed) return;
         readConfiguration();
         if (!_enabled) return;
-        
+
         #if android
-        // === Надежный авто-детект USB через update(dt) ===
-        _usbPollAccumulator += dt;
-        if (_usbPollAccumulator >= 1.0) { // Проверяем ровно 1 раз в секунду
-            _usbPollAccumulator = 0.0;
-            
-            // Проверяем только если порт сейчас НЕ открыт
-            if (!_isOpenFlag) {
-                var currentCount:Int = getUsbDeviceCount();
-                trace("ComPortAtom USB Poll: Count = " + currentCount + ", Last = " + _lastUsbDeviceCount);
-                
-                if (currentCount != _lastUsbDeviceCount && currentCount >= 0) {
-                    _lastUsbDeviceCount = currentCount;
-                    trace("ComPortAtom: USB devices changed! Count is now " + currentCount);
-                    Impulsys.quickEmit(EventType.COMPORT_STATUS, "USB_DEVICES_CHANGED");
-                }
-            }
-            
-            // === Авто-открытие порта после выдачи прав Android ===
-            if (_isWaitingForUsbPermission) {
-                _usbPermissionTimeout -= 1.0; // Отнимаем 1 секунду, так как мы здесь раз в секунду
-                if (_usbPermissionTimeout <= 0) {
+
+        // === Авто-открытие порта после выдачи прав Android ===
+        if (_isWaitingForUsbPermission) {
+            // Отнимаем dt, а не 1.0, так как update вызывается каждый кадр
+            _usbPermissionTimeout -= dt; 
+            if (_usbPermissionTimeout <= 0) {
+                _isWaitingForUsbPermission = false;
+                setError("USB Permission request timed out or denied.");
+            } else {
+                var hasPerm:Bool = untyped __cpp__('(bool)checkAndroidUsbPermission({0}, {1})', _selectedVid, _selectedPid);
+                if (hasPerm) {
+                    trace("ComPortAtom: USB Permission granted! Auto-opening port...");
                     _isWaitingForUsbPermission = false;
-                    setError("USB Permission request timed out or denied.");
-                } else {
-                    var hasPerm:Bool = untyped __cpp__('(bool)checkAndroidUsbPermission({0}, {1})', _selectedVid, _selectedPid);
-                    if (hasPerm) {
-                        trace("ComPortAtom: USB Permission granted! Auto-opening port...");
-                        _isWaitingForUsbPermission = false;
-                        openDevice(); // Пробуем открыть еще раз!
-                    }
+                    openDevice(); // Пробуем открыть еще раз!
                 }
             }
         }
         #end
-        
+
         var testRxC = getInput("testRxData");
         if (testRxC != null && testRxC.value != null && testRxC.value != "")
         {
@@ -999,7 +1012,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                             {0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer, _cps_stPtr->rxLen);
                             {0}->_hasPendingRx = true;
                             _cps_stPtr->hasRxData = false;
-                            _cps_stPtr->rxLen = 0; 
+                            _cps_stPtr->rxLen = 0;
                         }
                     }
                     {
@@ -1028,25 +1041,36 @@ class ComPortAtom extends Atom implements system.managers.Driver
         if (_hasPendingErr)
         {
             _hasPendingErr = false;
-            var errOut = getOutput("error");
-            if (errOut != null) { errOut.setValueSilent(_pendingErrStr); errOut.propagateCurrentValue(); }
-            var errTick = getOutput("errorTick");
-            if (errTick != null) { errTick.value = true; _errTimer = PULSE_DURATION; }
-            Impulsys.quickEmit(EventType.COMPORT_ERROR, _pendingErrStr);
             
-            if (_isOpenFlag) {
-                trace('ComPortAtom: Port error detected. Forcing closeDevice()...');
-                closeDevice();
-                _selectedVid = 0;
-                _selectedPid = 0;
-                Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
+            // Если это физическое отключение кабеля - не выводим страшную ошибку, просто закрываем порт
+            if (_pendingErrStr.indexOf("disconnected") >= 0) {
+                if (_isOpenFlag) {
+                    trace('ComPortAtom: USB cable unplugged. Forcing closeDevice()...');
+                    closeDevice();
+                    _selectedVid = 0;
+                    _selectedPid = 0;
+                    Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
+                }
+            } else {
+                // Это реальная ошибка (не отключение), выводим её пользователю
+                var errOut = getOutput("error");
+                if (errOut != null) { errOut.setValueSilent(_pendingErrStr); errOut.propagateCurrentValue(); }
+                var errTick = getOutput("errorTick");
+                if (errTick != null) { errTick.value = true; _errTimer = PULSE_DURATION; }
+                Impulsys.quickEmit(EventType.COMPORT_ERROR, _pendingErrStr);
+                
+                if (_isOpenFlag) {
+                    trace('ComPortAtom: Port error detected. Forcing closeDevice()...');
+                    closeDevice();
+                    _selectedVid = 0;
+                    _selectedPid = 0;
+                    Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
+                }
             }
         }
-
         #if html5
         emitRxData();
         #end
-
         readInputs();
         updatePulseTimers(dt);
     }
@@ -1127,7 +1151,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
     }
 
     #if cpp
-    public function scanUSBDevices():Array<String>
+    public function scanUSBDevices(silent:Bool = false):Array<String>
     {
         var result:Array<String> = [];
         var devicesStr:String = "";
@@ -1140,21 +1164,21 @@ class ComPortAtom extends Atom implements system.managers.Driver
         {
             var lines = devicesStr.split("\n");
             for (line in lines) if (line != null && line.length > 0) result.push(line);
-            var debugMsg = "--- USB SCAN RESULTS ---\n" + devicesStr + "----------------------\nFound: " + result.length + " devices";
-            var rxOut = getOutput("rxData");
-            if (rxOut != null) { rxOut.setValueSilent(debugMsg); rxOut.propagateCurrentValue(); }
-            var rxTick = getOutput("rxTick");
-            if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
+            
+            // Выводим отладку в RX только если не silent
+            if (!silent) {
+                var debugMsg = "--- USB SCAN RESULTS ---\n" + devicesStr + "----------------------\nFound: " + result.length + " devices";
+                var rxOut = getOutput("rxData");
+                if (rxOut != null) { rxOut.setValueSilent(debugMsg); rxOut.propagateCurrentValue(); }
+                var rxTick = getOutput("rxTick");
+                if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
+            }
         }
         return result;
     }
-    
-    #if android
-    public function getUsbDeviceCount():Int {
-        return untyped __cpp__('(int)getUsbDeviceCount()');
-    }
     #end
-    
+
+    #if cpp
     public function setSelectedDevice(vid:Int, pid:Int):Void
     {
         _selectedVid = vid;
@@ -1178,50 +1202,50 @@ class ComPortAtom extends Atom implements system.managers.Driver
         untyped __cpp__('
             ComPortState* st = new ComPortState();
             #ifdef _WIN32
-            st->hComm = INVALID_HANDLE_VALUE;
+                st->hComm = INVALID_HANDLE_VALUE;
             #else
-            st->hComm = -1;
+                st->hComm = -1;
             #endif
             #ifdef __ANDROID__
-            st->jPort = nullptr; st->jConnection = nullptr;
-            const char* err = nullptr;
-            {2} = tryOpenAndroidUsbDevice(st, {1}, {5}, {6}, &err);
-            if (!{2} && err != nullptr) { {3} = ::String(err); }
+                st->jPort = nullptr; st->jConnection = nullptr;
+                const char* err = nullptr;
+                {2} = tryOpenAndroidUsbDevice(st, {1}, {5}, {6}, &err);
+                if (!{2} && err != nullptr) { {3} = ::String(err); }
             #elif defined(_WIN32)
-            std::string nameStr = "\\\\\\\\.\\\\" + std::string({0}.c_str());
-            HANDLE hComm = CreateFileA(nameStr.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-            if (hComm != INVALID_HANDLE_VALUE) {
-                DCB dcb = {0}; dcb.DCBlength = sizeof(DCB);
-                if (GetCommState(hComm, &dcb)) {
-                    dcb.BaudRate = {1}; dcb.ByteSize = 8; dcb.StopBits = ONESTOPBIT; dcb.Parity = NOPARITY; dcb.fDtrControl = DTR_CONTROL_ENABLE;
-                    SetCommState(hComm, &dcb);
+                std::string nameStr = "\\\\\\\\.\\\\" + std::string({0}.c_str());
+                HANDLE hComm = CreateFileA(nameStr.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+                if (hComm != INVALID_HANDLE_VALUE) {
+                    DCB dcb = {0}; dcb.DCBlength = sizeof(DCB);
+                    if (GetCommState(hComm, &dcb)) {
+                        dcb.BaudRate = {1}; dcb.ByteSize = 8; dcb.StopBits = ONESTOPBIT; dcb.Parity = NOPARITY; dcb.fDtrControl = DTR_CONTROL_ENABLE;
+                        SetCommState(hComm, &dcb);
+                    }
+                    COMMTIMEOUTS timeouts = {0};
+                    timeouts.ReadIntervalTimeout = MAXDWORD; timeouts.ReadTotalTimeoutMultiplier = 0; timeouts.ReadTotalTimeoutConstant = 0;
+                    timeouts.WriteTotalTimeoutMultiplier = 0; timeouts.WriteTotalTimeoutConstant = 1000;
+                    SetCommTimeouts(hComm, &timeouts);
+                    st->hComm = hComm; {2} = true;
+                } else {
+                    DWORD errCode = GetLastError(); char errBuf[128];
+                    sprintf(errBuf, "WinAPI Open Failed (Error %lu)", errCode); {3} = ::String(errBuf);
                 }
-                COMMTIMEOUTS timeouts = {0};
-                timeouts.ReadIntervalTimeout = MAXDWORD; timeouts.ReadTotalTimeoutMultiplier = 0; timeouts.ReadTotalTimeoutConstant = 0;
-                timeouts.WriteTotalTimeoutMultiplier = 0; timeouts.WriteTotalTimeoutConstant = 1000;
-                SetCommTimeouts(hComm, &timeouts);
-                st->hComm = hComm; {2} = true;
-            } else {
-                DWORD errCode = GetLastError(); char errBuf[128];
-                sprintf(errBuf, "WinAPI Open Failed (Error %lu)", errCode); {3} = ::String(errBuf);
-            }
             #else
-            std::string devPath = {0}.c_str();
-            if (devPath.find("/") == std::string::npos) devPath = "/dev/" + devPath;
-            int fd = open(devPath.c_str(), O_RDWR | O_NOCTTY | O_NDELAY);
-            if (fd >= 0) {
-                fcntl(fd, F_SETFL, 0); struct termios options; tcgetattr(fd, &options);
-                speed_t speed = B9600;
-                switch ({1}) { case 115200: speed = B115200; break; case 57600: speed = B57600; break; case 38400: speed = B38400; break; case 19200: speed = B19200; break; case 9600: speed = B9600; break; default: speed = B9600; break; }
-                cfsetispeed(&options, speed); cfsetospeed(&options, speed);
-                options.c_cflag |= (CLOCAL | CREAD); options.c_cflag &= ~PARENB; options.c_cflag &= ~CSTOPB; options.c_cflag &= ~CSIZE; options.c_cflag |= CS8;
-                options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG); options.c_oflag &= ~OPOST;
-                // POSIX FIX: Reset input flags and set read timeout (VMIN/VTIME)
-                options.c_iflag &= ~(IXON | IXOFF | IXANY | ICRNL | INLCR | IGNCR);
-                options.c_cc[VMIN] = 0;  
-                options.c_cc[VTIME] = 1; // Timeout 0.1 sec (returns control to thread)
-                tcsetattr(fd, TCSANOW, &options); st->hComm = fd; {2} = true;
-            } else { char errBuf[128]; sprintf(errBuf, "POSIX Open Failed (errno %d)", errno); {3} = ::String(errBuf); }
+                std::string devPath = {0}.c_str();
+                if (devPath.find("/") == std::string::npos) devPath = "/dev/" + devPath;
+                int fd = open(devPath.c_str(), O_RDWR | O_NOCTTY | O_NDELAY);
+                if (fd >= 0) {
+                    fcntl(fd, F_SETFL, 0); struct termios options; tcgetattr(fd, &options);
+                    speed_t speed = B9600;
+                    switch ({1}) { case 115200: speed = B115200; break; case 57600: speed = B57600; break; case 38400: speed = B38400; break; case 19200: speed = B19200; break; case 9600: speed = B9600; break; default: speed = B9600; break; }
+                    cfsetispeed(&options, speed); cfsetospeed(&options, speed);
+                    options.c_cflag |= (CLOCAL | CREAD); options.c_cflag &= ~PARENB; options.c_cflag &= ~CSTOPB; options.c_cflag &= ~CSIZE; options.c_cflag |= CS8;
+                    options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG); options.c_oflag &= ~OPOST;
+                    // POSIX FIX: Reset input flags and set read timeout (VMIN/VTIME)
+                    options.c_iflag &= ~(IXON | IXOFF | IXANY | ICRNL | INLCR | IGNCR);
+                    options.c_cc[VMIN] = 0;
+                    options.c_cc[VTIME] = 1; // Timeout 0.1 sec (returns control to thread)
+                    tcsetattr(fd, TCSANOW, &options); st->hComm = fd; {2} = true;
+                } else { char errBuf[128]; sprintf(errBuf, "POSIX Open Failed (errno %d)", errno); {3} = ::String(errBuf); }
             #endif
             if ({2}) {
                 { std::lock_guard<std::mutex> mapLock(_com_map_mutex); _com_states_map[{4}.mPtr] = st; }
@@ -1232,6 +1256,15 @@ class ComPortAtom extends Atom implements system.managers.Driver
         if (success)
         {
             _isOpenFlag = true;
+            _isWaitingForUsbPermission = false; // Сбрасываем флаг ожидания
+            
+            // === ОЧИЩАЕМ ОШИБКУ, так как порт успешно открыт ===
+            _pendingErrStr = "";
+            _hasPendingErr = false;
+            var errOut = getOutput("error");
+            if (errOut != null) { errOut.setValueSilent(""); errOut.propagateCurrentValue(); }
+            // ==================================================
+            
             var openOut = getOutput("isOpen");
             if (openOut != null) { openOut.setValueSilent(true); openOut.propagateCurrentValue(); }
             Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected to " + portName);
@@ -1252,7 +1285,6 @@ class ComPortAtom extends Atom implements system.managers.Driver
             setError(errMessage != "" ? errMessage : 'Failed to open serial port: $portName');
             #end
         }
-        
         #elseif html5
         if (Syntax.code("typeof navigator !== 'undefined' && 'serial' in navigator")) openWebSerial(baudRate);
         else if (Syntax.code("typeof navigator !== 'undefined' && 'usb' in navigator")) openWebUSB(baudRate);
@@ -1270,41 +1302,40 @@ class ComPortAtom extends Atom implements system.managers.Driver
             if (st != nullptr) {
                 st->isRunning = false;
                 #ifdef __ANDROID__
-                if (st->jPort != nullptr) {
-                    JNIEnv* env = GetJniEnv();
-                    if (env != nullptr) {
-                        jclass portClass = env->GetObjectClass(st->jPort);
-                        if (portClass != nullptr) {
-                            jmethodID portClose = env->GetMethodID(portClass, "close", "()V");
-                            if (portClose != nullptr) {
-                                env->CallVoidMethod(st->jPort, portClose);
-                                // IMPORTANT: Ignore error if device is already physically disconnected
-                                if (env->ExceptionCheck()) env->ExceptionClear();
-                            }
-                            env->DeleteGlobalRef(st->jPort);
-                            st->jPort = nullptr; // Clear pointer to prevent double close
-                            
-                            if (st->jConnection != nullptr) {
-                                jclass connClass = env->GetObjectClass(st->jConnection);
-                                if (connClass != nullptr) { 
-                                    jmethodID connClose = env->GetMethodID(connClass, "close", "()V"); 
-                                    if (connClose != nullptr) {
-                                        env->CallVoidMethod(st->jConnection, connClose);
-                                        if (env->ExceptionCheck()) env->ExceptionClear();
-                                    } 
-                                    env->DeleteLocalRef(connClass); 
+                    if (st->jPort != nullptr) {
+                        JNIEnv* env = GetJniEnv();
+                        if (env != nullptr) {
+                            jclass portClass = env->GetObjectClass(st->jPort);
+                            if (portClass != nullptr) {
+                                jmethodID portClose = env->GetMethodID(portClass, "close", "()V");
+                                if (portClose != nullptr) {
+                                    env->CallVoidMethod(st->jPort, portClose);
+                                    // IMPORTANT: Ignore error if device is already physically disconnected
+                                    if (env->ExceptionCheck()) env->ExceptionClear();
                                 }
-                                env->DeleteGlobalRef(st->jConnection);
-                                st->jConnection = nullptr;
+                                env->DeleteGlobalRef(st->jPort);
+                                st->jPort = nullptr; // Clear pointer to prevent double close
+                                if (st->jConnection != nullptr) {
+                                    jclass connClass = env->GetObjectClass(st->jConnection);
+                                    if (connClass != nullptr) {
+                                        jmethodID connClose = env->GetMethodID(connClass, "close", "()V");
+                                        if (connClose != nullptr) {
+                                            env->CallVoidMethod(st->jConnection, connClose);
+                                            if (env->ExceptionCheck()) env->ExceptionClear();
+                                        }
+                                        env->DeleteLocalRef(connClass);
+                                    }
+                                    env->DeleteGlobalRef(st->jConnection);
+                                    st->jConnection = nullptr;
+                                }
+                                env->DeleteLocalRef(portClass);
                             }
-                            env->DeleteLocalRef(portClass);
                         }
                     }
-                }
                 #elif defined(_WIN32)
-                if (st->hComm != INVALID_HANDLE_VALUE) { CancelIoEx(st->hComm, NULL); CloseHandle(st->hComm); st->hComm = INVALID_HANDLE_VALUE; }
+                    if (st->hComm != INVALID_HANDLE_VALUE) { CancelIoEx(st->hComm, NULL); CloseHandle(st->hComm); st->hComm = INVALID_HANDLE_VALUE; }
                 #else
-                if (st->hComm >= 0) { close(st->hComm); st->hComm = -1; }
+                    if (st->hComm >= 0) { close(st->hComm); st->hComm = -1; }
                 #endif
                 if (st->readThread != nullptr) { if (st->readThread->joinable()) st->readThread->join(); delete st->readThread; }
                 delete st;
@@ -1322,23 +1353,42 @@ class ComPortAtom extends Atom implements system.managers.Driver
             try {
                 if (_reader != null) { _reader.cancel(); _reader = null; }
                 if (_writer != null) { _writer.releaseLock(); _writer = null; }
-                _serialPort.close().then(function(_) {
-                    _serialPort = null; _isOpenFlag = false; _connectionType = "none";
-                    var openOut = getOutput("isOpen"); if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
-                    Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
-                    trace('ComPortAtom: Closed Web Serial port'); })
-                    ['catch'](function(err) { setError("Error closing Web Serial port: " + Std.string(err)); });
-            } catch (e:Dynamic) { setError("Exception closing Web Serial port: " + Std.string(e)); }
+				var promise:Dynamic = _serialPort.close().then(function(_) {
+					_serialPort = null; 
+					_isOpenFlag = false; 
+					_connectionType = "none";
+					var openOut = getOutput("isOpen"); 
+					if (openOut != null) { 
+						openOut.setValueSilent(false); 
+						openOut.propagateCurrentValue(); 
+					}
+					Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
+					trace('ComPortAtom: Closed Web Serial port');
+				});
+
+				Reflect.field(promise, "catch")(function(err) { 
+					setError("Error closing Web Serial port: " + Std.string(err)); 
+				});            } catch (e:Dynamic) { setError("Exception closing Web Serial port: " + Std.string(e)); }
         }
         else if (_connectionType == "usb" && _usbDevice != null)
         {
             try {
-                var dev = _usbDevice; _usbDevice = null; _isOpenFlag = false; _connectionType = "none";
-                dev.releaseInterface(_usbInterfaceNumber).then(function(_) { return dev.close(); }).then(function(_) {
-                    var openOut = getOutput("isOpen"); if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
-                    Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
-                    trace('ComPortAtom: Closed WebUSB device'); })
-                    ['catch'](function(err) { setError("Error closing WebUSB device: " + Std.string(err)); });
+				var dev = _usbDevice; _usbDevice = null; _isOpenFlag = false; _connectionType = "none";
+				var promise:Dynamic = dev.releaseInterface(_usbInterfaceNumber).then(function(_) { 
+					return dev.close(); 
+				}).then(function(_) {
+					var openOut = getOutput("isOpen"); 
+					if (openOut != null) { 
+						openOut.setValueSilent(false); 
+						openOut.propagateCurrentValue(); 
+					}
+					Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
+					trace('ComPortAtom: Closed WebUSB device'); 
+				});
+
+				Reflect.field(promise, "catch")(function(err) { 
+					setError("Error closing WebUSB device: " + Std.string(err)); 
+				});
             } catch (e:Dynamic) { setError("Exception closing WebUSB device: " + Std.string(e)); }
         }
         #end
@@ -1355,54 +1405,52 @@ class ComPortAtom extends Atom implements system.managers.Driver
             { std::lock_guard<std::mutex> mapLock(_com_map_mutex); auto it = _com_states_map.find({0}.mPtr); if (it != _com_states_map.end()) st = it->second; }
             if (st != nullptr) {
                 #ifdef __ANDROID__
-                if (st->jPort != nullptr) {
-                    JNIEnv* env = GetJniEnv();
-                    if (env != nullptr) {
-                        jclass portClass = env->GetObjectClass(st->jPort);
-                        if (portClass != nullptr) {
-                            jmethodID writeMethod = env->GetMethodID(portClass, "write", "([BI)V"); // V instead of I (void not int)
-                            if (writeMethod == nullptr) {
-                                if (env->ExceptionCheck()) env->ExceptionClear();
-                                LOGE("Android TX: write method not found");
-                            } else {
-                                // SAFE string length retrieval
-                                const char* dataChars = {1}.c_str();
-                                int len = strlen(dataChars);
-                                if (len > 0) {
-                                    jbyteArray jbuf = env->NewByteArray(len);
-                                    if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
-                                    if (jbuf != nullptr) {
-                                        env->SetByteArrayRegion(jbuf, 0, len, (const jbyte*)dataChars);
+                    if (st->jPort != nullptr) {
+                        JNIEnv* env = GetJniEnv();
+                        if (env != nullptr) {
+                            jclass portClass = env->GetObjectClass(st->jPort);
+                            if (portClass != nullptr) {
+                                jmethodID writeMethod = env->GetMethodID(portClass, "write", "([BI)V"); // V instead of I (void not int)
+                                if (writeMethod == nullptr) {
+                                    if (env->ExceptionCheck()) env->ExceptionClear();
+                                    LOGE("Android TX: write method not found");
+                                } else {
+                                    // SAFE string length retrieval
+                                    const char* dataChars = {1}.c_str();
+                                    int len = strlen(dataChars);
+                                    if (len > 0) {
+                                        jbyteArray jbuf = env->NewByteArray(len);
                                         if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
-                                        
-                                        env->CallVoidMethod(st->jPort, writeMethod, jbuf, 1000);
-                                        
-                                        if (env->ExceptionCheck()) {
-                                            env->ExceptionDescribe(); // Will print Java stacktrace to Logcat
-                                            env->ExceptionClear();
-                                            LOGE("Android TX Java Exception in write()");
-                                            std::lock_guard<std::mutex> errLock(st->errMutex);
-                                            sprintf(st->errBuffer, "Android TX Exception");
-                                            st->hasError = true;
+                                        if (jbuf != nullptr) {
+                                            env->SetByteArrayRegion(jbuf, 0, len, (const jbyte*)dataChars);
+                                            if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
+                                            env->CallVoidMethod(st->jPort, writeMethod, jbuf, 1000);
+                                            if (env->ExceptionCheck()) {
+                                                env->ExceptionDescribe(); // Will print Java stacktrace to Logcat
+                                                env->ExceptionClear();
+                                                LOGE("Android TX Java Exception in write()");
+                                                std::lock_guard<std::mutex> errLock(st->errMutex);
+                                                sprintf(st->errBuffer, "Android TX Exception");
+                                                st->hasError = true;
+                                            } else {
+                                                LOGI("TX: Wrote %d bytes", len);
+                                            }
+                                            env->DeleteLocalRef(jbuf);
                                         } else {
-                                            LOGI("TX: Wrote %d bytes", len);
+                                            LOGE("Android TX: NewByteArray failed");
                                         }
-                                        env->DeleteLocalRef(jbuf);
-                                    } else {
-                                        LOGE("Android TX: NewByteArray failed");
                                     }
                                 }
+                                env->DeleteLocalRef(portClass);
+                            } else {
+                                if (env->ExceptionCheck()) env->ExceptionClear();
                             }
-                            env->DeleteLocalRef(portClass);
-                        } else {
-                            if (env->ExceptionCheck()) env->ExceptionClear();
                         }
                     }
-                }
                 #elif defined(_WIN32)
-                if (st->hComm != INVALID_HANDLE_VALUE) { DWORD bytesWritten = 0; WriteFile(st->hComm, {1}.c_str(), (DWORD){1}.length, &bytesWritten, NULL); }
+                    if (st->hComm != INVALID_HANDLE_VALUE) { DWORD bytesWritten = 0; WriteFile(st->hComm, {1}.c_str(), (DWORD){1}.length, &bytesWritten, NULL); }
                 #else
-                if (st->hComm >= 0) { write(st->hComm, {1}.c_str(), {1}.length); }
+                    if (st->hComm >= 0) { write(st->hComm, {1}.c_str(), {1}.length); }
                 #endif
             }
         ', selfPtr, dataStr);
@@ -1410,16 +1458,29 @@ class ComPortAtom extends Atom implements system.managers.Driver
         if (_connectionType == "serial" && _serialPort != null)
         {
             try {
-                var encoder = Syntax.code("new TextEncoder()"); var dataArray = encoder.encode(dataStr);
+                var encoder = js.Syntax.code("new TextEncoder()"); var dataArray = encoder.encode(dataStr);
                 var writer = _serialPort.writable.getWriter();
-                writer.write(dataArray).then(function(_) { writer.releaseLock(); })['catch'](function(err) { writer.releaseLock(); setError("Web Serial TX Error: " + Std.string(err)); });
+                
+                var promise:Dynamic = writer.write(dataArray).then(function(_) { 
+                    writer.releaseLock(); 
+                });
+
+                Reflect.field(promise, "catch")(function(err) { 
+                    writer.releaseLock(); 
+                    setError("Web Serial TX Error: " + Std.string(err)); 
+                });
             } catch (e:Dynamic) { setError("Web Serial TX Exception: " + Std.string(e)); }
         }
         else if (_connectionType == "usb" && _usbDevice != null && _usbEndpointOut > 0)
         {
             try {
-                var encoder = Syntax.code("new TextEncoder()"); var dataArray = encoder.encode(dataStr);
-                _usbDevice.transferOut(_usbEndpointOut, dataArray)['catch'](function(err) { setError("WebUSB TX Error: " + Std.string(err)); });
+                var encoder = js.Syntax.code("new TextEncoder()"); var dataArray = encoder.encode(dataStr);
+                
+                var promise:Dynamic = _usbDevice.transferOut(_usbEndpointOut, dataArray);
+                
+                Reflect.field(promise, "catch")(function(err) { 
+                    setError("WebUSB TX Error: " + Std.string(err)); 
+                });
             } catch (e:Dynamic) { setError("WebUSB TX Exception: " + Std.string(e)); }
         }
         #end
@@ -1435,28 +1496,28 @@ class ComPortAtom extends Atom implements system.managers.Driver
             { std::lock_guard<std::mutex> mapLock(_com_map_mutex); auto it = _com_states_map.find({0}.mPtr); if (it != _com_states_map.end()) st = it->second; }
             if (st != nullptr) {
                 #ifdef __ANDROID__
-                if (st->jPort != nullptr) {
-                    JNIEnv* env = GetJniEnv();
-                    if (env != nullptr) {
-                        jclass portClass = env->GetObjectClass(st->jPort);
-                        if (portClass != nullptr) { 
-                            jmethodID setDTR = env->GetMethodID(portClass, "setDTR", "(Z)V"); 
-                            if (setDTR == nullptr) {
-                                if (env->ExceptionCheck()) env->ExceptionClear();
+                    if (st->jPort != nullptr) {
+                        JNIEnv* env = GetJniEnv();
+                        if (env != nullptr) {
+                            jclass portClass = env->GetObjectClass(st->jPort);
+                            if (portClass != nullptr) {
+                                jmethodID setDTR = env->GetMethodID(portClass, "setDTR", "(Z)V");
+                                if (setDTR == nullptr) {
+                                    if (env->ExceptionCheck()) env->ExceptionClear();
+                                } else {
+                                    env->CallVoidMethod(st->jPort, setDTR, {1});
+                                    if (env->ExceptionCheck()) env->ExceptionClear();
+                                }
+                                env->DeleteLocalRef(portClass);
                             } else {
-                                env->CallVoidMethod(st->jPort, setDTR, {1}); 
                                 if (env->ExceptionCheck()) env->ExceptionClear();
                             }
-                            env->DeleteLocalRef(portClass); 
-                        } else {
-                            if (env->ExceptionCheck()) env->ExceptionClear();
                         }
                     }
-                }
                 #elif defined(_WIN32)
-                if (st->hComm != INVALID_HANDLE_VALUE) { EscapeCommFunction(st->hComm, {1} ? SETDTR : CLRDTR); }
+                    if (st->hComm != INVALID_HANDLE_VALUE) { EscapeCommFunction(st->hComm, {1} ? SETDTR : CLRDTR); }
                 #else
-                if (st->hComm >= 0) { int status; ioctl(st->hComm, TIOCMGET, &status); if ({1}) status |= TIOCM_DTR; else status &= ~TIOCM_DTR; ioctl(st->hComm, TIOCMSET, &status); }
+                    if (st->hComm >= 0) { int status; ioctl(st->hComm, TIOCMGET, &status); if ({1}) status |= TIOCM_DTR; else status &= ~TIOCM_DTR; ioctl(st->hComm, TIOCMSET, &status); }
                 #endif
             }
         ', selfPtr, state);
@@ -1465,80 +1526,120 @@ class ComPortAtom extends Atom implements system.managers.Driver
         {
             try {
                 var signals:Dynamic = { dataTerminalReady: state };
-                _serialPort.setSignals(signals)['catch'](function(err) { setError("Web Serial DTR Error: " + Std.string(err)); });
+                var promise:Dynamic = _serialPort.setSignals(signals);
+                
+                Reflect.field(promise, "catch")(function(err) { 
+                    setError("Web Serial DTR Error: " + Std.string(err)); 
+                });
             } catch (e:Dynamic) { setError("Web Serial DTR Exception: " + Std.string(e)); }
         }
         #end
     }
 
     #if html5
-    private function openWebSerial(baudRate:Int):Void
-    {
-        try {
-            var navSerial = Syntax.code("navigator.serial");
-            navSerial.requestPort().then(function(port) {
-                _serialPort = port;
-                var options:Dynamic = { baudRate: baudRate, dataBits: 8, stopBits: 1, parity: "none" };
-                return _serialPort.open(options);
-            }).then(function(_) {
-                _isOpenFlag = true; _connectionType = "serial";
-                var openOut = getOutput("isOpen"); if (openOut != null) { openOut.setValueSilent(true); openOut.propagateCurrentValue(); }
-                Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected via Web Serial");
-                trace('ComPortAtom: Opened Web Serial port at $baudRate baud');
-                startWebSerialReadLoop();
-            })['catch'](function(err) { setError("Web Serial Open Error: " + Std.string(err)); });
-        } catch (e:Dynamic) { setError("Web Serial Exception: " + Std.string(e)); }
-    }
+	private function openWebSerial(baudRate:Int):Void
+	{
+		try {
+			var navSerial = js.Syntax.code("navigator.serial");
+			
+			var promise:Dynamic = navSerial.requestPort().then(function(port) {
+				_serialPort = port;
+				var options:Dynamic = { baudRate: baudRate, dataBits: 8, stopBits: 1, parity: "none" };
+				return _serialPort.open(options);
+			}).then(function(_) {
+				_isOpenFlag = true; _connectionType = "serial";
+				var openOut = getOutput("isOpen"); 
+				if (openOut != null) { 
+					openOut.setValueSilent(true); 
+					openOut.propagateCurrentValue(); 
+				}
+				Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected via Web Serial");
+				trace('ComPortAtom: Opened Web Serial port at $baudRate baud');
+				startWebSerialReadLoop();
+			});
 
-    private function startWebSerialReadLoop():Void
-    {
-        if (_serialPort == null || !_isOpenFlag) return;
-        _isReading = true;
-        
-        _reader = _serialPort.readable.getReader();
-        
-        var readChunk:Void->Void = null;
-        readChunk = function() {
-            if (!_isReading || _serialPort == null || _reader == null) return;
-            _reader.read().then(function(result:Dynamic) {
-                if (result.done) { return; }
-                if (result.value != null) {
-                    var uint8Arr:Uint8Array = result.value; var bytesArray = new Array<Int>();
-                    for (i in 0...uint8Arr.length) bytesArray.push(uint8Arr[i]);
-                    writeToBuffer(bytesArray);
-                }
-                if (_isReading) readChunk();
-            })['catch'](function(err) {
-                setError("Web Serial Read Loop Error: " + Std.string(err));
-            });
-        };
-        readChunk();
-    }
+			Reflect.field(promise, "catch")(function(err) { 
+				setError("Web Serial Open Error: " + Std.string(err)); 
+			});
 
-    private function openWebUSB(baudRate:Int):Void
-    {
-        try {
-            var navUsb = Syntax.code("navigator.usb");
-            var filters:Array<Dynamic> = [
-                { vendorId: 0x303A }, { vendorId: 0x0403 }, { vendorId: 0x1A86 }, { vendorId: 0x10C4 },
-                { vendorId: 0x067B }, { vendorId: 0x2341 }, { vendorId: 0x1B4F }, { vendorId: 0x0483 },
-                { vendorId: 0x2E8A }, { vendorId: 0x03EB }
-            ];
-            navUsb.requestDevice({ filters: filters }).then(function(device) {
-                _usbDevice = device; return _usbDevice.open();
-            }).then(function(_) { return _usbDevice.selectConfiguration(1); }).then(function(_) {
-                findUsbEndpoints();
-                if (_usbInterfaceNumber < 0) throw "No compatible USB serial interface found";
-                return _usbDevice.claimInterface(_usbInterfaceNumber);
-            }).then(function(_) { return initUsbDeviceParameters(baudRate); }).then(function(_) {
-                _isOpenFlag = true; _connectionType = "usb";
-                var openOut = getOutput("isOpen"); if (openOut != null) { openOut.setValueSilent(true); openOut.propagateCurrentValue(); }
-                Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected via WebUSB");
-                trace('ComPortAtom: Opened WebUSB device (VID: 0x' + StringTools.hex(_usbDevice.vendorId, 4) + ') at $baudRate baud');
-                startWebUSBReadLoop();
-            })['catch'](function(err) { setError("WebUSB Open Error: " + Std.string(err)); });
-        } catch (e:Dynamic) { setError("WebUSB Exception: " + Std.string(e)); }
-    }
+		} catch (e:Dynamic) { 
+			setError("Web Serial Exception: " + Std.string(e)); 
+		}
+	}
+
+
+	private function startWebSerialReadLoop():Void
+	{
+		if (_serialPort == null || !_isOpenFlag) return;
+		_isReading = true;
+		_reader = _serialPort.readable.getReader();
+		
+		var readChunk:Void->Void = null;
+		readChunk = function() {
+			if (!_isReading || _serialPort == null || _reader == null) return;
+			
+			var promise:Dynamic = _reader.read().then(function(result:Dynamic) {
+				if (result.done) { return; }
+				if (result.value != null) {
+					var uint8Arr:Uint8Array = result.value; 
+					var bytesArray = new Array<Int>();
+					for (i in 0...uint8Arr.length) bytesArray.push(uint8Arr[i]);
+					writeToBuffer(bytesArray);
+				}
+				if (_isReading) readChunk();
+			});
+
+			Reflect.field(promise, "catch")(function(err) {
+				setError("Web Serial Read Loop Error: " + Std.string(err));
+			});
+		};
+		
+		readChunk();
+	}
+
+
+	private function openWebUSB(baudRate:Int):Void
+	{
+		try {
+			var navUsb = js.Syntax.code("navigator.usb");
+			var filters:Array<Dynamic> = [
+				{ vendorId: 0x303A }, { vendorId: 0x0403 }, { vendorId: 0x1A86 }, { vendorId: 0x10C4 },
+				{ vendorId: 0x067B }, { vendorId: 0x2341 }, { vendorId: 0x1B4F }, { vendorId: 0x0483 },
+				{ vendorId: 0x2E8A }, { vendorId: 0x03EB }
+			];
+			
+			var promise:Dynamic = navUsb.requestDevice({ filters: filters }).then(function(device) {
+				_usbDevice = device; 
+				return _usbDevice.open();
+			}).then(function(_) { 
+				return _usbDevice.selectConfiguration(1); 
+			}).then(function(_) {
+				findUsbEndpoints();
+				if (_usbInterfaceNumber < 0) throw "No compatible USB serial interface found";
+				return _usbDevice.claimInterface(_usbInterfaceNumber);
+			}).then(function(_) { 
+				return initUsbDeviceParameters(baudRate); 
+			}).then(function(_) {
+				_isOpenFlag = true; _connectionType = "usb";
+				var openOut = getOutput("isOpen"); 
+				if (openOut != null) { 
+					openOut.setValueSilent(true); 
+					openOut.propagateCurrentValue(); 
+				}
+				Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected via WebUSB");
+				trace('ComPortAtom: Opened WebUSB device (VID: 0x' + StringTools.hex(_usbDevice.vendorId, 4) + ') at $baudRate baud');
+				startWebUSBReadLoop();
+			});
+
+			Reflect.field(promise, "catch")(function(err) { 
+				setError("WebUSB Open Error: " + Std.string(err)); 
+			});
+			
+		} catch (e:Dynamic) { 
+			setError("WebUSB Exception: " + Std.string(e)); 
+		}
+	}
+
 
     private function findUsbEndpoints():Void
     {
@@ -1585,25 +1686,34 @@ class ComPortAtom extends Atom implements system.managers.Driver
         }
     }
 
-    private function startWebUSBReadLoop():Void
-    {
-        if (_usbDevice == null || !_isOpenFlag || _usbEndpointIn <= 0) return;
-        _isReading = true;
-        var readChunk:Void->Void = null;
-        readChunk = function() {
-            if (!_isReading || _usbDevice == null) return;
-            try {
-                _usbDevice.transferIn(_usbEndpointIn, 64).then(function(result:Dynamic) {
-                    if (result.status == "ok" && result.data != null) {
-                        var dataView:DataView = result.data; var bytesArray = new Array<Int>();
-                        for (i in 0...dataView.byteLength) bytesArray.push(dataView.getUint8(i));
-                        writeToBuffer(bytesArray);
-                    }
-                    if (_isReading) readChunk();
-                })['catch'](function(err) { setError("WebUSB Read Loop Error: " + Std.string(err)); });
-            } catch (e:Dynamic) { setError("WebUSB Read Loop Exception: " + Std.string(e)); }
-        };
-        readChunk();
-    }
+private function startWebUSBReadLoop():Void
+{
+    if (_usbDevice == null || !_isOpenFlag || _usbEndpointIn <= 0) return;
+    _isReading = true;
+    var readChunk:Void->Void = null;
+    readChunk = function() {
+        if (!_isReading || _usbDevice == null) return;
+        try {
+            var promise:Dynamic = _usbDevice.transferIn(_usbEndpointIn, 64).then(function(result:Dynamic) {
+                if (result.status == "ok" && result.data != null) {
+                    var dataView:DataView = result.data; 
+                    var bytesArray = new Array<Int>();
+                    for (i in 0...dataView.byteLength) bytesArray.push(dataView.getUint8(i));
+                    writeToBuffer(bytesArray);
+                }
+                if (_isReading) readChunk();
+            });
+
+            Reflect.field(promise, "catch")(function(err) { 
+                setError("WebUSB Read Loop Error: " + Std.string(err)); 
+            });
+            
+        } catch (e:Dynamic) { 
+            setError("WebUSB Read Loop Exception: " + Std.string(e)); 
+        }
+    };
+    readChunk();
+}
+
     #end
 }

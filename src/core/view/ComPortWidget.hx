@@ -164,6 +164,14 @@ class ComPortWidget extends DeviceView
     private var _onComPortRx: Impulse -> Void;
     private var _onComPortError: Impulse -> Void;
 
+	// Auto Scan USB
+	#if android 
+    private var _usbPollAccumulator:Float = 0.0;
+    private var _lastUsbDeviceCount:Int = -1;
+	private var _lastScanResult:String = "";
+    private var _atomUpdateAccumulator:Float = 0.0;
+    #end
+	
     public function new(atom:Atom)
     {
         super(atom);
@@ -526,6 +534,12 @@ class ComPortWidget extends DeviceView
             var isOpen:Bool = (newValue == true);
             updateConnectionStatus(isOpen);
             
+            // === ОЧИЩАЕМ ПОЛЕ ОШИБКИ ПРИ УСПЕШНОМ ОТКРЫТИИ ===
+            if (isOpen) {
+                if (_errorDisplay != null) _errorDisplay.text = "";
+                _lastError = "";
+            }
+            
             #if android
             // Если порт был закрыт (например, из-за отключения USB), очищаем список устройств
             if (!isOpen) {
@@ -534,13 +548,11 @@ class ComPortWidget extends DeviceView
                 _selectedDeviceIndex = -1;
                 _scannedDevices = [];
                 
-                // Сбрасываем выбор в самом драйвере
                 if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) {
                     var comAtom:library.drivers.ComPortAtom = cast atom;
                     comAtom.setSelectedDevice(0, 0);
                 }
                 
-                // Очищаем визуальный список в UI
                 if (_deviceListContainer != null) {
                     updateDeviceList();
                 }
@@ -762,6 +774,52 @@ class ComPortWidget extends DeviceView
         if (_rxLedTimer > 0) { _rxLedTimer -= dt; if (_rxLedTimer <= 0) resetLed(_rxLed, 0x003300); }
         if (_txLedTimer > 0) { _txLedTimer -= dt; if (_txLedTimer <= 0) resetLed(_txLed, 0x001133); }
         if (_errLedTimer > 0) { _errLedTimer -= dt; if (_errLedTimer <= 0) resetLed(_errLed, 0x330000); }
+        
+        #if android
+        if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) {
+            var comAtom:library.drivers.ComPortAtom = cast atom;
+            
+            // 1. ТРОТТЛИНГ АТОМА
+            _atomUpdateAccumulator += dt;
+            if (_atomUpdateAccumulator >= 0.1) {
+                try {
+                    comAtom.update(_atomUpdateAccumulator);
+                } catch(e:Dynamic) {
+                    trace("ComPortWidget: Exception in comAtom.update() -> " + e);
+                    // Мигнем красным, чтобы знать, что Атом упал, но приложение живо
+                    pulseLed(_errLed, 0xFF4444, 0x330000); _errLedTimer = _ledPulseDuration;
+                }
+                _atomUpdateAccumulator = 0.0;
+            }
+            
+            // 2. Авто-детект USB (вызываем 1 раз в секунду)
+            var isOpen = (comAtom.getOutput("isOpen") != null && comAtom.getOutput("isOpen").value == true);
+            
+            if (!isOpen) {
+                _usbPollAccumulator += dt;
+                if (_usbPollAccumulator >= 1.0) {
+                    _usbPollAccumulator = 0.0;
+                    
+                    try {
+                        var currentScan:Array<String> = comAtom.scanUSBDevices(true);
+                        var currentStr = currentScan.join("|");
+                        
+                        if (currentStr != _lastScanResult) {
+                            pulseLed(_rxLed, 0x00FF00, 0x003300); _rxLedTimer = _ledPulseDuration;
+                            _scannedDevices = currentScan;
+                            _selectedDeviceIndex = -1; 
+                            _currentSelectedVid = 0; 
+                            _currentSelectedPid = 0;
+                            updateDeviceList();
+                            _lastScanResult = currentStr;
+                        }
+                    } catch(e:Dynamic) {
+                        pulseLed(_errLed, 0xFF4444, 0x330000); _errLedTimer = _ledPulseDuration;
+                    }
+                }
+            }
+        }
+        #end
     }
 
     override public function dispose():Void
