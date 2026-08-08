@@ -612,6 +612,8 @@ static void _altauri_com_reader_loop(void* haxePtr) {
         bytesRead = 0;
         BOOL bResult = ReadFile(st->hComm, tempBuf, sizeof(tempBuf) - 1, &bytesRead, NULL);
         if (bResult && bytesRead > 0) {
+            // DEBUG: remove after diagnosing PL2303
+            { char dbg[64]; sprintf(dbg, "ReadFile: %lu bytes", (unsigned long)bytesRead); OutputDebugStringA(dbg); }
             std::lock_guard<std::mutex> rxLock(st->rxMutex);
             int currentLen = st->rxLen;
             int newLen = currentLen + bytesRead;
@@ -864,6 +866,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
     #end
 
     private var _rxTimer:Float = 0.0;
+    private var _rxDebounceTime:Float = 0.0;
     private var _txTimer:Float = 0.0;
     private var _errTimer:Float = 0.0;
     private var _selectedVid:Int = 0;
@@ -936,6 +939,9 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 if (_overflowCount % 100 == 0) trace('ComPortAtom: Ring buffer overflow! Lost $_overflowCount bytes total');
             }
         }
+        #if html5
+        _rxDebounceTime = 0; // Reset debounce — new data arrived, wait before emitting
+        #end
         return written;
     }
 
@@ -1087,7 +1093,16 @@ class ComPortAtom extends Atom implements system.managers.Driver
             }
         }
         #if html5
-        emitRxData();
+        // Debounced RX: only emit when no new data has arrived for ~2 frames (~30ms at 60fps)
+        // This prevents partial messages from being output when PL2303 delivers data in small USB chunks
+        if (getBufferCount() > 0) {
+            _rxDebounceTime += dt;
+            if (_rxDebounceTime >= 0.030) {
+                emitRxData();
+            }
+        } else {
+            _rxDebounceTime = 0;
+        }
         #end
         readInputs();
         updatePulseTimers(dt);
@@ -1239,7 +1254,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                         SetCommState(hComm, &dcb);
                     }
                     COMMTIMEOUTS timeouts = {};
-                    timeouts.ReadIntervalTimeout = MAXDWORD; timeouts.ReadTotalTimeoutMultiplier = 0; timeouts.ReadTotalTimeoutConstant = 0;
+                    timeouts.ReadIntervalTimeout = 5; timeouts.ReadTotalTimeoutMultiplier = 0; timeouts.ReadTotalTimeoutConstant = 50;
                     timeouts.WriteTotalTimeoutMultiplier = 0; timeouts.WriteTotalTimeoutConstant = 1000;
                     SetCommTimeouts(hComm, &timeouts);
                     st->hComm = hComm; {2} = true;
@@ -1981,7 +1996,6 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 var len:Int = untyped js.Syntax.code("{0}.length", value);
                 for (i in 0...len) bytes.push(untyped js.Syntax.code("{0}[{1}]", value, i));
                 writeToBuffer(bytes);
-                _hasPendingRx = true;
                 readSerialChunk();
         }
 
@@ -2019,7 +2033,6 @@ class ComPortAtom extends Atom implements system.managers.Driver
                                         bytes.push(dataView.getUint8(i));
                                 }
                                 writeToBuffer(bytes);
-                                _hasPendingRx = true;
                         }
                 }
                 readUsbChunk();
