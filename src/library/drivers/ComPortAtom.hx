@@ -22,6 +22,7 @@ import haxe.io.Bytes;
 #include <thread>
 #include <mutex>
 #include <map>
+#include <chrono>
 #include <stdio.h>
 
 #ifdef __ANDROID__
@@ -132,6 +133,7 @@ struct ComPortState {
     char errBuffer[256];
     bool hasError;
     std::mutex errMutex;
+    std::chrono::steady_clock::time_point lastRxTime;
 };
 
 static std::map<void*, ComPortState*> _com_states_map;
@@ -513,6 +515,8 @@ static void _altauri_com_reader_loop(void* haxePtr) {
     }
     st->isRunning = true;
     st->rxLen = 0;
+    st->hasRxData = false;
+    st->lastRxTime = std::chrono::steady_clock::now();
     char tempBuf[4096];
 
 #ifdef __ANDROID__
@@ -528,7 +532,7 @@ static void _altauri_com_reader_loop(void* haxePtr) {
                     if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
                     if (jbuf != nullptr) {
                         while (st->isRunning) {
-                            jint bytesRead = env->CallIntMethod(st->jPort, readMethod, jbuf, 100);
+                            jint bytesRead = env->CallIntMethod(st->jPort, readMethod, jbuf, 10);
                             if (env->ExceptionCheck()) {
                                 env->ExceptionClear(); // Скрываем длинный стектрейс из Logcat
                                 LOGE("Android Rx Exception -> Device Disconnected");
@@ -538,7 +542,6 @@ static void _altauri_com_reader_loop(void* haxePtr) {
                                 break;
                             }
                             if (bytesRead > 0) {
-                                LOGI("RX: Received %d bytes", (int)bytesRead);
                                 env->GetByteArrayRegion(jbuf, 0, bytesRead, (jbyte*)tempBuf);
                                 if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
                                 
@@ -554,6 +557,7 @@ static void _altauri_com_reader_loop(void* haxePtr) {
                                 memcpy(st->rxBuffer + currentLen, tempBuf, bytesRead);
                                 st->rxLen += bytesRead;
                                 st->hasRxData = true;
+                                st->lastRxTime = std::chrono::steady_clock::now();
                             } else if (bytesRead < 0) {
                                 LOGE("Android Rx Err: %d", (int)bytesRead);
                                 if (!st->isRunning) break;
@@ -612,8 +616,6 @@ static void _altauri_com_reader_loop(void* haxePtr) {
         bytesRead = 0;
         BOOL bResult = ReadFile(st->hComm, tempBuf, sizeof(tempBuf) - 1, &bytesRead, NULL);
         if (bResult && bytesRead > 0) {
-            // DEBUG: remove after diagnosing PL2303
-            { char dbg[64]; sprintf(dbg, "ReadFile: %lu bytes", (unsigned long)bytesRead); OutputDebugStringA(dbg); }
             std::lock_guard<std::mutex> rxLock(st->rxMutex);
             int currentLen = st->rxLen;
             int newLen = currentLen + bytesRead;
@@ -626,6 +628,7 @@ static void _altauri_com_reader_loop(void* haxePtr) {
             memcpy(st->rxBuffer + currentLen, tempBuf, bytesRead);
             st->rxLen += bytesRead;
             st->hasRxData = true;
+            st->lastRxTime = std::chrono::steady_clock::now();
         } else if (bResult && bytesRead == 0) {
             Sleep(1);
             continue;
@@ -654,6 +657,7 @@ static void _altauri_com_reader_loop(void* haxePtr) {
                 memcpy(st->rxBuffer + currentLen, tempBuf, bytesRead);
                 st->rxLen += bytesRead;
                 st->hasRxData = true;
+                st->lastRxTime = std::chrono::steady_clock::now();
             } else if (bytesRead == 0) {
                 usleep(10000);
             } else {
@@ -857,6 +861,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
     @:volatile private var _hasPendingErr:Bool = false;
     private var _pendingRxStr:String = "";
     private var _pendingErrStr:String = "";
+    private var _rxAccumStr:String = "";
 
     // === Для авто-открытия после выдачи прав ===
     #if android
@@ -1032,11 +1037,17 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     {
                         std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
                         if (_cps_stPtr->hasRxData) {
-                            // ::String(ptr, len) on cpp target is a raw memcpy — bytes >127 are NOT re-encoded as UTF-8
-                            {0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer, _cps_stPtr->rxLen);
-                            {0}->_hasPendingRx = true;
-                            _cps_stPtr->hasRxData = false;
-                            _cps_stPtr->rxLen = 0;
+                            auto _cps_now = std::chrono::steady_clock::now();
+                            auto _cps_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                _cps_now - _cps_stPtr->lastRxTime).count();
+                            // Inter-message timeout: 50ms silence -> message complete
+                            // Transport delivers bytes, Protocol decides when message ends
+                            if (_cps_elapsed >= 50) {
+                                {0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer, _cps_stPtr->rxLen);
+                                {0}->_hasPendingRx = true;
+                                _cps_stPtr->hasRxData = false;
+                                _cps_stPtr->rxLen = 0;
+                            }
                         }
                     }
                     {
@@ -1418,6 +1429,8 @@ class ComPortAtom extends Atom implements system.managers.Driver
             }
         ', selfPtr);
         _isOpenFlag = false;
+        _rxAccumStr = "";
+        _rxDebounceTime = 0;
         var openOut = getOutput("isOpen");
         if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
         Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
