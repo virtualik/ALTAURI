@@ -26608,7 +26608,7 @@ class ComEnumeratorAtom extends Atom implements system.managers.Driver
 
 ================================================================================
 // FILE: library\drivers\ComPortAtom.hx
-// Lines: 1719 | Chars: 80116
+// Lines: 2060 | Chars: 102519
 ================================================================================
 
 package library.drivers;
@@ -26626,6 +26626,7 @@ import js.Syntax;
 import js.lib.Uint8Array;
 import js.lib.ArrayBuffer;
 import js.lib.DataView;
+import haxe.io.Bytes;
 #end
 
 #if cpp
@@ -26701,7 +26702,7 @@ static inline jobject GetActivity() {
     if (context == nullptr) {
         __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: getApplication returned null");
     } else {
-        __android_log_print(ANDROID_LOG_INFO, "ComPortJNI", "GetActivity: Successfully got Application context");
+        // Success — silent to avoid logcat spam (called from update loop)
     }
     env->DeleteLocalRef(activityThreadObj);
     env->DeleteLocalRef(activityThreadClass);
@@ -26737,7 +26738,7 @@ struct ComPortState {
 #endif
     std::thread* readThread;
     volatile bool isRunning;
-    char rxBuffer[1024];
+    char rxBuffer[4096];
     int rxLen; // Stores actual length of binary data (independent of null-terminator)
     bool hasRxData;
     std::mutex rxMutex;
@@ -26828,7 +26829,7 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
             env->DeleteLocalRef(device);
         }
         if (env->ExceptionCheck()) env->ExceptionClear();
-		
+                
         env->DeleteLocalRef(iteratorClass);
         env->DeleteLocalRef(iterator);
         env->DeleteLocalRef(collectionClass);
@@ -26969,7 +26970,7 @@ extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int sear
                                                 st->jConnection = env->NewGlobalRef(connection);
                                                 opened = true;
                                             }
-                                        }									
+                                        }                                                                       
                                         env->DeleteLocalRef(portClass);
                                         env->DeleteLocalRef(port);
                                     }
@@ -27063,7 +27064,7 @@ extern "C" bool checkAndroidUsbPermission(int searchVid, int searchPid) {
             }
         }
         if (env->ExceptionCheck()) env->ExceptionClear();
-		
+                
         env->DeleteLocalRef(iteratorClass); env->DeleteLocalRef(iterator); env->DeleteLocalRef(collectionClass); env->DeleteLocalRef(values);
     }
     env->DeleteLocalRef(mapClass); env->DeleteLocalRef(deviceMap); env->DeleteLocalRef(mgrClass); env->DeleteLocalRef(usbManager); env->DeleteLocalRef(ctxClass); env->DeleteLocalRef(context);
@@ -27125,7 +27126,7 @@ static void _altauri_com_reader_loop(void* haxePtr) {
     }
     st->isRunning = true;
     st->rxLen = 0;
-    char tempBuf[1024];
+    char tempBuf[4096];
 
 #ifdef __ANDROID__
     if (st->jPort != nullptr) {
@@ -27136,7 +27137,7 @@ static void _altauri_com_reader_loop(void* haxePtr) {
             if (portClass != nullptr) {
                 jmethodID readMethod = env->GetMethodID(portClass, "read", "([BI)I");
                 if (readMethod != nullptr) {
-                    jbyteArray jbuf = env->NewByteArray(1024);
+                    jbyteArray jbuf = env->NewByteArray(4096);
                     if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
                     if (jbuf != nullptr) {
                         while (st->isRunning) {
@@ -27375,7 +27376,7 @@ extern "C" const char* androidScanUSBDevices() {
         env->DeleteLocalRef(device);
     }
     if (env->ExceptionCheck()) env->ExceptionClear();
-	
+        
     env->DeleteLocalRef(iteratorClass);
     env->DeleteLocalRef(iterator);
     env->DeleteLocalRef(collectionClass);
@@ -27472,6 +27473,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
     #if android
     private var _isWaitingForUsbPermission:Bool = false;
     private var _usbPermissionTimeout:Float = 0.0;
+    private var _permCheckTimer:Float = 0.0;
     #end
 
     private var _rxTimer:Float = 0.0;
@@ -27558,6 +27560,18 @@ class ComPortAtom extends Atom implements system.managers.Driver
         var availableBytes = getBufferCount();
         if (availableBytes == 0) return;
         var bytesToRead:Int = availableBytes < _chunkSize ? availableBytes : _chunkSize;
+        #if html5
+        var bBuf = new haxe.io.BytesBuffer();
+        for (i in 0...bytesToRead)
+        {
+            var idx = _readPos % _bufferSize;
+            bBuf.addByte(_ringBuffer[idx] & 0xFF);
+            _readPos++;
+        }
+        var rxBytes = bBuf.getBytes();
+        // Note: rxBytes.getString() is NOT used here — it decodes as UTF-8, corrupting bytes >127
+        var rxString = [for (i in 0...rxBytes.length) String.fromCharCode(rxBytes.get(i))].join("");
+        #else
         var rxString = "";
         for (i in 0...bytesToRead)
         {
@@ -27565,6 +27579,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
             rxString += String.fromCharCode(_ringBuffer[idx]);
             _readPos++;
         }
+        #end
         var rxOut = getOutput("rxData");
         if (rxOut != null) { rxOut.setValueSilent(rxString); rxOut.propagateCurrentValue(); }
         var rxTick = getOutput("rxTick");
@@ -27584,10 +27599,12 @@ class ComPortAtom extends Atom implements system.managers.Driver
         if (_isWaitingForUsbPermission) {
             // Отнимаем dt, а не 1.0, так как update вызывается каждый кадр
             _usbPermissionTimeout -= dt; 
+            _permCheckTimer -= dt;
             if (_usbPermissionTimeout <= 0) {
                 _isWaitingForUsbPermission = false;
                 setError("USB Permission request timed out or denied.");
-            } else {
+            } else if (_permCheckTimer <= 0) {
+                _permCheckTimer = 0.5; // Проверяем права раз в 0.5 сек, а не каждый кадр (~60 fps)
                 var hasPerm:Bool = untyped __cpp__('(bool)checkAndroidUsbPermission({0}, {1})', _selectedVid, _selectedPid);
                 if (hasPerm) {
                     trace("ComPortAtom: USB Permission granted! Auto-opening port...");
@@ -27622,6 +27639,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     {
                         std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
                         if (_cps_stPtr->hasRxData) {
+                            // ::String(ptr, len) on cpp target is a raw memcpy — bytes >127 are NOT re-encoded as UTF-8
                             {0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer, _cps_stPtr->rxLen);
                             {0}->_hasPendingRx = true;
                             _cps_stPtr->hasRxData = false;
@@ -27763,7 +27781,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
         Impulsys.quickEmit(EventType.COMPORT_ERROR, msg);
     }
 
-    #if cpp
+    #if android
     public function scanUSBDevices(silent:Bool = false):Array<String>
     {
         var result:Array<String> = [];
@@ -27828,12 +27846,12 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 std::string nameStr = "\\\\\\\\.\\\\" + std::string({0}.c_str());
                 HANDLE hComm = CreateFileA(nameStr.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
                 if (hComm != INVALID_HANDLE_VALUE) {
-                    DCB dcb = {0}; dcb.DCBlength = sizeof(DCB);
+                    DCB dcb = {}; dcb.DCBlength = sizeof(DCB);
                     if (GetCommState(hComm, &dcb)) {
                         dcb.BaudRate = {1}; dcb.ByteSize = 8; dcb.StopBits = ONESTOPBIT; dcb.Parity = NOPARITY; dcb.fDtrControl = DTR_CONTROL_ENABLE;
                         SetCommState(hComm, &dcb);
                     }
-                    COMMTIMEOUTS timeouts = {0};
+                    COMMTIMEOUTS timeouts = {};
                     timeouts.ReadIntervalTimeout = MAXDWORD; timeouts.ReadTotalTimeoutMultiplier = 0; timeouts.ReadTotalTimeoutConstant = 0;
                     timeouts.WriteTotalTimeoutMultiplier = 0; timeouts.WriteTotalTimeoutConstant = 1000;
                     SetCommTimeouts(hComm, &timeouts);
@@ -27869,7 +27887,9 @@ class ComPortAtom extends Atom implements system.managers.Driver
         if (success)
         {
             _isOpenFlag = true;
+            #if android
             _isWaitingForUsbPermission = false; // Сбрасываем флаг ожидания
+            #end
             
             // === ОЧИЩАЕМ ОШИБКУ, так как порт успешно открыт ===
             _pendingErrStr = "";
@@ -27899,9 +27919,50 @@ class ComPortAtom extends Atom implements system.managers.Driver
             #end
         }
         #elseif html5
-        if (Syntax.code("typeof navigator !== 'undefined' && 'serial' in navigator")) openWebSerial(baudRate);
-        else if (Syntax.code("typeof navigator !== 'undefined' && 'usb' in navigator")) openWebUSB(baudRate);
-        else setError("Web Serial / WebUSB API is not supported in this browser");
+                if (_isOpenFlag) closeDevice();
+                clearBuffer();
+
+                var hasSerial:Bool = untyped js.Syntax.code("typeof navigator !== 'undefined' && 'serial' in navigator");
+                var hasUSB:Bool = untyped js.Syntax.code("typeof navigator !== 'undefined' && 'usb' in navigator");
+
+                if (hasSerial)
+                {
+                        _connectionType = "serial";
+                        var self = this;
+                        untyped js.Syntax.code("navigator.serial").requestPort().then(function(port:Dynamic) { self.onSerialPortRequested(port); })
+                        ['catch'](function(err:Dynamic) { self.onPortRequestError(err); });
+                }
+                else if (hasUSB)
+                {
+                        _connectionType = "usb";
+                        var self = this;
+                        var filters:Array<Dynamic> = [
+                                // --- USB-UART Converters ---
+                                { vendorId: 0x303A }, // Espressif Systems (ESP32-S2/S3/C3 Native USB)
+                                { vendorId: 0x0403 }, // FTDI (FT232R, FT2232, FT4232)
+                                { vendorId: 0x1A86 }, // QinHeng Electronics (CH340, CH341, CH9102)
+                                { vendorId: 0x10C4 }, // Silicon Labs (CP2102, CP2104, CP2105)
+                                { vendorId: 0x067B }, // Prolific Technology (PL2303)
+                                
+                                // --- Microcontrollers & CDC/ACM Devices ---
+                                { vendorId: 0x2341 }, // Arduino SA (Leonardo, Micro, Uno, Mega, Nano)
+                                { vendorId: 0x1B4F }, // SparkFun Electronics (Pro Micro 32u4, SAMD21)
+                                { vendorId: 0x0483 }, // STMicroelectronics (STM32 USB CDC / Virtual COM)
+                                { vendorId: 0x2E8A }, // Raspberry Pi Foundation (RP2040 Pico CDC)
+                                { vendorId: 0x03EB }  // Microchip / Atmel (SAMD21 / LUFA CDC)
+                        ];
+                        untyped js.Syntax.code("navigator.usb").requestDevice({ filters: filters }).then(function(device:Dynamic)
+                        {
+                                self.onUsbDeviceRequested(device);
+                        })['catch'](function(err:Dynamic)
+                        {
+                                self.onPortRequestError(err);
+                        });
+                }
+                else
+                {
+                        setError("Neither Web Serial API nor WebUSB is supported in this browser environment.");
+                }
         #end
     }
 
@@ -27960,50 +28021,99 @@ class ComPortAtom extends Atom implements system.managers.Driver
         Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
         trace('ComPortAtom: Closed serial device');
         #elseif html5
-        _isReading = false;
-        if (_connectionType == "serial" && _serialPort != null)
-        {
-            try {
-                if (_reader != null) { _reader.cancel(); _reader = null; }
-                if (_writer != null) { _writer.releaseLock(); _writer = null; }
-				var promise:Dynamic = _serialPort.close().then(function(_) {
-					_serialPort = null; 
-					_isOpenFlag = false; 
-					_connectionType = "none";
-					var openOut = getOutput("isOpen"); 
-					if (openOut != null) { 
-						openOut.setValueSilent(false); 
-						openOut.propagateCurrentValue(); 
-					}
-					Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
-					trace('ComPortAtom: Closed Web Serial port');
-				});
+                if (!_isOpenFlag) return;
+                _isOpenFlag = false;
+                _isReading = false;
 
-				Reflect.field(promise, "catch")(function(err) { 
-					setError("Error closing Web Serial port: " + Std.string(err)); 
-				});            } catch (e:Dynamic) { setError("Exception closing Web Serial port: " + Std.string(e)); }
-        }
-        else if (_connectionType == "usb" && _usbDevice != null)
-        {
-            try {
-				var dev = _usbDevice; _usbDevice = null; _isOpenFlag = false; _connectionType = "none";
-				var promise:Dynamic = dev.releaseInterface(_usbInterfaceNumber).then(function(_) { 
-					return dev.close(); 
-				}).then(function(_) {
-					var openOut = getOutput("isOpen"); 
-					if (openOut != null) { 
-						openOut.setValueSilent(false); 
-						openOut.propagateCurrentValue(); 
-					}
-					Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
-					trace('ComPortAtom: Closed WebUSB device'); 
-				});
+                if (_connectionType == "serial")
+                {
+                        var self = this;
+                        var port:Dynamic = _serialPort;
+                        var closeSequence:Dynamic = untyped Promise.resolve();
 
-				Reflect.field(promise, "catch")(function(err) { 
-					setError("Error closing WebUSB device: " + Std.string(err)); 
-				});
-            } catch (e:Dynamic) { setError("Exception closing WebUSB device: " + Std.string(e)); }
-        }
+                        if (_reader != null)
+                        {
+                                var reader:Dynamic = _reader;
+                                _reader = null;
+                                closeSequence = closeSequence.then(function()
+                                {
+                                        return untyped reader.cancel().then(function() {}, function(err:Dynamic) { return null; });
+                                }).then(function()
+                                {
+                                        untyped reader.releaseLock();
+                                });
+                        }
+
+                        if (_writer != null)
+                        {
+                                var writer:Dynamic = _writer;
+                                _writer = null;
+                                closeSequence = closeSequence.then(function()
+                                {
+                                        return untyped writer.close().then(function() {}, function(err:Dynamic) { return null; });
+                                }).then(function()
+                                {
+                                        untyped writer.releaseLock();
+                                });
+                        }
+
+                        if (port != null)
+                        {
+                                closeSequence = closeSequence.then(function()
+                                {
+                                        return untyped port.close();
+                                }).then(function()
+                                {
+                                        self.onPortClosed();
+                                }, function(err:Dynamic)
+                                {
+                                        self.onPortCloseError(err);
+                                });
+                        }
+                        else
+                        {
+                                closeSequence = closeSequence.then(function()
+                                {
+                                        self.onPortClosed();
+                                });
+                        }
+
+                        _serialPort = null;
+                }
+                else if (_connectionType == "usb")
+                {
+                        var self = this;
+                        var dev:Dynamic = _usbDevice;
+                        var p:Dynamic = untyped Promise.resolve();
+
+                        if (_usbInterfaceNumber != -1)
+                        {
+                                p = p.then(function()
+                                {
+                                        return untyped dev.releaseInterface(_usbInterfaceNumber).then(function() {}, function(e:Dynamic) { return null; });
+                                });
+                        }
+                        if (_usbControlInterface != -1 && _usbControlInterface != _usbInterfaceNumber)
+                        {
+                                p = p.then(function()
+                                {
+                                        return untyped dev.releaseInterface(_usbControlInterface).then(function() {}, function(e:Dynamic) { return null; });
+                                });
+                        }
+
+                        p = p.then(function()
+                        {
+                                return untyped dev.close().then(function() {}, function(e:Dynamic) { return null; });
+                        }).then(function()
+                        {
+                                self.onPortClosed();
+                        }, function(err:Dynamic)
+                        {
+                                self.onPortCloseError(err);
+                        });
+
+                        _usbDevice = null;
+                }
         #end
     }
 
@@ -28068,34 +28178,29 @@ class ComPortAtom extends Atom implements system.managers.Driver
             }
         ', selfPtr, dataStr);
         #elseif html5
-        if (_connectionType == "serial" && _serialPort != null)
-        {
-            try {
-                var encoder = js.Syntax.code("new TextEncoder()"); var dataArray = encoder.encode(dataStr);
-                var writer = _serialPort.writable.getWriter();
-                
-                var promise:Dynamic = writer.write(dataArray).then(function(_) { 
-                    writer.releaseLock(); 
-                });
-
-                Reflect.field(promise, "catch")(function(err) { 
-                    writer.releaseLock(); 
-                    setError("Web Serial TX Error: " + Std.string(err)); 
-                });
-            } catch (e:Dynamic) { setError("Web Serial TX Exception: " + Std.string(e)); }
-        }
-        else if (_connectionType == "usb" && _usbDevice != null && _usbEndpointOut > 0)
-        {
-            try {
-                var encoder = js.Syntax.code("new TextEncoder()"); var dataArray = encoder.encode(dataStr);
-                
-                var promise:Dynamic = _usbDevice.transferOut(_usbEndpointOut, dataArray);
-                
-                Reflect.field(promise, "catch")(function(err) { 
-                    setError("WebUSB TX Error: " + Std.string(err)); 
-                });
-            } catch (e:Dynamic) { setError("WebUSB TX Exception: " + Std.string(e)); }
-        }
+                if (_connectionType == "serial")
+                {
+                        if (_serialPort == null || !_isOpenFlag) return;
+                        var writable:Dynamic = untyped js.Syntax.code("{0}.writable", _serialPort);
+                        if (writable == null) { setError("Port has no writable stream"); return; }
+                        _writer = untyped js.Syntax.code("{0}.getWriter()", writable);
+                        var txLen:Int = dataStr.length;
+                        var buf:Uint8Array = new Uint8Array(txLen);
+                        for (ti in 0...txLen) buf[ti] = dataStr.charCodeAt(ti) & 0xFF;
+                        var self = this;
+                        untyped _writer.write(buf).then(function() { self.onWriteSuccess(); })
+                        ['catch'](function(err:Dynamic) { self.onWriteError(err); });
+                }
+                else if (_connectionType == "usb")
+                {
+                        if (_usbDevice == null || _usbEndpointOut == -1) return;
+                        var txLen:Int = dataStr.length;
+                        var buf:Uint8Array = new Uint8Array(txLen);
+                        for (ti in 0...txLen) buf[ti] = dataStr.charCodeAt(ti) & 0xFF;
+                        var self = this;
+                        untyped _usbDevice.transferOut(_usbEndpointOut, buf).then(function() { self.onWriteSuccess(); })
+                        ['catch'](function(err:Dynamic) { self.onWriteError(err); });
+                }
         #end
     }
 
@@ -28135,200 +28240,436 @@ class ComPortAtom extends Atom implements system.managers.Driver
             }
         ', selfPtr, state);
         #elseif html5
-        if (_connectionType == "serial" && _serialPort != null)
-        {
-            try {
-                var signals:Dynamic = { dataTerminalReady: state };
-                var promise:Dynamic = _serialPort.setSignals(signals);
-                
-                Reflect.field(promise, "catch")(function(err) { 
-                    setError("Web Serial DTR Error: " + Std.string(err)); 
-                });
-            } catch (e:Dynamic) { setError("Web Serial DTR Exception: " + Std.string(e)); }
-        }
+                if (_connectionType == "serial")
+                {
+                        trace('ComPortAtom: DTR control not directly supported in standard Web Serial API without extensions.');
+                }
+                else if (_connectionType == "usb")
+                {
+                        var vid:Int = untyped _usbDevice.vendorId;
+                        var val:Int = state ? 0x03 : 0x00;
+
+                        if (vid == 0x10c4)   // CP2102
+                        {
+                                var maskVal:Int = (state ? 1 : 0) | 0x100 | (state ? 2 : 0) | 0x200;
+                                untyped _usbDevice.controlTransferOut({requestType:'vendor', recipient:'device', request:0x07, value:maskVal, index:0x00});
+                        }
+                        else if (vid == 0x1a86)     // CH340
+                        {
+                                var ch340Val:Int = (~((state ? 1<<5 : 0) | (state ? 1<<6 : 0))) & 0xffff;
+                                untyped _usbDevice.controlTransferOut({requestType:'vendor', recipient:'device', request:0xA4, value:ch340Val, index:0x00});
+                        }
+                        else     // CDC / ACM
+                        {
+                                untyped _usbDevice.controlTransferOut({requestType:'class', recipient:'interface', request:0x22, value:val, index:_usbControlInterface});
+                        }
+                }
         #end
     }
 
     #if html5
-	private function openWebSerial(baudRate:Int):Void
-	{
-		try {
-			var navSerial = js.Syntax.code("navigator.serial");
-			
-			var promise:Dynamic = navSerial.requestPort().then(function(port) {
-				_serialPort = port;
-				var options:Dynamic = { baudRate: baudRate, dataBits: 8, stopBits: 1, parity: "none" };
-				return _serialPort.open(options);
-			}).then(function(_) {
-				_isOpenFlag = true; _connectionType = "serial";
-				var openOut = getOutput("isOpen"); 
-				if (openOut != null) { 
-					openOut.setValueSilent(true); 
-					openOut.propagateCurrentValue(); 
-				}
-				Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected via Web Serial");
-				trace('ComPortAtom: Opened Web Serial port at $baudRate baud');
-				startWebSerialReadLoop();
-			});
+        /** Port closed callback. */
+        @:keep public function onPortClosed():Void
+        {
+                _isOpenFlag = false;
+                var outOpen = getOutput("isOpen");
+                if (outOpen != null) outOpen.value = false;
+                trace('ComPortAtom: Port closed');
+        }
 
-			Reflect.field(promise, "catch")(function(err) { 
-				setError("Web Serial Open Error: " + Std.string(err)); 
-			});
+        /** Port close error callback. */
+        @:keep public function onPortCloseError(err:Dynamic):Void { setError('Failed to close port: $err'); }
 
-		} catch (e:Dynamic) { 
-			setError("Web Serial Exception: " + Std.string(e)); 
-		}
-	}
+        /** Web Serial: port selected by user. */
+        @:keep public function onSerialPortRequested(port:Dynamic):Void
+        {
+                _serialPort = port;
+                var baudRateInt:Int = 9600;
+                var baudC = getInput("baudRate");
+                if (baudC != null && baudC.value != null) baudRateInt = cast baudC.value;
+                var options:Dynamic = { baudRate: baudRateInt, dataBits: 8, stopBits: 1, parity: "none", bufferSize: 4096, flowControl: "none" };
+                var self = this;
+                untyped _serialPort.open(options).then(function() { self.onPortOpened(); })
+                ['catch'](function(err:Dynamic) { self.onPortOpenError(err); });
+        }
 
+// --- WEB USB CALLBACKS ---
+        /** WebUSB: device selected by user. */
+        @:keep public function onUsbDeviceRequested(device:Dynamic):Void
+        {
+                _usbDevice = device;
+                var baudRateInt:Int = 9600;
+                var baudC = getInput("baudRate");
+                if (baudC != null && baudC.value != null) baudRateInt = cast baudC.value;
 
-	private function startWebSerialReadLoop():Void
-	{
-		if (_serialPort == null || !_isOpenFlag) return;
-		_isReading = true;
-		_reader = _serialPort.readable.getReader();
-		
-		var readChunk:Void->Void = null;
-		readChunk = function() {
-			if (!_isReading || _serialPort == null || _reader == null) return;
-			
-			var promise:Dynamic = _reader.read().then(function(result:Dynamic) {
-				if (result.done) { return; }
-				if (result.value != null) {
-					var uint8Arr:Uint8Array = result.value; 
-					var bytesArray = new Array<Int>();
-					for (i in 0...uint8Arr.length) bytesArray.push(uint8Arr[i]);
-					writeToBuffer(bytesArray);
-				}
-				if (_isReading) readChunk();
-			});
+                var self = this;
+                untyped _usbDevice.open().then(function()
+                {
+                        return untyped _usbDevice.selectConfiguration(1);
+                }).then(function()
+                {
+                        return self.claimUsbInterfaces(baudRateInt);
+                }).then(function()
+                {
+                        self.onPortOpened();
+                })['catch'](function(err:Dynamic)
+                {
+                        self.onPortOpenError(err);
+                });
+        }
 
-			Reflect.field(promise, "catch")(function(err) {
-				setError("Web Serial Read Loop Error: " + Std.string(err));
-			});
-		};
-		
-		readChunk();
-	}
+        /** WebUSB: Claim interface and configure chip/CDC control sequence. */
+        @:keep private function claimUsbInterfaces(baudRate:Int):Dynamic
+        {
+                var self = this;
+                var dev:Dynamic = _usbDevice;
+                var config:Dynamic = dev.configuration;
+                var ifaceNum:Int = -1;
+                var ctrlIface:Int = -1;
+                var epIn:Int = -1;
+                var epOut:Int = -1;
 
-
-	private function openWebUSB(baudRate:Int):Void
-	{
-		try {
-			var navUsb = js.Syntax.code("navigator.usb");
-			var filters:Array<Dynamic> = [
-				{ vendorId: 0x303A }, { vendorId: 0x0403 }, { vendorId: 0x1A86 }, { vendorId: 0x10C4 },
-				{ vendorId: 0x067B }, { vendorId: 0x2341 }, { vendorId: 0x1B4F }, { vendorId: 0x0483 },
-				{ vendorId: 0x2E8A }, { vendorId: 0x03EB }
-			];
-			
-			var promise:Dynamic = navUsb.requestDevice({ filters: filters }).then(function(device) {
-				_usbDevice = device; 
-				return _usbDevice.open();
-			}).then(function(_) { 
-				return _usbDevice.selectConfiguration(1); 
-			}).then(function(_) {
-				findUsbEndpoints();
-				if (_usbInterfaceNumber < 0) throw "No compatible USB serial interface found";
-				return _usbDevice.claimInterface(_usbInterfaceNumber);
-			}).then(function(_) { 
-				return initUsbDeviceParameters(baudRate); 
-			}).then(function(_) {
-				_isOpenFlag = true; _connectionType = "usb";
-				var openOut = getOutput("isOpen"); 
-				if (openOut != null) { 
-					openOut.setValueSilent(true); 
-					openOut.propagateCurrentValue(); 
-				}
-				Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected via WebUSB");
-				trace('ComPortAtom: Opened WebUSB device (VID: 0x' + StringTools.hex(_usbDevice.vendorId, 4) + ') at $baudRate baud');
-				startWebUSBReadLoop();
-			});
-
-			Reflect.field(promise, "catch")(function(err) { 
-				setError("WebUSB Open Error: " + Std.string(err)); 
-			});
-			
-		} catch (e:Dynamic) { 
-			setError("WebUSB Exception: " + Std.string(e)); 
-		}
-	}
-
-
-    private function findUsbEndpoints():Void
-    {
-        if (_usbDevice == null || _usbDevice.configuration == null) return;
-        _usbInterfaceNumber = -1; _usbEndpointIn = -1; _usbEndpointOut = -1; _usbControlInterface = -1;
-        var interfaces:Array<Dynamic> = _usbDevice.configuration.interfaces;
-        for (iface in interfaces) {
-            var alternate:Dynamic = iface.alternates[0];
-            if (alternate.interfaceClass == 0x0A || alternate.interfaceClass == 0xFF || alternate.interfaceClass == 0x02) {
-                if (alternate.interfaceClass == 0x02) _usbControlInterface = iface.interfaceNumber;
-                var endpoints:Array<Dynamic> = alternate.endpoints;
-                for (ep in endpoints) {
-                    if (ep.direction == "in" && ep.type == "bulk") { _usbEndpointIn = ep.endpointNumber; _usbInterfaceNumber = iface.interfaceNumber; }
-                    if (ep.direction == "out" && ep.type == "bulk") { _usbEndpointOut = ep.endpointNumber; }
+                var interfaces:Dynamic = config.interfaces;
+                for (i in 0...interfaces.length)
+                {
+                        var iface:Dynamic = interfaces[i];
+                        if (iface.alternates != null && iface.alternates.length > 0 && iface.alternates[0].interfaceClass == 0x02)
+                        {
+                                ctrlIface = iface.interfaceNumber;
+                                break;
+                        }
                 }
-            }
-        }
-        if (_usbInterfaceNumber < 0 && interfaces.length > 0) {
-            _usbInterfaceNumber = interfaces[0].interfaceNumber;
-            var alternate:Dynamic = interfaces[0].alternates[0];
-            for (ep in cast(alternate.endpoints, Array<Dynamic>)) {
-                if (ep.direction == "in") _usbEndpointIn = ep.endpointNumber;
-                if (ep.direction == "out") _usbEndpointOut = ep.endpointNumber;
-            }
-        }
-    }
 
-    private function initUsbDeviceParameters(baudRate:Int):Dynamic
-    {
-        if (_usbDevice == null) return null;
-        var vid:Int = _usbDevice.vendorId;
-        if (vid == 0x0403) {
-            var value:Int = cast(3000000 / baudRate);
-            return _usbDevice.controlTransferOut({ requestType: "vendor", recipient: "device", request: 0x03, value: value, index: 0 });
-        } else if (vid == 0x10C4) {
-            return _usbDevice.controlTransferOut({ requestType: "vendor", recipient: "interface", request: 0x00, value: 0x01, index: _usbInterfaceNumber });
-        } else if (vid == 0x1A86) {
-            return _usbDevice.controlTransferOut({ requestType: "vendor", recipient: "device", request: 0xA1, value: 0xC29C, index: 0xB2B9 });
-        } else {
-            var buffer = Syntax.code("new ArrayBuffer(7)"); var view = Syntax.code("new DataView(buffer)");
-            view.setUint32(0, baudRate, true); view.setUint8(4, 0); view.setUint8(5, 0); view.setUint8(6, 8);
-            var ctrlIface = _usbControlInterface >= 0 ? _usbControlInterface : _usbInterfaceNumber;
-            return _usbDevice.controlTransferOut({ requestType: "class", recipient: "interface", request: 0x20, value: 0, index: ctrlIface }, buffer);
-        }
-    }
-
-private function startWebUSBReadLoop():Void
-{
-    if (_usbDevice == null || !_isOpenFlag || _usbEndpointIn <= 0) return;
-    _isReading = true;
-    var readChunk:Void->Void = null;
-    readChunk = function() {
-        if (!_isReading || _usbDevice == null) return;
-        try {
-            var promise:Dynamic = _usbDevice.transferIn(_usbEndpointIn, 64).then(function(result:Dynamic) {
-                if (result.status == "ok" && result.data != null) {
-                    var dataView:DataView = result.data; 
-                    var bytesArray = new Array<Int>();
-                    for (i in 0...dataView.byteLength) bytesArray.push(dataView.getUint8(i));
-                    writeToBuffer(bytesArray);
+                var candidates:Array<Dynamic> = [];
+                for (i in 0...interfaces.length)
+                {
+                        var iface:Dynamic = interfaces[i];
+                        for (a in 0...iface.alternates.length)
+                        {
+                                var alt:Dynamic = iface.alternates[a];
+                                var hasIn:Bool = false;
+                                var hasOut:Bool = false;
+                                for (e in 0...alt.endpoints.length)
+                                {
+                                        var ep:Dynamic = alt.endpoints[e];
+                                        if (ep.type == 'bulk' && ep.direction == 'in') hasIn = true;
+                                        if (ep.type == 'bulk' && ep.direction == 'out') hasOut = true;
+                                }
+                                if (hasIn && hasOut)
+                                {
+                                        var score:Int = (alt.interfaceClass == 0x0a) ? 0 : 1;
+                                        candidates.push({ iface: iface, altIndex: a, alt: alt, score: score });
+                                        break;
+                                }
+                        }
                 }
-                if (_isReading) readChunk();
-            });
 
-            Reflect.field(promise, "catch")(function(err) { 
-                setError("WebUSB Read Loop Error: " + Std.string(err)); 
-            });
-            
-        } catch (e:Dynamic) { 
-            setError("WebUSB Read Loop Exception: " + Std.string(e)); 
+                candidates.sort(function(a:Dynamic, b:Dynamic):Int {
+                        var sa:Int = a.score;
+                        var sb:Int = b.score;
+                        return sa - sb;
+                });
+
+                if (candidates.length == 0) return untyped Promise.reject('No suitable USB interface found');
+
+                var tryClaim:Dynamic = null;
+                tryClaim = function(idx:Int):Dynamic
+                {
+                        if (idx >= candidates.length) return untyped Promise.reject('Unable to claim any USB interface');
+                        var cand:Dynamic = candidates[idx];
+
+                        return untyped dev.claimInterface(cand.iface.interfaceNumber).then(function()
+                        {
+                                return untyped dev.selectAlternateInterface(cand.iface.interfaceNumber, cand.altIndex)['catch'](function(e:Dynamic) { return null; });
+                        }).then(function()
+                        {
+                                ifaceNum = cand.iface.interfaceNumber;
+                                for (e in 0...cand.alt.endpoints.length)
+                                {
+                                        var ep:Dynamic = cand.alt.endpoints[e];
+                                        if (ep.type == 'bulk' && ep.direction == 'in') epIn = ep.endpointNumber;
+                                        else if (ep.type == 'bulk' && ep.direction == 'out') epOut = ep.endpointNumber;
+                                }
+                                if (ctrlIface == -1 || ctrlIface == ifaceNum) ctrlIface = ifaceNum;
+
+                                var vid:Int = dev.vendorId;
+                                var initPromise:Dynamic = untyped Promise.resolve();
+
+                                if (vid == 0x10c4)   // Silicon Labs CP2102 / CP2104
+                                {
+                                        initPromise = untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x00, value:0x01, index:0x00})
+                                        .then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x03, value:0x0800, index:0x00}); })
+                                        .then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x07, value:0x0303, index:0x00}); })
+                                        .then(function()
+                                        {
+                                                var buf:ArrayBuffer = new ArrayBuffer(4);
+                                                var view:DataView = new DataView(buf);
+                                                view.setUint32(0, baudRate, true);
+                                                return untyped dev.controlTransferOut({requestType:'vendor', recipient:'interface', request:0x1E, value:0, index:0}, buf);
+                                        });
+                                }
+                                else if (vid == 0x0403)   // FTDI FT232R / FT2232 / FT4232
+                                {
+                                        var divisor:Float = 3000000.0 / baudRate;
+                                        var intPart:Int = cast Math.floor(divisor);
+                                        var fracPart:Float = divisor - intPart;
+                                        var subInt:Int = 0;
+                                        if (fracPart >= 0.0625 && fracPart < 0.1875) subInt = 1;
+                                        else if (fracPart >= 0.1875 && fracPart < 0.3125) subInt = 2;
+                                        else if (fracPart >= 0.3125 && fracPart < 0.4375) subInt = 3;
+                                        else if (fracPart >= 0.4375 && fracPart < 0.5625) subInt = 4;
+                                        else if (fracPart >= 0.5625 && fracPart < 0.6875) subInt = 5;
+                                        else if (fracPart >= 0.6875 && fracPart < 0.8125) subInt = 6;
+                                        else if (fracPart >= 0.8125) subInt = 7;
+
+                                        var val:Int = (intPart & 0xFF) | ((subInt & 0x07) << 14) | (((intPart >> 8) & 0x3F) << 8);
+                                        var idx_val:Int = (intPart >> 14) & 0x03;
+                                        initPromise = untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x00, value:0x00, index:0x00})
+                                        .then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x02, value:0x00, index:0x00}); })
+                                        .then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x04, value:0x0008, index:0x00}); })
+                                        .then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x03, value:val, index:idx_val}); })
+                                        .then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0303, index:0x00}); });
+                                }
+                                else if (vid == 0x1a86)   // WCH CH340 / CH341
+                                {
+                                        var factor:Float = 1532620800.0 / baudRate;
+                                        var factorInt:Int = cast Math.floor(factor);
+                                        var div:Int = 3;
+                                        while (factorInt > 0xfff0 && div > 0) { factorInt >>= 3; div--; }
+                                        if (factorInt > 0xfff0) return untyped Promise.reject('Baudrate not supported by CH340');
+                                        factorInt = 0x10000 - factorInt;
+                                        var a_val:Int = (factorInt & 0xff00) | div;
+                                        var b_val:Int = factorInt & 0xff;
+                                        initPromise = untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0xA1, value:0x0000, index:0x0000})
+                                        .then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x9A, value:0x1312, index:a_val}); })
+                                        .then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x9A, value:0x0f2c, index:b_val}); })
+                                        .then(function() { return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0xA4, value:(~((1<<5)|(1<<6)))&0xffff, index:0x0000}); });
+                                }
+                                else if (vid == 0x067b)   // Prolific PL2303
+                                {
+                                        // Vendor initialization sequence required to enable RX/TX buffers for PL2303
+                                        initPromise = untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0000, index:0x0001})
+                                        .then(function() { 
+                                                return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0001, index:0x0000}); 
+                                        })
+                                        .then(function() { 
+                                                // Critical command: RX buffer activation
+                                                return untyped dev.controlTransferOut({requestType:'vendor', recipient:'device', request:0x01, value:0x0002, index:0x0044}); 
+                                        })
+                                        .then(function() {
+                                                var lineCoding:Uint8Array = new Uint8Array([
+                                                        baudRate & 0xFF,
+                                                        (baudRate >> 8) & 0xFF,
+                                                        (baudRate >> 16) & 0xFF,
+                                                        (baudRate >> 24) & 0xFF,
+                                                        0x00,  // 1 stop bit
+                                                        0x00,  // no parity
+                                                        0x08   // 8 data bits
+                                                ]);
+                                                return untyped dev.controlTransferOut({
+                                                        requestType: 'class',
+                                                        recipient: 'interface',
+                                                        request: 0x20,
+                                                        value: 0,
+                                                        index: ctrlIface
+                                                }, lineCoding);
+                                        }).then(function() {
+                                                return untyped dev.controlTransferOut({
+                                                        requestType: 'class',
+                                                        recipient: 'interface',
+                                                        request: 0x22,
+                                                        value: 0x03,
+                                                        index: ctrlIface
+                                                });
+                                        });
+                                }
+                                else   // Standard USB CDC / ACM (Arduino, STM32, RP2040, SparkFun, Atmel SAMD, ESP32)
+                                {
+                                        var lineCoding:Uint8Array = new Uint8Array([
+                                                baudRate & 0xFF,
+                                                (baudRate >> 8) & 0xFF,
+                                                (baudRate >> 16) & 0xFF,
+                                                (baudRate >> 24) & 0xFF,
+                                                0x00, // 1 stop bit
+                                                0x00, // no parity
+                                                0x08  // 8 data bits
+                                        ]);
+                                        initPromise = untyped dev.controlTransferOut({requestType:'class', recipient:'interface', request:0x20, value:0, index:ctrlIface}, lineCoding)
+                                        .then(function() {
+                                                // SET_CONTROL_LINE_STATE: Assert DTR (0x01) + RTS (0x02) = 0x03
+                                                return untyped dev.controlTransferOut({requestType:'class', recipient:'interface', request:0x22, value:0x03, index:ctrlIface});
+                                        });
+                                }
+
+                                return initPromise;
+                        }).then(function()
+                        {
+                                self._usbInterfaceNumber = ifaceNum;
+                                self._usbControlInterface = ctrlIface;
+                                self._usbEndpointIn = epIn;
+                                self._usbEndpointOut = epOut;
+                                return untyped Promise.resolve();
+                        })['catch'](function(err:Dynamic)
+                        {
+                                return untyped tryClaim(idx + 1);
+                        });
+                };
+
+                return untyped tryClaim(0);
         }
-    };
-    readChunk();
-}
 
-    #end
+// --- COMMON CALLBACKS ---
+        /** Port successfully opened callback. */
+        @:keep public function onPortOpened():Void
+        {
+                _isOpenFlag = true;
+                var outOpen = getOutput("isOpen");
+                if (outOpen != null) outOpen.value = true;
+
+                if (_connectionType == "serial") startSerialReadLoop();
+                else if (_connectionType == "usb") startUsbReadLoop();
+
+                trace('ComPortAtom: Port opened via $_connectionType');
+        }
+
+        /** Port open error callback. */
+        @:keep public function onPortOpenError(err:Dynamic):Void { setError('Failed to open port: $err'); }
+        
+        /** User dialog cancellation callback. */
+        @:keep public function onPortRequestError(err:Dynamic):Void { trace('ComPortAtom: Port request cancelled or failed: $err'); }
+
+        /** Close serial port or USB device. */
+        private function startSerialReadLoop():Void
+        {
+                _isReading = true;
+                if (_serialPort == null) return;
+                var readable:Dynamic = untyped js.Syntax.code("{0}.readable", _serialPort);
+                if (readable == null) { setError("Port has no readable stream"); return; }
+                _reader = untyped js.Syntax.code("{0}.getReader()", readable);
+                readSerialChunk();
+        }
+
+        /** Read one chunk from Web Serial reader. */
+        private function readSerialChunk():Void
+        {
+                if (!_isReading || _isDisposed) return;
+                var self = this;
+                untyped _reader.read().then(function(result:Dynamic) { self.onReadResult(result); })
+                ['catch'](function(err:Dynamic) { self.onReadError(err); });
+        }
+
+        /** Start WebUSB read loop. */
+        private function startUsbReadLoop():Void
+        {
+                _isReading = true;
+                if (_usbDevice == null || _usbEndpointIn == -1) return;
+                readUsbChunk();
+        }
+
+        /** Read one chunk via WebUSB transferIn. */
+        private function readUsbChunk():Void
+        {
+                if (!_isReading || _isDisposed) return;
+                var self = this;
+                untyped _usbDevice.transferIn(_usbEndpointIn, 64).then(function(result:Dynamic) { self.onUsbReadResult(result); })
+                ['catch'](function(err:Dynamic) { self.onUsbReadError(err); });
+        }
+
+// --- READ RESULTS ---
+        /** Process Web Serial read result chunk. */
+        @:keep public function onReadResult(result:Dynamic):Void
+        {
+                if (result.done) {
+                        _isReading = false;
+                        // FIX: Release reader lock to prevent stream leak on next port open
+                        if (_reader != null) {
+                                var reader = _reader;
+                                _reader = null;
+                                try { untyped reader.releaseLock(); } catch (e:Dynamic) {}
+                        }
+                        return;
+                }
+                var bytes:Array<Int> = [];
+                var value:Dynamic = result.value;
+                var len:Int = untyped js.Syntax.code("{0}.length", value);
+                for (i in 0...len) bytes.push(untyped js.Syntax.code("{0}[{1}]", value, i));
+                writeToBuffer(bytes);
+                _hasPendingRx = true;
+                readSerialChunk();
+        }
+
+        /** Web Serial read error handler. */
+        @:keep public function onReadError(err:Dynamic):Void {
+                _isReading = false;
+                // FIX: Cancel and release reader lock to prevent stream leak
+                if (_reader != null) {
+                        var reader = _reader;
+                        _reader = null;
+                        untyped reader.cancel()['catch'](function(e:Dynamic) { return null; })
+                        .then(function() {
+                                try { untyped reader.releaseLock(); } catch (e:Dynamic) {}
+                        });
+                }
+                if (!_isDisposed) setError('Read error: $err');
+        }
+
+        /** Process WebUSB transferIn result. */
+        @:keep public function onUsbReadResult(result:Dynamic):Void
+        {
+                if (result.status == 'stall')
+                {
+                        var self = this;
+                        untyped _usbDevice.clearHalt('in', _usbEndpointIn).then(function() { self.readUsbChunk(); });
+                        return;
+                }
+                if (result.status == 'ok' && result.data != null)
+                {
+                        var dataView:DataView = untyped result.data;
+                        var len:Int = dataView.byteLength;
+                        if (len > 0) {
+                                var bytes:Array<Int> = [];
+                                for (i in 0...len) {
+                                        bytes.push(dataView.getUint8(i));
+                                }
+                                writeToBuffer(bytes);
+                                _hasPendingRx = true;
+                        }
+                }
+                readUsbChunk();
+        }
+
+        /** WebUSB read error handler. */
+        @:keep public function onUsbReadError(err:Dynamic):Void
+        {
+                if (_isReading && !_isDisposed)
+                {
+                        var errMsg = Std.string(err);
+                        if (errMsg.indexOf('device unavailable') == -1 && errMsg.indexOf('disconnected') == -1)
+                        {
+                                setError('USB Read error: $err');
+                        }
+                        else
+                        {
+                                _isReading = false;
+                        }
+                }
+        }
+
+// --- WRITE OPERATIONS ---
+        /** Transmit string to device. */
+        @:keep public function onWriteSuccess():Void
+        {
+                if (_connectionType == "serial" && _writer != null) { untyped js.Syntax.code("{0}.releaseLock()", _writer); _writer = null; }
+        }
+
+        /** Write error callback. */
+        @:keep public function onWriteError(err:Dynamic):Void
+        {
+                setError('Write error: $err');
+                if (_connectionType == "serial" && _writer != null) { untyped js.Syntax.code("{0}.releaseLock()", _writer); _writer = null; }
+        }
+
+        #end
 }
 
 ================================================================================
