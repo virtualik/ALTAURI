@@ -104,7 +104,13 @@ static inline jobject GetActivity() {
 #define WIN32_LEAN_AND_MEAN
 #define NOGDI
 #include <windows.h>
+#include <setupapi.h>
+#include <devpkey.h>
 #pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "setupapi.lib")
+// DEVPKEY_Device_BusReportedDeviceDesc is extern in some SDK versions — define it directly
+// GUID {540B947E-8B40-45BC-A8A2-6A0B894CBDA2}, PID 97
+static const DEVPROPKEY _myDevPropKey_BusReportedDesc = { { 0x540b947e, 0x8b40, 0x45bc, { 0xa8, 0xa2, 0x6a, 0x0b, 0x89, 0x4c, 0xbd, 0xa2 } }, 97 };
 #else
 #include <unistd.h>
 #include <fcntl.h>
@@ -760,10 +766,24 @@ extern "C" const char* androidScanUSBDevices() {
             }
             env->DeleteLocalRef(deviceNameStr);
         }
+
+        jmethodID getProductName = env->GetMethodID(deviceClass, "getProductName", "()Ljava/lang/String;");
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        std::string productName = "USB Device";
+        if (getProductName != nullptr) {
+            jstring productNameStr = (jstring)env->CallObjectMethod(device, getProductName);
+            if (env->ExceptionCheck()) env->ExceptionClear();
+            if (productNameStr != nullptr) {
+                const char* pnc = env->GetStringUTFChars(productNameStr, nullptr);
+                if (pnc) { productName = std::string(pnc); env->ReleaseStringUTFChars(productNameStr, pnc); }
+                env->DeleteLocalRef(productNameStr);
+            }
+        }
         
         char buffer[256];
-        snprintf(buffer, sizeof(buffer), "%04X:%04X:%s\\n", vid, pid, deviceName.c_str());
+        snprintf(buffer, sizeof(buffer), "%04X|%04X|%s|", vid, pid, productName.c_str());
         result += buffer;
+        result += "\\n";
         
         env->DeleteLocalRef(deviceClass);
         env->DeleteLocalRef(device);
@@ -783,21 +803,176 @@ extern "C" const char* androidScanUSBDevices() {
     return result.c_str();
 }
 #endif
+
+#ifdef _WIN32
+// Helper: find USB device info (VID, PID, friendlyName) for a given COM port name
+static void findUsbDeviceInfoForPort(const std::string& portName,
+    std::string& outVid, std::string& outPid, std::string& outFriendlyName)
+{
+    outVid = "0000"; outPid = "0000"; outFriendlyName = "Serial Port";
+
+    HKEY hUsbRoot;
+    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+        "SYSTEM\\\\CurrentControlSet\\\\Enum\\\\USB", 0, KEY_READ | KEY_WOW64_64KEY, &hUsbRoot) != ERROR_SUCCESS) return;
+
+    char vidPidKey[256];
+    DWORD vidPidKeySize;
+    DWORD idx = 0;
+    bool found = false;
+
+    while (!found && RegEnumKeyExA(hUsbRoot, idx++, vidPidKey, &(vidPidKeySize = sizeof(vidPidKey)),
+        NULL, NULL, NULL, NULL) == ERROR_SUCCESS)
+    {
+        // Parse "VID_046D&PID_C52B"
+        std::string vk = vidPidKey;
+        size_t vidPos = vk.find("VID_");
+        size_t pidPos = vk.find("&PID_");
+        if (vidPos == std::string::npos || pidPos == std::string::npos) { vidPidKeySize = sizeof(vidPidKey); continue; }
+        std::string vid = vk.substr(vidPos + 4, 4);
+        std::string pid = vk.substr(pidPos + 5, 4);
+
+        HKEY hVidPid;
+        if (RegOpenKeyExA(hUsbRoot, vidPidKey, 0, KEY_READ | KEY_WOW64_64KEY, &hVidPid) != ERROR_SUCCESS) {
+            vidPidKeySize = sizeof(vidPidKey); continue;
+        }
+
+        char instanceKey[256];
+        DWORD instKeySize;
+        DWORD instIdx = 0;
+
+        while (!found && RegEnumKeyExA(hVidPid, instIdx++, instanceKey, &(instKeySize = sizeof(instanceKey)),
+            NULL, NULL, NULL, NULL) == ERROR_SUCCESS)
+        {
+            // Check Device Parameters\\PortName for match
+            std::string paramPath = "SYSTEM\\\\CurrentControlSet\\\\Enum\\\\USB\\\\" + std::string(vidPidKey)
+                + "\\\\" + std::string(instanceKey) + "\\\\Device Parameters";
+            HKEY hParam;
+            if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, paramPath.c_str(),
+                0, KEY_READ | KEY_WOW64_64KEY, &hParam) == ERROR_SUCCESS)
+            {
+                char pnValue[64]; DWORD pnSize = sizeof(pnValue); DWORD pnType;
+                if (RegQueryValueExA(hParam, "PortName", NULL, &pnType,
+                    (LPBYTE)pnValue, &pnSize) == ERROR_SUCCESS
+                    && std::string(pnValue) == portName)
+                {
+                    // Match found! Get real device name via SetupAPI.
+                    // Registry FriendlyName = Windows-generated localized string (e.g. "Устройство с последовательным интерфейсом USB")
+                    // Registry DeviceDesc  = INF reference like "@oem40.inf,%ch340ser.devicedesc%;USB" (unusable)
+                    // DEVPKEY_Device_BusReportedDeviceDesc = actual iProduct string from USB descriptor (e.g. "Raspberry Pi Pico")
+
+                    // Build device instance ID: USB\\VID_xxxx&PID_xxxx\\instance
+                    std::string instanceId = "USB\\\\" + std::string(vidPidKey) + "\\\\" + std::string(instanceKey);
+                    wchar_t wInstanceId[512];
+                    MultiByteToWideChar(CP_UTF8, 0, instanceId.c_str(), -1, wInstanceId, 512);
+
+                    HDEVINFO hDevInfo = SetupDiCreateDeviceInfoList(NULL, NULL);
+                    if (hDevInfo != INVALID_HANDLE_VALUE) {
+                        SP_DEVINFO_DATA devInfoData;
+                        memset(&devInfoData, 0, sizeof(devInfoData));
+                        devInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+
+                        if (SetupDiOpenDeviceInfoW(hDevInfo, wInstanceId, NULL, 0, &devInfoData)) {
+                            // Priority 1: BusReportedDeviceDesc — real iProduct string from USB descriptor
+                            DEVPROPTYPE propType;
+                            wchar_t wBuf[256];
+                            if (SetupDiGetDevicePropertyW(hDevInfo, &devInfoData,
+                                &_myDevPropKey_BusReportedDesc,
+                                &propType, (PBYTE)wBuf, sizeof(wBuf), NULL, 0)) {
+                                char utf8Buf[512];
+                                int utf8Len = WideCharToMultiByte(CP_UTF8, 0, wBuf, -1, utf8Buf, sizeof(utf8Buf), NULL, NULL);
+                                if (utf8Len > 1) { utf8Buf[utf8Len - 1] = 0; outFriendlyName = utf8Buf; }
+                            }
+                            // Priority 2: SPDRP_DEVICEDESC — resolved by SetupAPI (not raw INF ref)
+                            if (outFriendlyName == "Serial Port" || outFriendlyName.empty()) {
+                                if (SetupDiGetDeviceRegistryPropertyW(hDevInfo, &devInfoData, SPDRP_DEVICEDESC,
+                                    NULL, (PBYTE)wBuf, sizeof(wBuf), NULL)) {
+                                    char utf8Buf[512];
+                                    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, wBuf, -1, utf8Buf, sizeof(utf8Buf), NULL, NULL);
+                                    if (utf8Len > 1) { utf8Buf[utf8Len - 1] = 0; outFriendlyName = utf8Buf; }
+                                }
+                            }
+                        }
+                        SetupDiDestroyDeviceInfoList(hDevInfo);
+                    }
+
+                    // Priority 3: FriendlyName from registry (last resort)
+                    if (outFriendlyName == "Serial Port" || outFriendlyName.empty()) {
+                        std::string instPath = "SYSTEM\\\\CurrentControlSet\\\\Enum\\\\USB\\\\" + std::string(vidPidKey)
+                            + "\\\\" + std::string(instanceKey);
+                        HKEY hInst;
+                        if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, instPath.c_str(),
+                            0, KEY_READ | KEY_WOW64_64KEY, &hInst) == ERROR_SUCCESS) {
+                            wchar_t wfn[256]; DWORD wfnSize = sizeof(wfn);
+                            if (RegQueryValueExW(hInst, L"FriendlyName", NULL, NULL, (LPBYTE)wfn, &wfnSize) == ERROR_SUCCESS) {
+                                char utf8Buf[512];
+                                int utf8Len = WideCharToMultiByte(CP_UTF8, 0, wfn, -1, utf8Buf, sizeof(utf8Buf), NULL, NULL);
+                                if (utf8Len > 0) { utf8Buf[utf8Len - 1] = 0; outFriendlyName = utf8Buf; }
+                            }
+                            RegCloseKey(hInst);
+                        }
+                    }
+                    outVid = vid; outPid = pid;
+                    found = true;
+                }
+                RegCloseKey(hParam);
+            }
+            instKeySize = sizeof(instanceKey);
+        }
+        RegCloseKey(hVidPid);
+        vidPidKeySize = sizeof(vidPidKey);
+    }
+    RegCloseKey(hUsbRoot);
+}
+
+extern "C" const char* scanWindowsCOMPorts() {
+    static std::string result;
+    result.clear();
+
+    HKEY hKey;
+    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+        "HARDWARE\\\\DEVICEMAP\\\\SERIALCOMM", 0, KEY_READ | KEY_WOW64_64KEY, &hKey) != ERROR_SUCCESS) return result.c_str();
+
+    char valueName[256], valueData[256];
+    DWORD vnSize, vdSize, vType, index = 0;
+
+    while (true) {
+        vnSize = sizeof(valueName); vdSize = sizeof(valueData);
+        if (RegEnumValueA(hKey, index++, valueName, &vnSize,
+            NULL, &vType, (LPBYTE)valueData, &vdSize) != ERROR_SUCCESS) break;
+
+        std::string portName = valueData;
+        std::string vid, pid, friendlyName;
+        findUsbDeviceInfoForPort(portName, vid, pid, friendlyName);
+
+        char buffer[512];
+        snprintf(buffer, sizeof(buffer), "%s|%s|%s|%s", vid.c_str(), pid.c_str(), friendlyName.c_str(), portName.c_str());
+        result += buffer;
+        result += "\\n";
+    }
+    RegCloseKey(hKey);
+    return result.c_str();
+}
+#endif
 ')
 #end
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     COM PORT ATOM v3.0                                    ║
+* ║                     COM PORT ATOM v3.1                                    ║
 * ║     (Multi-Platform Driver: WinAPI/POSIX/Android JNI + HTML5 Web)         ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
 * ║  │                    COMPILATION FLOW                                 │  ║
-* ║  │  haxe -cpp (Windows) ──► #if cpp ──► WinAPI CreateFile + Thread     │  ║
+* ║  │  haxe -cpp (Windows) ──► #if cpp ──► RegScanner + WinAPI CreateFile │  ║
 * ║  │  haxe -cpp (Linux)   ──► #if cpp ──► POSIX open / termios           │  ║
 * ║  │  haxe -cpp (Android) ──► #if cpp ──► Android usb-serial-for-android │  ║
 * ║  │  haxe -html5         ──► #if html5─► Web Serial API / WebUSB        │  ║
 * ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║         SCANNER DATA FORMAT (unified):VID|PID|friendlyName|portIdentifier ║
+* ║    Android: "046D|C52B|Arduino Leonardo|"                                 ║
+* ║    Windows: "046D|C52B|Arduino Leonardo (COM3)|COM3"                      ║
+* ║    Windows (non-USB): "0000|0000|Serial Port|COM1"                        ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                     CONTACT MAP                                           ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
@@ -1222,6 +1397,52 @@ class ComPortAtom extends Atom implements system.managers.Driver
     }
     #end
 
+    #if (cpp && !android)
+    private static function extractComNumber(entry:String):Int
+    {
+        var idx = entry.lastIndexOf("|");
+        if (idx >= 0) {
+            var port = entry.substr(idx + 1);
+            var upper = port.toUpperCase();
+            if (upper.indexOf("COM") == 0) {
+                var n = Std.parseInt(upper.substr(3));
+                return (n != null) ? n : 9999;
+            }
+        }
+        return 9999;
+    }
+
+    public function scanCOMPorts(silent:Bool = false):Array<String>
+    {
+        var result:Array<String> = [];
+        var portsStr:String = "";
+        untyped __cpp__('
+            const char* ports = scanWindowsCOMPorts();
+            if (ports != nullptr) { {0} = ::String(ports); }
+        ', portsStr);
+
+        if (portsStr != null && portsStr.length > 0)
+        {
+            var lines = portsStr.split("\n");
+            for (line in lines) if (line != null && line.length > 0) result.push(line);
+            result.sort(function(a:String, b:String):Int {
+                var na = extractComNumber(a);
+                var nb = extractComNumber(b);
+                return (na < nb ? -1 : (na > nb ? 1 : 0));
+            });
+
+            if (!silent) {
+                var debugMsg = "--- COM PORT SCAN ---\n" + portsStr + "----------------------\nFound: " + result.length + " ports";
+                var rxOut = getOutput("rxData");
+                if (rxOut != null) { rxOut.setValueSilent(debugMsg); rxOut.propagateCurrentValue(); }
+                var rxTick = getOutput("rxTick");
+                if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
+            }
+        }
+        return result;
+    }
+    #end
+
     #if cpp
     public function setSelectedDevice(vid:Int, pid:Int):Void
     {
@@ -1472,7 +1693,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                                 });
                         }
 
-                        if (port != null)
+                        if (_serialPort != null)
                         {
                                 closeSequence = closeSequence.then(function()
                                 {

@@ -7,9 +7,6 @@ import openfl.text.TextFormatAlign;
 import openfl.text.TextFieldType;
 import openfl.events.MouseEvent;
 import openfl.events.Event;
-import openfl.events.FocusEvent;
-import openfl.events.KeyboardEvent;
-import openfl.ui.Keyboard;
 import core.base.Atom;
 import core.base.Contact;
 import core.logic.Impulsys;
@@ -18,35 +15,17 @@ import core.logic.Impulse;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     COM PORT WIDGET v2.1                                  ║
-* ║     (Tri-Platform: C++ WinAPI + Android USB Scanner + HTML5 Web)          ║
+* ║                     COM PORT WIDGET v3.0                                  ║
+* ║     (Unified: Android USB + Windows Registry + HTML5 Web Serial)          ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
-* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
-* ║  │                    COMPILATION FLOW                                 │  ║
-* ║  │  haxe -cpp (Windows) ──► #if cpp ──► Port name text field           │  ║
-* ║  │  haxe -cpp (Android) ──► #if android ──► USB Scanner + List         │  ║
-* ║  │  haxe -html5         ──► #if html5 ──► "Select Port" button         │  ║
-* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║  Scanner data format: VID|PID|friendlyName|portIdentifier                 ║
+* ║    Android: "046D|C52B|Arduino Leonardo|"                                 ║
+* ║    Windows: "046D|C52B|Arduino Leonardo (COM3)|COM3"                      ║
+* ║    Windows (non-USB): "0000|0000|Serial Port|COM1"                        ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
-* ║                     ANDROID USB SCANNER ARCHITECTURE                      ║
-* ╠═══════════════════════════════════════════════════════════════════════════╣
-* ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
-* ║  │  Android UI Layout:                                                 │  ║
-* ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
-* ║  │  │  [Scan USB] [Clear]                                          │  │  ║
-* ║  │  ├───────────────────────────────────────────────────────────────┤  │  ║
-* ║  │  │  ┌─────────────────────────────────────────────────────────┐  │  │  ║
-* ║  │  │  │ ● 067B:2303 - Prolific PL2303                           │  │  │  ║
-* ║  │  │  │   1A86:7523 - WCH CH340                                 │  │  │  ║
-* ║  │  │  │   0403:6001 - FTDI FT232R                               │  │  │  ║
-* ║  │  │  └─────────────────────────────────────────────────────────┘  │  │  ║
-* ║  │  │  Selected: 067B:2303                                          │  │  ║
-* ║  │  ├───────────────────────────────────────────────────────────────┤  │  ║
-* ║  │  │  [OPEN] [CLOSE] [DTR]                                        │  │  ║
-* ║  │  │  [TX DATA] [SEND]                                            │  │  ║
-* ║  │  │  [RX DATA]                                                   │  │  ║
-* ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
-* ║  └─────────────────────────────────────────────────────────────────────┘  ║
+* ║  UI: [Scan USB] [Clear] → Device List → Selected → BAUD → OPEN/CLOSE      ║
+* ║  Checkbox = auto-connect on next app start (persistence stub)             ║
+* ║  Click device = select + immediate connect                                ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
 */
 class ComPortWidget extends DeviceView
@@ -56,20 +35,15 @@ class ComPortWidget extends DeviceView
     private var _bg:Sprite;
     private var _header:Sprite;
     private var _titleLabel:TextField;
-    private var _portLabel:TextField;
-    private var _portInput:TextField;
     private var _baudLabel:TextField;
     private var _baudInput:TextField;
     private var _openBtn:Sprite;
     private var _closeBtn:Sprite;
     private var _dtrBtn:Sprite;
     private var _dtrLabel:TextField;
-    private var _txSection:Sprite;
-    private var _txInput:TextField;
-    private var _sendBtn:Sprite;
-    private var _rxSection:Sprite;
-    private var _rxDisplay:TextField;
-    private var _rxScrollPos:Int = 0;
+    private var _deviceListMask:Sprite;
+    private var _deviceScrollY:Float = 0;
+    private var _deviceContentHeight:Float = 0;
     private var _statusLed:Sprite;
     private var _statusGlow:Sprite;
     private var _rxLed:Sprite;
@@ -78,18 +52,7 @@ class ComPortWidget extends DeviceView
     private var _statusBar:TextField;
     private var _errorDisplay:TextField;
 
-    #if html5
-    private var _selectPortBtn:Sprite;
-    private var _selectedPortInfo:TextField;
-    private var _bufferSizeInput:TextField;
-    private var _chunkSizeInput:TextField;
-    private var _enabledBtn:Sprite;
-    private var _enabledLabel:TextField;
-    private var _bufferSizeLabel:TextField;
-    private var _chunkSizeLabel:TextField;
-    #end
-
-    #if android
+    // Unified scanner variables (common across Android + Windows, not HTML5)
     private var _scanBtn:Sprite;
     private var _clearBtn:Sprite;
     private var _deviceListContainer:Sprite;
@@ -98,13 +61,33 @@ class ComPortWidget extends DeviceView
     private var _noDevicesLabel:TextField;
     private var _deviceItems:Array<Sprite>;
     private var _deviceCheckboxes:Array<Sprite>;
-    private var _deviceLabels:Array<TextField>;
+    private var _deviceNameLabels:Array<TextField>;
+    private var _deviceVidPidLabels:Array<TextField>;
+    private var _devicePortLabels:Array<TextField>;
     private var _scannedDevices:Array<String>;
     private var _selectedDeviceIndex:Int = -1;
+    private var _currentSelectedVid:Int = 0;
+    private var _currentSelectedPid:Int = 0;
+    private var _autoConnectFlags:Array<Bool>;
+    private var _deviceClickHandlers:Array<Dynamic>;
+
+    #if html5
+    private var _selectedPortInfo:TextField;
     #end
 
+    #if android
+    private var _usbPollAccumulator:Float = 0.0;
+    private var _lastScanResult:String = "";
+    private var _atomUpdateAccumulator:Float = 0.0;
+    #end
+
+    #if html5
     public var widgetWidth:Float = 300;
-    public var widgetHeight:Float = 380;
+    public var widgetHeight:Float = 230;
+    #else
+    public var widgetWidth:Float = 300;
+    public var widgetHeight:Float = 310;
+    #end
 
     override public function getWidgetSize(): {width:Float, height:Float}
     {
@@ -121,8 +104,6 @@ class ComPortWidget extends DeviceView
     private var _colorText:Int = 0xFFFFFF;
     private var _colorMuted:Int = 0x888899;
     private var _colorInputBg:Int = 0x0d0d18;
-    private var _colorRxGreen:Int = 0x00CC66;
-
     private var _portNameContact:Contact;
     private var _baudRateContact:Contact;
     private var _openContact:Contact;
@@ -137,7 +118,6 @@ class ComPortWidget extends DeviceView
     private var _errorContact:Contact;
     private var _errorTickContact:Contact;
     
-    private var _lastRxData:String = "";
     private var _lastError:String = "";
     private var _rxLedTimer:Float = 0;
     private var _txLedTimer:Float = 0;
@@ -145,42 +125,22 @@ class ComPortWidget extends DeviceView
     private var _ledPulseDuration:Float = 0.15;
     private var _dtrState:Bool = false;
 
-    #if html5
-    private var _bufferSizeContact:Contact;
-    private var _chunkSizeContact:Contact;
-    private var _enabledContact:Contact;
-    private var _currentBufferSize:Int = 4096;
-    private var _currentChunkSize:Int = 256;
-    private var _currentEnabled:Bool = true;
-    #end
-
-    #if android
-    private var _currentSelectedVid:Int = 0;
-    private var _currentSelectedPid:Int = 0;
-    #end
-
     // Impulsys callback references for proper unsubscription (Memory Optimization v1.3)
     private var _onComPortStatus: Impulse -> Void;
     private var _onComPortRx: Impulse -> Void;
     private var _onComPortError: Impulse -> Void;
 
-	// Auto Scan USB
-	#if android 
-    private var _usbPollAccumulator:Float = 0.0;
-    private var _lastUsbDeviceCount:Int = -1;
-	private var _lastScanResult:String = "";
-    private var _atomUpdateAccumulator:Float = 0.0;
-    #end
-	
     public function new(atom:Atom)
     {
         super(atom);
-        #if android
         _scannedDevices = [];
         _deviceItems = [];
         _deviceCheckboxes = [];
-        _deviceLabels = [];
-        #end
+        _deviceNameLabels = [];
+        _deviceVidPidLabels = [];
+        _devicePortLabels = [];
+        _autoConnectFlags = [];
+        _deviceClickHandlers = [];
         
         _onComPortStatus = onComPortStatus;
         _onComPortRx = onComPortRx;
@@ -211,12 +171,6 @@ class ComPortWidget extends DeviceView
         _txTickContact   = atom.getOutput("txTick");
         _errorContact    = atom.getOutput("error");
         _errorTickContact = atom.getOutput("errorTick");
-        
-        #if html5
-        _bufferSizeContact = atom.getInput("bufferSize");
-        _chunkSizeContact  = atom.getInput("chunkSize");
-        _enabledContact    = atom.getInput("enabled");
-        #end
     }
 
     override private function onActivate():Void
@@ -229,41 +183,25 @@ class ComPortWidget extends DeviceView
     {
         var yPos:Float = 0;
         _bg = new Sprite(); addChild(_bg);
+        
+        // === HEADER (unchanged) ===
         _header = new Sprite(); _header.y = yPos; addChild(_header);
         _titleLabel = new TextField();
         _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 13, _colorText, true);
         _titleLabel.text = "  COM PORT"; _titleLabel.width = widgetWidth - 40; _titleLabel.height = 28;
         _titleLabel.selectable = false; _titleLabel.mouseEnabled = false; _header.addChild(_titleLabel);
-        
         _statusGlow = new Sprite(); _statusGlow.graphics.beginFill(_colorDanger, 0.2); _statusGlow.graphics.drawCircle(0, 0, 12); _statusGlow.graphics.endFill();
         _statusGlow.x = widgetWidth - 18; _statusGlow.y = 14; _statusGlow.visible = false; _header.addChild(_statusGlow);
         _statusLed = new Sprite(); _statusLed.graphics.beginFill(0x440000); _statusLed.graphics.drawCircle(0, 0, 6); _statusLed.graphics.endFill();
         _statusLed.x = widgetWidth - 18; _statusLed.y = 14; _header.addChild(_statusLed);
         yPos += 32;
         
-        #if android
-        yPos = buildAndroidUI(yPos);
-        #elseif cpp
-        _portLabel = createLabel("PORT"); _portLabel.y = yPos; addChild(_portLabel);
-        _baudLabel = createLabel("BAUD"); _baudLabel.x = 150; _baudLabel.y = yPos; addChild(_baudLabel);
-        yPos += 18;
-        _portInput = createInputField("COM1", 130); _portInput.x = 10; _portInput.y = yPos;
-        _portInput.addEventListener(Event.CHANGE, onPortNameChanged); addChild(_portInput);
-        #elseif html5
-        _selectPortBtn = createActionButton("Select Port", 0x224466, onSelectPortClick); _selectPortBtn.x = 10; _selectPortBtn.y = yPos; addChild(_selectPortBtn);
-        _baudLabel = createLabel("BAUD"); _baudLabel.x = 150; _baudLabel.y = yPos; addChild(_baudLabel);
-        yPos += 18;
-        _selectedPortInfo = createInputField("No port selected", 130); _selectedPortInfo.type = TextFieldType.DYNAMIC;
-        _selectedPortInfo.x = 10; _selectedPortInfo.y = yPos; addChild(_selectedPortInfo);
-        #end
+        // === PORT SELECTOR (unified) ===
+        yPos = buildPortSelector(yPos);
         
-        _baudInput = createInputField("9600", 100); _baudInput.x = 150; _baudInput.y = yPos;
-        _baudInput.addEventListener(Event.CHANGE, onBaudRateChanged); addChild(_baudInput);
-        yPos += 30;
-        
+        // === OPEN / CLOSE / DTR ===
         _openBtn = createActionButton("OPEN", 0x225533, onOpenClick); _openBtn.x = 10; _openBtn.y = yPos; addChild(_openBtn);
         _closeBtn = createActionButton("CLOSE", 0x553322, onCloseClick); _closeBtn.x = 95; _closeBtn.y = yPos; addChild(_closeBtn);
-        
         #if cpp
         _dtrBtn = new Sprite(); _dtrBtn.graphics.beginFill(_colorInactive); _dtrBtn.graphics.drawRoundRect(0, 0, 50, 26, 4, 4); _dtrBtn.graphics.endFill();
         _dtrLabel = new TextField();
@@ -271,70 +209,29 @@ class ComPortWidget extends DeviceView
         _dtrLabel.text = "DTR"; _dtrLabel.width = 50; _dtrLabel.height = 26; _dtrLabel.selectable = false; _dtrLabel.mouseEnabled = false;
         _dtrBtn.addChild(_dtrLabel); _dtrBtn.x = 200; _dtrBtn.y = yPos; _dtrBtn.buttonMode = true; _dtrBtn.useHandCursor = true;
         _dtrBtn.addEventListener(MouseEvent.CLICK, onDTRClick); addChild(_dtrBtn);
-        #elseif html5
-        _dtrBtn = null; _dtrLabel = null;
         #end
         yPos += 36;
         
-        #if html5
-        _bufferSizeLabel = createLabel("Buffer:"); _bufferSizeLabel.y = yPos; addChild(_bufferSizeLabel);
-        _bufferSizeInput = createInputField("4096", 60); _bufferSizeInput.x = 60; _bufferSizeInput.y = yPos;
-        _bufferSizeInput.addEventListener(Event.CHANGE, onBufferSizeChanged); addChild(_bufferSizeInput);
-        _chunkSizeLabel = createLabel("Chunk:"); _chunkSizeLabel.x = 130; _chunkSizeLabel.y = yPos; addChild(_chunkSizeLabel);
-        _chunkSizeInput = createInputField("256", 50); _chunkSizeInput.x = 180; _chunkSizeInput.y = yPos;
-        _chunkSizeInput.addEventListener(Event.CHANGE, onChunkSizeChanged); addChild(_chunkSizeInput);
-        _enabledBtn = new Sprite(); _enabledBtn.graphics.beginFill(_colorActive); _enabledBtn.graphics.drawRoundRect(0, 0, 70, 26, 4, 4); _enabledBtn.graphics.endFill();
-        _enabledBtn.x = 240; _enabledBtn.y = yPos; _enabledBtn.buttonMode = true; _enabledBtn.useHandCursor = true;
-        _enabledBtn.addEventListener(MouseEvent.CLICK, onEnabledClick); addChild(_enabledBtn);
-        _enabledLabel = new TextField();
-        _enabledLabel.defaultTextFormat = new TextFormat("_typewriter", 10, 0x000000, true, null, null, null, null, TextFormatAlign.CENTER);
-        _enabledLabel.text = "ON"; _enabledLabel.width = 70; _enabledLabel.height = 26; _enabledLabel.selectable = false; _enabledLabel.mouseEnabled = false;
-        _enabledBtn.addChild(_enabledLabel);
-        yPos += 36;
-        #end
-        
-        _txSection = new Sprite(); _txSection.y = yPos; addChild(_txSection);
-        var txLabel = new TextField(); txLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-        txLabel.text = "TX DATA"; txLabel.width = 60; txLabel.height = 15; txLabel.selectable = false; _txSection.addChild(txLabel);
-        _txInput = createInputField("", Std.int(widgetWidth - 80)); _txInput.x = 0; _txInput.y = 15;
-        _txInput.addEventListener(KeyboardEvent.KEY_DOWN, onTxKeyDown); _txSection.addChild(_txInput);
-        _sendBtn = createActionButton("SEND", 0x224466, onSendClick); _sendBtn.x = widgetWidth - 62; _sendBtn.y = 14; _txSection.addChild(_sendBtn);
-        yPos += 52;
-        
-        _rxSection = new Sprite(); _rxSection.y = yPos; addChild(_rxSection);
-        var rxLabel = new TextField(); rxLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-        rxLabel.text = "RX DATA"; rxLabel.width = 60; rxLabel.height = 15; rxLabel.selectable = false; _rxSection.addChild(rxLabel);
-        _rxDisplay = new TextField();
-        _rxDisplay.defaultTextFormat = new TextFormat("_typewriter", 11, _colorRxGreen);
-        _rxDisplay.text = ""; _rxDisplay.width = widgetWidth - 20; _rxDisplay.height = 100; _rxDisplay.x = 5; _rxDisplay.y = 15;
-        _rxDisplay.background = true; _rxDisplay.backgroundColor = _colorInputBg; _rxDisplay.border = true; _rxDisplay.borderColor = 0x222233;
-        _rxDisplay.multiline = true; _rxDisplay.wordWrap = true; _rxDisplay.selectable = true; _rxDisplay.mouseEnabled = true;
-        _rxSection.addChild(_rxDisplay);
-        yPos += 125;
-        
+        // === STATUS BAR + LEDs + ERROR ===
         var indicatorY:Float = yPos;
         _statusBar = new TextField(); _statusBar.defaultTextFormat = new TextFormat("_typewriter", 10, _colorMuted);
         _statusBar.text = "Disconnected"; _statusBar.width = 140; _statusBar.height = 16; _statusBar.x = 10; _statusBar.y = indicatorY; _statusBar.selectable = false;
         addChild(_statusBar);
-        
         var rxLedLabel = new TextField(); rxLedLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
         rxLedLabel.text = "RX"; rxLedLabel.width = 20; rxLedLabel.height = 14; rxLedLabel.x = 120; rxLedLabel.y = indicatorY; rxLedLabel.selectable = false;
         addChild(rxLedLabel);
         _rxLed = new Sprite(); _rxLed.graphics.beginFill(0x003300); _rxLed.graphics.drawCircle(0, 0, 5); _rxLed.graphics.endFill();
         _rxLed.x = 145; _rxLed.y = indicatorY + 7; addChild(_rxLed);
-        
         var txLedLabel = new TextField(); txLedLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
         txLedLabel.text = "TX"; txLedLabel.width = 20; txLedLabel.height = 14; txLedLabel.x = 160; txLedLabel.y = indicatorY; txLedLabel.selectable = false;
         addChild(txLedLabel);
-        _txLed = new Sprite(); _txLed.graphics.beginFill(0x003300); _txLed.graphics.drawCircle(0, 0, 5); _txLed.graphics.endFill();
+        _txLed = new Sprite(); _txLed.graphics.beginFill(0x001133); _txLed.graphics.drawCircle(0, 0, 5); _txLed.graphics.endFill();
         _txLed.x = 185; _txLed.y = indicatorY + 7; addChild(_txLed);
-        
         var errLedLabel = new TextField(); errLedLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
         errLedLabel.text = "ERR"; errLedLabel.width = 25; errLedLabel.height = 14; errLedLabel.x = 200; errLedLabel.y = indicatorY; errLedLabel.selectable = false;
         addChild(errLedLabel);
         _errLed = new Sprite(); _errLed.graphics.beginFill(0x330000); _errLed.graphics.drawCircle(0, 0, 5); _errLed.graphics.endFill();
         _errLed.x = 228; _errLed.y = indicatorY + 7; addChild(_errLed);
-        
         _errorDisplay = new TextField(); _errorDisplay.defaultTextFormat = new TextFormat("_typewriter", 9, _colorDanger);
         _errorDisplay.text = ""; _errorDisplay.width = widgetWidth - 20; _errorDisplay.height = 15; _errorDisplay.x = 10; _errorDisplay.y = indicatorY + 18; _errorDisplay.selectable = false;
         addChild(_errorDisplay);
@@ -342,128 +239,353 @@ class ComPortWidget extends DeviceView
         redrawBackground();
     }
 
-    #if android
-    private function buildAndroidUI(yPos:Float):Float
+    private function buildPortSelector(yPos:Float):Float
     {
-        _scanBtn = createActionButton("Scan USB", 0x224466, onScanClick); _scanBtn.x = 10; _scanBtn.y = yPos; addChild(_scanBtn);
-        _clearBtn = createActionButton("Clear", 0x443322, onClearClick); _clearBtn.x = 95; _clearBtn.y = yPos; addChild(_clearBtn);
+        // --- Scan Button ---
+        #if html5
+        _scanBtn = createActionButton("Select Port", 0x224466, onSelectPortClick);
+        #else
+        _scanBtn = createActionButton("Scan USB", 0x224466, onScanClick);
+        #end
+        _scanBtn.x = 10; _scanBtn.y = yPos; addChild(_scanBtn);
+        
+        // --- Clear Button (not needed on HTML5 - browser dialog handles it) ---
+        #if !html5
+        _clearBtn = createActionButton("Clear", 0x443322, onClearClick);
+        _clearBtn.x = 95; _clearBtn.y = yPos; addChild(_clearBtn);
+        #end
         yPos += 30;
         
+        // --- Device List (Android + Windows) or Placeholder (HTML5) ---
+        #if html5
+        _selectedPortInfo = createInputField("Click [Select Port] to connect", Std.int(widgetWidth - 20));
+        _selectedPortInfo.type = TextFieldType.DYNAMIC;
+        _selectedPortInfo.x = 10; _selectedPortInfo.y = yPos; addChild(_selectedPortInfo);
+        yPos += 30;
+        #else
         _deviceListContainer = new Sprite(); _deviceListContainer.x = 10; _deviceListContainer.y = yPos; addChild(_deviceListContainer);
-        _deviceListBg = new Sprite(); _deviceListBg.graphics.beginFill(_colorInputBg, 0.7); _deviceListBg.graphics.lineStyle(1, 0x222233);
+        _deviceListBg = new Sprite();
+        _deviceListBg.graphics.beginFill(_colorInputBg, 0.7); _deviceListBg.graphics.lineStyle(1, 0x222233);
         _deviceListBg.graphics.drawRoundRect(0, 0, widgetWidth - 20, 120, 4, 4); _deviceListBg.graphics.endFill();
         _deviceListContainer.addChild(_deviceListBg);
+
+        // Scroll mask
+        _deviceListMask = new Sprite();
+        _deviceListMask.graphics.beginFill(0xFF0000);
+        _deviceListMask.graphics.drawRoundRect(0, 0, widgetWidth - 20, 120, 4, 4);
+        _deviceListMask.graphics.endFill();
+        _deviceListContainer.addChild(_deviceListMask);
+        _deviceListContainer.mask = _deviceListMask;
+        _deviceListContainer.addEventListener(MouseEvent.MOUSE_WHEEL, onDeviceListWheel);
         
         _noDevicesLabel = new TextField();
         _noDevicesLabel.defaultTextFormat = new TextFormat("_typewriter", 10, _colorMuted, null, null, null, null, null, TextFormatAlign.CENTER);
-        _noDevicesLabel.text = "Click [Scan USB] to find devices"; _noDevicesLabel.width = widgetWidth - 40; _noDevicesLabel.height = 30;
-        _noDevicesLabel.x = 10; _noDevicesLabel.y = 45; _noDevicesLabel.selectable = false; _deviceListContainer.addChild(_noDevicesLabel);
+        #if android
+        _noDevicesLabel.text = "Click [Scan USB] to find devices";
+        #else
+        _noDevicesLabel.text = "Click [Scan USB] to find COM ports";
+        #end
+        _noDevicesLabel.width = widgetWidth - 40; _noDevicesLabel.height = 30;
+        _noDevicesLabel.x = 10; _noDevicesLabel.y = 45; _noDevicesLabel.selectable = false;
+        _deviceListContainer.addChild(_noDevicesLabel);
         yPos += 125;
+        #end
         
-        _selectedInfo = new TextField(); _selectedInfo.defaultTextFormat = new TextFormat("_typewriter", 10, _colorAccent);
-        _selectedInfo.text = "Selected: None (Auto)"; _selectedInfo.width = widgetWidth - 20; _selectedInfo.height = 16;
+        // --- Selected Info Line ---
+        _selectedInfo = new TextField();
+        _selectedInfo.defaultTextFormat = new TextFormat("_typewriter", 10, _colorAccent);
+        #if html5
+        _selectedInfo.text = "Selected: None";
+        #else
+        _selectedInfo.text = "Selected: None (Auto)";
+        #end
+        _selectedInfo.width = widgetWidth - 20; _selectedInfo.height = 16;
         _selectedInfo.x = 10; _selectedInfo.y = yPos; _selectedInfo.selectable = false; addChild(_selectedInfo);
         yPos += 20;
+        
+        // --- BAUD Rate ---
+        _baudLabel = createLabel("BAUD"); _baudLabel.x = 10; _baudLabel.y = yPos; addChild(_baudLabel);
+        yPos += 18;
+        _baudInput = createInputField("9600", Std.int(widgetWidth - 20)); _baudInput.x = 10; _baudInput.y = yPos;
+        _baudInput.addEventListener(Event.CHANGE, onBaudRateChanged); addChild(_baudInput);
+        yPos += 30;
+        
         return yPos;
     }
 
     private function updateDeviceList():Void
     {
-        for (item in _deviceItems) { if (item.parent != null) item.parent.removeChild(item); }
-        _deviceItems = []; _deviceCheckboxes = []; _deviceLabels = [];
+        #if html5 return; #end
         
-        if (_scannedDevices.length == 0) { _noDevicesLabel.visible = true; _selectedInfo.text = "Selected: None (Auto)"; return; }
+        for (item in _deviceItems) { if (item.parent != null) item.parent.removeChild(item); }
+        _deviceItems = []; _deviceCheckboxes = []; _deviceNameLabels = []; _deviceVidPidLabels = []; _devicePortLabels = []; _deviceClickHandlers = [];
+        _deviceScrollY = 0; _deviceContentHeight = 0;
+        
+        if (_scannedDevices.length == 0) {
+            _noDevicesLabel.visible = true;
+            _selectedInfo.text = "Selected: None (Auto)";
+            return;
+        }
         _noDevicesLabel.visible = false;
         
-        var itemY:Float = 5; var itemHeight:Float = 24;
+        var itemY:Float = 5;
+        var listWidth:Float = widgetWidth - 40;
+        
         for (i in 0..._scannedDevices.length)
         {
             var deviceStr = _scannedDevices[i];
-            var parts = deviceStr.split(":");
-            if (parts.length < 2) continue;
-            var vid = parts[0]; var pid = parts[1];
-            var devicePath = (parts.length > 2) ? parts.slice(2).join(":") : "";
+            var parts = deviceStr.split("|");
+            if (parts.length < 3) continue;
+            var vid = parts[0];
+            var pid = parts[1];
+            var friendlyName = parts[2];
+            var portId = (parts.length > 3) ? parts[3] : "";
+            
+            var showVidPid = (vid != "0000" || pid != "0000");
+            var itemHeight:Float = showVidPid ? 36 : 22;
             
             var item = new Sprite();
             item.graphics.beginFill(i == _selectedDeviceIndex ? 0x225533 : 0x151528);
-            item.graphics.drawRoundRect(0, 0, widgetWidth - 40, itemHeight, 3, 3); item.graphics.endFill();
+            item.graphics.drawRoundRect(0, 0, listWidth, itemHeight, 3, 3); item.graphics.endFill();
             item.x = 5; item.y = itemY; item.buttonMode = true; item.useHandCursor = true;
             
-            var checkbox = new Sprite(); checkbox.graphics.lineStyle(1, 0x666688); checkbox.graphics.drawRect(0, 0, 14, 14);
-            checkbox.x = 8; checkbox.y = 5;
-            if (i == _selectedDeviceIndex) { checkbox.graphics.beginFill(_colorActive); checkbox.graphics.drawRect(2, 2, 10, 10); checkbox.graphics.endFill(); }
+            // Checkbox (auto-connect marker)
+            var checkbox = new Sprite();
+            checkbox.graphics.lineStyle(1, 0x666688); checkbox.graphics.drawRect(0, 0, 14, 14);
+            checkbox.x = 8; checkbox.y = showVidPid ? 11 : 4;
+            if (_autoConnectFlags.length > i && _autoConnectFlags[i]) {
+                checkbox.graphics.beginFill(_colorWarning);
+                checkbox.graphics.drawRect(2, 2, 10, 10); checkbox.graphics.endFill();
+            }
             item.addChild(checkbox);
             
-            var label = new TextField(); label.defaultTextFormat = new TextFormat("_typewriter", 10, _colorText);
-            label.text = '$vid:$pid'; if (devicePath != "") label.text += ' - $devicePath';
-            label.width = widgetWidth - 80; label.height = itemHeight; label.x = 28; label.selectable = false; label.mouseEnabled = false;
-            item.addChild(label);
+            // Line 1: Friendly name
+            var nameLabel = new TextField();
+            nameLabel.defaultTextFormat = new TextFormat("_typewriter", 10, _colorText);
+            nameLabel.text = friendlyName;
+            nameLabel.width = listWidth - 90; nameLabel.height = 16; nameLabel.x = 28; nameLabel.y = showVidPid ? 2 : 3;
+            nameLabel.selectable = false; nameLabel.mouseEnabled = false;
+            item.addChild(nameLabel);
+            
+            // Line 2: VID:PID (only if non-zero)
+            var vidPidLabel:TextField = null;
+            if (showVidPid) {
+                vidPidLabel = new TextField();
+                vidPidLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+                vidPidLabel.text = "VID:" + vid + "  PID:" + pid;
+                vidPidLabel.width = listWidth - 90; vidPidLabel.height = 14; vidPidLabel.x = 28; vidPidLabel.y = 19;
+                vidPidLabel.selectable = false; vidPidLabel.mouseEnabled = false;
+                item.addChild(vidPidLabel);
+            }
+            
+            // Port badge (right side, only if portId exists)
+            var portLabel:TextField = null;
+            if (portId != "" && portId != null) {
+                portLabel = new TextField();
+                portLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorAccent, true);
+                portLabel.text = portId;
+                portLabel.width = 55; portLabel.height = 16; portLabel.x = listWidth - 55; portLabel.y = showVidPid ? 2 : 3;
+                portLabel.selectable = false; portLabel.mouseEnabled = false;
+                item.addChild(portLabel);
+            }
             
             var capturedIndex = i;
-            item.addEventListener(MouseEvent.CLICK, function(e:MouseEvent) { onDeviceClick(capturedIndex); });
-            item.addEventListener(MouseEvent.MOUSE_OVER, function(e:MouseEvent) {
-                if (capturedIndex != _selectedDeviceIndex) { item.graphics.clear(); item.graphics.beginFill(0x252545); item.graphics.drawRoundRect(0, 0, widgetWidth - 40, itemHeight, 3, 3); item.graphics.endFill(); }
-            });
-            item.addEventListener(MouseEvent.MOUSE_OUT, function(e:MouseEvent) {
-                if (capturedIndex != _selectedDeviceIndex) { item.graphics.clear(); item.graphics.beginFill(0x151528); item.graphics.drawRoundRect(0, 0, widgetWidth - 40, itemHeight, 3, 3); item.graphics.endFill(); }
+            var capturedDeviceStr = deviceStr;
+            var capturedHeight = itemHeight;
+            
+            // Checkbox click = toggle auto-connect (stopPropagation to prevent item click)
+            checkbox.addEventListener(MouseEvent.CLICK, function(e:MouseEvent) {
+                e.stopPropagation();
+                toggleAutoConnect(capturedIndex);
             });
             
-            _deviceListContainer.addChild(item); _deviceItems.push(item); _deviceCheckboxes.push(checkbox); _deviceLabels.push(label);
+            // Item click = select + connect
+            var clickHandler:MouseEvent->Void = function(e:MouseEvent) { onDeviceClick(capturedIndex); };
+            item.addEventListener(MouseEvent.CLICK, clickHandler);
+            _deviceClickHandlers.push(clickHandler);
+            item.addEventListener(MouseEvent.MOUSE_OVER, function(e:MouseEvent) {
+                if (capturedIndex != _selectedDeviceIndex) {
+                    item.graphics.clear(); item.graphics.beginFill(0x252545);
+                    item.graphics.drawRoundRect(0, 0, listWidth, capturedHeight, 3, 3); item.graphics.endFill();
+                }
+            });
+            item.addEventListener(MouseEvent.MOUSE_OUT, function(e:MouseEvent) {
+                if (capturedIndex != _selectedDeviceIndex) {
+                    item.graphics.clear(); item.graphics.beginFill(0x151528);
+                    item.graphics.drawRoundRect(0, 0, listWidth, capturedHeight, 3, 3); item.graphics.endFill();
+                }
+            });
+            
+            _deviceListContainer.addChild(item);
+            _deviceItems.push(item);
+            _deviceCheckboxes.push(checkbox);
+            _deviceNameLabels.push(nameLabel);
+            _deviceVidPidLabels.push(vidPidLabel);
+            _devicePortLabels.push(portLabel);
             itemY += itemHeight + 3;
         }
         
-        if (_selectedDeviceIndex >= 0 && _selectedDeviceIndex < _scannedDevices.length)
-        {
-            var selectedStr = _scannedDevices[_selectedDeviceIndex];
-            var parts = selectedStr.split(":");
-            _selectedInfo.text = 'Selected: ${parts[0]}:${parts[1]}';
+        _deviceContentHeight = itemY;
+        
+        // Update selected info line
+        if (_selectedDeviceIndex >= 0 && _selectedDeviceIndex < _scannedDevices.length) {
+            var sel = _scannedDevices[_selectedDeviceIndex].split("|");
+            var selText = "";
+            if (sel.length >= 3) {
+                selText = sel[2]; // friendly name
+                if (sel.length > 3 && sel[3] != "") selText += " (" + sel[3] + ")";
+            }
+            _selectedInfo.text = "Selected: " + selText;
+        } else {
+            _selectedInfo.text = "Selected: None (Auto)";
         }
-        else { _selectedInfo.text = "Selected: None (Auto)"; }
     }
+
+    #if !html5
+    private function onDeviceListWheel(e:MouseEvent):Void
+    {
+        var maxScroll = Math.max(0, _deviceContentHeight - 115);
+        var newY = _deviceScrollY + (-e.delta * 25);
+        newY = newY < 0 ? 0 : (newY > maxScroll ? maxScroll : newY);
+        var actualDelta = newY - _deviceScrollY;
+        _deviceScrollY = newY;
+        for (item in _deviceItems) { if (item != null) item.y -= actualDelta; }
+    }
+    #end
 
     private function onDeviceClick(index:Int):Void
     {
         _selectedDeviceIndex = index;
         var deviceStr = _scannedDevices[index];
-        var parts = deviceStr.split(":");
-        if (parts.length >= 2)
-        {
+        var parts = deviceStr.split("|");
+        
+        #if android
+        if (parts.length >= 2) {
             var vid = Std.parseInt("0x" + parts[0]);
             var pid = Std.parseInt("0x" + parts[1]);
             _currentSelectedVid = vid; _currentSelectedPid = pid;
-            if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom))
-            {
+            if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) {
                 var comAtom:library.drivers.ComPortAtom = cast atom;
                 comAtom.setSelectedDevice(vid, pid);
-                if (_portNameContact != null) _portNameContact.value = '${parts[0]}:${parts[1]}'; // ИСПРАВЛЕНО: сохраняем HEX
+                if (_portNameContact != null) _portNameContact.value = parts[0] + ":" + parts[1];
             }
-            trace('ComPortWidget: Selected device VID:PID = ${StringTools.hex(vid, 4)}:${StringTools.hex(pid, 4)}');
         }
+        #elseif (cpp && !android)
+        // Windows: set port name from parts[3] (portIdentifier)
+        if (parts.length > 3 && parts[3] != "") {
+            if (_portNameContact != null) _portNameContact.value = parts[3];
+            if (parts.length >= 2) {
+                var vid = Std.parseInt("0x" + parts[0]);
+                var pid = Std.parseInt("0x" + parts[1]);
+                _currentSelectedVid = (vid != null) ? vid : 0;
+                _currentSelectedPid = (pid != null) ? pid : 0;
+            }
+        }
+        #end
+        
         updateDeviceList();
+        
+        // Auto-connect: immediately open after selection
+        onOpenClick(null);
     }
 
+    #if !html5
     private function onScanClick(e:MouseEvent):Void
     {
-        if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom))
-        {
+        if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) {
             var comAtom:library.drivers.ComPortAtom = cast atom;
+            #if android
             _scannedDevices = comAtom.scanUSBDevices();
-            _selectedDeviceIndex = -1; _currentSelectedVid = 0; _currentSelectedPid = 0;
+            #else
+            _scannedDevices = comAtom.scanCOMPorts();
+            #end
+            _selectedDeviceIndex = -1;
+            _currentSelectedVid = 0; _currentSelectedPid = 0;
+            // Initialize autoConnect flags
+            _autoConnectFlags = [];
+            for (i in 0..._scannedDevices.length) _autoConnectFlags.push(false);
             updateDeviceList();
+            
+            // Check auto-connect preference
+            checkAutoConnect();
         }
     }
+    #end
 
+    #if html5
+    private function onSelectPortClick(e:MouseEvent):Void
+    {
+        if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) {
+            var comAtom:library.drivers.ComPortAtom = cast atom;
+            comAtom.openDevice();
+        } else if (_openContact != null) {
+            _openContact.value = true;
+        }
+    }
+    #end
+
+    #if !html5
     private function onClearClick(e:MouseEvent):Void
     {
-        _scannedDevices = []; _selectedDeviceIndex = -1; _currentSelectedVid = 0; _currentSelectedPid = 0;
-        if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom))
-        {
+        _scannedDevices = []; _selectedDeviceIndex = -1;
+        _currentSelectedVid = 0; _currentSelectedPid = 0;
+        _autoConnectFlags = []; _deviceClickHandlers = [];
+        if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) {
             var comAtom:library.drivers.ComPortAtom = cast atom;
+            #if android
             comAtom.setSelectedDevice(0, 0);
+            #end
         }
         updateDeviceList();
     }
     #end
+
+    // === Auto-connect stubs ===
+
+    private function loadAutoConnect():String
+    {
+        // TODO: Stub — implement persistence (file/registry/localStorage)
+        return "";
+    }
+
+    private function saveAutoConnect(deviceData:String):Void
+    {
+        // TODO: Stub — implement persistence
+    }
+
+    private function clearAutoConnect():Void
+    {
+        // TODO: Stub — implement persistence
+    }
+
+    private function toggleAutoConnect(index:Int):Void
+    {
+        while (_autoConnectFlags.length <= index) _autoConnectFlags.push(false);
+        _autoConnectFlags[index] = !_autoConnectFlags[index];
+        if (_autoConnectFlags[index]) {
+            saveAutoConnect(_scannedDevices[index]);
+        } else {
+            clearAutoConnect();
+        }
+        updateDeviceList();
+    }
+
+    private function checkAutoConnect():Void
+    {
+        var saved = loadAutoConnect();
+        if (saved == "" || saved == null) return;
+        for (i in 0..._scannedDevices.length) {
+            if (_scannedDevices[i] == saved) {
+                _autoConnectFlags[i] = true;
+                _selectedDeviceIndex = i;
+                // Auto-select and connect
+                onDeviceClick(i);
+                return;
+            }
+        }
+    }
+
+    // === Drawing helpers ===
 
     private function redrawBackground():Void
     {
@@ -471,10 +593,7 @@ class ComPortWidget extends DeviceView
         _bg.graphics.drawRoundRect(0, 0, widgetWidth, widgetHeight, 8, 8); _bg.graphics.endFill();
         _header.graphics.clear(); _header.graphics.beginFill(_colorHeader);
         _header.graphics.drawRoundRectComplex(0, 0, widgetWidth, 28, 8, 8, 0, 0); _header.graphics.endFill();
-        _txSection.graphics.clear(); _txSection.graphics.beginFill(0x0d0d18, 0.5); _txSection.graphics.lineStyle(1, 0x222244);
-        _txSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 45, 4, 4); _txSection.graphics.endFill();
-        _rxSection.graphics.clear(); _rxSection.graphics.beginFill(0x0d0d18, 0.5); _rxSection.graphics.lineStyle(1, 0x224422);
-        _rxSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 120, 4, 4); _rxSection.graphics.endFill();
+
     }
 
     private function createLabel(text:String):TextField
@@ -501,30 +620,16 @@ class ComPortWidget extends DeviceView
         return btn;
     }
 
+    // === Atom sync ===
+
     override private function syncFromAtom():Void
     {
-        #if (cpp && !android)
-        if (_portNameContact != null && _portNameContact.value != null && _portInput != null) _portInput.text = Std.string(_portNameContact.value);
-        #elseif html5
-        if (_portNameContact != null && _portNameContact.value != null && _selectedPortInfo != null) _selectedPortInfo.text = Std.string(_portNameContact.value);
-        #end
         if (_baudRateContact != null && _baudRateContact.value != null) _baudInput.text = Std.string(_baudRateContact.value);
         if (_isOpenContact != null && _isOpenContact.value != null) updateConnectionStatus(_isOpenContact.value == true);
-        if (_rxDataContact != null && _rxDataContact.value != null)
-        {
-            var rxStr = Std.string(_rxDataContact.value);
-            if (rxStr != "" && rxStr != _lastRxData) appendRxData(rxStr);
-        }
-        if (_errorContact != null && _errorContact.value != null)
-        {
+        if (_errorContact != null && _errorContact.value != null) {
             var errStr = Std.string(_errorContact.value);
             if (errStr != "" && errStr != _lastError) { _errorDisplay.text = "Error: " + errStr; _lastError = errStr; }
         }
-        #if html5
-        if (_bufferSizeContact != null && _bufferSizeContact.value != null) { _currentBufferSize = Std.int(_bufferSizeContact.value); _bufferSizeInput.text = Std.string(_currentBufferSize); }
-        if (_chunkSizeContact != null && _chunkSizeContact.value != null) { _currentChunkSize = Std.int(_chunkSizeContact.value); _chunkSizeInput.text = Std.string(_currentChunkSize); }
-        if (_enabledContact != null && _enabledContact.value != null) { _currentEnabled = (_enabledContact.value == true); updateEnabledButton(); }
-        #end
     }
 
     override private function onContactChanged(contact:Contact, newValue:Dynamic):Void
@@ -533,50 +638,31 @@ class ComPortWidget extends DeviceView
         if (contact == _isOpenContact) {
             var isOpen:Bool = (newValue == true);
             updateConnectionStatus(isOpen);
-            
-            // === ОЧИЩАЕМ ПОЛЕ ОШИБКИ ПРИ УСПЕШНОМ ОТКРЫТИИ ===
-            if (isOpen) {
-                if (_errorDisplay != null) _errorDisplay.text = "";
-                _lastError = "";
-            }
-            
+            if (isOpen) { if (_errorDisplay != null) _errorDisplay.text = ""; _lastError = ""; }
             #if android
-            // Если порт был закрыт (например, из-за отключения USB), очищаем список устройств
             if (!isOpen) {
-                _currentSelectedVid = 0;
-                _currentSelectedPid = 0;
+                _currentSelectedVid = 0; _currentSelectedPid = 0;
                 _selectedDeviceIndex = -1;
                 _scannedDevices = [];
-                
                 if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) {
                     var comAtom:library.drivers.ComPortAtom = cast atom;
                     comAtom.setSelectedDevice(0, 0);
                 }
-                
-                if (_deviceListContainer != null) {
-                    updateDeviceList();
-                }
+                updateDeviceList();
             }
             #end
         }
-        else if (contact == _rxDataContact && newValue != null && newValue != "") appendRxData(Std.string(newValue));
+        // RX data contact (no display widget)
         else if (contact == _rxTickContact && newValue == true) { pulseLed(_rxLed, 0x00FF00, 0x003300); _rxLedTimer = _ledPulseDuration; }
         else if (contact == _txTickContact && newValue == true) { pulseLed(_txLed, 0x00AAFF, 0x001133); _txLedTimer = _ledPulseDuration; }
         else if (contact == _errorTickContact && newValue == true) { pulseLed(_errLed, 0xFF4444, 0x330000); _errLedTimer = _ledPulseDuration; }
-        else if (contact == _portNameContact)
-        {
-            #if (cpp && !android)
-            if (_portInput != null && newValue != null) _portInput.text = Std.string(newValue);
-            #elseif html5
-            if (_selectedPortInfo != null && newValue != null) _selectedPortInfo.text = Std.string(newValue);
-            #end
-        }
-        else if (contact == _errorContact)
-        {
+        else if (contact == _errorContact) {
             if (newValue != null && newValue != "") { _errorDisplay.text = "Error: " + Std.string(newValue); _lastError = Std.string(newValue); }
             else { _errorDisplay.text = ""; _lastError = ""; }
         }
     }
+
+    // === Connection status ===
 
     private function updateConnectionStatus(isOpen:Bool):Void
     {
@@ -593,15 +679,7 @@ class ComPortWidget extends DeviceView
         }
     }
 
-    private function appendRxData(data:String):Void
-    {
-        if (_rxDisplay == null) return;
-        _lastRxData = data;
-        var currentText = _rxDisplay.text;
-        if (currentText.length > 2000) currentText = currentText.substr(currentText.length - 1000);
-        _rxDisplay.text = currentText + data;
-        _rxDisplay.scrollV = _rxDisplay.maxScrollV;
-    }
+    // === LED helpers ===
 
     private function pulseLed(led:Sprite, onColor:Int, offColor:Int):Void
     {
@@ -615,47 +693,7 @@ class ComPortWidget extends DeviceView
         led.graphics.clear(); led.graphics.beginFill(offColor); led.graphics.drawCircle(0, 0, 5); led.graphics.endFill();
     }
 
-    #if cpp
-    private function onPortNameChanged(e:Event):Void { if (_portNameContact != null) _portNameContact.value = _portInput.text; }
-    #end
-
-    #if html5
-    private function onSelectPortClick(e:MouseEvent):Void
-    {
-        if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) { var comAtom:library.drivers.ComPortAtom = cast atom; comAtom.openDevice(); }
-        else if (_openContact != null) _openContact.value = true;
-    }
-    private function onBufferSizeChanged(e:Event):Void
-    {
-        if (_bufferSizeContact != null) {
-            var size = Std.parseInt(_bufferSizeInput.text);
-            if (size != null && size >= 256 && size <= 65536) { _currentBufferSize = size; _bufferSizeContact.value = size; }
-        }
-    }
-    private function onChunkSizeChanged(e:Event):Void
-    {
-        if (_chunkSizeContact != null) {
-            var size = Std.parseInt(_chunkSizeInput.text);
-            if (size != null && size >= 1 && size <= 4096) { _currentChunkSize = size; _chunkSizeContact.value = size; }
-        }
-    }
-    private function onEnabledClick(e:MouseEvent):Void
-    {
-        _currentEnabled = !_currentEnabled; updateEnabledButton();
-        if (_enabledContact != null) _enabledContact.value = _currentEnabled;
-    }
-    private function updateEnabledButton():Void
-    {
-        if (_enabledBtn == null || _enabledLabel == null) return;
-        if (_currentEnabled) {
-            _enabledBtn.graphics.clear(); _enabledBtn.graphics.beginFill(_colorActive); _enabledBtn.graphics.drawRoundRect(0, 0, 70, 26, 4, 4); _enabledBtn.graphics.endFill();
-            _enabledLabel.textColor = 0x000000; _enabledLabel.text = "ON";
-        } else {
-            _enabledBtn.graphics.clear(); _enabledBtn.graphics.beginFill(_colorInactive); _enabledBtn.graphics.drawRoundRect(0, 0, 70, 26, 4, 4); _enabledBtn.graphics.endFill();
-            _enabledLabel.textColor = _colorMuted; _enabledLabel.text = "OFF";
-        }
-    }
-    #end
+    // === Button handlers ===
 
     private function onBaudRateChanged(e:Event):Void
     {
@@ -667,30 +705,19 @@ class ComPortWidget extends DeviceView
 
     private function onOpenClick(e:MouseEvent):Void
     {
-        #if (cpp && !android)
-        if (_portNameContact != null && _portInput != null) _portNameContact.value = _portInput.text;
-        #end
         var baud = Std.parseInt(_baudInput.text);
         if (_baudRateContact != null && baud != null && baud > 0) _baudRateContact.value = baud;
         #if html5
-        if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) { var comAtom:library.drivers.ComPortAtom = cast atom; comAtom.openDevice(); }
-        else if (_openContact != null) _openContact.value = true;
+        if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) {
+            var comAtom:library.drivers.ComPortAtom = cast atom;
+            comAtom.openDevice();
+        } else if (_openContact != null) { _openContact.value = true; }
         #else
         if (_openContact != null) _openContact.value = true;
         #end
     }
 
     private function onCloseClick(e:MouseEvent):Void { if (_closeContact != null) _closeContact.value = true; }
-    private function onSendClick(e:MouseEvent):Void { sendTxData(); }
-    private function onTxKeyDown(e:KeyboardEvent):Void { if (e.keyCode == Keyboard.ENTER) sendTxData(); }
-    
-    private function sendTxData():Void
-    {
-		
-		
-        if (_txDataContact != null) _txDataContact.value = _txInput.text;
-        if (_sendContact != null) _sendContact.value = true;
-    }
 
     #if cpp
     private function onDTRClick(e:MouseEvent):Void
@@ -704,7 +731,8 @@ class ComPortWidget extends DeviceView
     }
     #end
 
-    // Impulsys Handlers
+    // === Impulsys Handlers ===
+
     private function onComPortStatus(impulse: Impulse): Void
     {
         if (impulse.data != null && _statusBar != null)
@@ -725,7 +753,7 @@ class ComPortWidget extends DeviceView
                         trace("ComPortWidget: Device list updated automatically.");
                     }
                 }
-                return; // Выходим, чтобы не писать это в статусбар
+                return; // Don't write this to status bar
             }
             #end
 
@@ -737,7 +765,7 @@ class ComPortWidget extends DeviceView
 
     private function onComPortRx(impulse: Impulse): Void
     {
-        if (impulse.data != null) appendRxData(Std.string(impulse.data));
+        // RX data received (no display widget)
     }
 
     private function onComPortError(impulse: Impulse): Void
@@ -748,6 +776,8 @@ class ComPortWidget extends DeviceView
             _lastError = Std.string(impulse.data);
         }
     }
+
+    // === Lifecycle ===
 
     override public function activate():Void
     {
@@ -779,20 +809,19 @@ class ComPortWidget extends DeviceView
         if (atom != null && Std.isOfType(atom, library.drivers.ComPortAtom)) {
             var comAtom:library.drivers.ComPortAtom = cast atom;
             
-            // 1. ТРОТТЛИНГ АТОМА
+            // 1. Atom update throttling
             _atomUpdateAccumulator += dt;
             if (_atomUpdateAccumulator >= 0.1) {
                 try {
                     comAtom.update(_atomUpdateAccumulator);
                 } catch(e:Dynamic) {
                     trace("ComPortWidget: Exception in comAtom.update() -> " + e);
-                    // Мигнем красным, чтобы знать, что Атом упал, но приложение живо
                     pulseLed(_errLed, 0xFF4444, 0x330000); _errLedTimer = _ledPulseDuration;
                 }
                 _atomUpdateAccumulator = 0.0;
             }
             
-            // 2. Авто-детект USB (вызываем 1 раз в секунду)
+            // 2. Auto-detect USB (poll once per second)
             var isOpen = (comAtom.getOutput("isOpen") != null && comAtom.getOutput("isOpen").value == true);
             
             if (!isOpen) {
@@ -812,6 +841,9 @@ class ComPortWidget extends DeviceView
                             _currentSelectedPid = 0;
                             updateDeviceList();
                             _lastScanResult = currentStr;
+                            
+                            // Check auto-connect after scan update
+                            checkAutoConnect();
                         }
                     } catch(e:Dynamic) {
                         pulseLed(_errLed, 0xFF4444, 0x330000); _errLedTimer = _ledPulseDuration;
@@ -825,52 +857,44 @@ class ComPortWidget extends DeviceView
     override public function dispose():Void
     {
         if (stage != null) stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
-        
         if (_onComPortStatus != null) Impulsys.removeImpulse(EventType.COMPORT_STATUS, _onComPortStatus);
         if (_onComPortRx != null) Impulsys.removeImpulse(EventType.COMPORT_RX_DATA, _onComPortRx);
         if (_onComPortError != null) Impulsys.removeImpulse(EventType.COMPORT_ERROR, _onComPortError);
-        
         if (_openBtn != null) _openBtn.removeEventListener(MouseEvent.CLICK, onOpenClick);
         if (_closeBtn != null) _closeBtn.removeEventListener(MouseEvent.CLICK, onCloseClick);
-        if (_sendBtn != null) _sendBtn.removeEventListener(MouseEvent.CLICK, onSendClick);
-        
+        if (_baudInput != null) _baudInput.removeEventListener(Event.CHANGE, onBaudRateChanged);
         #if cpp
         if (_dtrBtn != null) _dtrBtn.removeEventListener(MouseEvent.CLICK, onDTRClick);
-        if (_portInput != null) _portInput.removeEventListener(Event.CHANGE, onPortNameChanged);
-        #elseif html5
-        if (_selectPortBtn != null) _selectPortBtn.removeEventListener(MouseEvent.CLICK, onSelectPortClick);
-        if (_bufferSizeInput != null) _bufferSizeInput.removeEventListener(Event.CHANGE, onBufferSizeChanged);
-        if (_chunkSizeInput != null) _chunkSizeInput.removeEventListener(Event.CHANGE, onChunkSizeChanged);
-        if (_enabledBtn != null) _enabledBtn.removeEventListener(MouseEvent.CLICK, onEnabledClick);
-        #elseif android
+        #end
+        #if !html5
+        if (_deviceListContainer != null) _deviceListContainer.removeEventListener(MouseEvent.MOUSE_WHEEL, onDeviceListWheel);
         if (_scanBtn != null) _scanBtn.removeEventListener(MouseEvent.CLICK, onScanClick);
         if (_clearBtn != null) _clearBtn.removeEventListener(MouseEvent.CLICK, onClearClick);
-        for (item in _deviceItems) item.removeEventListener(MouseEvent.CLICK, onDeviceClick);
-        _deviceItems = null; _deviceCheckboxes = null; _deviceLabels = null; _scannedDevices = null;
+        for (i in 0..._deviceItems.length) {
+            if (_deviceItems[i] != null && i < _deviceClickHandlers.length && _deviceClickHandlers[i] != null)
+                _deviceItems[i].removeEventListener(MouseEvent.CLICK, _deviceClickHandlers[i]);
+        }
+        #else
+        if (_scanBtn != null) _scanBtn.removeEventListener(MouseEvent.CLICK, onSelectPortClick);
         #end
         
-        if (_baudInput != null) _baudInput.removeEventListener(Event.CHANGE, onBaudRateChanged);
-        if (_txInput != null) _txInput.removeEventListener(KeyboardEvent.KEY_DOWN, onTxKeyDown);
-        
-        _bg = null; _header = null; _titleLabel = null; _portLabel = null; _portInput = null;
-        _baudLabel = null; _baudInput = null; _openBtn = null; _closeBtn = null; _dtrBtn = null; _dtrLabel = null;
-        _txSection = null; _txInput = null; _sendBtn = null; _rxSection = null; _rxDisplay = null;
+        // Nullify all references
+        _bg = null; _header = null; _titleLabel = null; _baudLabel = null; _baudInput = null;
+        _openBtn = null; _closeBtn = null; _dtrBtn = null; _dtrLabel = null;
+
         _statusLed = null; _statusGlow = null; _rxLed = null; _txLed = null; _errLed = null;
         _statusBar = null; _errorDisplay = null;
         _portNameContact = null; _baudRateContact = null; _openContact = null; _closeContact = null;
         _sendContact = null; _txDataContact = null; _setDTRContact = null; _isOpenContact = null;
         _rxDataContact = null; _rxTickContact = null; _txTickContact = null; _errorContact = null; _errorTickContact = null;
-        
-        #if html5
-        _selectPortBtn = null; _selectedPortInfo = null; _bufferSizeInput = null; _chunkSizeInput = null;
-        _enabledBtn = null; _enabledLabel = null; _bufferSizeLabel = null; _chunkSizeLabel = null;
-        _bufferSizeContact = null; _chunkSizeContact = null; _enabledContact = null;
-        #end
-        #if android
-        _scanBtn = null; _clearBtn = null; _deviceListContainer = null; _deviceListBg = null;
+        _scanBtn = null; _clearBtn = null; _deviceListContainer = null; _deviceListBg = null; _deviceListMask = null;
         _selectedInfo = null; _noDevicesLabel = null;
+        _deviceItems = null; _deviceCheckboxes = null; _deviceNameLabels = null;
+        _deviceVidPidLabels = null; _devicePortLabels = null;
+        _scannedDevices = null; _autoConnectFlags = null; _deviceClickHandlers = null;
+        #if html5
+        _selectedPortInfo = null;
         #end
-        
         super.dispose();
     }
 }
