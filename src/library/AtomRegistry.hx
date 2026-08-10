@@ -308,9 +308,9 @@ class AtomRegistry
         ], null, "comenumerator", true, true, "comenumerator", ["cpp"]);
 
 		// =========================================================================
-		// FILE WRITER — HTML5 File System Access API
+		// FILE WRITER — File System Access API
 		// =========================================================================
-		#if html5
+		//#if html5
 		reg("FileWriterAtom", "File Writer", [
 			{name: "open",      type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Open"},
 			{name: "close",     type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Close"},
@@ -327,8 +327,8 @@ class AtomRegistry
 			{name: "fileSize",  type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Size"},
 			{name: "error",     type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
 			{name: "errorTick", type: OUTPUT, dataType: "bool",   priority: INTERNAL}
-		], null, "filewriter", true, true, "filewriter", ["html5"]);
-		#end
+		], null, "filewriter", true, true, "filewriter");
+		//#end
         #if cpp
         reg("MiniAudioAtom", "Mini Audio Capture", [
             {name: "mode",     type: INPUT,  defaultValue: 1,    dataType: "int",     priority: IMPORTANT, label: "Mode"},

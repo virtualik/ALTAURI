@@ -3,8 +3,10 @@ package editor;
 import openfl.display.Sprite;
 import openfl.geom.Rectangle;
 import core.base.Assembly;
+import core.data.Blueprint;
 import editor.NodeView;
 import editor.EditorTheme;
+import editor.WireRenderer;
 import ecs.ECS;
 
 /**
@@ -57,6 +59,7 @@ class SelectionManager
     // DEPENDENCIES
     // =========================================================================
     private var _assembly:Assembly;
+    private var _blueprint:Blueprint;
     private var _container:Sprite;
     private var _theme:EditorTheme;
     private var _getNodeView:String -> NodeView;
@@ -90,9 +93,10 @@ class SelectionManager
      * @param container      Canvas sprite for drawing lasso
      * @param nodeViewProvider Function to get NodeView by ID
      */
-    public function setContext(assembly:Assembly, container:Sprite, nodeViewProvider:String -> NodeView):Void
+    public function setContext(assembly:Assembly, container:Sprite, nodeViewProvider:String -> NodeView, ?blueprint:Blueprint):Void
     {
         _assembly = assembly;
+        _blueprint = blueprint;
         _container = container;
         _getNodeView = nodeViewProvider;
         
@@ -266,19 +270,19 @@ class SelectionManager
 * Used when wire selection changes — nodes should deselect
 * but wire selection is managed separately.
 */
-	public function clearNodeSelection():Void
-	{
-		for (id in _selection.getNodeIds())
-		{
-			var view = _getNodeView(id);
-			if (view != null)
-			{
-				view.selected = false;
-				ECS.setSelected(id, false);
-			}
-		}
-		_selection.clearNodes();
-	}
+        public function clearNodeSelection():Void
+        {
+                for (id in _selection.getNodeIds())
+                {
+                        var view = _getNodeView(id);
+                        if (view != null)
+                        {
+                                view.selected = false;
+                                ECS.setSelected(id, false);
+                        }
+                }
+                _selection.clearNodes();
+        }
 
     /**
      * Clear wire selection only.
@@ -384,6 +388,46 @@ class SelectionManager
         _selection.setWires(ids);
     }
     
+    /**
+     * Find wire IDs that connect any two currently-selected nodes.
+     * Used after lasso selection to auto-select inter-node wires.
+     *
+     * Algorithm:
+     * 1. Build a set of selected node runtime IDs.
+     * 2. Iterate all blueprint connections.
+     * 3. For each connection, resolve both endpoints to runtime IDs.
+     * 4. If BOTH endpoints are in the selected set, include the wire.
+     *
+     * @return Array of wire IDs connecting selected nodes
+     */
+    public function findWiresBetweenSelectedNodes():Array<String>
+    {
+        var result:Array<String> = [];
+        if (_assembly == null || _blueprint == null) return result;
+        if (_blueprint.internalConnections == null) return result;
+
+        var selectedSet = new Map<String, Bool>();
+        for (id in _selection.getNodeIds())
+        {
+            selectedSet.set(id, true);
+        }
+
+        for (link in _blueprint.internalConnections)
+        {
+            var fromRuntime = _assembly.idMap.get(link.from.atomId);
+            if (fromRuntime == null) fromRuntime = link.from.atomId;
+            var toRuntime = _assembly.idMap.get(link.to.atomId);
+            if (toRuntime == null) toRuntime = link.to.atomId;
+
+            if (selectedSet.exists(fromRuntime) && selectedSet.exists(toRuntime))
+            {
+                result.push(WireRenderer.getWireIDStatic(link));
+            }
+        }
+
+        return result;
+    }
+
     // =========================================================================
     // DISPOSE
     // =========================================================================

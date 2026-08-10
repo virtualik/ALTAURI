@@ -31,8 +31,8 @@
 			visible="false"
 			borderless="true"
 			allow-high-dpi="false"
-			width="1280" 
-			height="800"
+			width="1024" 
+			height="600"
 			background="#FF00FF"
 			transparent="true"
 			render="webgl" hardware="true" vsync="true" />

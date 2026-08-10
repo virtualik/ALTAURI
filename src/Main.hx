@@ -354,17 +354,12 @@ class Main extends Sprite
 				System.exit(0);
 			});
 		});
-
+		
+		
 		#if windows
 // WiNDOWS Target - Load project from file
-		//createDemoProject();
-		loadProject();
-		#end
-				
-		#if html5
-// HTML5 Target - Creation method
-
 		createDemoProject();
+		//loadProject();
 		#end
 		
 		#if android
@@ -372,6 +367,13 @@ class Main extends Sprite
 		createDemoProject(); 
 		//loadProject();
 		#end
+		
+		#if html5
+// HTML5 Target - Creation method
+
+		createDemoProject();
+		#end
+		
 		
 // Pass control of the limit to TickGenerator
 		TickGenerator.getInstance().maxStepsPerFrame = 100;
@@ -409,7 +411,7 @@ class Main extends Sprite
 	{
 //this.visible = false;
 
-		var demoBlueprint = new Blueprint("demo", "Demo Showcase", [
+		var demoBlueprint = new Blueprint("demo", "Showcase", [
 		{name: "IN", type: INPUT},
 		{name: "OUT", type: OUTPUT}
 		]);
@@ -488,12 +490,13 @@ class Main extends Sprite
 				// Center the viewport on the content after initial layout is ready
 				_editorContext.currentEditor.centerOnContent();
 			}
-// v3.0: Use DisplayConfig instead of _isPanelMode
-			if (DisplayConfig.getInstance().isDeviceMode())
+// v3.0: Switch to Device mode
+			if (DisplayConfig.getInstance().isEditorMode())
 			{
+				DisplayConfig.getInstance().currentMode = DisplayMode.DEVICE_PANEL;
 				onToggleView();
 			}
-		}, 10);
+		}, 1);
 
 // 4. Setup Device Panel & Toggle View
 		haxe.Timer.delay(function()
@@ -539,15 +542,7 @@ class Main extends Sprite
 // Without this, toggling back to Editor and then to Panel again would
 // result in an empty screen because the cache would be empty.
 			syncDevicePanelToCache();
-
-// v3.0: Use DisplayConfig instead of _isPanelMode
-			if (!DisplayConfig.getInstance().isDeviceMode())
-			{
-				onToggleView();
-			}
-
-//this.visible = true;
-		}, 10);
+		}, 1);
 		
 		updateNavigationUI();
 		updateButtonStates();
@@ -555,6 +550,14 @@ class Main extends Sprite
 		//Видимость кнопок Button Visibility
 		var cfg = DisplayConfig.getInstance();
 		cfg.deviceButtons.showClose = false;     // Скрыть [X] с Device панели
+		
+		// v3.0: Switch to Editor mode ПРОВЕРИТЬ ПОЧЕМУ НЕ ПЕРЕКЛЮЧАЕТСЯ В РЕДАКТОР?
+			if (!DisplayConfig.getInstance().isEditorMode())
+			{
+				DisplayConfig.getInstance().currentMode = DisplayMode.EDITOR;
+				onToggleView();
+			}
+
 	}
 
 	/**

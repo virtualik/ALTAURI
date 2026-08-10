@@ -1,5 +1,5 @@
 // FILE: library/drivers/FileWriterAtom.hx
-#if html5
+//#if html5
 package library.drivers;
 
 import core.base.Atom;
@@ -536,4 +536,4 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 	public function getSuggestedFileName():String return _suggestedFileName;
 	public function hasPendingOpen():Bool return _pendingOpen;
 }
-#end
+//#end
