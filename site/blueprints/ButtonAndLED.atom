@@ -1,0 +1,87 @@
+{
+  "deviceWindow": {
+    "width": 420,
+    "devices": [
+      {
+        "width": 112,
+        "x": 344,
+        "y": 259,
+        "height": 104,
+        "path": [
+          "id_3ad24297"
+        ]
+      },
+      {
+        "width": 131,
+        "x": 606,
+        "y": 252,
+        "height": 82,
+        "path": [
+          "id_80c0fdd5"
+        ]
+      }
+    ],
+    "x": 100,
+    "y": 100,
+    "height": 320,
+    "isOpen": false
+  },
+  "blueprint": {
+    "category": "General",
+    "id": "selfrun",
+    "name": "Selfrun",
+    "pins": [
+      {
+        "defaultValue": null,
+        "name": "IN",
+        "type": "INPUT"
+      },
+      {
+        "defaultValue": null,
+        "name": "OUT",
+        "type": "OUTPUT"
+      }
+    ],
+    "internalAtoms": [
+      {
+        "x": 351.119791666667,
+        "y": 411.744791666667,
+        "values": {
+          "isLogic": false,
+          "displayName": "Push Button",
+          "state": false
+        },
+        "typeId": "Button",
+        "instanceId": "id_3ad24297"
+      },
+      {
+        "x": 781.809895833333,
+        "y": 303.125,
+        "values": {
+          "isLogic": false,
+          "displayName": "LED Indicator"
+        },
+        "typeId": "LED",
+        "instanceId": "id_80c0fdd5"
+      }
+    ],
+    "internalConnections": [
+      {
+        "to": {
+          "atomId": "id_80c0fdd5",
+          "contactName": "in"
+        },
+        "from": {
+          "atomId": "id_3ad24297",
+          "contactName": "out"
+        }
+      }
+    ]
+  },
+  "editor": {
+    "x": 290.1644774569,
+    "y": 50.362994685277,
+    "zoom": 0.792968684537266
+  },
+  "version": "2.5"
+}

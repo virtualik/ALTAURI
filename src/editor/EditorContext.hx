@@ -1031,8 +1031,8 @@ class EditorContext
 		var h = _layer.stage.stageHeight - (margin * 2);
 
 		container.graphics.clear();
-		container.graphics.beginFill(_theme.FRAME_FILL_COLOR, _theme.FRAME_FILL_ALPHA);
-		container.graphics.lineStyle(1, _theme.FRAME_BORDER_COLOR);
+		//container.graphics.beginFill(_theme.FRAME_FILL_COLOR, _theme.FRAME_FILL_ALPHA);
+		//container.graphics.lineStyle(1, _theme.FRAME_BORDER_COLOR);
 		container.graphics.drawRoundRect(0, 0, w, h, 10, 10);
 		container.graphics.endFill();
 

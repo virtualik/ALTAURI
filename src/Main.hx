@@ -233,7 +233,7 @@ class Main extends Sprite
 		if (canvas != null)
 		{
 			// Блокировка контекстного меню (уже есть)
-			canvas.oncontextmenu = function(e) { e.preventDefault(); return false; };
+			canvas.oncontextmenu = function(e:js.html.Event) { e.preventDefault(); return false; };
 			
 			// ═══════════════════════════════════════════════════════════════
 			// Жёсткий запрет на браузерную обработку тач-событий
@@ -269,7 +269,7 @@ class Main extends Sprite
 		if (canvas != null)
 		{
 			// Блокировка контекстного меню
-			canvas.oncontextmenu = function(e) { e.preventDefault(); return false; };
+			canvas.oncontextmenu = function(e:js.html.Event) { e.preventDefault(); return false; };
 			
 			// ═══════════════════════════════════════════════════════════════
 			// Блокировка браузерного autoscroll на средней кнопке мыши
@@ -358,8 +358,8 @@ class Main extends Sprite
 		
 		#if windows
 // WiNDOWS Target - Load project from file
-		createDemoProject();
-		//loadProject();
+		//createDemoProject();
+		loadProject();
 		#end
 		
 		#if android
@@ -369,9 +369,8 @@ class Main extends Sprite
 		#end
 		
 		#if html5
-// HTML5 Target - Creation method
-
-		createDemoProject();
+// HTML5 Target - Load blueprint based on DOM data-attribute
+		loadHTML5Blueprint();
 		#end
 		
 		
@@ -411,9 +410,9 @@ class Main extends Sprite
 	{
 //this.visible = false;
 
-		var demoBlueprint = new Blueprint("demo", "Showcase", [
-		{name: "IN", type: INPUT},
-		{name: "OUT", type: OUTPUT}
+		var demoBlueprint = new Blueprint("demo", "demo", [
+		//{name: "IN", type: INPUT},
+		//{name: "OUT", type: OUTPUT}
 		]);
 
 		var rootAssembly = new Assembly("main_asm", demoBlueprint);
@@ -520,22 +519,25 @@ class Main extends Sprite
 //			var openPortBtAtom:Atom = cast rootAssembly.internalAtoms.get(openPortButtonId);
 //			var closePortBtAtom:Atom = cast rootAssembly.internalAtoms.get(closePortButtonId);
 			var sendBtAtom:Atom = cast rootAssembly.internalAtoms.get(sendTxDataButtonId);
+			var filewriter1Atom:Atom = cast rootAssembly.internalAtoms.get(fileWriterId);
 			var openFileBtAtom:Atom = cast rootAssembly.internalAtoms.get(openFileButtonId);
 			var closeFileBtAtom:Atom = cast rootAssembly.internalAtoms.get(closeFileButtonId);
 			var fileLedAtom:Atom = cast rootAssembly.internalAtoms.get(fileWriterStatusLedId);
 
-			if (comport1Atom != null) _devicePanel.addDevice(comport1Atom, 20, 50);
+			if (comport1Atom != null) _devicePanel.addDevice(comport1Atom, 20, 150);
 
 			if (txAtom != null) _devicePanel.addDevice(txAtom, 450, 450);
 			if (sendBtAtom != null) _devicePanel.addDevice(sendBtAtom, 600, 450);
 			
-			if (textArea != null) _devicePanel.addDevice(textArea, 400, 250);
+			if (textArea != null) _devicePanel.addDevice(textArea, 400, 200);
 //			if (comportledAtom != null) _devicePanel.addDevice(comportledAtom, 250, 270);
 //			if (openPortBtAtom != null) _devicePanel.addDevice(openPortBtAtom, 50, 280);
 //			if (closePortBtAtom != null) _devicePanel.addDevice(closePortBtAtom, 150, 280);
-			if (openFileBtAtom != null) _devicePanel.addDevice(openFileBtAtom, 800, 250);
-			if (closeFileBtAtom != null) _devicePanel.addDevice(closeFileBtAtom, 900, 250);
-			if (fileLedAtom != null) _devicePanel.addDevice(fileLedAtom, 850, 140);
+
+			if (filewriter1Atom != null) _devicePanel.addDevice(filewriter1Atom, 800, 150);
+			//if (openFileBtAtom != null) _devicePanel.addDevice(openFileBtAtom, 800, 250);
+			//if (closeFileBtAtom != null) _devicePanel.addDevice(closeFileBtAtom, 900, 250);
+			//if (fileLedAtom != null) _devicePanel.addDevice(fileLedAtom, 850, 140);
 
 // 3. SYNC CACHE
 // Crucial: saves the current panel layout to _cachedDeviceWindowState.
@@ -729,6 +731,127 @@ class Main extends Sprite
 		var rootAssembly = new Assembly("main_asm", emptyBlueprint);
 		_editorContext.push(rootAssembly, true);
 	}
+
+    /**
+    * HTML5 specific loader.
+    * Reads "data-blueprint" attribute from the parent DOM element 
+    * and fetches the .atom file via HTTP.
+    */
+    private function loadHTML5Blueprint():Void
+    {
+        #if html5
+        var blueprintUrl:String = null;
+
+        // Получаем канвас текущего OpenFL-инстанса
+        var canvas:js.html.CanvasElement = untyped openfl.Lib.current.stage.window.element;
+        
+        // Поднимаемся вверх по DOM-дереву, пока не найдем data-blueprint
+        var el:js.html.Element = canvas;
+        while (el != null && blueprintUrl == null)
+        {
+            blueprintUrl = el.getAttribute("data-blueprint");
+            el = el.parentElement;
+        }
+
+        if (blueprintUrl != null && blueprintUrl != "")
+        {
+            log("Loading HTML5 blueprint: " + blueprintUrl);
+            
+            // Защита от кэша
+            var http = new haxe.Http(blueprintUrl + "?t=" + Date.now().getTime());
+            
+            http.onData = function(data:String)
+            {
+                try {
+                    var json = haxe.Json.parse(data);
+                    buildProjectFromJSON(json);
+                } catch (err:Dynamic) {
+                    log("Blueprint parse error: " + err);
+                    createDemoProject(); // Fallback
+                }
+            };
+            
+            http.onError = function(err:String)
+            {
+                log("Failed to load blueprint file: " + err);
+                createDemoProject(); // Fallback
+            };
+            
+            http.request();
+        }
+        else
+        {
+            log("No data-blueprint attribute found. Creating default demo.");
+            createDemoProject();
+        }
+        #end
+    }
+
+    /**
+    * Builds the project from parsed JSON data.
+    * Works identically to loadProject(), but takes Dynamic JSON 
+    * instead of reading from local file system.
+    */
+    private function buildProjectFromJSON(json:Dynamic):Void
+    {
+        var rawBp = json.blueprint;
+        
+        // Используем наш новый публичный метод из ProjectIO
+        var bp = system.io.ProjectIO.parseBlueprint(rawBp);
+        
+        core.logic.NamingService.clearInstanceNames();
+        var rootAssembly = new Assembly("main_asm", bp);
+        _editorContext.push(rootAssembly, true);
+
+        _cachedDeviceWindowState = [];
+
+        // Парсим устройства
+        if (json.deviceWindow != null && json.deviceWindow.devices != null)
+        {
+            for (d in (json.deviceWindow.devices : Array<Dynamic>))
+            {
+                var w:Float = (d.width != null) ? Std.parseFloat(Std.string(d.width)) : 100.0;
+                var h:Float = (d.height != null) ? Std.parseFloat(Std.string(d.height)) : 80.0;
+                _cachedDeviceWindowState.push({
+                    path: d.path,
+                    x: Std.parseFloat(Std.string(d.x)),
+                    y: Std.parseFloat(Std.string(d.y)),
+                    width: w,
+                    height: h
+                });
+            }
+        }
+
+        // Парсим состояние вьюпорта
+        var viewState = { x: 0.0, y: 0.0, zoom: 1.0 };
+        if (json.editor != null)
+        {
+            viewState.x = json.editor.x != null ? Std.parseFloat(Std.string(json.editor.x)) : 0.0;
+            viewState.y = json.editor.y != null ? Std.parseFloat(Std.string(json.editor.y)) : 0.0;
+            viewState.zoom = json.editor.zoom != null ? Std.parseFloat(Std.string(json.editor.zoom)) : 1.0;
+        }
+        _editorContext.currentEditor.setViewState(viewState);
+
+        // Принудительная перерисовка
+        haxe.Timer.delay(function()
+        {
+            if (_editorContext.currentEditor != null)
+            {
+                _editorContext.currentEditor.forceFullRedraw();
+                _editorContext.currentEditor.centerOnContent();
+            }
+        }, 100);
+
+       // if (json.deviceWindow != null && json.deviceWindow.isOpen)
+        {
+            DisplayConfig.getInstance().currentMode = DisplayMode.EDITOR;
+            onToggleView();
+        }
+
+        updateNavigationUI();
+        updateButtonStates();
+        log("Project loaded from JSON successfully.");
+    }
 
 // =========================================================================
 // SAVING v2.8

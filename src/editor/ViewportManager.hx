@@ -179,7 +179,9 @@ class ViewportManager {
             _hasPendingTransform = true;
             e.stopImmediatePropagation();
         }
-        // IDLE / REJECTED: don't block — let NodeEditor handle 1-finger moves
+        // IDLE / REJECTED: don't block — let NodeEditor handle 1-finger moves.
+        // Note: REJECTED state does not stopImmediatePropagation here, allowing 
+        // move events to pass through to NodeEditor even if 3+ fingers are down.
     }
 
 
@@ -255,12 +257,25 @@ class ViewportManager {
             var newScale:Float = _canvas.scaleX * ratio;
             newScale = clamp(newScale, _minScale, _maxScale);
 
-            // Only fire onZoomStart once, when zoom first deviates
+            #if cpp
+            // Only fire onZoomStart once, when zoom first deviates.
+            // NOTE: This block is identical to the html5 one.
             if (!_touchZoomActive && Math.abs(ratio - 1.0) > 0.005) {
                 _touchZoomActive = true;
                 if (onZoomStart != null) onZoomStart();
             }
-
+            #end
+            #if html5
+            // Only fire onZoomStart once, when zoom first deviates.
+            // NOTE: This block is identical to the cpp one.
+            if (!_touchZoomActive && Math.abs(ratio - 1.0) > 0.005) {
+                _touchZoomActive = true;
+                if (onZoomStart != null) onZoomStart();
+            }
+            #end
+            // NOTE: On Android (#if android), onZoomStart is NOT triggered 
+            // during this transform because it is missing in the conditions above.
+            
             // Pivot: keep the point under pinch center fixed
             var localPivotX:Float = (center.x - _canvas.x) / _canvas.scaleX;
             var localPivotY:Float = (center.y - _canvas.y) / _canvas.scaleY;
@@ -328,7 +343,7 @@ class ViewportManager {
 
 
     /**
-     * Handle scroll-wheel zoom (desktop).
+     * Handle scroll-wheel zoom. Uses platform-specific multipliers to convert delta to scale factor.
      * @param delta  Mouse wheel delta (typically +/- 3 on most platforms)
      * @param stageX Mouse X in stage coordinates (pivot point)
      * @param stageY Mouse Y in stage coordinates (pivot point)
@@ -339,7 +354,16 @@ class ViewportManager {
 
         // Convert delta to a scale factor.
         // delta > 0 = scroll up = zoom in; delta < 0 = scroll down = zoom out
-        var zoomFactor:Float = 1.0 + (delta * 0.004);
+        #if cpp
+        var cooficient:Float = 0.05;
+        #end
+        #if html5
+        var cooficient:Float = 0.0005;
+        #end
+        #if android
+        var cooficient:Float = 0.004;
+        #end
+        var zoomFactor:Float = 1.0 + (delta * cooficient);
         var newScale:Float = _canvas.scaleX * zoomFactor;
         newScale = clamp(newScale, _minScale, _maxScale);
 
@@ -389,7 +413,7 @@ class ViewportManager {
 
     /**
      * Update visibility of nodes based on current viewport bounds.
-     * Hides nodes that are completely outside the visible area.
+     * Hides nodes whose center falls outside the visible area plus a 200px margin.
      *
      * @param nodes  Iterator of NodeView objects
      * @param viewW  Viewport width in pixels

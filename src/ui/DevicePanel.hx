@@ -953,7 +953,7 @@ class DevicePanel extends Sprite
             if (onToggleMaximize != null) onToggleMaximize();
         });
         _maximizeBtn.x = headerWidth - 88;
-        _header.addChild(_maximizeBtn);
+    //   _header.addChild(_maximizeBtn);
         
         // Store label reference for dynamic icon updates
         _maximizeBtnLabel = cast(_maximizeBtn.getChildAt(0), TextField);
@@ -968,7 +968,7 @@ class DevicePanel extends Sprite
 		});
 		_btnClose.x = headerWidth - 45;
 		_btnClose.y = 5;
-		_header.addChild(_btnClose);
+	//	_header.addChild(_btnClose);
 
 		// Читаем начальное состояние видимости из DisplayConfig
 		var cfg = DisplayConfig.getInstance();

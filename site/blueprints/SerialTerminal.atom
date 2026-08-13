@@ -1,0 +1,154 @@
+{
+  "deviceWindow": {
+    "width": 420,
+    "devices": [
+      {
+        "width": 332,
+        "x": 162,
+        "y": 109,
+        "height": 365,
+        "path": [
+          "id_2a9e7cf6"
+        ]
+      },
+      {
+        "width": 393,
+        "x": 531,
+        "y": 109,
+        "height": 224,
+        "path": [
+          "id_26524b6c"
+        ]
+      },
+      {
+        "width": 152,
+        "x": 625,
+        "y": 350,
+        "height": 100,
+        "path": [
+          "id_d9903186"
+        ]
+      },
+      {
+        "width": 112,
+        "x": 811,
+        "y": 348,
+        "height": 104,
+        "path": [
+          "id_e942bf6d"
+        ]
+      }
+    ],
+    "x": 100,
+    "y": 100,
+    "height": 320,
+    "isOpen": false
+  },
+  "blueprint": {
+    "category": "General",
+    "id": "selfrun",
+    "name": "Selfrun",
+    "pins": [
+      {
+        "defaultValue": null,
+        "name": "IN",
+        "type": "INPUT"
+      },
+      {
+        "defaultValue": null,
+        "name": "OUT",
+        "type": "OUTPUT"
+      }
+    ],
+    "internalAtoms": [
+      {
+        "x": 897.068072348608,
+        "y": 480.952177726674,
+        "values": {
+          "isLogic": false,
+          "displayName": "COM Port"
+        },
+        "typeId": "ComPortAtom",
+        "instanceId": "id_2a9e7cf6"
+      },
+      {
+        "x": 1231.40400984861,
+        "y": 482.952177726674,
+        "values": {
+          "isLogic": false,
+          "displayName": "Text Area",
+          "vScroll": true,
+          "autoScroll": true,
+          "editable": true,
+          "maxChars": 40,
+          "wordWrap": true,
+          "numLines": 8,
+          "text": "",
+          "hScroll": false
+        },
+        "typeId": "TextArea",
+        "instanceId": "id_26524b6c"
+      },
+      {
+        "x": 659.515989015274,
+        "y": 798.181344393341,
+        "values": {
+          "isLogic": false,
+          "displayName": "TX PAYLOAD",
+          "value": "Data 1234567890\r"
+        },
+        "typeId": "TextInput",
+        "instanceId": "id_d9903186"
+      },
+      {
+        "x": 658.357134848608,
+        "y": 657.775094393341,
+        "values": {
+          "isLogic": false,
+          "displayName": "SEND",
+          "state": false
+        },
+        "typeId": "Button",
+        "instanceId": "id_e942bf6d"
+      }
+    ],
+    "internalConnections": [
+      {
+        "to": {
+          "atomId": "id_26524b6c",
+          "contactName": "append"
+        },
+        "from": {
+          "atomId": "id_2a9e7cf6",
+          "contactName": "rxData"
+        }
+      },
+      {
+        "to": {
+          "atomId": "id_2a9e7cf6",
+          "contactName": "txData"
+        },
+        "from": {
+          "atomId": "id_d9903186",
+          "contactName": "out"
+        }
+      },
+      {
+        "to": {
+          "atomId": "id_2a9e7cf6",
+          "contactName": "send"
+        },
+        "from": {
+          "atomId": "id_e942bf6d",
+          "contactName": "out"
+        }
+      }
+    ]
+  },
+  "editor": {
+    "x": -150.308137776556,
+    "y": -200.557617678573,
+    "zoom": 0.756314934955334
+  },
+  "version": "2.5"
+}

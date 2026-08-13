@@ -79,7 +79,7 @@ class EditorTheme
     // WIRES
     // =========================================================================
     /** Color of a standard active wire */
-    public var WIRE_COLOR_DEFAULT:Int = 0x666666;
+    public var WIRE_COLOR_DEFAULT:Int = 0xFFFFCC;
     
     /** Color of a selected wire */
     public var WIRE_COLOR_SELECTED:Int = 0xFFCC00;
@@ -124,7 +124,7 @@ class EditorTheme
     public var APP_BG_COLOR:Int = 0xFFFFAA;
     
     /** Alternative black background (for transparency) */
-    public var APP_BG_BLACK:Int = 0xFFFFFF;
+    public var APP_BG_BLACK:Int = 0x777777;
     
     /** Opaque background color for panels */
     public var OPAQUE_BACKGROUND_COLOR:Int = 0x1a1a24;

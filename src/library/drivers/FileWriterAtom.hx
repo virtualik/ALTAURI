@@ -124,8 +124,10 @@ class FileWriterAtom extends Atom implements system.managers.Driver
 				};
 
 				window.showSaveFilePicker(pickerOptions)
-					.then(function(handle) { self.onFileSelected(handle); self._restoreFullscreen();})
-					['catch'](function(err) { self.onFilePickerCancelled(err); self._restoreFullscreen();});
+					.then(function(handle) { self.onFileSelected(handle); //self._restoreFullscreen();
+					})
+					['catch'](function(err) { self.onFilePickerCancelled(err); //self._restoreFullscreen();
+					});
 			}
 			else
 			{

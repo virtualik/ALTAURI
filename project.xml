@@ -44,8 +44,7 @@
 	<!-- СЛУЧАЙ 2 ДЛЯ ОБЛАСТИ DIV:Фиксированный размер для демо-виджета, например 800x400 -->
 	<window if="html5" width="1024" height="600" background="#1E1E1E" />
 	<window if="html5" render="webgl" hardware="true" vsync="true" />
-	<template path="templates/html5/index.html" rename="index.html" />
-	
+
 	<config:android sdk="C:\AndroidSDK" ndk="C:\AndroidSDK\ndk\21.4.7075529" />
 
 	<!-- ========================================================================= -->
@@ -68,9 +67,6 @@
 	<assets path="assets/icons/atoms" rename="assets/icons/atoms" recursive="true" />
 	<icon path="assets/favicon.ico" />
 	
-	<!-- После успешной сборки HTML5, синхронизируем с ATELIER -->
-	<postbuild command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1" />
-
     <!-- ========================================================================= -->
     <!-- ANDROID CONFIGURATION & USB SERIAL DEPENDENCIES                           -->
     <!-- ========================================================================= -->
@@ -81,4 +77,8 @@
 		<!-- Подключаем распакованный classes.jar из .aar файла -->
 		<java path="libs/usb-serial-extracted/classes.jar" />
 	</section>
+	
+	<!-- Запускаем синхронизацию только для HTML5 и только локально (на CI скрипт не запустится) -->
+	<postbuild if="html5" unless="CI" command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1"/>
+
 </project>

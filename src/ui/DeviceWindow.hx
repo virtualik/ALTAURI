@@ -225,20 +225,22 @@ class DeviceWindow {
         // [C] button: headerWidth-90 .. headerWidth-62 (safe gap)
         // [E] button: headerWidth-120 .. headerWidth-92 (safe gap)
         // =========================================================================
+        // v2.2: HIDED [E] button
         var editorBtn = createHeaderButton("E", 0x005500, function(_) {
             if (onShowEditor != null) onShowEditor();
         });
         editorBtn.x = headerWidth - 120;  // v2.2: shifted from -90
         _header.addChild(editorBtn);
 
+        // v2.2: HIDED [C] button
         var clearBtn = createHeaderButton("C", 0x555500, function(_) clearDevices());
         clearBtn.x = headerWidth - 90;    // v2.2: shifted from -60
         _header.addChild(clearBtn);
 
-        // v2.2: REMOVED small [X] button — replaced by large ButtonComponent
-        // var closeBtn = createHeaderButton("X", 0xAA0000, function(_) close());
-        // closeBtn.x = headerWidth - 30;
-        // _header.addChild(closeBtn);
+        // v2.2: HIDED [X] button — replaced by large ButtonComponent
+         var closeBtn = createHeaderButton("X", 0xAA0000, function(_) close());
+         closeBtn.x = headerWidth - 30;
+         _header.addChild(closeBtn);
 
         _header.addEventListener(MouseEvent.MOUSE_DOWN, onMouseDown);
         _header.buttonMode = true;

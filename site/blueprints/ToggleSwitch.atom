@@ -1,0 +1,144 @@
+{
+  "deviceWindow": {
+    "width": 420,
+    "devices": [
+      {
+        "width": 112,
+        "x": 291,
+        "y": 246,
+        "height": 104,
+        "path": [
+          "id_a0024b9c"
+        ]
+      },
+      {
+        "width": 112,
+        "x": 291,
+        "y": 359,
+        "height": 104,
+        "path": [
+          "id_48e0e065"
+        ]
+      },
+      {
+        "width": 112,
+        "x": 456,
+        "y": 316,
+        "height": 96,
+        "path": [
+          "id_ab12c245"
+        ]
+      },
+      {
+        "width": 131,
+        "x": 627,
+        "y": 300,
+        "height": 82,
+        "path": [
+          "id_64eaa0eb"
+        ]
+      }
+    ],
+    "x": 100,
+    "y": 100,
+    "height": 320,
+    "isOpen": false
+  },
+  "blueprint": {
+    "category": "General",
+    "id": "selfrun",
+    "name": "Selfrun",
+    "pins": [
+      {
+        "defaultValue": null,
+        "name": "IN",
+        "type": "INPUT"
+      },
+      {
+        "defaultValue": null,
+        "name": "OUT",
+        "type": "OUTPUT"
+      }
+    ],
+    "internalAtoms": [
+      {
+        "x": 3015.02634467144,
+        "y": 1560.21523146259,
+        "values": {
+          "isLogic": false,
+          "displayName": "OFF",
+          "state": false
+        },
+        "typeId": "Button",
+        "instanceId": "id_48e0e065"
+      },
+      {
+        "x": 3016.23728217144,
+        "y": 1395.44297168279,
+        "values": {
+          "isLogic": false,
+          "displayName": "ON",
+          "state": false
+        },
+        "typeId": "Button",
+        "instanceId": "id_a0024b9c"
+      },
+      {
+        "x": 3328.25551133811,
+        "y": 1465.4886689626,
+        "values": {
+          "isLogic": false,
+          "displayName": "Toggle Switch",
+          "state": false
+        },
+        "typeId": "Toggle",
+        "instanceId": "id_ab12c245"
+      },
+      {
+        "x": 3642.69561550477,
+        "y": 1470.01471062926,
+        "values": null,
+        "typeId": "LED",
+        "instanceId": "id_64eaa0eb"
+      }
+    ],
+    "internalConnections": [
+      {
+        "to": {
+          "atomId": "id_ab12c245",
+          "contactName": "set"
+        },
+        "from": {
+          "atomId": "id_a0024b9c",
+          "contactName": "out"
+        }
+      },
+      {
+        "to": {
+          "atomId": "id_ab12c245",
+          "contactName": "rst"
+        },
+        "from": {
+          "atomId": "id_48e0e065",
+          "contactName": "out"
+        }
+      },
+      {
+        "to": {
+          "atomId": "id_64eaa0eb",
+          "contactName": "in"
+        },
+        "from": {
+          "atomId": "id_ab12c245",
+          "contactName": "out"
+        }
+      }
+    ]
+  },
+  "editor": {
+    "x": -2801.41876050095,
+    "y": -1182.74622188618,
+    "zoom": 1.14524534631393
+  },
+  "version": "2.5"
+}

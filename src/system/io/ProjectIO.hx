@@ -180,6 +180,10 @@ class ProjectIO {
      * File load complete handler.
      * Parses JSON and builds Blueprint.
      */
+    /**
+     * File load complete handler.
+     * Parses JSON and builds Blueprint.
+     */
     private static function onCompleteLoad(e:Event):Void {
         if (logger != null) logger("IO: File COMPLETE! Parsing...");
         
@@ -188,71 +192,8 @@ class ProjectIO {
             var json:Dynamic = Json.parse(data);
             var rawBp:Dynamic = json.blueprint;
             
-            // --- 1. PINS ---
-            var pins:Array<PinDef> = [];
-            if (rawBp.pins != null) {
-                for (p in cast(rawBp.pins, Array<Dynamic>)) {
-                    pins.push({
-                        name: Std.string(p.name),
-                        type: _parseContactType(p.type),
-                        defaultValue: p.defaultValue,
-                        dataType: Std.string(p.dataType)
-                    });
-                }
-            }
-            
-            // --- 2. ATOMS ---
-            var atoms:Array<AtomDef> = [];
-            if (rawBp.internalAtoms != null) {
-                for (a in cast(rawBp.internalAtoms, Array<Dynamic>)) {
-                    var posX:Float = 0.0;
-                    var posY:Float = 0.0;
-                    
-                    if (a.x != null) {
-                        var vx = Std.parseFloat(Std.string(a.x));
-                        if (!Math.isNaN(vx)) posX = vx;
-                    }
-                    if (a.y != null) {
-                        var vy = Std.parseFloat(Std.string(a.y));
-                        if (!Math.isNaN(vy)) posY = vy;
-                    }
-                    
-                    atoms.push({
-                        instanceId: Std.string(a.instanceId),
-                        typeId: Std.string(a.typeId),
-                        x: posX,
-                        y: posY
-                    });
-                }
-            }
-            
-            // --- 3. CONNECTIONS ---
-            var conns:Array<ConnectionDef> = [];
-            if (rawBp.internalConnections != null) {
-                for (c in cast(rawBp.internalConnections, Array<Dynamic>)) {
-                    conns.push({
-                        from: {
-                            atomId: Std.string(c.from.atomId),
-                            contactName: Std.string(c.from.contactName)
-                        },
-                        to: {
-                            atomId: Std.string(c.to.atomId),
-                            contactName: Std.string(c.to.contactName)
-                        }
-                    });
-                }
-            }
-            
-            // 4. Create Blueprint
-            var bp = new Blueprint(
-                Std.string(rawBp.id),
-                Std.string(rawBp.name),
-                pins,
-                null,
-                atoms,
-                conns,
-                Std.string(rawBp.category)
-            );
+            // Делегируем парсинг графа нашему новому единому методу
+            var bp = parseBlueprint(rawBp);
             
             // FIX: Safe editor state parsing
             var viewState:{x:Float, y:Float, zoom:Float} = {x: 0.0, y: 0.0, zoom: 1.0};
@@ -335,6 +276,77 @@ class ProjectIO {
     // SAFE PARSING
     // ========================================================================
     
+	/**
+     * Parses raw JSON Dynamic object into a Blueprint instance.
+     * Public so Main.hx can use it for HTML5 AJAX loads.
+     */
+    public static function parseBlueprint(rawBp:Dynamic):Blueprint {
+        // --- 1. PINS ---
+        var pins:Array<PinDef> = [];
+        if (rawBp.pins != null) {
+            for (p in cast(rawBp.pins, Array<Dynamic>)) {
+                pins.push({
+                    name: Std.string(p.name),
+                    type: _parseContactType(p.type),
+                    defaultValue: p.defaultValue,
+                    dataType: Std.string(p.dataType)
+                });
+            }
+        }
+        
+        // --- 2. ATOMS ---
+        var atoms:Array<AtomDef> = [];
+        if (rawBp.internalAtoms != null) {
+            for (a in cast(rawBp.internalAtoms, Array<Dynamic>)) {
+                var posX:Float = 0.0;
+                var posY:Float = 0.0;
+                
+                if (a.x != null) {
+                    var vx = Std.parseFloat(Std.string(a.x));
+                    if (!Math.isNaN(vx)) posX = vx;
+                }
+                if (a.y != null) {
+                    var vy = Std.parseFloat(Std.string(a.y));
+                    if (!Math.isNaN(vy)) posY = vy;
+                }
+                
+                atoms.push({
+                    instanceId: Std.string(a.instanceId),
+                    typeId: Std.string(a.typeId),
+                    x: posX,
+                    y: posY
+                });
+            }
+        }
+        
+        // --- 3. CONNECTIONS ---
+        var conns:Array<ConnectionDef> = [];
+        if (rawBp.internalConnections != null) {
+            for (c in cast(rawBp.internalConnections, Array<Dynamic>)) {
+                conns.push({
+                    from: {
+                        atomId: Std.string(c.from.atomId),
+                        contactName: Std.string(c.from.contactName)
+                    },
+                    to: {
+                        atomId: Std.string(c.to.atomId),
+                        contactName: Std.string(c.to.contactName)
+                    }
+                });
+            }
+        }
+        
+        return new Blueprint(
+            Std.string(rawBp.id),
+            Std.string(rawBp.name),
+            pins,
+            null,
+            atoms,
+            conns,
+            Std.string(rawBp.category)
+        );
+    }
+
     /**
      * Safe float parsing with default value.
      * Handles null, NaN, and invalid strings.
