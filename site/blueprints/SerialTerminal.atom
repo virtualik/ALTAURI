@@ -4,8 +4,8 @@
     "devices": [
       {
         "width": 332,
-        "x": 162,
-        "y": 109,
+        "x": 16,
+        "y": 137,
         "height": 365,
         "path": [
           "id_2a9e7cf6"
@@ -13,8 +13,8 @@
       },
       {
         "width": 393,
-        "x": 531,
-        "y": 109,
+        "x": 370,
+        "y": 138,
         "height": 224,
         "path": [
           "id_26524b6c"
@@ -22,8 +22,8 @@
       },
       {
         "width": 152,
-        "x": 625,
-        "y": 350,
+        "x": 459,
+        "y": 351,
         "height": 100,
         "path": [
           "id_d9903186"
@@ -31,18 +31,27 @@
       },
       {
         "width": 112,
-        "x": 811,
-        "y": 348,
+        "x": 652,
+        "y": 346,
         "height": 104,
         "path": [
           "id_e942bf6d"
+        ]
+      },
+      {
+        "width": 312,
+        "x": 783,
+        "y": 139,
+        "height": 262,
+        "path": [
+          "id_dfb671d4"
         ]
       }
     ],
     "x": 100,
     "y": 100,
     "height": 320,
-    "isOpen": false
+    "isOpen": true
   },
   "blueprint": {
     "category": "General",
@@ -62,8 +71,8 @@
     ],
     "internalAtoms": [
       {
-        "x": 897.068072348608,
-        "y": 480.952177726674,
+        "x": 2335.1997434119,
+        "y": 1146.85750401668,
         "values": {
           "isLogic": false,
           "displayName": "COM Port"
@@ -72,8 +81,8 @@
         "instanceId": "id_2a9e7cf6"
       },
       {
-        "x": 1231.40400984861,
-        "y": 482.952177726674,
+        "x": 2681.24156021888,
+        "y": 1143.53689451396,
         "values": {
           "isLogic": false,
           "displayName": "Text Area",
@@ -90,19 +99,19 @@
         "instanceId": "id_26524b6c"
       },
       {
-        "x": 659.515989015274,
-        "y": 798.181344393341,
+        "x": 2097.64766007857,
+        "y": 1464.08667068335,
         "values": {
           "isLogic": false,
           "displayName": "TX PAYLOAD",
-          "value": "Data 1234567890\r"
+          "value": "_TEST_"
         },
         "typeId": "TextInput",
         "instanceId": "id_d9903186"
       },
       {
-        "x": 658.357134848608,
-        "y": 657.775094393341,
+        "x": 2096.4888059119,
+        "y": 1323.68042068335,
         "values": {
           "isLogic": false,
           "displayName": "SEND",
@@ -110,6 +119,45 @@
         },
         "typeId": "Button",
         "instanceId": "id_e942bf6d"
+      },
+      {
+        "x": 3048.45754299543,
+        "y": 1147.77405293662,
+        "values": {
+          "isLogic": false,
+          "displayName": "File Writer"
+        },
+        "typeId": "FileWriterAtom",
+        "instanceId": "id_dfb671d4"
+      },
+      {
+        "x": 2757.6172405908,
+        "y": 1659.45676024026,
+        "values": {
+          "isLogic": false,
+          "displayName": "Push Button",
+          "state": false
+        },
+        "typeId": "Button",
+        "instanceId": "id_b0cfe05e"
+      },
+      {
+        "x": 1808.46451746172,
+        "y": 1314.49931485459,
+        "values": {
+          "isLogic": false,
+          "displayName": "Text Area_1",
+          "vScroll": true,
+          "autoScroll": true,
+          "editable": true,
+          "maxChars": 40,
+          "wordWrap": true,
+          "numLines": 8,
+          "text": "_TEST_",
+          "hScroll": false
+        },
+        "typeId": "TextArea",
+        "instanceId": "id_b99fabc3"
       }
     ],
     "internalConnections": [
@@ -142,13 +190,43 @@
           "atomId": "id_e942bf6d",
           "contactName": "out"
         }
+      },
+      {
+        "to": {
+          "atomId": "id_dfb671d4",
+          "contactName": "write"
+        },
+        "from": {
+          "atomId": "id_2a9e7cf6",
+          "contactName": "rxData"
+        }
+      },
+      {
+        "to": {
+          "atomId": "id_26524b6c",
+          "contactName": "clear"
+        },
+        "from": {
+          "atomId": "id_b0cfe05e",
+          "contactName": "out"
+        }
+      },
+      {
+        "to": {
+          "atomId": "id_d9903186",
+          "contactName": "set"
+        },
+        "from": {
+          "atomId": "id_b99fabc3",
+          "contactName": "textOut"
+        }
       }
     ]
   },
   "editor": {
-    "x": -150.308137776556,
-    "y": -200.557617678573,
-    "zoom": 0.756314934955334
+    "x": -1642.09227294476,
+    "y": -1035.65728358731,
+    "zoom": 0.88913636859901
   },
   "version": "2.5"
 }

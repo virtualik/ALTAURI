@@ -310,7 +310,6 @@ class AtomRegistry
 		// =========================================================================
 		// FILE WRITER — File System Access API
 		// =========================================================================
-		//#if html5
 		reg("FileWriterAtom", "File Writer", [
 			{name: "open",      type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Open"},
 			{name: "close",     type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Close"},
@@ -328,7 +327,7 @@ class AtomRegistry
 			{name: "error",     type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
 			{name: "errorTick", type: OUTPUT, dataType: "bool",   priority: INTERNAL}
 		], null, "filewriter", true, true, "filewriter");
-		//#end
+		
         #if cpp
         reg("MiniAudioAtom", "Mini Audio Capture", [
             {name: "mode",     type: INPUT,  defaultValue: 1,    dataType: "int",     priority: IMPORTANT, label: "Mode"},

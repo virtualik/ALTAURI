@@ -218,13 +218,10 @@ class AssemblyFactory
                                 atom = new library.drivers.ComEnumeratorAtom(id);
                                 trace('🔍 AssemblyFactory: Created ComEnumeratorAtom...');
                                 #end
+								
 						case "FileWriterAtom":
-							#if html5
-							atom = new library.drivers.FileWriterAtom(id);
-							trace('📝 AssemblyFactory: Created FileWriterAtom...');
-							#else
-							trace('⚠️ FileWriterAtom requires HTML5 target');
-							#end
+								atom = new library.drivers.FileWriterAtom(id);
+								trace('📝 AssemblyFactory: Created FileWriterAtom...');
 // =============================================================
 // WEB SOCKET — Web Socket port
 // =============================================================

@@ -1,5 +1,6 @@
 package;
 
+import sys.io.File;
 import core.base.Atom;
 import core.logic.TickGenerator;
 import openfl.display.Sprite;
@@ -316,8 +317,12 @@ class Main extends Sprite
 // 1. Стандартный вывод в консоль браузера (только для HTML5 target)
 			#if html5
 			untyped console.log(v);
+			#elseif cpp
+			// Вывод в стандартный поток вывода (консоль Windows/Linux)
+			Sys.println(Std.string(v));
 			#end
-// 2. Отправка в DebugConsoleAtom (работает на всех платформах)
+			
+			// 2. Отправка в DebugConsoleAtom (для виджета внутри приложения)
 			library.electro.DebugConsoleAtom.log(Std.string(v));
 		};
 

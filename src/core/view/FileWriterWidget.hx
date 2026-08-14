@@ -1,5 +1,3 @@
-// FILE: core/view/FileWriterWidget.hx
-#if html5
 package core.view;
 
 import openfl.display.Sprite;
@@ -258,10 +256,13 @@ class FileWriterWidget extends DeviceView
         _closeBtn.y = yPos;
         addChild(_closeBtn);
         
+		// FLUSH в html5 не нужен (не будет)
+        #if !html5
         _flushBtn = createActionButton("FLUSH", 0x334455, onFlushClick);
         _flushBtn.x = 140;
         _flushBtn.y = yPos;
         addChild(_flushBtn);
+        #end
         
         _clearBtn = createActionButton("CLEAR", 0x553333, onClearClick);
         _clearBtn.x = 205;
@@ -622,7 +623,10 @@ class FileWriterWidget extends DeviceView
         if (_modeBtn != null) _modeBtn.removeEventListener(MouseEvent.CLICK, onModeClick);
         if (_openBtn != null) _openBtn.removeEventListener(MouseEvent.CLICK, onOpenClick);
         if (_closeBtn != null) _closeBtn.removeEventListener(MouseEvent.CLICK, onCloseClick);
+        #if !html5
         if (_flushBtn != null) _flushBtn.removeEventListener(MouseEvent.CLICK, onFlushClick);
+        _flushBtn = null;
+        #end
         if (_clearBtn != null) _clearBtn.removeEventListener(MouseEvent.CLICK, onClearClick);
         
         _bg = null;
@@ -658,4 +662,3 @@ class FileWriterWidget extends DeviceView
         super.dispose();
     }
 }
-#end

@@ -113,15 +113,15 @@ class TextInputWidget extends DeviceView
     // =========================================================================
     // EVENT HANDLERS
     // =========================================================================
-    override private function onActivate():Void 
+	override private function onActivate():Void 
     {
-        // Read current state from atom
+        // ЖЕЛЕЗОБЕТОННО: При активации виджета всегда перечитываем значение из атома.
         if (_outputContact != null && _outputContact.value != null) 
         {
             _inputField.text = Std.string(_outputContact.value);
         }
     }
-
+	
     private function onFocusOut(e:FocusEvent):Void 
     {
         pushValue();
@@ -144,26 +144,46 @@ class TextInputWidget extends DeviceView
         }
     }
 
-    // =========================================================================
+	// =========================================================================
     // DATA HANDLING
     // =========================================================================
-    private function pushValue():Void 
-    {
-        if (_outputContact != null) 
-        {
-            var txt = _inputField.text;
-            // Try to parse number
-            var f = Std.parseFloat(txt);
-            if (!Math.isNaN(f) && (txt.indexOf(".") != -1 || Std.parseInt(txt) != null && txt.length > 0 && !Math.isNaN(f))) 
-            {
-                _outputContact.value = f;
-            } 
-            else 
-            {
-                _outputContact.value = txt;
-            }
-        }
-    }
+	private function pushValue():Void
+	{
+		if (_outputContact != null)
+		{
+			var txt = _inputField.text;
+			
+			// СТРОГАЯ ПРОВЕРКА: Вся строка целиком должна быть числом
+			var isPureNumber = ~/^\s*-?\d+(\.\d+)?\s*$/.match(txt);
+			
+			if (isPureNumber)
+			{
+				// Если в строке есть точка — передаем как Float
+				if (txt.indexOf(".") != -1)
+				{
+					var f = Std.parseFloat(txt);
+					if (!Math.isNaN(f)) 
+					{
+						_outputContact.value = f;
+						return;
+					}
+				}
+				// Если точки нет — передаем как Int
+				else
+				{
+					var i = Std.parseInt(txt);
+					if (i != null) 
+					{
+						_outputContact.value = i;
+						return;
+					}
+				}
+			}
+			
+			// Во всех остальных случаях (буквы, смешанные данные) — передаем как String
+			_outputContact.value = txt;
+		}
+	}
 
 	/**
 	* Rescue uncommitted text from the TextField into the Atom's Contact

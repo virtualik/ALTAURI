@@ -12,6 +12,7 @@ import core.view.LEDWidget;
 import core.view.TextWidget;
 import core.view.TextInputWidget;
 import core.view.TextAreaWidget;
+import core.view.FileWriterWidget;
 import core.view.OscilloscopeWidget;
 import core.view.FFTWidget;
 import core.view.SignalGeneratorWidget;
@@ -29,10 +30,7 @@ import core.view.WEBSocketWidget;
 import core.view.URLAudioStreamPlayerWidget;
 #end
 
-// --- HTML5 Specific Widgets ---
-#if html5
-import core.view.FileWriterWidget;
-#end
+
 
 /**
 * DEVICE WIDGET FACTORY v1.2 (Fixed Syntax & Imports)
@@ -156,13 +154,8 @@ class DeviceWidgetFactory
 				new URLAudioStreamPlayerWidget(asm);
 			#end
 			
-			#if html5
 			case "filewriter", "file writer":
 				new FileWriterWidget(asm);
-			#else
-			case "filewriter", "file writer":
-				new TextWidget(asm); // Safe fallback for non-HTML5 targets
-			#end
 			
 			default:
 				// Try to find class by name
@@ -222,14 +215,9 @@ class DeviceWidgetFactory
 				new URLAudioStreamPlayerWidget(atom);
 			#end
 			
-			#if html5
 			case "filewriteratom", "file writer":
 				new FileWriterWidget(atom);
-			#else
-			case "filewriteratom", "file writer":
-				new TextWidget(atom); // Safe fallback
-			#end
-			
+						
 			default:
 				// Universal widget - text display
 				new TextWidget(atom);
