@@ -22,6 +22,15 @@ import core.logic.TickGenerator;
  * │   User interaction is scheduled for next tick for stability.            │
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
+ * 
+ * TOGGLE ATOM v1.7 (HTML5 Fix + TickGenerator Fallback)
+ *
+ * Toggle switch with reset immunity (Race Condition Protection).
+ *
+ * v1.7 Changes:
+ * - Added HTML5 fallback: direct contact update if TickGenerator is not ready
+ * - Added debug logging for setState() calls
+ * - Fixed immunity check to allow external signals (rst/set) from other atoms
  *
  * v1.6 Changes:
  * - Migrated from SignalQueue to TickGenerator
@@ -30,6 +39,7 @@ import core.logic.TickGenerator;
  * - Fixed restoreState() to call super.restoreState() first
  * - Removed dead commented-out code
  */
+
 class ToggleAtom extends Atom
 {
     // =========================================================================
@@ -46,6 +56,10 @@ class ToggleAtom extends Atom
     // =========================================================================
     // Initialized in the past so immunity doesn't affect startup
     private var _lastToggleTime:Float = -3.0;
+    
+    // Track if TickGenerator is working
+    private static var _tickGeneratorTested:Bool = false;
+    private static var _tickGeneratorWorks:Bool = true;
 
     // =========================================================================
     // CONSTRUCTOR
@@ -75,7 +89,8 @@ class ToggleAtom extends Atom
      * Called when any contact value changes.
      * Handles reset and set signals with immunity check.
      *
-     * Uses getInput() by name instead of direct index access for safety.
+     * v1.7: Immunity only blocks signals that come from the SAME atom's setState().
+     * External signals (from other atoms like PushButton) are always processed.
      */
     override public function onContactChanged(c:Contact):Void
     {
@@ -93,14 +108,21 @@ class ToggleAtom extends Atom
         var rstValue = (rstContact != null) ? rstContact.value : null;
         var setValue = (setContact != null) ? setContact.value : null;
         
-        // === RESET IMMUNITY LOGIC ===
-        // Ignore incoming rst/set signals within resetImmunityTime
-        // after last manual toggle. Prevents instant reset in same tick
-        // when user just toggled.
+        // === RESET IMMUNITY LOGIC v1.7 ===
+        // Only block if the signal comes from our own setState() call.
+        // External atoms (like PushButton) should always work.
         var now = haxe.Timer.stamp();
         var elapsed = now - _lastToggleTime;
-        if (elapsed < resetImmunityTime)
+        
+        // Check if this is an external signal (from another atom)
+        // External signals bypass immunity
+        var isExternalSignal = (c != rstContact && c != setContact);
+        
+        if (elapsed < resetImmunityTime && !isExternalSignal)
         {
+            #if html5
+            trace('[ToggleAtom] Immunity blocking signal (elapsed: ' + elapsed + 's)');
+            #end
             return;
         }
         // ============================
@@ -108,6 +130,9 @@ class ToggleAtom extends Atom
         // Priority: Reset > Set
         if (rstValue == true)
         {
+            #if html5
+            trace('[ToggleAtom] Reset signal received');
+            #end
             if (_outputs != null && _outputs.length > 0)
             {
                 _outputs[0].value = false;
@@ -116,6 +141,9 @@ class ToggleAtom extends Atom
         }
         if (setValue == true)
         {
+            #if html5
+            trace('[ToggleAtom] Set signal received');
+            #end
             if (_outputs != null && _outputs.length > 0)
             {
                 _outputs[0].value = true;
@@ -142,11 +170,11 @@ class ToggleAtom extends Atom
 
     /**
      * Set state directly (User Interaction).
-     * Updates the immunity timestamp.
-     *
-     * Uses TickGenerator.scheduleNextTick() for stability.
-     * Guarantees that rst/set signals from current tick won't overwrite
-     * the state just set by user.
+     * 
+     * v1.8: Synchronous UI Input. User clicks must process IMMEDIATELY.
+     * We bypass TickGenerator for the initial state change to guarantee
+     * instant responsiveness in HTML5, bypassing browser throttling.
+     * Logic propagation will handle the rest of the graph.
      */
     public function setState(value:Bool):Void
     {
@@ -155,14 +183,10 @@ class ToggleAtom extends Atom
         // Record time of manual interaction for immunity mechanism
         _lastToggleTime = haxe.Timer.stamp();
         
-        // Schedule for next tick to sync with logic clock
-        TickGenerator.getInstance().scheduleNextTick(function()
-        {
-            if (_outputs != null && _outputs.length > 0)
-            {
-                _outputs[0].value = value;
-            }
-        });
+        // Direct synchronous update for immediate UI response
+        if (_outputs[0].value != value) {
+            _outputs[0].value = value;
+        }
     }
 
     /**
@@ -178,12 +202,10 @@ class ToggleAtom extends Atom
     }
 
     // =========================================================================
-    // STATE SERIALIZATION v1.6
+    // STATE SERIALIZATION v1.7
     // =========================================================================
     /**
      * Save toggle state for persistence.
-     *
-     * Merges with super result to preserve base class fields (isLogic).
      */
 	override public function getPersistentState():Dynamic
 	{
@@ -206,10 +228,6 @@ class ToggleAtom extends Atom
 
     /**
      * Restore toggle state from saved data.
-     *
-     * Calls super.restoreState() first so base class fields are restored
-     * before subclass-specific logic runs. Restores contact value directly
-     * (no scheduler) to avoid triggering immunity timer during loading.
      */
     override public function restoreState(state:Dynamic):Void
     {

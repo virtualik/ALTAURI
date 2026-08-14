@@ -766,6 +766,7 @@ class DevicePanel extends Sprite
         }
         
         var card = new DeviceCard(atom, this);
+		card.alpha = 1.0;
         _deviceCards.push(card);
         addChild(card);
         

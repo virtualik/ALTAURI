@@ -157,12 +157,16 @@ class ToggleWidget extends DeviceView
         var currentState = (_outContact != null && _outContact.value == true);
         var newState = !currentState;
 
+        // === OPTIMISTIC UI UPDATE ===
+        // Update visual instantly, ignoring any potential graph delays
+        updateVisual(newState);
+
         // Use the Atom's API to ensure immunity timer is set correctly
         if (atom != null && Std.isOfType(atom, ToggleAtom)) 
         {
             cast(atom, ToggleAtom).setState(newState);
         } 
-        else if (_outContact != null) 
+        else if (_outContact != null)
         {
             // Fallback: direct write
             _outContact.value = newState;
@@ -183,10 +187,16 @@ class ToggleWidget extends DeviceView
         updateVisual();
     }
 
-    private function updateVisual():Void 
+    /**
+     * Updates the visual representation of the toggle.
+     * 
+     * @param forcedState Optional. If provided, uses this state instead of reading from contact.
+     *                    This enables "Optimistic UI Updates" for instant HTML5 responsiveness.
+     */
+    private function updateVisual(?forcedState:Bool = null):Void 
     {
-        // Read from contact
-        var isOn = (_outContact != null && _outContact.value == true);
+        // Use forcedState if provided (for optimistic updates), otherwise read from contact
+        var isOn = forcedState != null ? forcedState : (_outContact != null && _outContact.value == true);
         var color = isOn ? colorOn : colorOff;
 
         _btn.graphics.clear();

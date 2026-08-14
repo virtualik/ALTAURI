@@ -61,24 +61,20 @@ class ButtonAtom extends Atom
     /**
      * Set button state directly.
      *
-     * Uses TickGenerator.scheduleNextTick() to schedule the output update
-     * for the next tick. This keeps user input stable for all logic
-     * within the current frame and prevents race conditions.
+     * v1.4: Synchronous UI Input. Bypasses TickGenerator to guarantee
+     * instant responsiveness in HTML5, preventing 30s browser throttling delays.
      *
      * @param value New state (true = pressed, false = released)
      */
     public function setState(value:Bool):Void
     {
         _state = value;
-        TickGenerator.getInstance().scheduleNextTick(function()
+        
+        // Direct synchronous update for immediate UI response
+        if (_outputs != null && _outputs.length > 0 && _outputs[0].value != _state)
         {
-            if (_outputs != null && _outputs.length > 0)
-            {
-                _outputs[0].value = _state;
-            }
-        });
-		trace("DEBUG CONSOLE TEST: Если ты это видишь, перехват работает!");
-
+            _outputs[0].value = _state;
+        }
     }
 
     /**
