@@ -21,15 +21,6 @@
         ]
       },
       {
-        "width": 152,
-        "x": 459,
-        "y": 351,
-        "height": 100,
-        "path": [
-          "id_d9903186"
-        ]
-      },
-      {
         "width": 112,
         "x": 652,
         "y": 346,
@@ -40,18 +31,27 @@
       },
       {
         "width": 312,
-        "x": 783,
+        "x": 784,
         "y": 139,
         "height": 262,
         "path": [
           "id_dfb671d4"
+        ]
+      },
+      {
+        "width": 152,
+        "x": 436,
+        "y": 361,
+        "height": 100,
+        "path": [
+          "id_d9903186"
         ]
       }
     ],
     "x": 100,
     "y": 100,
     "height": 320,
-    "isOpen": true
+    "isOpen": false
   },
   "blueprint": {
     "category": "General",
@@ -71,8 +71,8 @@
     ],
     "internalAtoms": [
       {
-        "x": 2335.1997434119,
-        "y": 1146.85750401668,
+        "x": 3306.6683363377,
+        "y": 1650.58195960784,
         "values": {
           "isLogic": false,
           "displayName": "COM Port"
@@ -81,8 +81,8 @@
         "instanceId": "id_2a9e7cf6"
       },
       {
-        "x": 2681.24156021888,
-        "y": 1143.53689451396,
+        "x": 3652.71015314468,
+        "y": 1647.26135010512,
         "values": {
           "isLogic": false,
           "displayName": "Text Area",
@@ -92,26 +92,15 @@
           "maxChars": 40,
           "wordWrap": true,
           "numLines": 8,
-          "text": "",
+          "text": "--- COM PORT SCAN ---\n0000|0000|Serial Port|COM1\n067B|2303|Prolific USB-to-Serial Comm Port|COM13\n0000|0000|Serial Port|COM4\n0000|0000|Serial Port|COM10\n0000|0000|Serial Port|COM7\n0000|0000|Serial Port|COM9\n0000|0000|Serial Port|COM8\n0000|0000|Serial Port|COM6\n----------------------\nFound: 8 ports123 ViRTUALiK 321123 ViRTUALiK 321123 ViRTUALiK 321",
           "hScroll": false
         },
         "typeId": "TextArea",
         "instanceId": "id_26524b6c"
       },
       {
-        "x": 2097.64766007857,
-        "y": 1464.08667068335,
-        "values": {
-          "isLogic": false,
-          "displayName": "TX PAYLOAD",
-          "value": "_TEST_"
-        },
-        "typeId": "TextInput",
-        "instanceId": "id_d9903186"
-      },
-      {
-        "x": 2096.4888059119,
-        "y": 1323.68042068335,
+        "x": 3067.9573988377,
+        "y": 1827.40487627451,
         "values": {
           "isLogic": false,
           "displayName": "SEND",
@@ -121,8 +110,8 @@
         "instanceId": "id_e942bf6d"
       },
       {
-        "x": 3048.45754299543,
-        "y": 1147.77405293662,
+        "x": 4019.92613592123,
+        "y": 1651.49850852778,
         "values": {
           "isLogic": false,
           "displayName": "File Writer"
@@ -131,8 +120,8 @@
         "instanceId": "id_dfb671d4"
       },
       {
-        "x": 2757.6172405908,
-        "y": 1659.45676024026,
+        "x": 3729.0858335166,
+        "y": 2163.18121583142,
         "values": {
           "isLogic": false,
           "displayName": "Push Button",
@@ -142,22 +131,15 @@
         "instanceId": "id_b0cfe05e"
       },
       {
-        "x": 1808.46451746172,
-        "y": 1314.49931485459,
+        "x": 3063.43327017909,
+        "y": 1972.43226075282,
         "values": {
           "isLogic": false,
-          "displayName": "Text Area_1",
-          "vScroll": true,
-          "autoScroll": true,
-          "editable": true,
-          "maxChars": 40,
-          "wordWrap": true,
-          "numLines": 8,
-          "text": "_TEST_",
-          "hScroll": false
+          "displayName": "TX PAYLOAD",
+          "value": "123 ViRTUALiK 321"
         },
-        "typeId": "TextArea",
-        "instanceId": "id_b99fabc3"
+        "typeId": "TextInput",
+        "instanceId": "id_d9903186"
       }
     ],
     "internalConnections": [
@@ -169,16 +151,6 @@
         "from": {
           "atomId": "id_2a9e7cf6",
           "contactName": "rxData"
-        }
-      },
-      {
-        "to": {
-          "atomId": "id_2a9e7cf6",
-          "contactName": "txData"
-        },
-        "from": {
-          "atomId": "id_d9903186",
-          "contactName": "out"
         }
       },
       {
@@ -213,20 +185,20 @@
       },
       {
         "to": {
-          "atomId": "id_d9903186",
-          "contactName": "set"
+          "atomId": "id_2a9e7cf6",
+          "contactName": "txData"
         },
         "from": {
-          "atomId": "id_b99fabc3",
-          "contactName": "textOut"
+          "atomId": "id_d9903186",
+          "contactName": "out"
         }
       }
     ]
   },
   "editor": {
-    "x": -1642.09227294476,
-    "y": -1035.65728358731,
-    "zoom": 0.88913636859901
+    "x": -1703.67299726846,
+    "y": -873.859511589674,
+    "zoom": 0.603624316740691
   },
   "version": "2.5"
 }

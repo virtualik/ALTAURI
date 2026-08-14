@@ -1,6 +1,8 @@
 package;
 
+#if !html5
 import sys.io.File;
+#end
 import core.base.Atom;
 import core.logic.TickGenerator;
 import openfl.display.Sprite;
