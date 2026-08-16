@@ -26,9 +26,11 @@ import core.view.ComPortWidget;
 import core.view.ComEnumeratorWidget;
 import core.view.NETRadioPlayerWidget;
 import core.view.SystemVUMeterWidget;
-import core.view.WEBSocketWidget;
 import core.view.URLAudioStreamPlayerWidget;
 #end
+
+// --- Cross-platform Widgets (compile on all targets) ---
+import core.view.WebSocketClientWidget;
 
 
 
@@ -153,6 +155,10 @@ class DeviceWidgetFactory
 			case "urlplayer", "url audio player", "urlaudioplayer":
 				new URLAudioStreamPlayerWidget(asm);
 			#end
+
+			// Cross-platform — no #if wrapper
+			case "websocket", "websocketclientatom":
+				new WebSocketClientWidget(asm);
 			
 			case "filewriter", "file writer":
 				new FileWriterWidget(asm);
@@ -198,6 +204,9 @@ class DeviceWidgetFactory
 			case "comportatom", "com port":
 				new ComPortWidget(atom);
 				
+			case "websocket", "websocketclientatom", "websocketatom":
+				new WebSocketClientWidget(atom);
+				
 			#if cpp
 			case "audioin", "audioinput", "audio":
 				new OscilloscopeWidget(atom, "samples");
@@ -205,16 +214,14 @@ class DeviceWidgetFactory
 				new SystemVUMeterWidget(atom);
 			case "comenumeratoratom", "com enumerator":
 				new ComEnumeratorWidget(atom);
-			case "websocketatom", "websocket":
-				new WEBSocketWidget(atom);
+
 			case "netradioplayeratom", "net radio player":
 				new NETRadioPlayerWidget(atom);
 			case "miniaudioatom", "mini audio capture":
 				new MiniAudioWidget(atom);
 			case "urlaudioplayeratom", "url audio player":
 				new URLAudioStreamPlayerWidget(atom);
-			#end
-			
+			#end			
 			case "filewriteratom", "file writer":
 				new FileWriterWidget(atom);
 						

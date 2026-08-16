@@ -132,14 +132,15 @@ class AssemblyFactory
 								case "FILE WRITER":
 									normalizedTypeId = "FileWriterAtom";
 // ─────────────────────────────────────────────────────────────
-// WEBSOCKET — WEBSocket client
+// WEBSOCKET — WebSocket Client (cross-platform)
 // ─────────────────────────────────────────────────────────────
-								#if cpp
-								case "WEBSocketAtom":
+								case "WebSocketClientAtom":
+								case "WEBSOCKETCLIENTATOM":
+								case "WEBSOCKET CLIENT":
+								case "WEBSocketAtom":        // backward compatibility alias
 								case "WEBSOCKET":
 								case "WEBSOCKET ATOM":
-									normalizedTypeId = "WEBSocketAtom";
-								#end
+									normalizedTypeId = "WebSocketClientAtom";
 // ─────────────────────────────────────────────────────────────
 // NET RADIO PLAYER — Internet radio metadata driver
 // ─────────────────────────────────────────────────────────────
@@ -225,11 +226,9 @@ class AssemblyFactory
 // =============================================================
 // WEB SOCKET — Web Socket port
 // =============================================================
-						case "WEBSocketAtom":
-								#if cpp
-								atom = new library.drivers.WEBSocketAtom(id);
-								trace('🌐 AssemblyFactory: Created WEBSocketAtom...');
-								#end
+						case "WebSocketClientAtom":
+								atom = new library.drivers.WebSocketClientAtom(id);
+								trace('🌐 AssemblyFactory: Created WebSocketClientAtom...');
 // =============================================================
 // NET RADIO PLAYER — internet radio metadata extraction
 // =============================================================

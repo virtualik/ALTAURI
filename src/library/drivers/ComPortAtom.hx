@@ -1417,8 +1417,10 @@ class ComPortAtom extends Atom implements system.managers.Driver
         var result:Array<String> = [];
         var portsStr:String = "";
         untyped __cpp__('
+            #ifdef _WIN32
             const char* ports = scanWindowsCOMPorts();
             if (ports != nullptr) { {0} = ::String(ports); }
+            #endif
         ', portsStr);
 
         if (portsStr != null && portsStr.length > 0)
@@ -1809,7 +1811,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 #elif defined(_WIN32)
                     if (st->hComm != INVALID_HANDLE_VALUE) { DWORD bytesWritten = 0; WriteFile(st->hComm, {1}.c_str(), (DWORD){1}.length, &bytesWritten, NULL); }
                 #else
-                    if (st->hComm >= 0) { write(st->hComm, {1}.c_str(), {1}.length); }
+                    if (st->hComm >= 0) { (void)write(st->hComm, {1}.c_str(), {1}.length); }
                 #endif
             }
         ', selfPtr, dataStr);

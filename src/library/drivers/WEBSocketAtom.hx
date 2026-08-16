@@ -3,7 +3,6 @@ package library.drivers;
 
 import core.base.Atom;
 import core.base.Contact;
-import core.types.ContactType.*;
 import system.managers.DriverManager;
 
 // ============================================================================

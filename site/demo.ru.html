@@ -211,7 +211,33 @@
         .accordion-item.is-active .accordion-content {
             padding: 0 1.25rem 1.25rem;
         }
-    }
+	}
+	
+	.demo-description {
+		display: flex;
+		justify-content: space-between; /* Текст уходит влево, блок Download — вправо */
+		align-items: center; /* Выравниваем весь текст и эмодзи строго по одной линии */
+		white-space: nowrap; /* Запрещаем перенос текста на новую строку внутри абзаца */
+	}
+
+	.demo-description .download-block {
+		margin-left: auto; /* Толкает весь блок Download со всеми иконками вправо */
+		display: flex;
+		align-items: center;
+		gap: 8px; /* Задает красивый фиксированный отступ между словом Download и иконками */
+	}
+
+	/* Стили для ссылок-эмодзи (по желанию) */
+	.demo-description .download-block a {
+		text-decoration: none;
+		font-size: 1.2rem;
+		transition: transform 0.2s;
+	}
+
+	.demo-description .download-block a:hover {
+		transform: scale(1.2); /* Легкое увеличение при наведении */
+	}
+	
     </style>
 </head>
 <body>
@@ -258,7 +284,15 @@
                 </button>
                 <div class="accordion-content">
                     <div class="accordion-inner">
-                        <p class="demo-description">Прямое управление с визуальной обратной связью элементов управления.</p>
+                        <p class="demo-description">
+							Прямое управление с визуальной обратной связью элементов управления.
+							<span class="download-block">
+								Загрузка 
+								<a href="https://github.com/virtualik/ATELIER/releases/download/v1.0.156/ATOMICA-Windows.zip" title="Windows">🪟</a>
+								<a href="https://github.com/virtualik/ATELIER/releases/download/v1.0.156/ATOMICA-Android.apk" title="Android">🤖</a>
+								<a href="https://github.com/virtualik/ATELIER/releases/download/v1.0.156/ATOMICA-Linux.tar.gz" title="Linux">🐧</a>
+							</span>
+						</p>
                         <div id="demo-runtime-1" class="runtime-container" data-initialized="false" data-blueprint="blueprints/ButtonAndLED.atom"></div>
                     </div>
                 </div>
@@ -272,7 +306,15 @@
                 </button>
                 <div class="accordion-content">
                     <div class="accordion-inner">
-                        <p class="demo-description">Прямой, низколатентный доступ к стандартным интерфейсам последовательной связи с телеметрией в реальном времени.</p>
+                        <p class="demo-description">
+							Низколатентный доступ к стандартным интерфейсам последовательной связи с телеметрией в реальном времени.
+							<span class="download-block">
+								Загрузка 
+								<a href="https://github.com/virtualik/ATELIER/releases/download/v1.0.156/ATOMICA-Windows.zip" title="Windows">🪟</a>
+								<a href="https://github.com/virtualik/ATELIER/releases/download/v1.0.156/ATOMICA-Android.apk" title="Android">🤖</a>
+								<a href="https://github.com/virtualik/ATELIER/releases/download/v1.0.156/ATOMICA-Linux.tar.gz" title="Linux">🐧</a>
+							</span>
+						</p>
                         <div id="demo-runtime-2" class="runtime-container" data-initialized="false" data-blueprint="blueprints/SerialTerminal.atom"></div>
                     </div>
                 </div>
@@ -286,7 +328,15 @@
                 </button>
                 <div class="accordion-content">
                     <div class="accordion-inner">
-                        <p class="demo-description">Демонстрация управления переключателем</p>
+                        <p class="demo-description">
+							Демонстрация управления переключателем
+							<span class="download-block">
+								Загрузка 
+								<a href="https://github.com/virtualik/ATELIER/releases/download/v1.0.156/ATOMICA-Windows.zip" title="Windows">🪟</a>
+								<a href="https://github.com/virtualik/ATELIER/releases/download/v1.0.156/ATOMICA-Android.apk" title="Android">🤖</a>
+								<a href="https://github.com/virtualik/ATELIER/releases/download/v1.0.156/ATOMICA-Linux.tar.gz" title="Linux">🐧</a>
+							</span>
+						</p>
                         <div id="demo-runtime-3" class="runtime-container" data-initialized="false" data-blueprint="blueprints/ToggleSwitch.atom"></div>
                     </div>
                 </div>

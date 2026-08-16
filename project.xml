@@ -8,11 +8,12 @@
 	<meta title="ALTAURI" package="com.virtualik.altauri" version="1.0.0" company="ViRTUALiK" />
 	
 	<!-- ========================================================================= -->
-	<!-- APPLICATION ENTRY POINTS                                                  -->
+	<!-- APPLICATION ENTRY POINTS 🐧🤖🪟🌐                                          -->
 	<!-- ========================================================================= -->
 	<!-- Используем единый класс Main для разных платформ -->
 	<app main="Main" file="ALTAURI_Windows"  path="bin" if="windows" />
 	<app main="Main" file="ALTAURI_Android"  path="bin" if="android" />
+	<app main="Main" file="ALTAURI_Linux"    path="bin" if="linux" />
 	<app main="Main" file="ALTAURI_Web"      path="bin" if="html5" />
 	
 	<!-- Для Android явно указываем тип вывода -->
