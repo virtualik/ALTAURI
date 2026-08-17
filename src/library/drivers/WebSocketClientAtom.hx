@@ -37,7 +37,6 @@
 //    bytesReceived(int,     OPTIONAL)  total bytes received
 //    bytesSent    (int,     OPTIONAL)  total bytes sent
 // ============================================================================
-
 package library.drivers;
 
 import core.base.Atom;
@@ -677,9 +676,9 @@ static void _ws_worker_posix_stub(WebSocketState* st) {
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
  * ║  │                    COMPILATION FLOW                                 │  ║
  * ║  │                                                                     │  ║
- * ║  │  haxe -js   ──► #if html5       ──► Browser WebSocket API          │  ║
- * ║  │  haxe -cpp  ──► #if cpp         ──► Windows: WinHttpWebSocket*     │  ║
- * ║  │                                  Linux/Android: STUB (TODO: lws)   │  ║
+ * ║  │  haxe -js   ──► #if html5       ──► Browser WebSocket API           │  ║
+ * ║  │  haxe -cpp  ──► #if cpp         ──► Windows: WinHttpWebSocket*      │  ║
+ * ║  │                                  Linux/Android: STUB (TODO: lws)    │  ║
  * ║  │                                                                     │  ║
  * ║  │  Common code (contacts, update logic, propagation) is shared.       │  ║
  * ║  │  Platform-specific code is isolated in #if blocks.                  │  ║
@@ -691,41 +690,41 @@ static void _ws_worker_posix_stub(WebSocketState* st) {
  * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
  * ║  │  │  COMMON LAYER (all targets)                                   │  │  ║
  * ║  │  │  ──────────────────────────────────────────────────────────── │  │  ║
- * ║  │  │  • Contacts: url, subprotocol, binaryMode, connect,          │  │  ║
+ * ║  │  │  • Contacts: url, subprotocol, binaryMode, connect,           │  │  ║
  * ║  │  │              disconnect, send, sendData                       │  │  ║
- * ║  │  │  • Outputs: isConnected, receivedData, receivedTick,         │  │  ║
- * ║  │  │            sentTick, error, errorTick, closeCode,            │  │  ║
+ * ║  │  │  • Outputs: isConnected, receivedData, receivedTick,          │  │  ║
+ * ║  │  │            sentTick, error, errorTick, closeCode,             │  │  ║
  * ║  │  │            bytesReceived, bytesSent                           │  │  ║
- * ║  │  │  • update(dt): propagation + pulse timers                    │  │  ║
- * ║  │  │  • readInputs(): input reading + dispatch                    │  │  ║
- * ║  │  │  • setError(msg), updatePulseTimers(dt)                     │  │  ║
+ * ║  │  │  • update(dt): propagation + pulse timers                     │  │  ║
+ * ║  │  │  • readInputs(): input reading + dispatch                     │  │  ║
+ * ║  │  │  • setError(msg), updatePulseTimers(dt)                       │  │  ║
  * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
  * ║  │                                                                     │  ║
- * ║  │  ┌──────────────────────────┐  ┌────────────────────────────────┐  │  ║
- * ║  │  │  #if cpp (Windows)       │  │  #if html5                     │  │  ║
- * ║  │  │  ─────────               │  │  ──────────                    │  │  ║
- * ║  │  │  WebSocketState* (C++)   │  │  _webSocket:WebSocket (JS)     │  │  ║
- * ║  │  │  Background thread       │  │  onopen/onmessage/onerror      │  │  ║
- * ║  │  │  WinHttpWebSocket* API   │  │  .send() / .close()            │  │  ║
- * ║  │  │  Mutex/Atomic sync       │  │  Single-threaded (event loop)  │  │  ║
- * ║  │  │  Send queue (no drops)   │  │  binaryType = arraybuffer      │  │  ║
- * ║  │  └──────────────────────────┘  └────────────────────────────────┘  │  ║
+ * ║  │  ┌──────────────────────────┐   ┌────────────────────────────────┐  │  ║
+ * ║  │  │  #if cpp (Windows)       │   │  #if html5                     │  │  ║
+ * ║  │  │  ─────────               │   │  ──────────                    │  │  ║
+ * ║  │  │  WebSocketState* (C++)   │   │  _webSocket:WebSocket (JS)     │  │  ║
+ * ║  │  │  Background thread       │   │  onopen/onmessage/onerror      │  │  ║
+ * ║  │  │  WinHttpWebSocket* API   │   │  .send() / .close()            │  │  ║
+ * ║  │  │  Mutex/Atomic sync       │   │  Single-threaded (event loop)  │  │  ║
+ * ║  │  │  Send queue (no drops)   │   │  binaryType = arraybuffer      │  │  ║
+ * ║  │  └──────────────────────────┘   └────────────────────────────────┘  │  ║
  * ║  │                                                                     │  ║
- * ║  │  ┌──────────────────────────┐  ┌────────────────────────────────┐  │  ║
- * ║  │  │  #if cpp (Linux)         │  │  #if cpp (Android)             │  │  ║
- * ║  │  │  STUB                    │  │  STUB                          │  │  ║
- * ║  │  │  Returns error:          │  │  Returns error:                │  │  ║
- * ║  │  │  "Not yet implemented.   │  │  "Not yet implemented.         │  │  ║
- * ║  │  │   Build with             │  │   Build with                   │  │  ║
- * ║  │  │   HAS_LIBWEBSOCKETS"     │  │   HAS_LIBWEBSOCKETS"           │  │  ║
- * ║  │  └──────────────────────────┘  └────────────────────────────────┘  │  ║
+ * ║  │  ┌──────────────────────────┐   ┌────────────────────────────────┐  │  ║
+ * ║  │  │  #if cpp (Linux)         │   │  #if cpp (Android)             │  │  ║
+ * ║  │  │  STUB                    │   │  STUB                          │  │  ║
+ * ║  │  │  Returns error:          │   │  Returns error:                │  │  ║
+ * ║  │  │  "Not yet implemented.   │   │  "Not yet implemented.         │  │  ║
+ * ║  │  │   Build with             │   │   Build with                   │  │  ║
+ * ║  │  │   HAS_LIBWEBSOCKETS"     │   │   HAS_LIBWEBSOCKETS"           │  │  ║
+ * ║  │  └──────────────────────────┘   └────────────────────────────────┘  │  ║
  * ║  │                                                                     │  ║
  * ║  │  ┌───────────────────────────────────────────────────────────────┐  │  ║
  * ║  │  │  DATABANK (Haxe fields, shared)                               │  │  ║
  * ║  │  │  ──────────────────────────────────────────────────────────── │  │  ║
  * ║  │  │  _lastUrl, _lastSubprotocol, _lastReceivedData, _lastError    │  │  ║
  * ║  │  │  _isConnectedFlag, _hasPendingReceived, _hasPendingError      │  │  ║
- * ║  │  │  _hasPendingClose, _lastCloseCode                            │  │  ║
+ * ║  │  │  _hasPendingClose, _lastCloseCode                             │  │  ║
  * ║  │  │  _bytesReceived, _bytesSent                                   │  │  ║
  * ║  │  │  _receivedTimer, _sentTimer, _errorTimer                      │  │  ║
  * ║  │  └───────────────────────────────────────────────────────────────┘  │  ║
@@ -1291,14 +1290,14 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
      * Create and configure native browser WebSocket.
      *
      * Event handlers set pending flags that update() will process
-     * on the next frame — this is the bridge between the browser's
-     * event loop and ALTAURI's TickGenerator-driven update cycle.
+     * on the next frame — this is the bridge between the browsers
+     * event loop and ALTAURIs TickGenerator-driven update cycle.
      *
      * ┌─────────────────────────────────────────────────────────────┐
      * │  Browser Event Loop          ALTAURI Update Loop            │
      * │  ──────────────────          ───────────────────            │
      * │  WebSocket.onopen    ──►    _isConnectedFlag = true         │
-     * │                                                              │
+     * │                                                             │
      * │  WebSocket.onmessage ──►   _hasPendingReceived = true       │
      * │                            _pendingReceivedStr = data       │
      * │                                  │                          │
@@ -1307,11 +1306,11 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
      * │                                  │                          │
      * │                                  ▼                          │
      * │                            propagateCurrentValue()          │
-     * │                                                              │
+     * │                                                             │
      * │  WebSocket.onclose   ──►    _lastCloseCode = e.code         │
      * │                            _hasPendingClose = true          │
      * │                            _isConnectedFlag = false         │
-     * │                                                              │
+     * │                                                             │
      * │  WebSocket.onerror   ──►    _pendingErrStr = "..."          │
      * │                            _hasPendingError = true          │
      * └─────────────────────────────────────────────────────────────┘
@@ -1346,8 +1345,8 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
             }
 
             // Configure binary mode for incoming data.
-            // 'arraybuffer' gives us ArrayBuffer (clean for binary),
-            // 'blob' would give Blob (asynchronous to read).
+            // arraybuffer gives us ArrayBuffer (clean for binary),
+            // blob would give Blob (asynchronous to read).
             _webSocket.binaryType = ARRAYBUFFER;
 
             _webSocket.onopen = function(e:Event) {
@@ -1387,7 +1386,7 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
             };
 
             _webSocket.onerror = function(e:Event) {
-                // Browsers don't expose error details for security reasons.
+                // Browsers dont expose error details for security reasons.
                 // The onclose handler will fire next with code 1006 typically.
                 setError("WebSocket error (browser does not expose details)");
             };
@@ -1451,7 +1450,7 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
             {
                 // Binary mode: convert string chars to bytes.
                 // Haxe String is UTF-16 internally; for binary payloads we
-                // treat each char's code as a single byte (0x00-0xFF).
+                // treat each chars code as a single byte (0x00-0xFF).
                 var len:Int = data.length;
                 var ab:ArrayBuffer = new ArrayBuffer(len);
                 var u8:Uint8Array = new Uint8Array(ab);
