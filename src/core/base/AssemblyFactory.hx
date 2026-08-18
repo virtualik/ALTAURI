@@ -134,13 +134,10 @@ class AssemblyFactory
 // ─────────────────────────────────────────────────────────────
 // WEBSOCKET — WebSocket Client (cross-platform)
 // ─────────────────────────────────────────────────────────────
-								case "WebSocketClientAtom":
-								case "WEBSOCKETCLIENTATOM":
-								case "WEBSOCKET CLIENT":
-								case "WEBSocketAtom":        // backward compatibility alias
+								case "WebSocketAtom":
+								case "WEBSOCKETATOM":
 								case "WEBSOCKET":
-								case "WEBSOCKET ATOM":
-									normalizedTypeId = "WebSocketClientAtom";
+									normalizedTypeId = "WebSocketAtom";
 // ─────────────────────────────────────────────────────────────
 // NET RADIO PLAYER — Internet radio metadata driver
 // ─────────────────────────────────────────────────────────────
@@ -226,9 +223,9 @@ class AssemblyFactory
 // =============================================================
 // WEB SOCKET — Web Socket port
 // =============================================================
-						case "WebSocketClientAtom":
-								atom = new library.drivers.WebSocketClientAtom(id);
-								trace('🌐 AssemblyFactory: Created WebSocketClientAtom...');
+						case "WebSocketAtom":
+								atom = new library.drivers.WebSocketAtom(id);
+								trace('🌐 AssemblyFactory: Created WebSocketAtom...');
 // =============================================================
 // NET RADIO PLAYER — internet radio metadata extraction
 // =============================================================

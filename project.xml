@@ -69,18 +69,30 @@
 	<icon path="assets/favicon.ico" />
 	
     <!-- ========================================================================= -->
-    <!-- ANDROID CONFIGURATION & USB SERIAL DEPENDENCIES                           -->
+    <!-- ANDROID CONFIGURATION & USB SERIAL & JAVA-WEBSOCKET DEPENDENCIES          -->
     <!-- ========================================================================= -->
 	<section if="android">
-		<!-- USB Host feature -->
+		<!-- USB Host feature (для ComPort) -->
 		<android feature="android.hardware.usb.host" />
 		
-		<!-- Подключаем распакованный classes.jar из .aar файла -->
-		<java path="libs/usb-serial-extracted/classes.jar" />
+		<!-- INTERNET permission (для WebSocket) -->
+		<android permission="android.permission.INTERNET" />
+		
+		<!-- Подключаем распакованный classes.jar из .aar файла (для ComPort) -->
+		<java path="libs/android/java/usb-serial-extracted/classes.jar" />
+		
+		<!-- Подключаем Java-WebSocket библиотеку (для WebSocket) -->
+		<java path="libs/Java-WebSocket-1.5.6.jar" />
+		
+	    <!-- ЗАВИСИМОСТИ SLF4J (обязательны для Java-WebSocket) -->
+		<java path="libs/slf4j-api-1.7.36.jar" />
+		<java path="libs/slf4j-nop-1.7.36.jar" />
+		
+		<!-- Указывает Lime, где лежат исходники Java -->
+		<java path="libs/android/java/src/" />
 	</section>
 	
 	<!-- Запускаем синхронизацию только для HTML5 и только локально (на CI скрипт не запустится) -->
-	<postbuild if="html5" unless="CI" command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1"/>
-	<postbuild if="windows" command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1"/>
+	<postbuild if="html5"   unless="CI" command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1"/>
 
 </project>

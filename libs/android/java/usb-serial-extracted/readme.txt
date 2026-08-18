@@ -1,0 +1,1 @@
+extracted from: usb-serial-for-android-v3.10.0.aar

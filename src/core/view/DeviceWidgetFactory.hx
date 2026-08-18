@@ -17,7 +17,7 @@ import core.view.OscilloscopeWidget;
 import core.view.FFTWidget;
 import core.view.SignalGeneratorWidget;
 import core.view.PanelWidget;
-import core.view.DebugConsoleWidget;
+
 
 // --- C++ Specific Widgets ---
 #if cpp
@@ -30,7 +30,7 @@ import core.view.URLAudioStreamPlayerWidget;
 #end
 
 // --- Cross-platform Widgets (compile on all targets) ---
-import core.view.WebSocketClientWidget;
+import core.view.WebSocketWidget;
 
 
 
@@ -41,32 +41,32 @@ import core.view.WebSocketClientWidget;
 * Completely separated from Atom logic.
 * Determines which widget to create based on atom type or Blueprint.
 *
-* Architecture "Atom is Databank & Compute Core":
-* ┌─────────────────────────────────────────────────────────────────────────┐
-* │   Atom (Databank + Compute)                                             │
-* │         │                                                               │
-* │         │ DeviceWidgetFactory.create(atom)                              │
-* │         ▼                                                               │
-* │   ┌─────────────────────────────────────────────────────────────────┐   │
-* │   │ DeviceWidgetFactory                                             │   │
-* │   │                                                                 │   │
-* │   │ switch (atom.type) {                                            │   │
-* │   │     case "Oscilloscope": return new OscilloscopeWidget(atom);   │   │
-* │   │     case "Button": return new ButtonWidget(atom);               │   │
-* │   │     case "Toggle": return new ToggleWidget(atom);               │   │
-* │   │     case "LED": return new LEDWidget(atom);                     │   │
-* │   │     case "TextInput": return new TextInputWidget(atom);         │   │
-* │   │     case "AudioIn": return new OscilloscopeWidget(atom, "samples"); │
-* │   │     default: return new TextWidget(atom);                       │   │
-* │   │ }                                                               │   │
-* │   └─────────────────────────────────────────────────────────────────┘   │
-* │         │                                                               │
-* │         ▼                                                               │
-* │   DeviceView (Atom's Face)                                              │
-* │   - Subscribes to Atom's Contact                                        │
-* │   - Displays data from Atom's Databank                                  │
-* │   - DOES NOT store business data                                        │
-* └─────────────────────────────────────────────────────────────────────────┘
+* Architecture "Atom is Databank & Compute Core":                    
+* ┌────────────────────────────────────────────────────────────────────────────┐
+* │   Atom (Databank + Compute)                                                │
+* │         │                                                                  │
+* │         │ DeviceWidgetFactory.create(atom)                                 │
+* │         ▼                                                                  │
+* │   ┌────────────────────────────────────────────────────────────────────┐   │
+* │   │ DeviceWidgetFactory                                                │   │
+* │   │                                                                    │   │
+* │   │ switch (atom.type) {                                               │   │
+* │   │     case "Oscilloscope": return new OscilloscopeWidget(atom);      │   │
+* │   │     case "Button": return new ButtonWidget(atom);                  │   │
+* │   │     case "Toggle": return new ToggleWidget(atom);                  │   │
+* │   │     case "LED": return new LEDWidget(atom);                        │   │
+* │   │     case "TextInput": return new TextInputWidget(atom);            │   │
+* │   │     case "AudioIn": return new OscilloscopeWidget(atom, "samples");│   │
+* │   │     default: return new TextWidget(atom);                          │   │
+* │   │ }                                                                  │   │
+* │   └────────────────────────────────────────────────────────────────────┘   │
+* │         │                                                                  │
+* │         ▼                                                                  │
+* │   DeviceView (Atom's Face)                                                 │
+* │   - Subscribes to Atom's Contact                                           │
+* │   - Displays data from Atom's Databank                                     │
+* │   - DOES NOT store business data                                           │
+* └────────────────────────────────────────────────────────────────────────────┘
 */
 class DeviceWidgetFactory
 {
@@ -157,8 +157,8 @@ class DeviceWidgetFactory
 			#end
 
 			// Cross-platform — no #if wrapper
-			case "websocket", "websocketclientatom":
-				new WebSocketClientWidget(asm);
+			case "websocket", "websocketatom":
+				new WebSocketWidget(asm);
 			
 			case "filewriter", "file writer":
 				new FileWriterWidget(asm);
@@ -180,8 +180,6 @@ class DeviceWidgetFactory
 		
 		return switch (type)
 		{
-			case "debugconsole":
-				new DebugConsoleWidget(atom);
 			case "led", "led indicator":
 				new LEDWidget(atom, "in");
 			case "button", "push button":
@@ -204,8 +202,8 @@ class DeviceWidgetFactory
 			case "comportatom", "com port":
 				new ComPortWidget(atom);
 				
-			case "websocket", "websocketclientatom", "websocketatom":
-				new WebSocketClientWidget(atom);
+			case "websocketatom":
+				new WebSocketWidget(atom);
 				
 			#if cpp
 			case "audioin", "audioinput", "audio":
@@ -294,7 +292,7 @@ class DeviceWidgetFactory
 			case "led" | "button" | "toggle" | "oscilloscope" | "fftatom" | "textinput" |
 				 "audioin" | "audioinput" | "relay" | "conductor" |
 				 "universalgen" | "signalgen" | "fpsmonitor" | "frametime" |
-				 "textarea" | "debugconsole" | "comportatom" | "filewriteratom":
+				 "textarea" | "comportatom" | "filewriteratom":
 				true;
 			default:
 				// Check Assembly

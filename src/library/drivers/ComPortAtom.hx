@@ -26,13 +26,21 @@ import haxe.io.Bytes;
 #include <stdio.h>
 
 #ifdef __ANDROID__
+#ifndef ALTAURI_JNI_HELPERS_INCLUDED
+#define ALTAURI_JNI_HELPERS_INCLUDED
+
 #include <jni.h>
 #include <android/log.h>
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "ComPortJNI", __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", __VA_ARGS__)
 
-// Declare global variable for JavaVM
-static JavaVM* g_vm = nullptr;
+#ifndef LOGI
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "ComPortJNI", __VA_ARGS__)
+#endif
+#ifndef LOGE
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", __VA_ARGS__)
+#endif
+
+// g_vm is defined in ComPortAtom.cpp
+extern JavaVM* g_vm;
 
 static inline JNIEnv* GetJniEnv(bool* outAttached = nullptr) {
     if (!g_vm) {
@@ -56,47 +64,22 @@ static inline JNIEnv* GetJniEnv(bool* outAttached = nullptr) {
 
 static inline jobject GetActivity() {
     JNIEnv* env = GetJniEnv();
-    if (env == nullptr) {
-        __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: GetJniEnv failed");
-        return nullptr;
-    }
+    if (env == nullptr) return nullptr;
     jclass activityThreadClass = env->FindClass("android/app/ActivityThread");
-    if (activityThreadClass == nullptr) {
-        env->ExceptionClear();
-        __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: FindClass ActivityThread failed");
-        return nullptr;
-    }
+    if (activityThreadClass == nullptr) { env->ExceptionClear(); return nullptr; }
     jmethodID currentActivityThreadMethod = env->GetStaticMethodID(activityThreadClass, "currentActivityThread", "()Landroid/app/ActivityThread;");
-    if (currentActivityThreadMethod == nullptr) {
-        env->ExceptionClear();
-        env->DeleteLocalRef(activityThreadClass);
-        __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: GetStaticMethodID currentActivityThread failed");
-        return nullptr;
-    }
+    if (currentActivityThreadMethod == nullptr) { env->ExceptionClear(); env->DeleteLocalRef(activityThreadClass); return nullptr; }
     jobject activityThreadObj = env->CallStaticObjectMethod(activityThreadClass, currentActivityThreadMethod);
-    if (activityThreadObj == nullptr) {
-        env->DeleteLocalRef(activityThreadClass);
-        __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: currentActivityThread returned null");
-        return nullptr;
-    }
+    if (activityThreadObj == nullptr) { env->DeleteLocalRef(activityThreadClass); return nullptr; }
     jmethodID getApplicationMethod = env->GetMethodID(activityThreadClass, "getApplication", "()Landroid/app/Application;");
-    if (getApplicationMethod == nullptr) {
-        env->DeleteLocalRef(activityThreadObj);
-        env->DeleteLocalRef(activityThreadClass);
-        __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: GetMethodID getApplication failed");
-        return nullptr;
-    }
     jobject context = env->CallObjectMethod(activityThreadObj, getApplicationMethod);
-    if (context == nullptr) {
-        __android_log_print(ANDROID_LOG_ERROR, "ComPortJNI", "GetActivity: getApplication returned null");
-    } else {
-        // Success — silent to avoid logcat spam (called from update loop)
-    }
     env->DeleteLocalRef(activityThreadObj);
     env->DeleteLocalRef(activityThreadClass);
     return context;
 }
-#endif
+
+#endif // ALTAURI_JNI_HELPERS_INCLUDED
+#endif // __ANDROID__
 ')
 
 @:cppFileCode('
@@ -127,6 +110,7 @@ struct ComPortState {
     int hComm;
 #endif
 #ifdef __ANDROID__
+	JavaVM* g_vm = nullptr;
     jobject jPort;
     jobject jConnection;
 #endif
@@ -146,11 +130,14 @@ static std::map<void*, ComPortState*> _com_states_map;
 static std::mutex _com_map_mutex;
 
 #ifdef __ANDROID__
-JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
-    g_vm = vm; // Store JVM pointer
-    __android_log_print(ANDROID_LOG_INFO, "ComPortJNI", "JNI_OnLoad called, JavaVM stored successfully");
-    return JNI_VERSION_1_6;
-}
+   // Единственное место, где выделяется память под g_vm
+   JavaVM* g_vm = nullptr;
+
+   JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
+       g_vm = vm; // Сохраняем указатель
+       __android_log_print(ANDROID_LOG_INFO, "ComPortJNI", "JNI_OnLoad called, JavaVM stored successfully");
+       return JNI_VERSION_1_6;
+   }
 
 extern "C" bool tryOpenAndroidUsbDevice(ComPortState* st, int baudRate, int searchVid, int searchPid, const char** outError) {
     JNIEnv* env = GetJniEnv();
