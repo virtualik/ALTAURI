@@ -15,28 +15,33 @@
 //    - Platform backends only push data INTO databank flags
 //    - Widget reads data from contacts (never from backend directly)
 //
-//  Contacts (16 total: 7 inputs + 9 outputs)
+//  Contacts (20 total: 10 inputs + 10 outputs)
 //  ─────────────────────────────────────────────────────
 //  INPUTS:
-//    url          (string,  IMPORTANT) "ws://host:port/path" or "wss://..."
-//    subprotocol  (string,  OPTIONAL)  "chat, superchat" — Sec-WebSocket-Protocol
-//    binaryMode   (bool,    OPTIONAL)  true → sendData as hex, false → as text
-//    connect      (bool,    CRITICAL)  pulse — start connection
-//    disconnect   (bool,    CRITICAL)  pulse — close connection
-//    send         (bool,    CRITICAL)  pulse — send sendData
-//    sendData     (string,  IMPORTANT) payload to send
+//    url                    (string,  IMPORTANT) "ws://host:port/path" or "wss://..."
+//    subprotocol            (string,  OPTIONAL)  "chat, superchat" — Sec-WebSocket-Protocol
+//    binaryMode             (bool,    OPTIONAL)  true → sendData as hex, false → as text
+//    connect                (bool,    CRITICAL)  pulse — start connection
+//    disconnect             (bool,    CRITICAL)  pulse — close connection
+//    send                   (bool,    CRITICAL)  pulse — send sendData
+//    sendData               (string,  IMPORTANT) payload to send
+//    autoReconnect          (bool,    OPTIONAL)  enable auto-reconnect on drop (default false)
+//    reconnectInterval      (float,   OPTIONAL)  base delay between attempts in seconds (default 1.0)
+//    maxReconnectAttempts   (int,     OPTIONAL)  0 = unlimited, N = max attempts (default 0)
 //
 //  OUTPUTS:
-//    isConnected  (bool,    CRITICAL)  connection status
-//    receivedData (string,  IMPORTANT) last received payload
-//    receivedTick (bool,    INTERNAL)  pulse on each received message
-//    sentTick     (bool,    INTERNAL)  pulse on each successful send
-//    error        (string,  IMPORTANT) last error message
-//    errorTick    (bool,    INTERNAL)  pulse on each error
-//    closeCode    (int,     OPTIONAL)  RFC 6455 close code (1000/1001/1006/...)
-//    bytesReceived(int,     OPTIONAL)  total bytes received
-//    bytesSent    (int,     OPTIONAL)  total bytes sent
+//    isConnected           (bool,    CRITICAL)  connection status
+//    receivedData          (string,  IMPORTANT) last received payload
+//    receivedTick          (bool,    INTERNAL)  pulse on each received message
+//    sentTick              (bool,    INTERNAL)  pulse on each successful send
+//    error                 (string,  IMPORTANT) last error message
+//    errorTick            (bool,    INTERNAL)  pulse on each error
+//    closeCode             (int,     OPTIONAL)  RFC 6455 close code (1000/1001/1006/...)
+//    bytesReceived         (int,     OPTIONAL)  total bytes received
+//    bytesSent             (int,     OPTIONAL)  total bytes sent
+//    reconnectAttempts     (int,     OPTIONAL)  current auto-reconnect attempt count
 // ============================================================================
+
 package library.drivers;
 
 import core.base.Atom;
@@ -441,16 +446,16 @@ static void _ws_control_thread_win(WebSocketState* st) {
                 continue;
             }
 
-			// ── Step 5: Send the request ──
-			// Only add Sec-WebSocket-Protocol if user requested a subprotocol.
-			// NOTE on escape sequences in Haxe @:cppFileCode: Haxe parses
-			// backslash escapes itself before emitting the C++ source. So in
-			// a string literal we must write backslash-backslash-r-backslash-
-			// backslash-n (four backslashes total for CR+LF) to produce the
-			// two-character C escape sequence that C++ then turns into real
-			// CR+LF bytes at compile time. A single backslash-r or backslash-n
-			// would be turned into a real newline by Haxe and break the C++
-			// string literal with C2001 "newline in constant".
+            // ── Step 5: Send the request ──
+            // Only add Sec-WebSocket-Protocol if user requested a subprotocol.
+            // NOTE on escape sequences in Haxe @:cppFileCode: Haxe parses
+            // backslash escapes itself before emitting the C++ source. So in
+            // a string literal we must write backslash-backslash-r-backslash-
+            // backslash-n (four backslashes total for CR+LF) to produce the
+            // two-character C escape sequence that C++ then turns into real
+            // CR+LF bytes at compile time. A single backslash-r or backslash-n
+            // would be turned into a real newline by Haxe and break the C++
+            // string literal with C2001 "newline in constant".
             LPCWSTR pAdditionalHeaders = WINHTTP_NO_ADDITIONAL_HEADERS;
             DWORD additionalHeadersLen = 0;
             std::wstring additionalHeaders;
@@ -781,6 +786,41 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
     private var _errorTimer:Float = 0.0;
 
     // =========================================================================
+    // DATABANK — AUTO-RECONNECT FIELDS (COMMON)
+    // =========================================================================
+    /**
+     * Auto-reconnect configuration. Read from input contacts in readInputs().
+     * When the connection drops unexpectedly (NOT via explicit disconnect
+     * pulse), the atom waits for reconnectInterval seconds, then triggers
+     * shouldConnect again, up to maxReconnectAttempts times.
+     *
+     * Reset conditions:
+     *   - Explicit connect pulse → resets counter, clears user-requested disconnect
+     *   - Explicit disconnect pulse → sets _userRequestedDisconnect = true
+     *     (prevents auto-reconnect until next explicit connect)
+     *   - Successful connection → resets counter to 0
+     */
+    private var _autoReconnect:Bool = false;
+    private var _reconnectInterval:Float = 1.0;
+    private var _maxReconnectAttempts:Int = 0;   // 0 = unlimited
+    private var _reconnectAttempts:Int = 0;
+    private var _reconnectTimer:Float = 0.0;
+
+    /**
+     * Edge-detection flag: was the atom connected on previous update()?
+     * Used to detect the connected-to-disconnected transition that
+     * triggers auto-reconnect logic.
+     */
+    private var _wasConnected:Bool = false;
+
+    /**
+     * True when the user explicitly pressed Disconnect. While this is true,
+     * auto-reconnect is suppressed (the user wanted to disconnect).
+     * Cleared on next explicit Connect pulse.
+     */
+    private var _userRequestedDisconnect:Bool = false;
+
+    // =========================================================================
     // PLATFORM-SPECIFIC FIELDS
     // =========================================================================
     #if html5
@@ -809,7 +849,11 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
                 new Contact(false,                INPUT, "connect"),
                 new Contact(false,                INPUT, "disconnect"),
                 new Contact(false,                INPUT, "send"),
-                new Contact("",                   INPUT, "sendData")
+                new Contact("",                   INPUT, "sendData"),
+                // ── AUTO-RECONNECT INPUTS ──
+                new Contact(false,                INPUT, "autoReconnect"),
+                new Contact(1.0,                  INPUT, "reconnectInterval"),
+                new Contact(0,                   INPUT, "maxReconnectAttempts")
             ],
             [
                 // ── OUTPUTS ──
@@ -821,7 +865,9 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
                 new Contact(false, OUTPUT, "errorTick"),
                 new Contact(0,     OUTPUT, "closeCode"),
                 new Contact(0,     OUTPUT, "bytesReceived"),
-                new Contact(0,     OUTPUT, "bytesSent")
+                new Contact(0,     OUTPUT, "bytesSent"),
+                // ── AUTO-RECONNECT OUTPUT ──
+                new Contact(0,     OUTPUT, "reconnectAttempts")
             ],
             null,
             id,
@@ -1021,6 +1067,79 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
 
         // ── STEP 8: Update pulse timers ──
         updatePulseTimers(dt);
+
+        // ── STEP 9: Auto-reconnect logic (COMMON) ──
+        // Detect the transition connected-to-disconnected. If the drop was
+        // NOT caused by an explicit disconnect pulse from the user, and
+        // autoReconnect is enabled, schedule a reconnect attempt after
+        // reconnectInterval seconds.
+        //
+        // Logic:
+        //   1. On unexpected drop (was connected, now not, no user disconnect):
+        //        - Start countdown (only on the FIRST detected frame of drop)
+        //        - When timer expires: trigger connect, increment counter
+        //        - Stop when maxReconnectAttempts reached (if > 0)
+        //   2. On successful connection (was not connected, now is):
+        //        - Reset counter to 0
+        //        - Clear user-requested disconnect flag (defensive — should already be false)
+        //   3. _wasConnected tracks previous frame state for edge detection
+        if (_wasConnected && !_isConnectedFlag)
+        {
+            // Connection just dropped (or still down)
+            if (_autoReconnect && !_userRequestedDisconnect)
+            {
+                // Check if we still have attempts left
+                var canRetry:Bool = (_maxReconnectAttempts == 0) || (_reconnectAttempts < _maxReconnectAttempts);
+                if (canRetry)
+                {
+                    _reconnectTimer -= dt;
+                    if (_reconnectTimer <= 0)
+                    {
+                        // Time to attempt a reconnect
+                        _reconnectAttempts++;
+                        // Reset timer for the NEXT attempt (in case this one fails fast)
+                        _reconnectTimer = _reconnectInterval;
+                        // Trigger connect — same path as explicit connect pulse
+                        #if cpp
+                        untyped __cpp__('
+                            WebSocketState* _ws_stRc = nullptr;
+                            {
+                                std::lock_guard<std::mutex> _ws_rcLock(_ws_map_mutex);
+                                auto _ws_rcIt = _ws_map.find((void*){0}.mPtr);
+                                if (_ws_rcIt != _ws_map.end()) {
+                                    _ws_stRc = _ws_rcIt->second;
+                                }
+                            }
+                            if (_ws_stRc) { _ws_stRc->shouldConnect.store(true); }
+                        ', this);
+                        #elseif html5
+                        connectWebSocket();
+                        #end
+                    }
+                }
+            }
+        }
+        else if (!_wasConnected && _isConnectedFlag)
+        {
+            // Successfully connected (just now). Reset the counter.
+            _reconnectAttempts = 0;
+            _reconnectTimer = 0;
+            // Defensive: clear user-requested disconnect if user had pressed
+            // disconnect then the connection came back (unlikely path, but safe).
+            // Actually keep _userRequestedDisconnect as-is here — it will be
+            // cleared on next explicit connect pulse. Successful auto-reconnect
+            // already implies _userRequestedDisconnect was false.
+        }
+        // Update edge-detection state for next frame
+        _wasConnected = _isConnectedFlag;
+
+        // Propagate reconnectAttempts output (only when changed)
+        var raOut = getOutput("reconnectAttempts");
+        if (raOut != null && raOut.value != _reconnectAttempts)
+        {
+            raOut.setValueSilent(_reconnectAttempts);
+            raOut.propagateCurrentValue();
+        }
     }
 
     // =========================================================================
@@ -1140,6 +1259,29 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
         var disconnectC   = getInput("disconnect");
         var sendC         = getInput("send");
         var sendDataC     = getInput("sendData");
+        var autoReconnectC       = getInput("autoReconnect");
+        var reconnectIntervalC   = getInput("reconnectInterval");
+        var maxReconnectAttemptsC = getInput("maxReconnectAttempts");
+
+        // ── Auto-reconnect config (COMMON) ──
+        if (autoReconnectC != null && autoReconnectC.value != null)
+        {
+            _autoReconnect = (autoReconnectC.value == true);
+        }
+        if (reconnectIntervalC != null && reconnectIntervalC.value != null)
+        {
+            var newInterval:Float = cast(reconnectIntervalC.value, Float);
+            // Clamp to reasonable range: 100ms .. 60s
+            if (newInterval < 0.1) newInterval = 0.1;
+            if (newInterval > 60.0) newInterval = 60.0;
+            _reconnectInterval = newInterval;
+        }
+        if (maxReconnectAttemptsC != null && maxReconnectAttemptsC.value != null)
+        {
+            var n:Int = cast(maxReconnectAttemptsC.value, Int);
+            if (n < 0) n = 0;  // negative is meaningless, treat as 0 (unlimited)
+            _maxReconnectAttempts = n;
+        }
 
         // ── URL change (COMMON) ──
         if (urlC != null && urlC.value != null)
@@ -1212,6 +1354,11 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
         if (connectC != null && connectC.value == true)
         {
             connectC.value = false;
+            // Reset auto-reconnect state — explicit connect clears any
+            // previous "user requested disconnect" flag and counter.
+            _userRequestedDisconnect = false;
+            _reconnectAttempts = 0;
+            _reconnectTimer = 0;  // immediate attempt (will be the explicit one)
             #if cpp
             untyped __cpp__('
                 WebSocketState* st = nullptr;
@@ -1231,6 +1378,9 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
         if (disconnectC != null && disconnectC.value == true)
         {
             disconnectC.value = false;
+            // Mark as user-requested — auto-reconnect will be suppressed
+            // until next explicit connect pulse.
+            _userRequestedDisconnect = true;
             #if cpp
             untyped __cpp__('
                 WebSocketState* st = nullptr;
@@ -1290,14 +1440,14 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
      * Create and configure native browser WebSocket.
      *
      * Event handlers set pending flags that update() will process
-     * on the next frame — this is the bridge between the browsers
-     * event loop and ALTAURIs TickGenerator-driven update cycle.
+     * on the next frame — this is the bridge between the browser's
+     * event loop and ALTAURI's TickGenerator-driven update cycle.
      *
      * ┌─────────────────────────────────────────────────────────────┐
      * │  Browser Event Loop          ALTAURI Update Loop            │
      * │  ──────────────────          ───────────────────            │
      * │  WebSocket.onopen    ──►    _isConnectedFlag = true         │
-     * │                                                             │
+     * │                                                              │
      * │  WebSocket.onmessage ──►   _hasPendingReceived = true       │
      * │                            _pendingReceivedStr = data       │
      * │                                  │                          │
@@ -1306,11 +1456,11 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
      * │                                  │                          │
      * │                                  ▼                          │
      * │                            propagateCurrentValue()          │
-     * │                                                             │
+     * │                                                              │
      * │  WebSocket.onclose   ──►    _lastCloseCode = e.code         │
      * │                            _hasPendingClose = true          │
      * │                            _isConnectedFlag = false         │
-     * │                                                             │
+     * │                                                              │
      * │  WebSocket.onerror   ──►    _pendingErrStr = "..."          │
      * │                            _hasPendingError = true          │
      * └─────────────────────────────────────────────────────────────┘
@@ -1345,8 +1495,8 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
             }
 
             // Configure binary mode for incoming data.
-            // arraybuffer gives us ArrayBuffer (clean for binary),
-            // blob would give Blob (asynchronous to read).
+            // 'arraybuffer' gives us ArrayBuffer (clean for binary),
+            // 'blob' would give Blob (asynchronous to read).
             _webSocket.binaryType = ARRAYBUFFER;
 
             _webSocket.onopen = function(e:Event) {
@@ -1386,7 +1536,7 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
             };
 
             _webSocket.onerror = function(e:Event) {
-                // Browsers dont expose error details for security reasons.
+                // Browsers don't expose error details for security reasons.
                 // The onclose handler will fire next with code 1006 typically.
                 setError("WebSocket error (browser does not expose details)");
             };
@@ -1450,7 +1600,7 @@ class WebSocketClientAtom extends Atom implements system.managers.Driver
             {
                 // Binary mode: convert string chars to bytes.
                 // Haxe String is UTF-16 internally; for binary payloads we
-                // treat each chars code as a single byte (0x00-0xFF).
+                // treat each char's code as a single byte (0x00-0xFF).
                 var len:Int = data.length;
                 var ab:ArrayBuffer = new ArrayBuffer(len);
                 var u8:Uint8Array = new Uint8Array(ab);

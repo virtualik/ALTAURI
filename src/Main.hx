@@ -362,6 +362,10 @@ class Main extends Sprite
 			});
 		});
 		
+		#if html5
+// HTML5 Target - Load blueprint based on DOM data-attribute
+		loadHTML5Blueprint();
+		#end
 		
 		#if windows
 // WiNDOWS Target - Load project from file
@@ -375,9 +379,10 @@ class Main extends Sprite
 		//loadProject();
 		#end
 		
-		#if html5
+		#if linux
 // HTML5 Target - Load blueprint based on DOM data-attribute
-		loadHTML5Blueprint();
+		createDemoProject(); 
+		//loadHTML5Blueprint();
 		#end
 		
 		

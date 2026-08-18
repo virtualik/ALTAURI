@@ -369,24 +369,31 @@ class AtomRegistry
 		// ─────────────────────────────────────────────────────────────────
 		reg("WebSocketClientAtom", "WebSocket Client", [
 			// ── INPUTS ──
-			{name: "url",          type: INPUT,  defaultValue: "ws://localhost:8080", dataType: "string", priority: IMPORTANT, label: "URL",     visibleInEditor: true},
-			{name: "subprotocol",  type: INPUT,  defaultValue: "",                    dataType: "string", priority: OPTIONAL,  label: "Subproto", visibleInEditor: false},
-			{name: "binaryMode",   type: INPUT,  defaultValue: false,                 dataType: "bool",   priority: OPTIONAL,  label: "Binary",   visibleInEditor: false},
-			{name: "connect",      type: INPUT,  dataType: "bool",   priority: CRITICAL},
-			{name: "disconnect",   type: INPUT,  dataType: "bool",   priority: CRITICAL},
-			{name: "send",         type: INPUT,  dataType: "bool",   priority: CRITICAL},
-			{name: "sendData",     type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Data"},
+			{name: "url",                   type: INPUT,  defaultValue: "ws://localhost:8080", dataType: "string", priority: IMPORTANT, label: "URL",      visibleInEditor: true},
+			{name: "subprotocol",           type: INPUT,  defaultValue: "",                    dataType: "string", priority: OPTIONAL,  label: "Subproto", visibleInEditor: false},
+			{name: "binaryMode",            type: INPUT,  defaultValue: false,                 dataType: "bool",   priority: OPTIONAL,  label: "Binary",   visibleInEditor: false},
+			{name: "connect",               type: INPUT,  dataType: "bool",   priority: CRITICAL},
+			{name: "disconnect",            type: INPUT,  dataType: "bool",   priority: CRITICAL},
+			{name: "send",                  type: INPUT,  dataType: "bool",   priority: CRITICAL},
+			{name: "sendData",              type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Data"},
+			// ── AUTO-RECONNECT INPUTS ──
+			{name: "autoReconnect",         type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL, label: "AutoRC",  visibleInEditor: false},
+			{name: "reconnectInterval",     type: INPUT,  defaultValue: 1.0,    dataType: "float",  priority: OPTIONAL, label: "RC Int",  visibleInEditor: false},
+			{name: "maxReconnectAttempts",  type: INPUT,  defaultValue: 0,      dataType: "int",    priority: OPTIONAL, label: "RC Max",  visibleInEditor: false},
 			// ── OUTPUTS ──
-			{name: "isConnected",   type: OUTPUT, dataType: "bool",   priority: CRITICAL,  label: "Connected"},
-			{name: "receivedData",  type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "RX"},
-			{name: "receivedTick",  type: OUTPUT, dataType: "bool",   priority: INTERNAL},
-			{name: "sentTick",      type: OUTPUT, dataType: "bool",   priority: INTERNAL},
-			{name: "error",         type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
-			{name: "errorTick",     type: OUTPUT, dataType: "bool",   priority: INTERNAL},
-			{name: "closeCode",     type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "CloseCode"},
-			{name: "bytesReceived", type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "RX bytes"},
-			{name: "bytesSent",     type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "TX bytes"}
+			{name: "isConnected",           type: OUTPUT, dataType: "bool",   priority: CRITICAL,  label: "Connected"},
+			{name: "receivedData",          type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "RX"},
+			{name: "receivedTick",          type: OUTPUT, dataType: "bool",   priority: INTERNAL},
+			{name: "sentTick",              type: OUTPUT, dataType: "bool",   priority: INTERNAL},
+			{name: "error",                 type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
+			{name: "errorTick",             type: OUTPUT, dataType: "bool",   priority: INTERNAL},
+			{name: "closeCode",             type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "CloseCode"},
+			{name: "bytesReceived",         type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "RX bytes"},
+			{name: "bytesSent",             type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "TX bytes"},
+			// ── AUTO-RECONNECT OUTPUT ──
+			{name: "reconnectAttempts",     type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "RC Tries"}
 		], null, "websocket", true, true, "websocket", ["cpp", "html5"]);
+
 
         reg("NETRadioPlayerAtom", "NET Radio Player", [
             {name: "stream_url",    type: INPUT,  dataType: "string",  priority: IMPORTANT, label: "URL"},

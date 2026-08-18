@@ -16,22 +16,22 @@
 //  ┌────────────────────────────────────────────────────┐
 //  │  WEBSOCKET                              ●  (LED)   │  ← Header
 //  ├────────────────────────────────────────────────────┤
-//  │  URL                                                │
+//  │  URL                                               │
 //  │  [ws://localhost:8080_________________________]    │
-//  │                                                     │
+//  │                                                    │
 //  │  Subprotocol (optional)    [Binary: ☐]             │
 //  │  [__________________________________________]      │
-//  │                                                     │
+//  │                                                    │
 //  │  [ CONNECT ]  [ DISCONNECT ]   Status: Disconnected│
 //  ├────────────────────────────────────────────────────┤
-//  │  SEND DATA                                          │
+//  │  SEND DATA                                         │
 //  │  [________________________________________] [SEND] │
 //  ├────────────────────────────────────────────────────┤
 //  │  RECEIVED DATA                          [CLEAR]    │
-//  │  ┌──────────────────────────────────────────────┐ │
-//  │  │ (multiline text area, autoscroll)            │ │
-//  │  │                                              │ │
-//  │  └──────────────────────────────────────────────┘ │
+//  │  ┌──────────────────────────────────────────────┐  │
+//  │  │ (multiline text area, autoscroll)            │  │
+//  │  │                                              │  │
+//  │  └──────────────────────────────────────────────┘  │
 //  ├────────────────────────────────────────────────────┤
 //  │  RX: 0 bytes  TX: 0 bytes  Close: -                │  ← Status bar
 //  │  Last error: (none)                                │
@@ -80,7 +80,7 @@ class WebSocketClientWidget extends DeviceView
     /** Default widget width. Can be overridden by setting widgetWidth. */
     public var widgetWidth:Float = 320;
     /** Default widget height. */
-    public var widgetHeight:Float = 460;
+    public var widgetHeight:Float = 530;   // increased from 460 to fit auto-reconnect section
 
     // ── Color palette (dark theme, matches ComPortWidget style) ──
     private var _colorBg:Int        = 0x1a1a24;
@@ -134,6 +134,17 @@ class WebSocketClientWidget extends DeviceView
     private var _statsBar:TextField;
     private var _errorDisplay:TextField;
 
+    // Auto-reconnect section
+    private var _reconnectSection:Sprite;
+    private var _reconnectLabel:TextField;
+    private var _reconnectToggle:Sprite;        // checkbox-style toggle
+    private var _reconnectToggleMark:TextField; // "X" or empty
+    private var _intervalLabel:TextField;
+    private var _intervalInput:TextField;       // float: seconds between attempts
+    private var _maxAttemptsLabel:TextField;
+    private var _maxAttemptsInput:TextField;    // int: 0 = unlimited
+    private var _attemptsDisplay:TextField;     // read-only: "Attempts: N"
+
     // =========================================================================
     // CONTACT REFERENCES
     // =========================================================================
@@ -153,6 +164,10 @@ class WebSocketClientWidget extends DeviceView
     private var _closeCodeContact:Contact;
     private var _bytesReceivedContact:Contact;
     private var _bytesSentContact:Contact;
+    private var _autoReconnectContact:Contact;
+    private var _reconnectIntervalContact:Contact;
+    private var _maxReconnectAttemptsContact:Contact;
+    private var _reconnectAttemptsContact:Contact;
 
     // =========================================================================
     // UI STATE (not business data — just display/cache)
@@ -174,6 +189,14 @@ class WebSocketClientWidget extends DeviceView
     private var _bytesSent:Int = 0;
     /** Cached close code. */
     private var _closeCode:Int = 0;
+    /** Cached auto-reconnect state. */
+    private var _autoReconnect:Bool = false;
+    /** Cached reconnect interval. */
+    private var _reconnectInterval:Float = 1.0;
+    /** Cached max reconnect attempts. */
+    private var _maxReconnectAttempts:Int = 0;
+    /** Cached current reconnect attempts. */
+    private var _reconnectAttempts:Int = 0;
 
     // =========================================================================
     // CONSTRUCTOR
@@ -206,6 +229,9 @@ class WebSocketClientWidget extends DeviceView
         _disconnectContact     = atom.getInput("disconnect");
         _sendContact           = atom.getInput("send");
         _sendDataContact       = atom.getInput("sendData");
+        _autoReconnectContact       = atom.getInput("autoReconnect");
+        _reconnectIntervalContact   = atom.getInput("reconnectInterval");
+        _maxReconnectAttemptsContact = atom.getInput("maxReconnectAttempts");
 
         _isConnectedContact    = atom.getOutput("isConnected");
         _receivedDataContact   = atom.getOutput("receivedData");
@@ -216,6 +242,7 @@ class WebSocketClientWidget extends DeviceView
         _closeCodeContact      = atom.getOutput("closeCode");
         _bytesReceivedContact  = atom.getOutput("bytesReceived");
         _bytesSentContact      = atom.getOutput("bytesSent");
+        _reconnectAttemptsContact = atom.getOutput("reconnectAttempts");
     }
 
     override private function onActivate():Void
@@ -244,6 +271,22 @@ class WebSocketClientWidget extends DeviceView
         if (_binaryModeContact != null)
         {
             _binaryModeContact.value = _binaryMode;
+        }
+        if (_autoReconnectContact != null)
+        {
+            _autoReconnectContact.value = _autoReconnect;
+        }
+        if (_reconnectIntervalContact != null && _intervalInput != null)
+        {
+            var parsed:Float = Std.parseFloat(_intervalInput.text);
+            if (Math.isNaN(parsed)) parsed = 1.0;
+            _reconnectIntervalContact.value = parsed;
+        }
+        if (_maxReconnectAttemptsContact != null && _maxAttemptsInput != null)
+        {
+            var parsed:Int = Std.parseInt(_maxAttemptsInput.text);
+            if (parsed == null || parsed < 0) parsed = 0;
+            _maxReconnectAttemptsContact.value = parsed;
         }
     }
 
@@ -464,6 +507,98 @@ class WebSocketClientWidget extends DeviceView
         _errorDisplay.y = yPos;
         _errorDisplay.selectable = false;
         addChild(_errorDisplay);
+        yPos += 22;
+
+        // ── Auto-reconnect section ──
+        // Layout:
+        //   [X] Auto-Reconnect     Interval: [1.0]
+        //   Max attempts: [0]      Attempts: 0
+        _reconnectSection = new Sprite();
+        _reconnectSection.y = yPos;
+        addChild(_reconnectSection);
+
+        _reconnectLabel = new TextField();
+        _reconnectLabel.defaultTextFormat = new TextFormat("_typewriter", 10, _colorText, true);
+        _reconnectLabel.text = "Auto-Reconnect";
+        _reconnectLabel.width = 110;
+        _reconnectLabel.height = 16;
+        _reconnectLabel.x = 24;
+        _reconnectLabel.y = 4;
+        _reconnectLabel.selectable = false;
+        _reconnectLabel.mouseEnabled = false;
+        _reconnectSection.addChild(_reconnectLabel);
+
+        _reconnectToggle = new Sprite();
+        _reconnectToggle.graphics.beginFill(_colorInputBg);
+        _reconnectToggle.graphics.lineStyle(1, 0x333355);
+        _reconnectToggle.graphics.drawRoundRect(0, 0, 18, 18, 3, 3);
+        _reconnectToggle.graphics.endFill();
+        _reconnectToggle.x = 5;
+        _reconnectToggle.y = 4;
+        _reconnectToggle.buttonMode = true;
+        _reconnectToggle.useHandCursor = true;
+        _reconnectToggle.addEventListener(MouseEvent.CLICK, onReconnectToggleClick);
+        _reconnectSection.addChild(_reconnectToggle);
+
+        _reconnectToggleMark = new TextField();
+        _reconnectToggleMark.defaultTextFormat = new TextFormat("_typewriter", 11, _colorActive, true);
+        _reconnectToggleMark.text = "";
+        _reconnectToggleMark.width = 18;
+        _reconnectToggleMark.height = 18;
+        _reconnectToggleMark.x = 9;
+        _reconnectToggleMark.y = 4;
+        _reconnectToggleMark.selectable = false;
+        _reconnectToggleMark.mouseEnabled = false;
+        _reconnectSection.addChild(_reconnectToggleMark);
+
+        // Interval label + input (right side of row 1)
+        _intervalLabel = new TextField();
+        _intervalLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+        _intervalLabel.text = "Interval (s):";
+        _intervalLabel.width = 70;
+        _intervalLabel.height = 14;
+        _intervalLabel.x = 140;
+        _intervalLabel.y = 6;
+        _intervalLabel.selectable = false;
+        _intervalLabel.mouseEnabled = false;
+        _reconnectSection.addChild(_intervalLabel);
+
+        _intervalInput = createInputField("1.0", 60);
+        _intervalInput.x = 210;
+        _intervalInput.y = 2;
+        _intervalInput.addEventListener(Event.CHANGE, onIntervalChanged);
+        _reconnectSection.addChild(_intervalInput);
+
+        // Row 2: Max attempts + current attempts display
+        _maxAttemptsLabel = new TextField();
+        _maxAttemptsLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
+        _maxAttemptsLabel.text = "Max retries:";
+        _maxAttemptsLabel.width = 75;
+        _maxAttemptsLabel.height = 14;
+        _maxAttemptsLabel.x = 5;
+        _maxAttemptsLabel.y = 26;
+        _maxAttemptsLabel.selectable = false;
+        _maxAttemptsLabel.mouseEnabled = false;
+        _reconnectSection.addChild(_maxAttemptsLabel);
+
+        _maxAttemptsInput = createInputField("0", 40);
+        _maxAttemptsInput.x = 80;
+        _maxAttemptsInput.y = 22;
+        _maxAttemptsInput.addEventListener(Event.CHANGE, onMaxAttemptsChanged);
+        _reconnectSection.addChild(_maxAttemptsInput);
+
+        _attemptsDisplay = new TextField();
+        _attemptsDisplay.defaultTextFormat = new TextFormat("_typewriter", 10, _colorAccent, true);
+        _attemptsDisplay.text = "Attempts: 0";
+        _attemptsDisplay.width = 130;
+        _attemptsDisplay.height = 16;
+        _attemptsDisplay.x = 140;
+        _attemptsDisplay.y = 26;
+        _attemptsDisplay.selectable = false;
+        _attemptsDisplay.mouseEnabled = false;
+        _reconnectSection.addChild(_attemptsDisplay);
+
+        yPos += 50;
 
         redrawBackground();
     }
@@ -497,6 +632,16 @@ class WebSocketClientWidget extends DeviceView
         _rxSection.graphics.lineStyle(1, 0x224422);
         _rxSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 148, 4, 4);
         _rxSection.graphics.endFill();
+
+        // Auto-reconnect section background (matches dark theme)
+        if (_reconnectSection != null)
+        {
+            _reconnectSection.graphics.clear();
+            _reconnectSection.graphics.beginFill(0x0d0d18, 0.5);
+            _reconnectSection.graphics.lineStyle(1, 0x224466);
+            _reconnectSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 45, 4, 4);
+            _reconnectSection.graphics.endFill();
+        }
     }
 
     // =========================================================================
@@ -636,6 +781,38 @@ class WebSocketClientWidget extends DeviceView
             _closeCode = cast _closeCodeContact.value;
         }
 
+        // ── Auto-reconnect config ──
+        if (_autoReconnectContact != null && _autoReconnectContact.value != null)
+        {
+            _autoReconnect = (_autoReconnectContact.value == true);
+            updateReconnectToggleVisual();
+        }
+        if (_reconnectIntervalContact != null && _reconnectIntervalContact.value != null)
+        {
+            _reconnectInterval = cast(_reconnectIntervalContact.value, Float);
+            if (_intervalInput != null)
+            {
+                var formatted = Std.string(_reconnectInterval);
+                // Trim to max 4 chars to keep input field tidy (e.g. "1", "0.5")
+                if (formatted.length > 5) formatted = formatted.substr(0, 5);
+                if (_intervalInput.text != formatted) _intervalInput.text = formatted;
+            }
+        }
+        if (_maxReconnectAttemptsContact != null && _maxReconnectAttemptsContact.value != null)
+        {
+            _maxReconnectAttempts = cast(_maxReconnectAttemptsContact.value, Int);
+            if (_maxAttemptsInput != null)
+            {
+                var s = Std.string(_maxReconnectAttempts);
+                if (_maxAttemptsInput.text != s) _maxAttemptsInput.text = s;
+            }
+        }
+        if (_reconnectAttemptsContact != null && _reconnectAttemptsContact.value != null)
+        {
+            _reconnectAttempts = cast(_reconnectAttemptsContact.value, Int);
+            updateAttemptsDisplay();
+        }
+
         updateStatsBar();
     }
 
@@ -703,6 +880,44 @@ class WebSocketClientWidget extends DeviceView
                 if (spStr != _subprotoInput.text) _subprotoInput.text = spStr;
             }
         }
+        else if (contact == _autoReconnectContact)
+        {
+            _autoReconnect = (newValue == true);
+            updateReconnectToggleVisual();
+        }
+        else if (contact == _reconnectIntervalContact)
+        {
+            if (newValue != null)
+            {
+                _reconnectInterval = cast(newValue, Float);
+                if (_intervalInput != null)
+                {
+                    var s = Std.string(_reconnectInterval);
+                    if (s.length > 5) s = s.substr(0, 5);
+                    if (_intervalInput.text != s) _intervalInput.text = s;
+                }
+            }
+        }
+        else if (contact == _maxReconnectAttemptsContact)
+        {
+            if (newValue != null)
+            {
+                _maxReconnectAttempts = cast(newValue, Int);
+                if (_maxAttemptsInput != null)
+                {
+                    var s = Std.string(_maxReconnectAttempts);
+                    if (_maxAttemptsInput.text != s) _maxAttemptsInput.text = s;
+                }
+            }
+        }
+        else if (contact == _reconnectAttemptsContact)
+        {
+            if (newValue != null)
+            {
+                _reconnectAttempts = cast(newValue, Int);
+                updateAttemptsDisplay();
+            }
+        }
     }
 
     // =========================================================================
@@ -752,6 +967,29 @@ class WebSocketClientWidget extends DeviceView
     private function updateBinaryToggleVisual():Void
     {
         _binaryToggleMark.text = _binaryMode ? "X" : "";
+    }
+
+    /**
+     * Update the auto-reconnect checkbox visual.
+     */
+    private function updateReconnectToggleVisual():Void
+    {
+        if (_reconnectToggleMark != null)
+        {
+            _reconnectToggleMark.text = _autoReconnect ? "X" : "";
+        }
+    }
+
+    /**
+     * Update the attempts display text (read-only field showing current count).
+     */
+    private function updateAttemptsDisplay():Void
+    {
+        if (_attemptsDisplay != null)
+        {
+            var limit = _maxReconnectAttempts > 0 ? '/${_maxReconnectAttempts}' : '';
+            _attemptsDisplay.text = 'Attempts: ${_reconnectAttempts}${limit}';
+        }
     }
 
     /**
@@ -822,6 +1060,51 @@ class WebSocketClientWidget extends DeviceView
     }
 
     /**
+     * Auto-reconnect toggle clicked — flip state and push to atom.
+     */
+    private function onReconnectToggleClick(e:MouseEvent):Void
+    {
+        _autoReconnect = !_autoReconnect;
+        updateReconnectToggleVisual();
+        if (_autoReconnectContact != null)
+        {
+            _autoReconnectContact.value = _autoReconnect;
+        }
+    }
+
+    /**
+     * Interval input changed — parse as Float and push to atom.
+     * Invalid input is silently replaced with the previous valid value.
+     */
+    private function onIntervalChanged(e:Event):Void
+    {
+        if (_intervalInput == null || _reconnectIntervalContact == null) return;
+        var parsed:Float = Std.parseFloat(_intervalInput.text);
+        if (Math.isNaN(parsed)) return;  // ignore invalid input
+        // Clamp to reasonable range (matches atom-side clamp)
+        if (parsed < 0.1) parsed = 0.1;
+        if (parsed > 60.0) parsed = 60.0;
+        _reconnectInterval = parsed;
+        _reconnectIntervalContact.value = parsed;
+    }
+
+    /**
+     * Max attempts input changed — parse as Int and push to atom.
+     * Negative values are clamped to 0 (unlimited).
+     */
+    private function onMaxAttemptsChanged(e:Event):Void
+    {
+        if (_maxAttemptsInput == null || _maxReconnectAttemptsContact == null) return;
+        var parsed:Int = Std.parseInt(_maxAttemptsInput.text);
+        if (parsed == null) return;  // ignore invalid input
+        if (parsed < 0) parsed = 0;
+        _maxReconnectAttempts = parsed;
+        _maxReconnectAttemptsContact.value = parsed;
+        // Refresh attempts display to show new "/N" suffix
+        updateAttemptsDisplay();
+    }
+
+    /**
      * Connect button clicked — push URL + subproto to atom, then pulse connect.
      */
     private function onConnectClick(e:MouseEvent):Void
@@ -838,6 +1121,30 @@ class WebSocketClientWidget extends DeviceView
         if (_binaryModeContact != null)
         {
             _binaryModeContact.value = _binaryMode;
+        }
+        // Push auto-reconnect config before pulsing connect — atom will
+        // pick it up in readInputs() on the same frame.
+        if (_autoReconnectContact != null)
+        {
+            _autoReconnectContact.value = _autoReconnect;
+        }
+        if (_reconnectIntervalContact != null && _intervalInput != null)
+        {
+            var parsed:Float = Std.parseFloat(_intervalInput.text);
+            if (!Math.isNaN(parsed))
+            {
+                if (parsed < 0.1) parsed = 0.1;
+                if (parsed > 60.0) parsed = 60.0;
+                _reconnectIntervalContact.value = parsed;
+            }
+        }
+        if (_maxReconnectAttemptsContact != null && _maxAttemptsInput != null)
+        {
+            var parsed:Int = Std.parseInt(_maxAttemptsInput.text);
+            if (parsed != null && parsed >= 0)
+            {
+                _maxReconnectAttemptsContact.value = parsed;
+            }
         }
         if (_connectContact != null)
         {
@@ -952,9 +1259,12 @@ class WebSocketClientWidget extends DeviceView
         if (_sendBtn != null) _sendBtn.removeEventListener(MouseEvent.CLICK, onSendClick);
         if (_clearBtn != null) _clearBtn.removeEventListener(MouseEvent.CLICK, onClearClick);
         if (_binaryToggle != null) _binaryToggle.removeEventListener(MouseEvent.CLICK, onBinaryToggleClick);
+        if (_reconnectToggle != null) _reconnectToggle.removeEventListener(MouseEvent.CLICK, onReconnectToggleClick);
         if (_urlInput != null) _urlInput.removeEventListener(Event.CHANGE, onUrlChanged);
         if (_subprotoInput != null) _subprotoInput.removeEventListener(Event.CHANGE, onSubprotoChanged);
         if (_sendInput != null) _sendInput.removeEventListener(KeyboardEvent.KEY_DOWN, onSendInputKeyDown);
+        if (_intervalInput != null) _intervalInput.removeEventListener(Event.CHANGE, onIntervalChanged);
+        if (_maxAttemptsInput != null) _maxAttemptsInput.removeEventListener(Event.CHANGE, onMaxAttemptsChanged);
 
         // Null out references
         _bg = null;
@@ -982,6 +1292,16 @@ class WebSocketClientWidget extends DeviceView
         _rxDisplay = null;
         _statsBar = null;
         _errorDisplay = null;
+        // Auto-reconnect UI
+        _reconnectSection = null;
+        _reconnectLabel = null;
+        _reconnectToggle = null;
+        _reconnectToggleMark = null;
+        _intervalLabel = null;
+        _intervalInput = null;
+        _maxAttemptsLabel = null;
+        _maxAttemptsInput = null;
+        _attemptsDisplay = null;
 
         // Contact references
         _urlContact = null;
@@ -1000,6 +1320,11 @@ class WebSocketClientWidget extends DeviceView
         _closeCodeContact = null;
         _bytesReceivedContact = null;
         _bytesSentContact = null;
+        // Auto-reconnect contacts
+        _autoReconnectContact = null;
+        _reconnectIntervalContact = null;
+        _maxReconnectAttemptsContact = null;
+        _reconnectAttemptsContact = null;
 
         // History
         _sendHistory = null;
