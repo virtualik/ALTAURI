@@ -27,7 +27,15 @@ if (Test-Path "$rootSource\libs\usb-serial-extracted") {
     Write-Host "     Warning: libs/usb-serial-extracted folder not found in ALTAURI root." -ForegroundColor Yellow
 }
 
-# 2.6. Синхронизация папки templates
+# 2.6. Синхронизация папки libs/ (Java-WebSocket (для WebSocket) драйвера для Android сборки)
+Write-Host "  -> Copying libs/ folder..." -ForegroundColor Cyan
+if (Test-Path "$rootSource\libs\") {
+    robocopy "$rootSource\libs\" "$rootTarget\libs\" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
+} else {
+    Write-Host "     Warning: libs/ folder not found in ALTAURI root." -ForegroundColor Yellow
+}
+
+# 2.7. Синхронизация папки templates
 #Write-Host "  -> Copying templates folder..." -ForegroundColor Cyan
 #if (Test-Path "$rootSource\templates") {
 #    robocopy "$rootSource\templates" "$rootTarget\templates" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
