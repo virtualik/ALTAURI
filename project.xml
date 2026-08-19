@@ -93,6 +93,6 @@
 	</section>
 	
 	<!-- Запускаем синхронизацию только для HTML5 и только локально (на CI скрипт не запустится) -->
-	<postbuild if="html5"   unless="CI" command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1"/>
+	<postbuild if="html5" unless="CI" command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1"/>
 
 </project>
