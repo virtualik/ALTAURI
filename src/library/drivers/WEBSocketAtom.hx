@@ -707,16 +707,16 @@ static void _ws_control_thread_win(WebSocketState* st) {
 #endif // _WIN32
 
 // ================================================================
-//  WORKER THREAD — LINUX / ANDROID (PLACEHOLDER)
+//  WORKER THREAD — LINUX (PLACEHOLDER)
 // ================================================================
-#if defined(__linux__) && defined(__ANDROID__)
+#if defined(__linux__)
 static void _ws_worker_posix_stub(WebSocketState* st) {
     st->isRunning.store(true);
     while (st->isRunning.load()) {
         if (st->shouldConnect.load()) {
             st->shouldConnect.store(false);
             std::lock_guard<std::mutex> lk(st->sendQueueMtx);
-            st->lastError = "WebSocketAtom: Linux/Android backend not yet "
+            st->lastError = "WebSocketAtom: Linux backend not yet "
                             "implemented. Build with HAS_LIBWEBSOCKETS defined and "
                             "link libwebsockets to enable. See README.";
             st->hasError.store(true);

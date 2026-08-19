@@ -27,6 +27,7 @@ import core.view.ComEnumeratorWidget;
 import core.view.NETRadioPlayerWidget;
 import core.view.SystemVUMeterWidget;
 import core.view.URLAudioStreamPlayerWidget;
+import core.view.WebSocketWidget;
 #end
 
 // --- Cross-platform Widgets (compile on all targets) ---
@@ -157,7 +158,7 @@ class DeviceWidgetFactory
 			#end
 
 			// Cross-platform — no #if wrapper
-			case "websocket", "websocketatom":
+			case "websocket", "websocket atom":
 				new WebSocketWidget(asm);
 			
 			case "filewriter", "file writer":
@@ -202,7 +203,7 @@ class DeviceWidgetFactory
 			case "comportatom", "com port":
 				new ComPortWidget(atom);
 				
-			case "websocketatom":
+			case "websocket":
 				new WebSocketWidget(atom);
 				
 			#if cpp
@@ -292,7 +293,7 @@ class DeviceWidgetFactory
 			case "led" | "button" | "toggle" | "oscilloscope" | "fftatom" | "textinput" |
 				 "audioin" | "audioinput" | "relay" | "conductor" |
 				 "universalgen" | "signalgen" | "fpsmonitor" | "frametime" |
-				 "textarea" | "comportatom" | "filewriteratom":
+				 "textarea" | "websocket" | "comportatom" | "filewriteratom":
 				true;
 			default:
 				// Check Assembly

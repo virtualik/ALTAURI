@@ -32,6 +32,7 @@ import system.commands.editor.DeleteAtomCommand;
 import system.commands.base.MacroCommand;
 import utils.UID;
 import ecs.ECS;
+import ui.NodeVisualMode;
 using StringTools;
 
 /**
@@ -504,6 +505,7 @@ class NodeEditor extends Sprite
                 Impulsys.subscribeToImpulse(EventType.ATOM_DELETED, _onAtomDeleted);
                 Impulsys.subscribeToImpulse(EventType.ATOM_RESTORED, _onAtomRestored);
                 Impulsys.subscribeToImpulse(EventType.NODE_CLICKED, _onNodeClicked);
+				Impulsys.subscribeToImpulse(EventType.NODE_VISUAL_MODE_CHANGED, onVisualModeChanged);
         }
 
         // =========================================================================
@@ -936,6 +938,23 @@ class NodeEditor extends Sprite
                         y: e.stageY
                 });
         }
+		
+		/**
+		 * v2.0: Handle global visual mode change.
+		 * Iterates through all NodeViews and updates their visualization mode.
+		 */
+		private function onVisualModeChanged(impulse:Impulse):Void {
+			if (impulse == null || impulse.data == null || impulse.data.mode == null) return;
+			var mode:NodeVisualMode = impulse.data.mode;
+			
+			for (view in _nodes) {
+				if (view != null) {
+					view.setVisualMode(mode);
+				}
+			}
+			// Force wire redraw to adapt to new port positions
+			_wireRenderer.rebuildAll();
+		}
 
 // =========================================================================
 // HIT LAYER HANDLERS (v5.0 — Desktop mouse + Android touch)
@@ -1771,6 +1790,7 @@ class NodeEditor extends Sprite
                 Impulsys.removeImpulse(EventType.ATOM_DELETED, _onAtomDeleted);
                 Impulsys.removeImpulse(EventType.ATOM_RESTORED, _onAtomRestored);
                 Impulsys.removeImpulse(EventType.NODE_CLICKED, _onNodeClicked);
+				Impulsys.removeImpulse(EventType.NODE_VISUAL_MODE_CHANGED, onVisualModeChanged);
 
                 // v4.5: Release closure references
                 _onPortDragStart = null;

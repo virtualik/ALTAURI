@@ -303,21 +303,22 @@ abstract EventType(String) from String to String {
     /** Canvas right-clicked (context menu for adding atoms) */
     public static var CANVAS_RIGHT_CLICKED(default, never) = new EventType("CANVAS_RIGHT_CLICKED");
 
-    // =====================================================================
-    // EDITOR STATE
-    // =====================================================================
-
-    /** Node moved during drag (continuous updates) */
-    public static var EDITOR_NODE_MOVED(default, never) = new EventType("EDITOR_NODE_MOVED");
-
-    /** Node drag finished (position commit) */
-    public static var NODE_DRAG_FINISHED(default, never) = new EventType("NODE_DRAG_FINISHED");
-
-    /** Force update node position (programmatic move) */
-    public static var FORCE_UPDATE_NODE_POSITION(default, never) = new EventType("FORCE_UPDATE_NODE_POSITION");
-
-    /** Close context menu (click outside or ESC) */
-    public static var CLOSE_CONTEXT_MENU(default, never) = new EventType("CLOSE_CONTEXT_MENU");
+	// =====================================================================
+	// EDITOR STATE
+	// =====================================================================
+	/** Node moved during drag (continuous updates) */
+	public static var EDITOR_NODE_MOVED(default, never) = new EventType("EDITOR_NODE_MOVED");
+	/** Node drag finished (position commit) */
+	public static var NODE_DRAG_FINISHED(default, never) = new EventType("NODE_DRAG_FINISHED");
+	/** Force update node position (programmatic move) */
+	public static var FORCE_UPDATE_NODE_POSITION(default, never) = new EventType("FORCE_UPDATE_NODE_POSITION");
+	/** Close context menu (click outside or ESC) */
+	public static var CLOSE_CONTEXT_MENU(default, never) = new EventType("CLOSE_CONTEXT_MENU");
+	/** 
+	 * v2.0: Node visual representation mode changed (Light/Medium/Heavy).
+	 * Payload: { mode: ui.NodeVisualMode }
+	 */
+	public static var NODE_VISUAL_MODE_CHANGED(default, never) = new EventType("NODE_VISUAL_MODE_CHANGED");
 
     // =====================================================================
     // NAVIGATION & COMMANDS

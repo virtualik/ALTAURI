@@ -16,7 +16,7 @@ import core.logic.EventType;
 using StringTools;
 
 /**
-* ════════════════════════════════════════════════════════════════════════════╗
+* ╔═══════════════════════════════════════════════════════════════════════════╗
 * ║                     ASSEMBLY v2.2                                         ║
 * ║  (Full Integrity + Template ID Serialization + Clean Gateway Topology     ║
 * ║   + Load-Symmetric Blueprint Sync + Atom Mapping Registration)            ║
@@ -2350,4 +2350,4 @@ class Assembly extends Atom
 
 		super.dispose();
 	}
-}
+}

@@ -25,11 +25,21 @@ import ecs.ECS;
 import core.view.InlineParameterEditor;
 import core.data.Blueprint.PinDef;
 import core.data.Blueprint.ParameterPriority;
+import ui.NodeVisualMode;
 
 /**
 * NODE VIEW v3.8 (Global Name Uniqueness + Atom Reattach + Synchronous Layout + Touch Long-Press)
 *
 * Visual representation of an Atom (node) on the schematic canvas.
+*
+* v3.8 Changes:
+* - ADDED: Touch handlers for Android long-press (rule #2)
+* - ADDED: _touchActive, _longPressTimer, _longPressFired state tracking
+* - ADDED: _touchStartX/Y for dead-zone detection
+* - ADDED: LONG_PRESS_DEAD_ZONE_SQ constant (100 pixels squared)
+* - ADDED: _didDrag flag to suppress selection after drag
+* - ADDED: _cancelNodeLongPress() helper method
+* - FIXED: onClick now checks _didDrag to prevent selection after node movement
 *
 * v3.7 Changes:
 * - ADDED: `isNameTakenGlobally` callback to validate name uniqueness across
@@ -180,7 +190,12 @@ class NodeView extends Sprite
         private function set_isSelected(value:Bool):Bool { selected = value; return value; }
         public var hasWidget(default, null):Bool = false;
 
-        
+        /**
+         * v2.0: Current visualization detail level.
+         * Controls whether the widget is hidden, scaled, or shown at full size.
+         */
+        public var visualMode:NodeVisualMode = NodeVisualMode.MEDIUM;
+
 // =========================================================================
 // DINAMIC SWICHING CACHEASBITMAP
 // =========================================================================
@@ -383,28 +398,30 @@ class NodeView extends Sprite
         {
                 var bodyWidth:Float = MIN_WIDTH;
                 var widgetHeight:Float = 0;
-                if (deviceView != null)
+                
+                // v2.0: Calculate widget dimensions based on visual mode
+                // LIGHT: no widget, no inline editors
+                // MEDIUM: no widget, but inline editors present
+                // HEAVY: widget + inline editors
+                if (visualMode == NodeVisualMode.HEAVY && deviceView != null)
                 {
                         var ws = deviceView.getWidgetSize();
-                        //trace('NodeView.recalcSize: getWidgetSize() = ${ws.width}x${ws.height} for ${Type.getClassName(Type.getClass(deviceView))}');
-                        //trace('NodeView.recalcSize: Reflect.widgetWidth = ${Reflect.field(deviceView, "widgetWidth")}');
-                        //trace('NodeView.recalcSize: Reflect.widgetHeight = ${Reflect.field(deviceView, "widgetHeight")}');
-                        //trace('NodeView.recalcSize: deviceView.width/height = ${deviceView.width}x${deviceView.height}');
-                        //trace('NodeView.recalcSize: deviceView.scaleX/Y = ${deviceView.scaleX}x${deviceView.scaleY}');
-
                         var scaledW = ws.width * PREVIEW_SCALE;
                         var scaledH = ws.height * PREVIEW_SCALE;
                         bodyWidth = Math.max(bodyWidth, scaledW + WIDGET_PADDING * 2);
                         widgetHeight = scaledH + WIDGET_PADDING;
                 }
+                
                 var portsHeight:Float = MIN_BODY_HEIGHT;
                 var inputCount = (atom != null && atom.getInputs() != null) ? atom.getInputs().length : 0;
                 var outputCount = (atom != null && atom.getOutputs() != null) ? atom.getOutputs().length : 0;
                 var maxPorts = Std.int(Math.max(inputCount, outputCount));
+                
                 if (maxPorts > 0)
                 {
                         portsHeight = (maxPorts + 1) * PORT_SPACING;
                 }
+                
                 var bodyHeight = portsHeight + widgetHeight;
                 _nodeWidth = bodyWidth;
                 _nodeHeight = TITLE_HEIGHT + bodyHeight;
@@ -539,9 +556,11 @@ class NodeView extends Sprite
                         return;
                 }
                 var ws = deviceView.getWidgetSize();
-                var scaledW = ws.width * PREVIEW_SCALE;
-                var scaledH = ws.height * PREVIEW_SCALE;
+                var scale = (visualMode == NodeVisualMode.HEAVY) ? 1.0 : PREVIEW_SCALE;
+                var scaledW = ws.width * scale;
+                var scaledH = ws.height * scale;
                 var bodyWidth = _nodeWidth;
+                
                 _previewContainer.x = (bodyWidth - scaledW) / 2;
                 _previewContainer.y = _nodeHeight - scaledH - WIDGET_PADDING;
         }
@@ -573,6 +592,7 @@ class NodeView extends Sprite
                         g.drawRoundRect(0, 0, w, h, 8, 8);
                         g.endFill();
                 }
+                
                 var tg = _titleBar.graphics;
                 tg.clear();
                 tg.beginFill(0x3a3a4a, 0.9);
@@ -591,14 +611,33 @@ class NodeView extends Sprite
                         tg.drawRoundRectComplex(0, 0, w, TITLE_HEIGHT, 8, 8, 0, 0);
                 }
                 tg.endFill();
+                
                 _titleLabel.width = w - 30;
                 _settingsButton.x = w - 15;
-                // === v3.3: Update name input width if visible ===
+                
                 if (_nameInput != null && _nameInput.visible)
                 {
                         _nameInput.width = w - 50;
                 }
-                if (deviceView != null)
+                
+                // v2.0: Handle preview container visibility based on visual mode
+                // LIGHT: no widget
+                // MEDIUM: no widget
+                // HEAVY: widget visible
+                if (visualMode == NodeVisualMode.HEAVY)
+                {
+                        _previewContainer.visible = true;
+                        _previewContainer.scaleX = PREVIEW_SCALE;
+                        _previewContainer.scaleY = PREVIEW_SCALE;
+                        centerPreviewContainer();
+                }
+                else
+                {
+                        _previewContainer.visible = false;
+                }
+                
+                // Draw separator only if widget is present (HEAVY mode)
+                if (visualMode == NodeVisualMode.HEAVY && deviceView != null)
                 {
                         var ws = deviceView.getWidgetSize();
                         var scaledH = ws.height * PREVIEW_SCALE;
@@ -608,6 +647,7 @@ class NodeView extends Sprite
                         sepG.moveTo(0, separatorY);
                         sepG.lineTo(_nodeWidth, separatorY);
                 }
+                
                 var sg = _selectionHighlight.graphics;
                 sg.clear();
                 if (selected)
@@ -788,18 +828,26 @@ class NodeView extends Sprite
                         }
                 }
                 _inlineEditors.clear();
-
+                
+                // v2.0: LIGHT mode - no inline editors at all
+                if (visualMode == NodeVisualMode.LIGHT)
+                {
+                        return;
+                }
+                
                 var inputs = atom.getInputs();
                 if (inputs == null) return;
-
+                
                 var yPos:Float = TITLE_HEIGHT + 10;
+                
                 for (contact in inputs)
                 {
                         if (contact == null) continue;
                         if (contact.hasLinks()) continue;
-
+                        
                         var pinDef = getPinDefForContact(contact);
                         var shouldShow:Bool = false;
+                        
                         if (pinDef != null)
                         {
                                 var priority = (pinDef.priority != null) ? pinDef.priority : OPTIONAL;
@@ -809,15 +857,15 @@ class NodeView extends Sprite
                         {
                                 shouldShow = true;
                         }
+                        
                         if (!shouldShow) continue;
-
+                        
                         var editor = new InlineParameterEditor(contact, pinDef);
-                        // === Fixed position from left edge ===
                         editor.x = INLINE_EDITOR_X_OFFSET;
                         editor.y = yPos;
                         addChild(editor);
                         _inlineEditors.set(contact.name, editor);
-
+                        
                         // Hide port label for this contact
                         var port = inputPorts.get(contact.name);
                         if (port != null)
@@ -831,9 +879,28 @@ class NodeView extends Sprite
                                         }
                                 }
                         }
-
+                        
                         yPos += 30;
                 }
+        }
+        
+        /**
+         * v2.0: Update the visual mode and trigger layout recalculation.
+         * 
+         * @param mode The new visualization mode (LIGHT, MEDIUM, HEAVY)
+         */
+        public function setVisualMode(mode:NodeVisualMode):Void
+        {
+                if (visualMode == mode) return;
+                visualMode = mode;
+                
+                // Recreate inline editors based on mode
+                // LIGHT: no editors
+                // MEDIUM/HEAVY: editors present
+                createInlineEditors();
+                
+                // Update layout and redraw
+                updateLayout();
         }
 
         private function getPinDefForContact(contact:Contact):PinDef
@@ -869,9 +936,9 @@ class NodeView extends Sprite
 
         public function updateInlineEditorsVisibility():Void
         {
-        // ═══════════════════════════════════════════════════════════════
-    // HARD GUARD AGAINST UI RECALCULATION DURING GESTURES
-    // ═══════════════════════════════════════════════════════════════
+                // ═══════════════════════════════════════════════════════════════
+                // HARD GUARD AGAINST UI RECALCULATION DURING GESTURES
+                // ═══════════════════════════════════════════════════════════════
                 // RADICAL FREEZE: No coordinates needed during zoom/pan.
                 if (EditorState.isZooming() || EditorState.isPanning()) {
                         return;

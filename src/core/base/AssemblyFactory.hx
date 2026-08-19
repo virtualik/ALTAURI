@@ -17,7 +17,7 @@ import library.drivers.MiniAudioAtom;
 import library.drivers.SignalGenerator;
 import library.drivers.ComPortAtom;
 import library.drivers.ComEnumeratorAtom;
-
+import library.drivers.WebSocketAtom;
 using StringTools;
 
 /**
