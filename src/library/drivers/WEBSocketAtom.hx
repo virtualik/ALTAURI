@@ -838,7 +838,27 @@ extern "C" void android_ws_connect(void* haxePtr, const char* url, const char* s
 
     {
         std::lock_guard<std::mutex> lk(st->javaWsMtx);
-        if (st->javaWsInstance) env->DeleteGlobalRef(st->javaWsInstance);
+        if (st->javaWsInstance) {
+            // Корректно закрыть старый Java-инстанс перед заменой.
+            // Java-WebSocket держит внутренний worker-поток, который
+            // продолжает попытки соединения. Если просто заменить
+            // глобальный референс, старый поток продолжит работать и
+            // его onError/onClose колбэки всё ещё могут прилететь в
+            // наш WebSocketState, вызывая фантомные ошибки.
+            jclass oldClass = env->GetObjectClass(st->javaWsInstance);
+            if (oldClass) {
+                jmethodID oldDisconnect = env->GetMethodID(oldClass, "disconnect", "()V");
+                if (oldDisconnect) {
+                    env->CallVoidMethod(st->javaWsInstance, oldDisconnect);
+                    if (env->ExceptionCheck()) {
+                        env->ExceptionClear();
+                    }
+                }
+                env->DeleteLocalRef(oldClass);
+            }
+            env->DeleteGlobalRef(st->javaWsInstance);
+            st->javaWsInstance = nullptr;
+        }
         st->javaWsInstance = env->NewGlobalRef(wsInstance);
     }
     LOGI(">>> [JNI] Java instance created and stored globally");
@@ -881,7 +901,7 @@ extern "C" void android_ws_connect(void* haxePtr, const char* url, const char* s
 
 extern "C" void android_ws_send(void* haxePtr, const char* data, int len) {
     LOGI(">>> [JNI] android_ws_send CALLED! Length: %d", len);
-	WebSocketState* st = nullptr;
+        WebSocketState* st = nullptr;
     {
         std::lock_guard<std::mutex> lock(_ws_map_mutex);
         auto it = _ws_map.find(haxePtr);
@@ -1089,6 +1109,18 @@ class WebSocketAtom extends Atom implements system.managers.Driver
     private var _maxReconnectAttempts:Int = 0;   // 0 = unlimited
     private var _reconnectAttempts:Int = 0;
     private var _reconnectTimer:Float = 0.0;
+        
+        /**
+         * True while we are in an auto-reconnect cycle (between unexpected
+         * disconnect and either successful reconnect, explicit disconnect,
+         * or max attempts exhausted).
+         *
+         * Without this flag, the old logic used _wasConnected for edge
+         * detection — which only fires on the SINGLE transition frame.
+         * If the first reconnect attempt failed, no further attempts were
+         * ever made. This flag keeps the cycle alive across frames.
+         */
+        private var _reconnectActive:Bool = false;
 
     /**
      * Edge-detection flag: was the atom connected on previous update()?
@@ -1192,9 +1224,9 @@ class WebSocketAtom extends Atom implements system.managers.Driver
                 // thread after successful connect.
                 st->worker = new std::thread(_ws_control_thread_win, st);
             #elif defined(__ANDROID__)
-				// Android uses Java WebSocket client via JNI. No C++ worker thread needed.
-				#elif defined(__linux__)
-				st->worker = new std::thread(_ws_worker_posix_stub, st);
+                                // Android uses Java WebSocket client via JNI. No C++ worker thread needed.
+                                #elif defined(__linux__)
+                                st->worker = new std::thread(_ws_worker_posix_stub, st);
             #endif
         ', this);
         #elseif html5
@@ -1220,7 +1252,7 @@ class WebSocketAtom extends Atom implements system.managers.Driver
      *   6. Update byte counters
      *   7. readInputs() — read user commands (connect/disconnect/send)
      *   8. updatePulseTimers() — reset tick pulses
-     *
+     *   9. auto-reconnect logic (COMMON) 
      * @param dt Delta time in seconds
      */
     override public function update(dt:Float):Void
@@ -1354,91 +1386,110 @@ class WebSocketAtom extends Atom implements system.managers.Driver
         // ── STEP 8: Update pulse timers ──
         updatePulseTimers(dt);
 
-        // ── STEP 9: Auto-reconnect logic (COMMON) ──
-        // Detect the transition connected-to-disconnected. If the drop was
-        // NOT caused by an explicit disconnect pulse from the user, and
-        // autoReconnect is enabled, schedule a reconnect attempt after
-        // reconnectInterval seconds.
-        //
-        // Logic:
-        //   1. On unexpected drop (was connected, now not, no user disconnect):
-        //        - Start countdown (only on the FIRST detected frame of drop)
-        //        - When timer expires: trigger connect, increment counter
-        //        - Stop when maxReconnectAttempts reached (if > 0)
-        //   2. On successful connection (was not connected, now is):
-        //        - Reset counter to 0
-        //        - Clear user-requested disconnect flag (defensive — should already be false)
-        //   3. _wasConnected tracks previous frame state for edge detection
-        if (_wasConnected && !_isConnectedFlag)
-        {
-            // Connection just dropped (or still down)
-            if (_autoReconnect && !_userRequestedDisconnect)
-            {
-                // Check if we still have attempts left
-                var canRetry:Bool = (_maxReconnectAttempts == 0) || (_reconnectAttempts < _maxReconnectAttempts);
-                if (canRetry)
+                // ── STEP 9: Auto-reconnect logic (COMMON) ──
+                // State machine:
+                //   _reconnectActive = true  → we are counting down to next attempt
+                //   _reconnectActive = false → idle (connected, or not in auto cycle)
+                //
+                // Transitions to TRUE:
+                //   - Unexpected disconnect (was connected, now not, auto enabled,
+                //     not user-requested)
+                // Transitions to FALSE:
+                //   - Successful connection (isConnected becomes true)
+                //   - Explicit user disconnect pulse
+                //   - autoReconnect turned off via input
+                //   - maxReconnectAttempts exhausted
+                //
+                // The timer counts down EVERY frame while _reconnectActive && !connected.
+                // This fixes the previous bug where the timer only ticked on the single
+                // transition frame, causing exactly one reconnect attempt and then silence.
+
+                // ── Detect unexpected disconnect transition → start cycle ──
+                if (_wasConnected && !_isConnectedFlag
+                        && _autoReconnect && !_userRequestedDisconnect)
                 {
-                    _reconnectTimer -= dt;
-                    if (_reconnectTimer <= 0)
-                    {
-                        // Time to attempt a reconnect
-                        _reconnectAttempts++;
-                        // Reset timer for the NEXT attempt (in case this one fails fast)
-                        _reconnectTimer = _reconnectInterval;
-                        // Trigger connect — same path as explicit connect pulse
-                        #if cpp
-                            #if android
-                            untyped __cpp__('
-                            {
-                                std::string urlCopy;
-                                std::string subprotoCopy;
-                                WebSocketState* st = nullptr;
-                                {
-                                    std::lock_guard<std::mutex> lock(_ws_map_mutex);
-                                    auto it = _ws_map.find((void*){0}.mPtr);
-                                    if (it != _ws_map.end()) st = it->second;
-                                }
-                                if (st) {
-                                    std::lock_guard<std::mutex> lk(st->sendQueueMtx);
-                                    urlCopy = st->url;
-                                    subprotoCopy = st->subprotocol;
-                                    android_ws_connect((void*){0}.mPtr, urlCopy.c_str(), subprotoCopy.c_str());
-                                }
-                            }
-                            ', this);
-                            #else
-                            untyped __cpp__('
-                                WebSocketState* _ws_stRc = nullptr;
-                                {
-                                    std::lock_guard<std::mutex> _ws_rcLock(_ws_map_mutex);
-                                    auto _ws_rcIt = _ws_map.find((void*){0}.mPtr);
-                                    if (_ws_rcIt != _ws_map.end()) {
-                                        _ws_stRc = _ws_rcIt->second;
-                                    }
-                                }
-                                if (_ws_stRc) { _ws_stRc->shouldConnect.store(true); }
-                            ', this);
-                            #end
-                        #elseif html5
-                        connectWebSocket();
-                        #end
-                    }
+                        if (!_reconnectActive)
+                        {
+                                _reconnectActive = true;
+                                _reconnectTimer = _reconnectInterval;
+                                _reconnectAttempts = 0;  // fresh cycle
+                        }
                 }
-            }
-        }
-        else if (!_wasConnected && _isConnectedFlag)
-        {
-            // Successfully connected (just now). Reset the counter.
-            _reconnectAttempts = 0;
-            _reconnectTimer = 0;
-            // Defensive: clear user-requested disconnect if user had pressed
-            // disconnect then the connection came back (unlikely path, but safe).
-            // Actually keep _userRequestedDisconnect as-is here — it will be
-            // cleared on next explicit connect pulse. Successful auto-reconnect
-            // already implies _userRequestedDisconnect was false.
-        }
-        // Update edge-detection state for next frame
-        _wasConnected = _isConnectedFlag;
+
+                // ── Detect successful connection → stop cycle, reset counter ──
+                if (_isConnectedFlag)
+                {
+                        _reconnectActive = false;
+                        _reconnectAttempts = 0;
+                        _reconnectTimer = 0;
+                }
+
+                // ── Abort cycle if user requested disconnect or auto disabled ──
+                if (_userRequestedDisconnect || !_autoReconnect)
+                {
+                        _reconnectActive = false;
+                }
+
+                // ── Run timer every frame while cycle is active and still down ──
+                if (_reconnectActive && !_isConnectedFlag)
+                {
+                        var canRetry:Bool = (_maxReconnectAttempts == 0)
+                                                                || (_reconnectAttempts < _maxReconnectAttempts);
+                        if (canRetry)
+                        {
+                                _reconnectTimer -= dt;
+                                if (_reconnectTimer <= 0)
+                                {
+                                        _reconnectAttempts++;
+                                        _reconnectTimer = _reconnectInterval;  // reset for next attempt
+                                        // Trigger connect — same path as explicit connect pulse
+                                        #if cpp
+                                                #if android
+                                                untyped __cpp__('
+                                                {
+                                                        std::string urlCopy;
+                                                        std::string subprotoCopy;
+                                                        WebSocketState* st = nullptr;
+                                                        {
+                                                                std::lock_guard<std::mutex> lock(_ws_map_mutex);
+                                                                auto it = _ws_map.find((void*){0}.mPtr);
+                                                                if (it != _ws_map.end()) st = it->second;
+                                                        }
+                                                        if (st) {
+                                                                std::lock_guard<std::mutex> lk(st->sendQueueMtx);
+                                                                urlCopy = st->url;
+                                                                subprotoCopy = st->subprotocol;
+                                                                android_ws_connect((void*){0}.mPtr, urlCopy.c_str(), subprotoCopy.c_str());
+                                                        }
+                                                }
+                                                ', this);
+                                                #else
+                                                untyped __cpp__('
+                                                        WebSocketState* _ws_stRc = nullptr;
+                                                        {
+                                                                std::lock_guard<std::mutex> _ws_rcLock(_ws_map_mutex);
+                                                                auto _ws_rcIt = _ws_map.find((void*){0}.mPtr);
+                                                                if (_ws_rcIt != _ws_map.end()) {
+                                                                        _ws_stRc = _ws_rcIt->second;
+                                                                }
+                                                        }
+                                                        if (_ws_stRc) { _ws_stRc->shouldConnect.store(true); }
+                                                ', this);
+                                                #end
+                                        #elseif html5
+                                        connectWebSocket();
+                                        #end
+                                }
+                        }
+                        else
+                        {
+                                // Exhausted all attempts — give up
+                                _reconnectActive = false;
+                        }
+                }
+
+                // Update edge-detection state for next frame
+                _wasConnected = _isConnectedFlag;
 
         // Propagate reconnectAttempts output (only when changed)
         var raOut = getOutput("reconnectAttempts");
@@ -1524,16 +1575,17 @@ class WebSocketAtom extends Atom implements system.managers.Driver
                     if (st->hConnect)   { WinHttpCloseHandle(st->hConnect);   st->hConnect = NULL; }
                     if (st->hSession)   { WinHttpCloseHandle(st->hSession);   st->hSession = NULL; }
                 }
-				    #elif defined(__ANDROID__)
-					android_ws_disconnect((void*){0}.mPtr);
-					JNIEnv* env = GetJniEnv();
-					if (env && st->javaWsInstance) {
-						env->DeleteGlobalRef(st->javaWsInstance);
-						st->javaWsInstance = nullptr;
-					}
-					delete st;
+                delete st;
+                                    #elif defined(__ANDROID__)
+                                        android_ws_disconnect((void*){0}.mPtr);
+                                        JNIEnv* env = GetJniEnv();
+                                        if (env && st->javaWsInstance) {
+                                                env->DeleteGlobalRef(st->javaWsInstance);
+                                                st->javaWsInstance = nullptr;
+                                        }
+                                        delete st;
                 #endif
-			}
+                        }
         ', this);
         #elseif html5
         if (_webSocket != null)
@@ -1672,39 +1724,39 @@ class WebSocketAtom extends Atom implements system.managers.Driver
             _userRequestedDisconnect = false;
             _reconnectAttempts = 0;
             _reconnectTimer = 0;  // immediate attempt (will be the explicit one)
-			#if cpp
-				#if android
-				untyped __cpp__('
-				{
-					std::string urlCopy;
-					std::string subprotoCopy;
-					WebSocketState* st = nullptr;
-					{
-						std::lock_guard<std::mutex> lock(_ws_map_mutex);
-						auto it = _ws_map.find((void*){0}.mPtr);
-						if (it != _ws_map.end()) st = it->second;
-					}
-					if (st) {
-						std::lock_guard<std::mutex> lk(st->sendQueueMtx);
-						urlCopy = st->url;
-						subprotoCopy = st->subprotocol;
-						android_ws_connect((void*){0}.mPtr, urlCopy.c_str(), subprotoCopy.c_str());
-					}
-				}
-				', this);
-				#else
-				untyped __cpp__('
-				WebSocketState* st = nullptr;
-				{
-					std::lock_guard<std::mutex> lock(_ws_map_mutex);
-					auto it = _ws_map.find((void*){0}.mPtr);
-					if (it != _ws_map.end()) st = it->second;
-				}
-				if (st) { st->shouldConnect.store(true); }
-				', this);
-				#end
-			#elseif html5
-			connectWebSocket();
+                        #if cpp
+                                #if android
+                                untyped __cpp__('
+                                {
+                                        std::string urlCopy;
+                                        std::string subprotoCopy;
+                                        WebSocketState* st = nullptr;
+                                        {
+                                                std::lock_guard<std::mutex> lock(_ws_map_mutex);
+                                                auto it = _ws_map.find((void*){0}.mPtr);
+                                                if (it != _ws_map.end()) st = it->second;
+                                        }
+                                        if (st) {
+                                                std::lock_guard<std::mutex> lk(st->sendQueueMtx);
+                                                urlCopy = st->url;
+                                                subprotoCopy = st->subprotocol;
+                                                android_ws_connect((void*){0}.mPtr, urlCopy.c_str(), subprotoCopy.c_str());
+                                        }
+                                }
+                                ', this);
+                                #else
+                                untyped __cpp__('
+                                WebSocketState* st = nullptr;
+                                {
+                                        std::lock_guard<std::mutex> lock(_ws_map_mutex);
+                                        auto it = _ws_map.find((void*){0}.mPtr);
+                                        if (it != _ws_map.end()) st = it->second;
+                                }
+                                if (st) { st->shouldConnect.store(true); }
+                                ', this);
+                                #end
+                        #elseif html5
+                        connectWebSocket();
             #end
         }
 
@@ -1715,22 +1767,22 @@ class WebSocketAtom extends Atom implements system.managers.Driver
             // Mark as user-requested — auto-reconnect will be suppressed
             // until next explicit connect pulse.
             _userRequestedDisconnect = true;
-			#if cpp
-				#if android
-				untyped __cpp__('android_ws_disconnect((void*){0}.mPtr);', this);
-				#else
-				untyped __cpp__('
-				WebSocketState* st = nullptr;
-				{
-					std::lock_guard<std::mutex> lock(_ws_map_mutex);
-					auto it = _ws_map.find((void*){0}.mPtr);
-					if (it != _ws_map.end()) st = it->second;
-				}
-				if (st) { st->shouldDisconnect.store(true); }
-				', this);
-				#end
-			#elseif html5
-			disconnectWebSocket();
+                        #if cpp
+                                #if android
+                                untyped __cpp__('android_ws_disconnect((void*){0}.mPtr);', this);
+                                #else
+                                untyped __cpp__('
+                                WebSocketState* st = nullptr;
+                                {
+                                        std::lock_guard<std::mutex> lock(_ws_map_mutex);
+                                        auto it = _ws_map.find((void*){0}.mPtr);
+                                        if (it != _ws_map.end()) st = it->second;
+                                }
+                                if (st) { st->shouldDisconnect.store(true); }
+                                ', this);
+                                #end
+                        #elseif html5
+                        disconnectWebSocket();
             #end
         }
 
@@ -1741,31 +1793,31 @@ class WebSocketAtom extends Atom implements system.managers.Driver
             if (sendDataC != null && sendDataC.value != null)
             {
                 var data:String = Std.string(sendDataC.value);
-				#if cpp
-						#if android
-						untyped __cpp__('
-						{
-							const char* dataChars = (const char*){1}.__s;
-							int dataLen = {1}.length;
-							android_ws_send((void*){0}.mPtr, dataChars, dataLen);
-						}
-						', this, data);
-						#else
-						untyped __cpp__('
-						WebSocketState* st = nullptr;
-						{
-							std::lock_guard<std::mutex> lock(_ws_map_mutex);
-							auto it = _ws_map.find((void*){0}.mPtr);
-							if (it != _ws_map.end()) st = it->second;
-						}
-						if (st) {
-							std::lock_guard<std::mutex> lk(st->sendQueueMtx);
-							st->sendQueue.push(std::string((const char*){1}.__s));
-							st->hasPendingSend.store(true);
-						}
-						', this, data);
-						#end
-				#elseif html5
+                                #if cpp
+                                                #if android
+                                                untyped __cpp__('
+                                                {
+                                                        const char* dataChars = (const char*){1}.__s;
+                                                        int dataLen = {1}.length;
+                                                        android_ws_send((void*){0}.mPtr, dataChars, dataLen);
+                                                }
+                                                ', this, data);
+                                                #else
+                                                untyped __cpp__('
+                                                WebSocketState* st = nullptr;
+                                                {
+                                                        std::lock_guard<std::mutex> lock(_ws_map_mutex);
+                                                        auto it = _ws_map.find((void*){0}.mPtr);
+                                                        if (it != _ws_map.end()) st = it->second;
+                                                }
+                                                if (st) {
+                                                        std::lock_guard<std::mutex> lk(st->sendQueueMtx);
+                                                        st->sendQueue.push(std::string((const char*){1}.__s));
+                                                        st->hasPendingSend.store(true);
+                                                }
+                                                ', this, data);
+                                                #end
+                                #elseif html5
                 sendWebSocketData(data);
                 #end
 
