@@ -44,7 +44,7 @@ class Atom implements IDisposable implements Driver
 	// v3.9: Visual mode for NodeView (LIGHT, MEDIUM, HEAVY)
 	// Persisted in JSON so it survives app restart.
 	// ═══════════════════════════════════════════════════════════════════════
-	private var _visualMode:String = "MEDIUM";
+	private var _visualMode:String = "LIGHT"; // Default
 
 	public function getVisualMode():String return _visualMode;
 	public function setVisualModeState(mode:String):Void 

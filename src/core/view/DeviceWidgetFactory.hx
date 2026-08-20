@@ -158,7 +158,7 @@ class DeviceWidgetFactory
 			#end
 
 			// Cross-platform — no #if wrapper
-			case "websocket", "websocket atom":
+			case "websocketatom", "websocket atom":
 				new WebSocketWidget(asm);
 			
 			case "filewriter", "file writer":
@@ -203,7 +203,7 @@ class DeviceWidgetFactory
 			case "comportatom", "com port":
 				new ComPortWidget(atom);
 				
-			case "websocket":
+			case "websocketatom":
 				new WebSocketWidget(atom);
 				
 			#if cpp
@@ -293,7 +293,7 @@ class DeviceWidgetFactory
 			case "led" | "button" | "toggle" | "oscilloscope" | "fftatom" | "textinput" |
 				 "audioin" | "audioinput" | "relay" | "conductor" |
 				 "universalgen" | "signalgen" | "fpsmonitor" | "frametime" |
-				 "textarea" | "websocket" | "comportatom" | "filewriteratom":
+				 "textarea" | "websocketatom" | "comportatom" | "filewriteratom":
 				true;
 			default:
 				// Check Assembly

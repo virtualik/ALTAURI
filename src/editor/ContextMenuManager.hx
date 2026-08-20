@@ -205,34 +205,49 @@ class ContextMenuManager
 		);
 		var editorEntries = editorProvider.getEntries();
 
-		// v3.9: Add visual mode selection entries at the top
-		var currentView = _editor.getNodeViewById(_contextTargetId);
-		var currentMode:NodeVisualMode = (currentView != null) ? currentView.visualMode : NodeVisualMode.MEDIUM;
+		// ========================================================================
+		// Visual Mode menu items (v3.9 with group support)
+		// ========================================================================
+		var selectedCount = _editor.getSelectedNodeCount();
+		var isSingleSelection = (selectedCount == 1);
 
-		// Separator label
+// Получаем текущий режим только для одного выделенного атома
+		var currentMode:NodeVisualMode = NodeVisualMode.LIGHT;
+		if (isSingleSelection)
+		{
+			var currentView = _editor.getNodeViewById(_contextTargetId);
+			if (currentView != null) currentMode = currentView.visualMode;
+		}
+
+// Для группы НЕ показываем кружки
+		var showCheckmark = isSingleSelection;
+
+// Добавляем визуальный разделитель
 		editorEntries.unshift(MenuEntry.createCommand(
 			"SEPARATOR",
 			"── View Mode ──",
 			{}
 		));
 
-		// Three mode options with checkmark on current
+// Три пункта меню с правильными кружками
 		editorEntries.unshift(MenuEntry.createCommand(
 			"SET_NODE_VISUAL_MODE",
-			(currentMode == NodeVisualMode.HEAVY ? "● " : "   ") + "Heavy (Full Detail)",
-			{ nodeId: _contextTargetId, mode: "HEAVY" }
-		));
-		editorEntries.unshift(MenuEntry.createCommand(
-			"SET_NODE_VISUAL_MODE",
-			(currentMode == NodeVisualMode.MEDIUM ? "● " : "   ") + "Medium (Inline)",
-			{ nodeId: _contextTargetId, mode: "MEDIUM" }
-		));
-		editorEntries.unshift(MenuEntry.createCommand(
-			"SET_NODE_VISUAL_MODE",
-			(currentMode == NodeVisualMode.LIGHT ? "● " : "   ") + "Light (Ports Only)",
-			{ nodeId: _contextTargetId, mode: "LIGHT" }
+			(showCheckmark && currentMode == NodeVisualMode.HEAVY ? "● " : "   ") + "Heavy (Full Detail)",
+			{ nodeId: _contextTargetId, mode: "HEAVY", isGroup: !isSingleSelection }
 		));
 
+		editorEntries.unshift(MenuEntry.createCommand(
+			"SET_NODE_VISUAL_MODE",
+			(showCheckmark && currentMode == NodeVisualMode.MEDIUM ? "● " : "   ") + "Medium (Inline)",
+			{ nodeId: _contextTargetId, mode: "MEDIUM", isGroup: !isSingleSelection }
+		));
+
+		editorEntries.unshift(MenuEntry.createCommand(
+			"SET_NODE_VISUAL_MODE",
+			(showCheckmark && currentMode == NodeVisualMode.LIGHT ? "● " : "   ") + "Light (Ports Only)",
+			{ nodeId: _contextTargetId, mode: "LIGHT", isGroup: !isSingleSelection }
+		));
+		
 		entriesByCategory.set(MenuCategory.EDITOR, editorEntries);
 // Recent (always included, even if empty)
 		entriesByCategory.set(MenuCategory.RECENT, RecentMenuTracker.getInstance().getRecent());
@@ -351,30 +366,31 @@ class ContextMenuManager
 		switch (action)
 		{
 			case "SET_NODE_VISUAL_MODE":
-				// ═══════════════════════════════════════════════════════
-				// БЕЗОПАСНЫЙ TRACE #3: Используем Reflect.field
-				// ═══════════════════════════════════════════════════════
-				trace('  🔍 SET_NODE_VISUAL_MODE case entered');
-				
-				// Получаем поля через Reflect (безопасно)
 				var nodeId = Reflect.field(data, "nodeId");
 				var mode = Reflect.field(data, "mode");
+				var isGroup = Reflect.field(data, "isGroup");
 				
-				trace('    📍 nodeId: ' + Std.string(nodeId) + ', mode: ' + Std.string(mode));
-				
-				if (nodeId != null && mode != null)
+				if (isGroup == true)
 				{
-					var view = _editor.getNodeViewById(Std.string(nodeId));
-					trace('    📍 view found: ' + (view != null));
-					if (view != null)
+					// Применяем режим ко ВСЕМ выделенным атомам
+					var selectedIds = _editor.getSelectedNodeIds();
+					for (id in selectedIds)
 					{
-						trace('    📍 calling setVisualModeFromString("' + Std.string(mode) + '")');
-						view.setVisualModeFromString(Std.string(mode));
+						var view = _editor.getNodeViewById(id);
+						if (view != null)
+						{
+							view.setVisualModeFromString(Std.string(mode));
+						}
 					}
 				}
-				else
+				else if (nodeId != null && mode != null)
 				{
-					trace('  ⚠️ data is null or missing nodeId/mode');
+					// Применяем к одному атому
+					var view = _editor.getNodeViewById(Std.string(nodeId));
+					if (view != null)
+					{
+						view.setVisualModeFromString(Std.string(mode));
+					}
 				}
 				return;
 
