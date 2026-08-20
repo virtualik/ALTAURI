@@ -168,6 +168,7 @@ class ContextMenuManager
 		applySidebarPosition();
 		_menu.show(impulse.data.x, impulse.data.y);
 	}
+	
 	/**
 	* Handle node right-click (node context menu).
 	* Shows Editor commands (Delete, Group) + library categories.
@@ -178,40 +179,38 @@ class ContextMenuManager
 		if (impulse == null || impulse.data == null) return;
 		var view:NodeView = impulse.data.view;
 		_contextTargetId = impulse.data.id;
-// Selection logic on right-click
+
 		if (!_editor.isSelected(_contextTargetId))
 		{
-// Node not selected: reset all and select only this one
 			_editor.deselectAll();
 			_editor.selectNode(_contextTargetId, view);
 		}
 		else
 		{
-// Node already selected: keep node selection, clear wires
 			_editor.clearWireSelection();
 		}
+
 		resetMenu();
 		var nodeCount = _editor.getSelectedNodeCount();
 		var wireCount = _editor.getSelectedWireIds().length;
-// Build menu data
+
 		var categories = MenuCategory.getBuiltinCategories();
 		var entriesByCategory = new Map<String, Array<MenuEntry>>();
-// Editor commands (with Add Port for canvas context)
+
 		var editorProvider = new EditorCommandsProvider(
 			nodeCount,
 			wireCount,
 			_settingsPanel.allowAssembly,
-			true  // includeAddPort = true for node context
+			true
 		);
 		var editorEntries = editorProvider.getEntries();
 
 		// ========================================================================
-		// Visual Mode menu items (v3.9 with group support)
+		// Visual Mode menu items
 		// ========================================================================
 		var selectedCount = _editor.getSelectedNodeCount();
 		var isSingleSelection = (selectedCount == 1);
 
-// Получаем текущий режим только для одного выделенного атома
 		var currentMode:NodeVisualMode = NodeVisualMode.LIGHT;
 		if (isSingleSelection)
 		{
@@ -219,83 +218,59 @@ class ContextMenuManager
 			if (currentView != null) currentMode = currentView.visualMode;
 		}
 
-// Для группы НЕ показываем кружки
-		var showCheckmark = isSingleSelection;
+		//editorEntries.unshift(MenuEntry.createCommand(
+			//"SEPARATOR",
+			//"── View Mode ──",
+			//{}
+		//));
 
-// Добавляем визуальный разделитель
-		editorEntries.unshift(MenuEntry.createCommand(
-			"SEPARATOR",
-			"── View Mode ──",
-			{}
-		));
+		// ═══════════════════════════════════════════════════════════════
+		// Local function to add entries
+		// ═══════════════════════════════════════════════════════════════
+		function addModeEntry(mode:NodeVisualMode, label:String):Void
+		{
+			if (isSingleSelection && mode == currentMode) return;
+			
+			var isGroup = !isSingleSelection;
+			var prefix = "   ";
+			
+			// ═══════════════════════════════════════════════════════════════
+			// Используем push() вместо unshift()
+			// push() добавляет элементы в КОНЕЦ массива
+			// ═══════════════════════════════════════════════════════════════
+			editorEntries.push(MenuEntry.createCommand(
+				"SET_NODE_VISUAL_MODE",
+				prefix + label,
+				{ 
+					nodeId: _contextTargetId, 
+					mode: Std.string(mode), 
+					isGroup: isGroup 
+				}
+			));
+		}
 
-// Три пункта меню с правильными кружками
-		editorEntries.unshift(MenuEntry.createCommand(
-			"SET_NODE_VISUAL_MODE",
-			(showCheckmark && currentMode == NodeVisualMode.HEAVY ? "● " : "   ") + "Heavy (Full Detail)",
-			{ nodeId: _contextTargetId, mode: "HEAVY", isGroup: !isSingleSelection }
-		));
+		addModeEntry(NodeVisualMode.LIGHT, "Light (Ports Only)");
+		addModeEntry(NodeVisualMode.MEDIUM, "Medium (Inline)");
+		addModeEntry(NodeVisualMode.HEAVY, "Heavy (Full Detail)");
 
-		editorEntries.unshift(MenuEntry.createCommand(
-			"SET_NODE_VISUAL_MODE",
-			(showCheckmark && currentMode == NodeVisualMode.MEDIUM ? "● " : "   ") + "Medium (Inline)",
-			{ nodeId: _contextTargetId, mode: "MEDIUM", isGroup: !isSingleSelection }
-		));
-
-		editorEntries.unshift(MenuEntry.createCommand(
-			"SET_NODE_VISUAL_MODE",
-			(showCheckmark && currentMode == NodeVisualMode.LIGHT ? "● " : "   ") + "Light (Ports Only)",
-			{ nodeId: _contextTargetId, mode: "LIGHT", isGroup: !isSingleSelection }
-		));
-		
 		entriesByCategory.set(MenuCategory.EDITOR, editorEntries);
-// Recent (always included, even if empty)
 		entriesByCategory.set(MenuCategory.RECENT, RecentMenuTracker.getInstance().getRecent());
-// Atom library
+
 		var currentBpId = (_assembly != null && _assembly.blueprint != null)
-		? _assembly.blueprint.id
-		: null;
+			? _assembly.blueprint.id
+			: null;
 		var atomProvider = new AtomLibraryProvider(currentBpId);
 		entriesByCategory.set(MenuCategory.ATOMS, atomProvider.getEntries());
-// Assembly library
+
 		var assemblyProvider = new AssemblyLibraryProvider(currentBpId);
 		entriesByCategory.set(MenuCategory.ASSEMBLIES, assemblyProvider.getEntries());
-// Set preferred category BEFORE setData so it's applied during menu build
-		_menu.setPreferredCategory(MenuCategory.EDITOR);
-// Set menu data
-		_menu.setData(categories, entriesByCategory);
-		applySidebarPosition();
-		_menu.show(impulse.data.x, impulse.data.y);
-	}
-	/**
-	* Handle wire right-click (wire context menu).
-	* Shows only Delete Wire command (no Add Port).
-	*/
-	private function onWireRightClick(impulse:Impulse):Void
-	{
-		if (_isDisposed) return;
-		if (impulse == null || impulse.data == null) return;
-		resetMenu();
-		var wireCount:Int = Std.int(impulse.data.ids.length);
-		var nodeCount = _editor.getSelectedNodeCount();
-		var categories = MenuCategory.getBuiltinCategories();
-		var entriesByCategory = new Map<String, Array<MenuEntry>>();
-// Editor commands (NO Add Port for wire context)
-		var editorProvider = new EditorCommandsProvider(
-			nodeCount,
-			wireCount,
-			_settingsPanel.allowAssembly,
-			false  // includeAddPort = false for wire context
-		);
-		entriesByCategory.set(MenuCategory.EDITOR, editorProvider.getEntries());
-// Recent (always included, even if empty)
-		entriesByCategory.set(MenuCategory.RECENT, RecentMenuTracker.getInstance().getRecent());
-// Set preferred category BEFORE setData so it's applied during menu build
+
 		_menu.setPreferredCategory(MenuCategory.EDITOR);
 		_menu.setData(categories, entriesByCategory);
 		applySidebarPosition();
 		_menu.show(impulse.data.x, impulse.data.y);
 	}
+
 	/**
 	* Handle port right-click (port context menu).
 	* Shows only Remove Port command (no Add Port).
@@ -322,6 +297,41 @@ class ContextMenuManager
 		applySidebarPosition();
 		_menu.show(impulse.data.x, impulse.data.y);
 	}
+	
+	/**
+	* Handle wire right-click (wire context menu).
+	* Shows only Delete Wire command (no Add Port).
+	*/
+	private function onWireRightClick(impulse:Impulse):Void
+	{
+		if (_isDisposed) return;
+		if (impulse == null || impulse.data == null) return;
+		
+		resetMenu();
+		var wireCount:Int = Std.int(impulse.data.ids.length);
+		var nodeCount = _editor.getSelectedNodeCount();
+		
+		var categories = MenuCategory.getBuiltinCategories();
+		var entriesByCategory = new Map<String, Array<MenuEntry>>();
+		
+		// Editor commands (NO Add Port for wire context)
+		var editorProvider = new EditorCommandsProvider(
+			nodeCount,
+			wireCount,
+			_settingsPanel.allowAssembly,
+			false  // includeAddPort = false for wire context
+		);
+		entriesByCategory.set(MenuCategory.EDITOR, editorProvider.getEntries());
+		
+		// Recent (always included, even if empty)
+		entriesByCategory.set(MenuCategory.RECENT, RecentMenuTracker.getInstance().getRecent());
+		
+		_menu.setPreferredCategory(MenuCategory.EDITOR);
+		_menu.setData(categories, entriesByCategory);
+		applySidebarPosition();
+		_menu.show(impulse.data.x, impulse.data.y);
+	}
+
 // ========================================================================
 // ACTIONS: Menu Item Clicked
 // ========================================================================
