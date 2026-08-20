@@ -103,6 +103,7 @@
 
 
 
+
 ================================================================================
 // FILE: core\base\Assembly.hx
 // Lines: 2353 | Chars: 82473
@@ -4064,7 +4065,7 @@ interface IDisposable
 
 ================================================================================
 // FILE: core\data\Blueprint.hx
-// Lines: 201 | Chars: 7619
+// Lines: 203 | Chars: 7733
 ================================================================================
 
 package core.data;
@@ -4134,11 +4135,13 @@ typedef PinDef =
 */
 typedef AtomDef =
 {
-    var instanceId:String;
-    var typeId:String;
-    @:optional var x:Float;
-    @:optional var y:Float;
-    @:optional var values:Dynamic;
+	var instanceId:String;
+	var typeId:String;
+	@:optional var x:Float;
+	@:optional var y:Float;
+	@:optional var values:Dynamic;
+	/** v3.9: Persisted NodeVisualMode ("LIGHT", "MEDIUM", "HEAVY"). Null = default (MEDIUM). */
+	@:optional var visualMode:String;
 }
 
 /**
@@ -18366,7 +18369,7 @@ class ECS {
 
 ================================================================================
 // FILE: editor\ContextMenuManager.hx
-// Lines: 455 | Chars: 16762
+// Lines: 500 | Chars: 18207
 ================================================================================
 
 package editor;
@@ -18392,6 +18395,7 @@ import ui.contextmenu.providers.EditorCommandsProvider;
 import ui.contextmenu.providers.AtomLibraryProvider;
 import ui.contextmenu.providers.AssemblyLibraryProvider;
 import ui.SettingsPanel;
+import ui.NodeVisualMode;
 
 /**
  * ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -18573,7 +18577,37 @@ class ContextMenuManager
 			_settingsPanel.allowAssembly,
 			true  // includeAddPort = true for node context
 		);
-		entriesByCategory.set(MenuCategory.EDITOR, editorProvider.getEntries());
+		var editorEntries = editorProvider.getEntries();
+
+		// v3.9: Add visual mode selection entries at the top
+		var currentView = _editor.getNodeViewById(_contextTargetId);
+		var currentMode:NodeVisualMode = (currentView != null) ? currentView.visualMode : NodeVisualMode.MEDIUM;
+
+		// Separator label
+		editorEntries.unshift(MenuEntry.createCommand(
+			"SEPARATOR",
+			"── View Mode ──",
+			{}
+		));
+
+		// Three mode options with checkmark on current
+		editorEntries.unshift(MenuEntry.createCommand(
+			"SET_NODE_VISUAL_MODE",
+			(currentMode == NodeVisualMode.HEAVY ? "● " : "   ") + "Heavy (Full Detail)",
+			{ nodeId: _contextTargetId, mode: "HEAVY" }
+		));
+		editorEntries.unshift(MenuEntry.createCommand(
+			"SET_NODE_VISUAL_MODE",
+			(currentMode == NodeVisualMode.MEDIUM ? "● " : "   ") + "Medium (Inline)",
+			{ nodeId: _contextTargetId, mode: "MEDIUM" }
+		));
+		editorEntries.unshift(MenuEntry.createCommand(
+			"SET_NODE_VISUAL_MODE",
+			(currentMode == NodeVisualMode.LIGHT ? "● " : "   ") + "Light (Ports Only)",
+			{ nodeId: _contextTargetId, mode: "LIGHT" }
+		));
+
+		entriesByCategory.set(MenuCategory.EDITOR, editorEntries);
 // Recent (always included, even if empty)
 		entriesByCategory.set(MenuCategory.RECENT, RecentMenuTracker.getInstance().getRecent());
 // Atom library
@@ -18674,6 +18708,20 @@ class ContextMenuManager
 		RecentMenuTracker.getInstance().record(recentEntry);
 		switch (action)
 		{
+			case "SET_NODE_VISUAL_MODE":
+				if (data != null && data.nodeId != null && data.mode != null)
+				{
+					var view = _editor.getNodeViewById(Std.string(data.nodeId));
+					if (view != null)
+					{
+						view.setVisualModeFromString(Std.string(data.mode));
+					}
+				}
+				return;
+
+			case "SEPARATOR":
+				// No-op — visual separator only
+				return;
 			case "DELETE_ALL_SELECTED":
 				var macrocom = new MacroCommand();
 				var nodeIds = _editor.getSelectedNodeIds();
@@ -20849,7 +20897,7 @@ class GroupSelectionManager
 
 ================================================================================
 // FILE: editor\NodeEditor.hx
-// Lines: 1818 | Chars: 82995
+// Lines: 1823 | Chars: 82854
 ================================================================================
 
 package editor;
@@ -21514,36 +21562,41 @@ class NodeEditor extends Sprite
         // =========================================================================
         // NODE MANAGEMENT
         // =========================================================================
-        private function restoreExistingAtoms():Void
-        {
-                if (_blueprint.internalAtoms == null) return;
-                for (atomDef in _blueprint.internalAtoms)
-                {
-                        var runtimeId = _assembly.idMap.get(atomDef.instanceId);
-                        if (runtimeId == null) runtimeId = atomDef.instanceId;
-                        var atomInstance = _assembly.internalAtoms.get(runtimeId);
-                        if (atomInstance != null)
-                        {
-                                createViewForAtom(cast atomInstance, runtimeId, atomDef.x, atomDef.y);
-                        }
-                }
-        }
+		private function restoreExistingAtoms():Void
+		{
+			if (_blueprint.internalAtoms == null) return;
+			for (atomDef in _blueprint.internalAtoms)
+			{
+				var runtimeId = _assembly.idMap.get(atomDef.instanceId);
+				if (runtimeId == null) runtimeId = atomDef.instanceId;
+				var atomInstance = _assembly.internalAtoms.get(runtimeId);
+				if (atomInstance != null)
+				{
+					// v3.9: Pass saved visual mode
+					createViewForAtom(cast atomInstance, runtimeId, atomDef.x, atomDef.y, atomDef.visualMode);
+				}
+			}
+		}
 
-        private function createViewForAtom(atom:Atom, id:String, x:Float, y:Float):Void
-        {
-                if (_nodes.exists(id)) return;
-                var view:NodeView = new NodeView(atom, id);
-                view.setPosition(x, y);
-
-                // === v3.3: Pass parent Assembly for name uniqueness check ===
-                view.setParentAssembly(_assembly);
-
-                // === v4.8: Pass global name uniqueness checker ===
-                view.isNameTakenGlobally = _isNameTakenGlobally;
-
-                _canvas.addChild(view);
-                _nodes.set(id, view);
-        }
+		private function createViewForAtom(atom:Atom, id:String, x:Float, y:Float, ?visualModeStr:String):Void
+		{
+			if (_nodes.exists(id)) return;
+			var view:NodeView = new NodeView(atom, id);
+			view.setPosition(x, y);
+			
+			// v3.9: Restore saved visual mode
+			if (visualModeStr != null)
+			{
+				view.setVisualModeFromString(visualModeStr);
+			}
+			
+			// === v3.3: Pass parent Assembly for name uniqueness check ===
+			view.setParentAssembly(_assembly);
+			// === v4.8: Pass global name uniqueness checker ===
+			view.isNameTakenGlobally = _isNameTakenGlobally;
+			_canvas.addChild(view);
+			_nodes.set(id, view);
+		}
 
         public function createAtom(typeId:String, posX:Float, posY:Float):Atom
         {
@@ -22500,7 +22553,7 @@ class NodeEditor extends Sprite
 // =========================================================================
 // HELPERS
 // =========================================================================
-        private function getNodeViewById(id:String):NodeView return _nodes.get(id);
+        public function getNodeViewById(id:String):NodeView return _nodes.get(id);
         private function getEdgePortById(name:String):Sprite return _edgePorts.get(name);
 
         private function findPortAt(x:Float, y:Float): {nodeId:String, contactName:String, isInput:Bool}
@@ -22673,7 +22726,7 @@ class NodeEditor extends Sprite
 
 ================================================================================
 // FILE: editor\NodeView.hx
-// Lines: 2023 | Chars: 93563
+// Lines: 2050 | Chars: 94195
 ================================================================================
 
 package editor;
@@ -22872,7 +22925,7 @@ class NodeView extends Sprite
          * v2.0: Current visualization detail level.
          * Controls whether the widget is hidden, scaled, or shown at full size.
          */
-        public var visualMode:NodeVisualMode = NodeVisualMode.MEDIUM;
+        public var visualMode:NodeVisualMode = NodeVisualMode.LIGHT;
 
 // =========================================================================
 // DINAMIC SWICHING CACHEASBITMAP
@@ -23562,24 +23615,51 @@ class NodeView extends Sprite
                 }
         }
         
-        /**
-         * v2.0: Update the visual mode and trigger layout recalculation.
-         * 
-         * @param mode The new visualization mode (LIGHT, MEDIUM, HEAVY)
-         */
-        public function setVisualMode(mode:NodeVisualMode):Void
-        {
-                if (visualMode == mode) return;
-                visualMode = mode;
-                
-                // Recreate inline editors based on mode
-                // LIGHT: no editors
-                // MEDIUM/HEAVY: editors present
-                createInlineEditors();
-                
-                // Update layout and redraw
-                updateLayout();
-        }
+		/**
+		* v2.0: Update the visual mode and trigger layout recalculation.
+		* v3.9: Now also persists the mode to the Blueprint's AtomDef for saving.
+		* 
+		* @param mode The new visualization mode (LIGHT, MEDIUM, HEAVY)
+		*/
+		public function setVisualMode(mode:NodeVisualMode):Void
+		{
+			if (visualMode == mode) return;
+			visualMode = mode;
+			
+			// === v3.9: Persist visual mode to Blueprint ===
+			if (assembly != null && assembly.blueprint != null && assembly.blueprint.internalAtoms != null) 
+			{
+				var templateId = assembly.getTemplateId(nodeId);
+				for (atomDef in assembly.blueprint.internalAtoms) 
+				{
+					if (atomDef.instanceId == templateId) 
+					{
+						atomDef.visualMode = Std.string(mode);
+						break;
+					}
+				}
+			}
+			
+			// Recreate inline editors based on mode
+			createInlineEditors();
+			
+			// Update layout and redraw
+			updateLayout();
+		}
+
+		/**
+		* v3.9: Helper to restore visual mode from a saved string value.
+		* @param str Saved mode string ("LIGHT", "MEDIUM", "HEAVY")
+		*/
+		public function setVisualModeFromString(str:String):Void 
+		{
+			switch(str) 
+			{
+				case "LIGHT": setVisualMode(NodeVisualMode.LIGHT);
+				case "HEAVY": setVisualMode(NodeVisualMode.HEAVY);
+				default: setVisualMode(NodeVisualMode.MEDIUM);
+			}
+		}
 
         private function getPinDefForContact(contact:Contact):PinDef
         {
@@ -46397,7 +46477,7 @@ class DriverManager
 
 ================================================================================
 // FILE: system\managers\ProjectManager.hx
-// Lines: 767 | Chars: 24283
+// Lines: 784 | Chars: 24779
 ================================================================================
 
 package system.managers;
@@ -46570,14 +46650,20 @@ class ProjectManager
 			{
 				values = atomInstance.getPersistentState();
 			}
-			atomsToSave.push(
+			var atomData:Dynamic =
 			{
 				instanceId: atomDef.instanceId,
 				typeId: atomDef.typeId,
 				x: atomDef.x,
 				y: atomDef.y,
 				values: values
-			});
+			};
+			// v3.9: Persist visual mode if explicitly set
+			if (atomDef.visualMode != null)
+			{
+				atomData.visualMode = atomDef.visualMode;
+			}
+			atomsToSave.push(atomData);
 		}
 // Serialize connections with template IDs
 		var connsToSave:Array<Dynamic> = [];
@@ -46796,14 +46882,20 @@ class ProjectManager
 			var atomInstance:Atom = cast asm.internalAtoms.get(runtimeId);
 			var values:Dynamic = null;
 			if (atomInstance != null) values = atomInstance.getPersistentState();
-			atomsToSave.push(
+			var atomData:Dynamic =
 			{
 				instanceId: atomDef.instanceId,
 				typeId: atomDef.typeId,
 				x: atomDef.x,
 				y: atomDef.y,
 				values: values
-			});
+			};
+			// v3.9: Persist visual mode if explicitly set
+			if (atomDef.visualMode != null)
+			{
+				atomData.visualMode = atomDef.visualMode;
+			}
+			atomsToSave.push(atomData);
 		}
 // Serialize connections
 		var connsToSave:Array<Dynamic> = [];
@@ -46981,13 +47073,18 @@ class ProjectManager
 		{
 			for (a in (cast(rawBp.internalAtoms, Array<Dynamic>)))
 			{
+				// v3.9: Parse visual mode
+				var vm:String = null;
+				if (a.visualMode != null) vm = Std.string(a.visualMode);
+				
 				atoms.push(
 				{
 					instanceId: Std.string(a.instanceId),
 					typeId: Std.string(a.typeId),
 					x: a.x,
 					y: a.y,
-					values: a.values
+					values: a.values,
+					visualMode: vm
 				});
 			}
 		}

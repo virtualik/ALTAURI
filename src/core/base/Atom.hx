@@ -40,6 +40,18 @@ class Atom implements IDisposable implements Driver
 	public var displayName(get, set):String;
 	private var _displayName:String;
 
+	// ═══════════════════════════════════════════════════════════════════════
+	// v3.9: Visual mode for NodeView (LIGHT, MEDIUM, HEAVY)
+	// Persisted in JSON so it survives app restart.
+	// ═══════════════════════════════════════════════════════════════════════
+	private var _visualMode:String = "MEDIUM";
+
+	public function getVisualMode():String return _visualMode;
+	public function setVisualModeState(mode:String):Void 
+	{
+		_visualMode = mode;
+	}
+
 	private function get_displayName():String
 	{
 		return _displayName != null ? _displayName : type;
@@ -260,38 +272,57 @@ class Atom implements IDisposable implements Driver
 	/**
 	* Save state for persistence.
 	* v7.1: Includes displayName
+	* v3.9: Includes visualMode (if not default)
 	*/
 	public function getPersistentState():Dynamic
 	{
-		if (_isLogic || _displayName != type)
+		var hasLogic = _isLogic;
+		var hasDisplayName = (_displayName != null && _displayName != type);
+		// ═══════════════════════════════════════════════════════════════
+		// v3.9: Сохраняем ВСЕ режимы, включая MEDIUM
+		// ═══════════════════════════════════════════════════════════════
+		var hasVisualMode = (_visualMode != null && _visualMode != "");
+		
+		if (hasLogic || hasDisplayName || hasVisualMode)
 		{
-			return
-			{
-				isLogic: _isLogic,
-				displayName: _displayName
-			};
+			var state:Dynamic = {};
+			if (hasLogic) state.isLogic = _isLogic;
+			if (hasDisplayName) state.displayName = _displayName;
+			if (hasVisualMode) state.visualMode = _visualMode;
+			return state;
 		}
 		return null;
 	}
-
+	
 	/**
 	* Restore state from saved data.
 	* v7.1: Restores displayName
+	* v3.9: Restores visualMode
 	*/
 	public function restoreState(state:Dynamic):Void
 	{
 		if (state == null) return;
-		// Firstly restore base feilds
+		
+		// Restore isLogic
 		if (Reflect.hasField(state, "isLogic"))
 		{
 			this.isLogic = state.isLogic;
 		}
-
-		// === RESTORE displayName ===
+		
+		// Restore displayName
 		if (Reflect.hasField(state, "displayName"))
 		{
 			_displayName = state.displayName;
 			trace('Atom ${id}: Restored displayName = "${_displayName}"');
+		}
+		
+		// ═══════════════════════════════════════════════════════════════
+		// v3.9: Restore visualMode
+		// ═══════════════════════════════════════════════════════════════
+		if (Reflect.hasField(state, "visualMode"))
+		{
+			_visualMode = Std.string(Reflect.field(state, "visualMode"));
+			trace('Atom ${id}: Restored visualMode = "${_visualMode}"');
 		}
 	}
 
@@ -336,6 +367,7 @@ class Atom implements IDisposable implements Driver
 	{
 		// v7.0: @:volatile guarantees visibility in Audio Thread
 		_isDisposed = true;
+		
 		// v8.0: Release globally-registered displayName so the slot becomes
 		// available again for future atoms. Safe to call multiple times —
 		// NamingService.unregisterInstanceName() is idempotent.
@@ -343,6 +375,10 @@ class Atom implements IDisposable implements Driver
 		{
 			core.logic.NamingService.unregisterInstanceName(_displayName);
 		}
+		
+		// v3.9: Clear visualMode (не обязательно, но чисто)
+		_visualMode = null;
+		
 		if (_isActive) DriverManager.getInstance().unregister(this.id);
 		if (_inputs != null) { for (c in _inputs) { if (c != null) c.dispose(); } }
 		if (_outputs != null) { for (c in _outputs) { if (c != null) c.dispose(); } }

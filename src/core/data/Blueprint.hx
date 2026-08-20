@@ -65,11 +65,13 @@ typedef PinDef =
 */
 typedef AtomDef =
 {
-    var instanceId:String;
-    var typeId:String;
-    @:optional var x:Float;
-    @:optional var y:Float;
-    @:optional var values:Dynamic;
+	var instanceId:String;
+	var typeId:String;
+	@:optional var x:Float;
+	@:optional var y:Float;
+	@:optional var values:Dynamic;
+	/** v3.9: Persisted NodeVisualMode ("LIGHT", "MEDIUM", "HEAVY"). Null = default (MEDIUM). */
+	@:optional var visualMode:String;
 }
 
 /**

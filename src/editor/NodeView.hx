@@ -194,7 +194,7 @@ class NodeView extends Sprite
          * v2.0: Current visualization detail level.
          * Controls whether the widget is hidden, scaled, or shown at full size.
          */
-        public var visualMode:NodeVisualMode = NodeVisualMode.MEDIUM;
+        public var visualMode:NodeVisualMode = NodeVisualMode.LIGHT;
 
 // =========================================================================
 // DINAMIC SWICHING CACHEASBITMAP
@@ -884,24 +884,74 @@ class NodeView extends Sprite
                 }
         }
         
-        /**
-         * v2.0: Update the visual mode and trigger layout recalculation.
-         * 
-         * @param mode The new visualization mode (LIGHT, MEDIUM, HEAVY)
-         */
-        public function setVisualMode(mode:NodeVisualMode):Void
-        {
-                if (visualMode == mode) return;
-                visualMode = mode;
-                
-                // Recreate inline editors based on mode
-                // LIGHT: no editors
-                // MEDIUM/HEAVY: editors present
-                createInlineEditors();
-                
-                // Update layout and redraw
-                updateLayout();
-        }
+		/**
+		* v2.0: Update the visual mode and trigger layout recalculation.
+		* v3.9: Now also persists the mode to the Blueprint's AtomDef for saving.
+		* 
+		* @param mode The new visualization mode (LIGHT, MEDIUM, HEAVY)
+		*/
+		public function setVisualMode(mode:NodeVisualMode):Void
+		{
+			trace('=== [NodeView] setVisualMode CALLED with: ' + mode + ' ===');
+			
+			if (visualMode == mode) 
+			{
+				trace('  ⏭️ Mode already set, skipping');
+				return;
+			}
+			visualMode = mode;
+			
+			trace('  📍 visualMode changed to: ' + visualMode);
+			
+			// ═══════════════════════════════════════════════════════════════
+			// v3.9 FIX: Сохраняем visualMode в атоме через persistent state
+			// ═══════════════════════════════════════════════════════════════
+			if (atom != null)
+			{
+				trace('  ✅ Saving visualMode to atom state');
+				
+				// Получаем текущее состояние атома
+				var state = atom.getPersistentState();
+				if (state == null) state = {};
+				
+				// Сохраняем visualMode
+				Reflect.setField(state, "visualMode", Std.string(mode));
+				
+				// Восстанавливаем состояние (это вызовет обновление _visualMode в Atom)
+				atom.restoreState(state);
+				
+				trace('  ✅ visualMode saved to atom: ' + Std.string(mode));
+			}
+			else
+			{
+				trace('  ⚠️ atom is NULL, cannot save visualMode!');
+			}
+			
+			createInlineEditors();
+			updateLayout();
+			trace('  ✅ setVisualMode completed');
+		}
+
+		/**
+		* v3.9: Helper to restore visual mode from a saved string value.
+		* @param str Saved mode string ("LIGHT", "MEDIUM", "HEAVY")
+		*/
+		public function setVisualModeFromString(str:String):Void 
+		{
+			trace('=== setVisualModeFromString CALLED with: "' + str + '" ===');
+			switch(str) 
+			{
+				case "LIGHT": 
+					trace('  → Switching to LIGHT');
+					setVisualMode(NodeVisualMode.LIGHT);
+				case "HEAVY": 
+					trace('  → Switching to HEAVY');
+					setVisualMode(NodeVisualMode.HEAVY);
+				default: 
+					trace('  → Switching to MEDIUM (default)');
+					setVisualMode(NodeVisualMode.MEDIUM);
+			}
+		}
 
         private function getPinDefForContact(contact:Contact):PinDef
         {

@@ -2350,4 +2350,4 @@ class Assembly extends Atom
 
 		super.dispose();
 	}
-}
+}

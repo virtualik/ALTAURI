@@ -660,36 +660,73 @@ class NodeEditor extends Sprite
         // =========================================================================
         // NODE MANAGEMENT
         // =========================================================================
-        private function restoreExistingAtoms():Void
-        {
-                if (_blueprint.internalAtoms == null) return;
-                for (atomDef in _blueprint.internalAtoms)
-                {
-                        var runtimeId = _assembly.idMap.get(atomDef.instanceId);
-                        if (runtimeId == null) runtimeId = atomDef.instanceId;
-                        var atomInstance = _assembly.internalAtoms.get(runtimeId);
-                        if (atomInstance != null)
-                        {
-                                createViewForAtom(cast atomInstance, runtimeId, atomDef.x, atomDef.y);
-                        }
-                }
-        }
+		private function restoreExistingAtoms():Void
+		{
+			if (_blueprint.internalAtoms == null) return;
+			for (atomDef in _blueprint.internalAtoms)
+			{
+				var runtimeId = _assembly.idMap.get(atomDef.instanceId);
+				if (runtimeId == null) runtimeId = atomDef.instanceId;
+				var atomInstance = _assembly.internalAtoms.get(runtimeId);
+				if (atomInstance != null)
+				{
+					// v3.9: Pass saved visual mode
+					createViewForAtom(cast atomInstance, runtimeId, atomDef.x, atomDef.y, atomDef.visualMode);
+				}
+			}
+		}
 
-        private function createViewForAtom(atom:Atom, id:String, x:Float, y:Float):Void
-        {
-                if (_nodes.exists(id)) return;
-                var view:NodeView = new NodeView(atom, id);
-                view.setPosition(x, y);
-
-                // === v3.3: Pass parent Assembly for name uniqueness check ===
-                view.setParentAssembly(_assembly);
-
-                // === v4.8: Pass global name uniqueness checker ===
-                view.isNameTakenGlobally = _isNameTakenGlobally;
-
-                _canvas.addChild(view);
-                _nodes.set(id, view);
-        }
+		private function createViewForAtom(atom:Atom, id:String, x:Float, y:Float, ?visualModeStr:String):Void
+		{
+			if (_nodes.exists(id)) return;
+			
+			var view:NodeView = new NodeView(atom, id);
+			view.setPosition(x, y);
+			
+			// === v3.3: Pass parent Assembly for name uniqueness check ===
+			view.setParentAssembly(_assembly);
+			
+			// === v4.8: Pass global name uniqueness checker ===
+			view.isNameTakenGlobally = _isNameTakenGlobally;
+			
+			// ═══════════════════════════════════════════════════════════════
+			// v3.9: Восстанавливаем visualMode
+			// ═══════════════════════════════════════════════════════════════
+			var modeToRestore:String = null;
+			
+			// 1. Если передан явный visualModeStr (из blueprint.internalAtoms)
+			if (visualModeStr != null && visualModeStr != "")
+			{
+				modeToRestore = visualModeStr;
+				trace('createViewForAtom: using visualModeStr = "$modeToRestore"');
+			}
+			else
+			{
+				// 2. Пробуем получить из состояния атома (values)
+				var state = atom.getPersistentState();
+				if (state != null && Reflect.hasField(state, "visualMode"))
+				{
+					modeToRestore = Std.string(Reflect.field(state, "visualMode"));
+					trace('createViewForAtom: read visualMode from atom state = "$modeToRestore"');
+				}
+			}
+			
+			// Применяем режим, если он есть
+			if (modeToRestore != null && modeToRestore != "MEDIUM")
+			{
+				trace('createViewForAtom: applying visualMode "$modeToRestore" to view');
+				view.setVisualModeFromString(modeToRestore);
+			}
+			else
+			{
+				trace('createViewForAtom: using default MEDIUM mode');
+				// Явно устанавливаем MEDIUM, даже если это значение по умолчанию
+				view.setVisualMode(NodeVisualMode.MEDIUM);
+			}
+			
+			_canvas.addChild(view);
+			_nodes.set(id, view);
+		}
 
         public function createAtom(typeId:String, posX:Float, posY:Float):Atom
         {
@@ -1646,7 +1683,7 @@ class NodeEditor extends Sprite
 // =========================================================================
 // HELPERS
 // =========================================================================
-        private function getNodeViewById(id:String):NodeView return _nodes.get(id);
+        public function getNodeViewById(id:String):NodeView return _nodes.get(id);
         private function getEdgePortById(name:String):Sprite return _edgePorts.get(name);
 
         private function findPortAt(x:Float, y:Float): {nodeId:String, contactName:String, isInput:Bool}

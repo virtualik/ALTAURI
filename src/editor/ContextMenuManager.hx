@@ -21,6 +21,7 @@ import ui.contextmenu.providers.EditorCommandsProvider;
 import ui.contextmenu.providers.AtomLibraryProvider;
 import ui.contextmenu.providers.AssemblyLibraryProvider;
 import ui.SettingsPanel;
+import ui.NodeVisualMode;
 
 /**
  * ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -202,7 +203,37 @@ class ContextMenuManager
 			_settingsPanel.allowAssembly,
 			true  // includeAddPort = true for node context
 		);
-		entriesByCategory.set(MenuCategory.EDITOR, editorProvider.getEntries());
+		var editorEntries = editorProvider.getEntries();
+
+		// v3.9: Add visual mode selection entries at the top
+		var currentView = _editor.getNodeViewById(_contextTargetId);
+		var currentMode:NodeVisualMode = (currentView != null) ? currentView.visualMode : NodeVisualMode.MEDIUM;
+
+		// Separator label
+		editorEntries.unshift(MenuEntry.createCommand(
+			"SEPARATOR",
+			"── View Mode ──",
+			{}
+		));
+
+		// Three mode options with checkmark on current
+		editorEntries.unshift(MenuEntry.createCommand(
+			"SET_NODE_VISUAL_MODE",
+			(currentMode == NodeVisualMode.HEAVY ? "● " : "   ") + "Heavy (Full Detail)",
+			{ nodeId: _contextTargetId, mode: "HEAVY" }
+		));
+		editorEntries.unshift(MenuEntry.createCommand(
+			"SET_NODE_VISUAL_MODE",
+			(currentMode == NodeVisualMode.MEDIUM ? "● " : "   ") + "Medium (Inline)",
+			{ nodeId: _contextTargetId, mode: "MEDIUM" }
+		));
+		editorEntries.unshift(MenuEntry.createCommand(
+			"SET_NODE_VISUAL_MODE",
+			(currentMode == NodeVisualMode.LIGHT ? "● " : "   ") + "Light (Ports Only)",
+			{ nodeId: _contextTargetId, mode: "LIGHT" }
+		));
+
+		entriesByCategory.set(MenuCategory.EDITOR, editorEntries);
 // Recent (always included, even if empty)
 		entriesByCategory.set(MenuCategory.RECENT, RecentMenuTracker.getInstance().getRecent());
 // Atom library
@@ -284,14 +315,29 @@ class ContextMenuManager
 	*/
 	private function onMenuAction(impulse:Impulse):Void
 	{
+		// ═══════════════════════════════════════════════════════════════
+		// БЕЗОПАСНЫЙ TRACE #1: Проверяем, вызывается ли метод
+		// ═══════════════════════════════════════════════════════════════
+		trace('=== onMenuAction CALLED ===');
+		
 		if (_isDisposed) return;
 		_menu.hide();
 		if (impulse == null || impulse.data == null || impulse.data.action == null) return;
+		
 		var action:String = Std.string(impulse.data.action);
 		var data = impulse.data.data;
 		var x = impulse.data.x;
 		var y = impulse.data.y;
-// Track recent action
+		
+		// ═══════════════════════════════════════════════════════════════
+		// БЕЗОПАСНЫЙ TRACE #2: Показываем, какое действие пришло
+		// Используем Std.string() для безопасного вывода
+		// ═══════════════════════════════════════════════════════════════
+		trace('  📌 action: ' + action);
+		trace('  📌 data: ' + Std.string(data));
+		trace('  📌 x: ' + x + ', y: ' + y);
+		
+		// Track recent action
 		var recentEntry = new MenuEntry(
 			"recent_" + action,
 			action,
@@ -301,8 +347,41 @@ class ContextMenuManager
 			data
 		);
 		RecentMenuTracker.getInstance().record(recentEntry);
+		
 		switch (action)
 		{
+			case "SET_NODE_VISUAL_MODE":
+				// ═══════════════════════════════════════════════════════
+				// БЕЗОПАСНЫЙ TRACE #3: Используем Reflect.field
+				// ═══════════════════════════════════════════════════════
+				trace('  🔍 SET_NODE_VISUAL_MODE case entered');
+				
+				// Получаем поля через Reflect (безопасно)
+				var nodeId = Reflect.field(data, "nodeId");
+				var mode = Reflect.field(data, "mode");
+				
+				trace('    📍 nodeId: ' + Std.string(nodeId) + ', mode: ' + Std.string(mode));
+				
+				if (nodeId != null && mode != null)
+				{
+					var view = _editor.getNodeViewById(Std.string(nodeId));
+					trace('    📍 view found: ' + (view != null));
+					if (view != null)
+					{
+						trace('    📍 calling setVisualModeFromString("' + Std.string(mode) + '")');
+						view.setVisualModeFromString(Std.string(mode));
+					}
+				}
+				else
+				{
+					trace('  ⚠️ data is null or missing nodeId/mode');
+				}
+				return;
+
+			case "SEPARATOR":
+				// No-op — visual separator only
+				return;
+				
 			case "DELETE_ALL_SELECTED":
 				var macrocom = new MacroCommand();
 				var nodeIds = _editor.getSelectedNodeIds();
@@ -316,16 +395,18 @@ class ContextMenuManager
 				if (wireIds.length > 0)
 				{
 					macrocom.addCommand(new DeleteWiresCommand(
-											_assembly.blueprint, _assembly, wireIds
-										));
+						_assembly.blueprint, _assembly, wireIds
+					));
 				}
 				UndoManager.getInstance().executeAndStore(macrocom);
 				_editor.deselectAll();
 				return;
+				
 			case "DELETE_SELECTED_ATOMS":
 				_editor.deleteSelectedNodes();
 				_contextTargetId = null;
 				return;
+				
 			case "DELETE_ATOM":
 				if (_editor.getSelectedNodeCount() > 0)
 				{
@@ -333,40 +414,73 @@ class ContextMenuManager
 				}
 				_contextTargetId = null;
 				return;
+				
 			case "DELETE_WIRES":
-				var cmd = new DeleteWiresCommand(
-					_assembly.blueprint, _assembly, data.ids
-				);
-				UndoManager.getInstance().executeAndStore(cmd);
+				// Используем Reflect для ids
+				var ids = Reflect.field(data, "ids");
+				if (ids != null)
+				{
+					var cmd = new DeleteWiresCommand(
+						_assembly.blueprint, _assembly, ids
+					);
+					UndoManager.getInstance().executeAndStore(cmd);
+				}
 				return;
+				
 			case "GROUP_ATOMS":
 				if (_settingsPanel.allowAssembly) groupSelectedToAssembly();
 				return;
+				
 			case "ADD_PORT":
-				if (data != null && data.type != null)
+				// Используем Reflect для type
+				var portType = Reflect.field(data, "type");
+				if (portType != null)
 				{
-					var cmd = new AddPortCommand(_assembly, data.type);
+					var cmd = new AddPortCommand(_assembly, portType);
 					UndoManager.getInstance().executeAndStore(cmd);
 				}
 				return;
+				
 			case "REMOVE_PORT":
-				if (data != null && data.name != null)
+				// Используем Reflect для name
+				var portName = Reflect.field(data, "name");
+				if (portName != null)
 				{
-					var cmd = new RemovePortCommand(_assembly, data.name);
+					var cmd = new RemovePortCommand(_assembly, portName);
 					UndoManager.getInstance().executeAndStore(cmd);
 				}
 				return;
 		}
-// Adding an atom (Action: "ADD_ATOM")
+		
+		// Adding an atom (Action: "ADD_ATOM")
 		if (action == "ADD_ATOM")
 		{
-			if (data != null && data.typeId != null)
+			trace('  🔍 ADD_ATOM branch entered');
+			
+			var typeId = Reflect.field(data, "typeId");
+			trace('    📍 typeId: ' + Std.string(typeId));
+			
+			if (typeId != null)
 			{
-				_editor.createAtom(data.typeId, x, y);
+				// ═══════════════════════════════════════════════════════════
+				// FIX: Приводим x и y к Float
+				// ═══════════════════════════════════════════════════════════
+				var posX:Float = Std.parseFloat(Std.string(x));
+				var posY:Float = Std.parseFloat(Std.string(y));
+				if (Math.isNaN(posX)) posX = 0;
+				if (Math.isNaN(posY)) posY = 0;
+				
+				trace('    📍 creating atom: ' + Std.string(typeId) + ' at (' + posX + ', ' + posY + ')');
+				_editor.createAtom(Std.string(typeId), posX, posY);
+			}
+			else
+			{
+				trace('  ⚠️ data is null or missing typeId');
 			}
 		}
 	}
-	/**
+
+/**
 	* Handle close context menu request.
 	*/
 	private function onCloseContextMenu(i:Impulse):Void

@@ -168,14 +168,20 @@ class ProjectManager
 			{
 				values = atomInstance.getPersistentState();
 			}
-			atomsToSave.push(
+			var atomData:Dynamic =
 			{
 				instanceId: atomDef.instanceId,
 				typeId: atomDef.typeId,
 				x: atomDef.x,
 				y: atomDef.y,
 				values: values
-			});
+			};
+			// v3.9: Persist visual mode if explicitly set
+			if (atomDef.visualMode != null)
+			{
+				atomData.visualMode = atomDef.visualMode;
+			}
+			atomsToSave.push(atomData);
 		}
 // Serialize connections with template IDs
 		var connsToSave:Array<Dynamic> = [];
@@ -394,14 +400,20 @@ class ProjectManager
 			var atomInstance:Atom = cast asm.internalAtoms.get(runtimeId);
 			var values:Dynamic = null;
 			if (atomInstance != null) values = atomInstance.getPersistentState();
-			atomsToSave.push(
+			var atomData:Dynamic =
 			{
 				instanceId: atomDef.instanceId,
 				typeId: atomDef.typeId,
 				x: atomDef.x,
 				y: atomDef.y,
 				values: values
-			});
+			};
+			// v3.9: Persist visual mode if explicitly set
+			if (atomDef.visualMode != null)
+			{
+				atomData.visualMode = atomDef.visualMode;
+			}
+			atomsToSave.push(atomData);
 		}
 // Serialize connections
 		var connsToSave:Array<Dynamic> = [];
@@ -579,13 +591,18 @@ class ProjectManager
 		{
 			for (a in (cast(rawBp.internalAtoms, Array<Dynamic>)))
 			{
+				// v3.9: Parse visual mode
+				var vm:String = null;
+				if (a.visualMode != null) vm = Std.string(a.visualMode);
+				
 				atoms.push(
 				{
 					instanceId: Std.string(a.instanceId),
 					typeId: Std.string(a.typeId),
 					x: a.x,
 					y: a.y,
-					values: a.values
+					values: a.values,
+					visualMode: vm
 				});
 			}
 		}
