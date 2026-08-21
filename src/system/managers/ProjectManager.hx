@@ -176,11 +176,8 @@ class ProjectManager
 				y: atomDef.y,
 				values: values
 			};
-			// v3.9: Persist visual mode if explicitly set
-			if (atomDef.visualMode != null)
-			{
-				atomData.visualMode = atomDef.visualMode;
-			}
+			// v3.9 FIX: Always write visualMode (default to "LIGHT" if not set)
+			atomData.visualMode = atomDef.visualMode != null ? atomDef.visualMode : "LIGHT";
 			atomsToSave.push(atomData);
 		}
 // Serialize connections with template IDs
@@ -408,11 +405,8 @@ class ProjectManager
 				y: atomDef.y,
 				values: values
 			};
-			// v3.9: Persist visual mode if explicitly set
-			if (atomDef.visualMode != null)
-			{
-				atomData.visualMode = atomDef.visualMode;
-			}
+			// v3.9 FIX: Always write visualMode (default to "LIGHT" if not set)
+			atomData.visualMode = atomDef.visualMode != null ? atomDef.visualMode : "LIGHT";
 			atomsToSave.push(atomData);
 		}
 // Serialize connections

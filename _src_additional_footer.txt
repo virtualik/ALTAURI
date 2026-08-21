@@ -1,0 +1,735 @@
+================================================================================
+// FILE: project.xml
+// Lines: 98 | Chars: 4931
+================================================================================
+<?xml version="1.0" encoding="utf-8"?>
+<project>
+	
+
+	<!-- ========================================================================= -->
+	<!-- META INFORMATION                                                          -->
+	<!-- ========================================================================= -->
+	<meta title="ALTAURI" package="com.virtualik.altauri" version="1.0.0" company="ViRTUALiK" />
+	
+	<!-- ========================================================================= -->
+	<!-- APPLICATION ENTRY POINTS 🐧🤖🪟🌐                                          -->
+	<!-- ========================================================================= -->
+	<!-- Используем единый класс Main для разных платформ -->
+	<app main="Main" file="ALTAURI_Windows"  path="bin" if="windows" />
+	<app main="Main" file="ALTAURI_Android"  path="bin" if="android" />
+	<app main="Main" file="ALTAURI_Linux"    path="bin" if="linux" />
+	<app main="Main" file="ALTAURI_Web"      path="bin" if="html5" />
+	
+	<!-- Для Android явно указываем тип вывода -->
+	<!-- <output type="Application" mainClass="Main" /> -->
+	
+	
+	
+	<!-- ========================================================================= -->
+	<!-- WINDOW SETTINGS                                                           -->
+	<!-- ========================================================================= -->
+	<!-- Общие настройки для всех платформ -->
+	<window hardware="true" vsync="true" allow-shaders="true" antialiasing="0" fps="60" />
+	
+	<!-- Специфичные настройки для Windows / C++ -->
+	<window if="cpp" 
+			visible="false"
+			borderless="true"
+			allow-high-dpi="false"
+			width="1024" 
+			height="600"
+			background="#FF00FF"
+			transparent="true"
+			render="webgl" hardware="true" vsync="true" />
+	
+	<!-- Специфичные настройки для HTML5 -->
+	<!-- СЛУЧАЙ 1 НА ВЕСЬ БРАУЗЕР: Не задаём width и height, чтобы браузер сам подогнал canvas 1:1 -->
+	<!-- window if="html5" background="#FFFFFF"	allow-high-dpi="false" -->
+
+	<!-- СЛУЧАЙ 2 ДЛЯ ОБЛАСТИ DIV:Фиксированный размер для демо-виджета, например 800x400 -->
+	<window if="html5" width="1024" height="600" background="#1E1E1E" />
+	<window if="html5" render="webgl" hardware="true" vsync="true" />
+
+	<config:android sdk="C:\AndroidSDK" ndk="C:\AndroidSDK\ndk\21.4.7075529" />
+
+	<!-- ========================================================================= -->
+	<!-- ENVIRONMENT VARIABLES (C++ Only)                                          -->
+	<!-- ========================================================================= -->
+	
+	<setenv name="OPENFL_DISABLE_DIRTY_REGIONS" value="true" if="cpp" />
+	<setenv name="LIME_RENDER_CONTEXT" value="opengl" if="cpp" />
+	
+	<!-- ========================================================================= -->
+	<!-- SOURCE PATHS                                                              -->
+	<!-- ========================================================================= -->
+	<source path="src" />
+	
+	<haxelib name="openfl" />
+	<haxelib name="hxcpp" if="cpp" />
+	<haxedef name="utf8" />
+	
+	<assets path="assets" />
+	<assets path="assets/icons/atoms" rename="assets/icons/atoms" recursive="true" />
+	<icon path="assets/favicon.ico" />
+	
+    <!-- ========================================================================= -->
+    <!-- ANDROID CONFIGURATION & USB SERIAL & JAVA-WEBSOCKET DEPENDENCIES          -->
+    <!-- ========================================================================= -->
+	<section if="android">
+		<!-- USB Host feature (для ComPort) -->
+		<android feature="android.hardware.usb.host" />
+		
+		<!-- INTERNET permission (для WebSocket) -->
+		<android permission="android.permission.INTERNET" />
+		
+		<!-- Подключаем распакованный classes.jar из .aar файла (для ComPort) -->
+		<java path="libs/android/java/usb-serial-extracted/classes.jar" />
+		
+		<!-- Подключаем Java-WebSocket библиотеку (для WebSocket) -->
+		<java path="libs/Java-WebSocket-1.5.6.jar" />
+		
+	    <!-- ЗАВИСИМОСТИ SLF4J (обязательны для Java-WebSocket) -->
+		<java path="libs/slf4j-api-1.7.36.jar" />
+		<java path="libs/slf4j-nop-1.7.36.jar" />
+		
+		<!-- Указывает Lime, где лежат исходники Java -->
+		<java path="libs/android/java/src/" />
+	</section>
+	
+	<!-- Запускаем синхронизацию только для HTML5 и только локально (на CI скрипт не запустится) -->
+	<postbuild if="html5" unless="CI" command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1"/>
+
+</project>
+
+
+
+================================================================================
+// FILE: sync-to-atelier.ps1 - PowerShell script
+// Lines: 154 | Chars: 8730
+================================================================================
+# sync-to-atelier.ps1
+ $rootSource = "$PSScriptRoot"
+ $rootTarget = "$PSScriptRoot\..\ATELIER"
+
+Write-Host "Synchronizing ALTAURI -> ATELIER..." -ForegroundColor Green
+
+# 1. Синхронизация project.xml
+Write-Host "  -> Copying project.xml..." -ForegroundColor Cyan
+Copy-Item -Path "$rootSource\project.xml" -Destination "$rootTarget\project.xml" -Force
+
+# 2. Синхронизация папки assets
+Write-Host "  -> Copying Assets folder..." -ForegroundColor Cyan
+if (Test-Path "$rootSource\assets") {
+    robocopy "$rootSource\assets" "$rootTarget\Assets" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
+} else {
+    Write-Host "     Warning: Assets folder not found in ALTAURI root. Creating empty one." -ForegroundColor Yellow
+    if (-Not (Test-Path "$rootTarget\assets")) {
+        New-Item -ItemType Directory -Path "$rootTarget\assets" -Force | Out-Null
+    }
+}
+
+# 2.5. Синхронизация папки libs/usb-serial-extracted (usb-serial драйвера для Android сборки)
+Write-Host "  -> Copying libs/usb-serial-extracted folder..." -ForegroundColor Cyan
+if (Test-Path "$rootSource\libs\usb-serial-extracted") {
+    robocopy "$rootSource\libs\usb-serial-extracted" "$rootTarget\libs\usb-serial-extracted" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
+} else {
+    Write-Host "     Warning: libs/usb-serial-extracted folder not found in ALTAURI root." -ForegroundColor Yellow
+}
+
+# 2.6. Синхронизация папки libs/ (Java-WebSocket (для WebSocket) драйвера для Android сборки)
+Write-Host "  -> Copying libs/ folder..." -ForegroundColor Cyan
+if (Test-Path "$rootSource\libs\") {
+    robocopy "$rootSource\libs\" "$rootTarget\libs\" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
+} else {
+    Write-Host "     Warning: libs/ folder not found in ALTAURI root." -ForegroundColor Yellow
+}
+
+# 2.7. Синхронизация папки templates
+#Write-Host "  -> Copying templates folder..." -ForegroundColor Cyan
+#if (Test-Path "$rootSource\templates") {
+#    robocopy "$rootSource\templates" "$rootTarget\templates" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
+#} else {
+#    Write-Host "     Warning: templates folder not found in ALTAURI root. Creating empty one." -ForegroundColor Yellow
+#    if (-Not (Test-Path "$rootTarget\templates")) {
+#        New-Item -ItemType Directory -Path "$rootTarget\templates" -Force | Out-Null
+#    }
+#}
+
+# =========================================================================
+# Синхронизация папки site (главная страница + стили)
+# =========================================================================
+Write-Host "  -> Copying site folder..." -ForegroundColor Cyan
+if (Test-Path "$rootSource\site") {
+    robocopy "$rootSource\site" "$rootTarget\site" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
+} else {
+    Write-Host "     Warning: site folder not found in ALTAURI root. Creating empty one." -ForegroundColor Yellow
+    if (-Not (Test-Path "$rootTarget\site")) {
+        New-Item -ItemType Directory -Path "$rootTarget\site" -Force | Out-Null
+    }
+}
+
+# 3. Синхронизация папки src
+ $sourceSrc = "$rootSource\src"
+ $targetSrc = "$rootTarget\src"
+Write-Host "  -> Copying src folder..." -ForegroundColor Cyan
+robocopy $sourceSrc $targetSrc /MIR /XD .git bin obj Export /XF *.cpp *.h /NFL /NDL /NJH /NJS /nc /ns /np
+
+# =========================================================================
+# 4. Копирование главной страницы в локальную папку bin/ (для локальной сборки)
+# =========================================================================
+ $html5BinPath = "$rootSource\bin\html5\bin"
+ $sitePath = "$rootSource\site"
+
+Write-Host "  -> Copying website landing page to local HTML5 output..." -ForegroundColor Cyan
+
+if (Test-Path $html5BinPath) {
+    # -------------------------------------------------------------------------
+    # этот блок я вставил что бы копировать index.html в build папку 
+    if (Test-Path "$sitePath\index.html") {
+        Copy-Item -Path "$sitePath\index.html" -Destination "$html5BinPath\index.html" -Force
+        Write-Host "     ✓ site/index.html copied to bin/" -ForegroundColor Gray
+    }
+
+    # -------------------------------------------------------------------------
+    # этот блок я вставил что бы копировать index.ru.html в build папку 
+    if (Test-Path "$sitePath\index.ru.html") {
+        Copy-Item -Path "$sitePath\index.ru.html" -Destination "$html5BinPath\index.ru.html" -Force
+        Write-Host "     ✓ site/index.ru.html copied to bin/" -ForegroundColor Gray
+    }
+
+    # -------------------------------------------------------------------------
+    # этот блок я вставил что бы копировать index.zh.html в build папку 
+    if (Test-Path "$sitePath\index.zh.html") {
+        Copy-Item -Path "$sitePath\index.zh.html" -Destination "$html5BinPath\index.zh.html" -Force
+        Write-Host "     ✓ site/index.zh.html copied to bin/" -ForegroundColor Gray
+    }
+
+    # -------------------------------------------------------------------------
+    # этот блок я вставил что бы копировать demo.zh.html в build папку 
+    if (Test-Path "$sitePath\demo.zh.html") {
+        Copy-Item -Path "$sitePath\demo.zh.html" -Destination "$html5BinPath\demo.zh.html" -Force
+        Write-Host "     ✓ site/demo.zh.html copied to bin/" -ForegroundColor Gray
+    }
+    # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # этот блок я вставил что бы копировать demo.ru.html в build папку 
+    if (Test-Path "$sitePath\demo.ru.html") {
+        Copy-Item -Path "$sitePath\demo.ru.html" -Destination "$html5BinPath\demo.ru.html" -Force
+        Write-Host "     ✓ site/demo.ru.html copied to bin/" -ForegroundColor Gray
+    }
+    # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # этот блок я вставил что бы копировать demo.html в build папку 
+    if (Test-Path "$sitePath\demo.html") {
+        Copy-Item -Path "$sitePath\demo.html" -Destination "$html5BinPath\demo.html" -Force
+        Write-Host "     ✓ site/demo.html copied to bin/" -ForegroundColor Gray
+    }
+    # -------------------------------------------------------------------------
+    # --- Копирование папки css -------------------------------------------
+    if (Test-Path "$sitePath\css") {
+        if (-Not (Test-Path "$html5BinPath\css")) {
+        New-Item -ItemType Directory -Path "$html5BinPath\css" -Force | Out-Null
+        }
+        Copy-Item -Path "$sitePath\css\*" -Destination "$html5BinPath\css\" -Recurse -Force
+        Write-Host "     ✓ site/css/ copied to bin/" -ForegroundColor Gray
+    }
+    # ---------------------------------------------------------------------
+    # --- Копирование папки blueprints ------------------------------------
+    if (Test-Path "$sitePath\blueprints") {
+        if (-Not (Test-Path "$html5BinPath\blueprints")) {
+            New-Item -ItemType Directory -Path "$html5BinPath\blueprints" -Force | Out-Null
+        }
+        Copy-Item -Path "$sitePath\blueprints\*" -Destination "$html5BinPath\blueprints\" -Recurse -Force
+        Write-Host "     ✓ site/blueprints/ copied to bin/" -ForegroundColor Gray
+    }
+    # ---------------------------------------------------------------------
+       # --- Копирование папки js --------------------------------------------
+    if (Test-Path "$sitePath\js") {
+        if (-Not (Test-Path "$html5BinPath\js")) {
+            New-Item -ItemType Directory -Path "$html5BinPath\js" -Force | Out-Null
+        }
+        Copy-Item -Path "$sitePath\js\*" -Destination "$html5BinPath\js\" -Recurse -Force
+        Write-Host "     ✓ site/js/ copied to bin/" -ForegroundColor Gray
+    }
+} else {
+    Write-Host "     Note: HTML5 build folder not found. Skipping local copy." -ForegroundColor Gray
+}
+
+# Проверка результата
+if ($LASTEXITCODE -le 3) {
+    Write-Host "✓ Sync completed successfully" -ForegroundColor Green
+} else {
+    Write-Host "⚠ Warning during sync (code: $LASTEXITCODE). Check if paths are correct." -ForegroundColor Yellow
+}
+
+
+================================================================================
+// FILE: deploy.yml - Actions workflow script
+// Lines: 466 | Chars: 20682
+================================================================================
+# Force redeploy Z ATOMICA 🐧🤖🪟🌐
+name: Build and Deploy Cross-Platform
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Manual Workflow start
+
+permissions:
+  contents: write
+
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Running JS actions cleanly on Node.24
+
+jobs:
+  # ==========================================
+  # TASK 1: BUILDING AND DEPLOYING HTML5 (Works AUTOMATICALLY when pushed)
+  # ==========================================
+  build-html5:
+  #  if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v5
+
+      - name: Setup Haxe
+        uses: krdlab/setup-haxe@v1
+        with:
+          haxe-version: 4.3.4
+
+      - name: Configure Custom Haxelib Path
+        run: |
+          mkdir -p .haxelib
+          haxelib setup .haxelib
+
+      - name: Cache Haxe libraries
+        uses: actions/cache@v5
+        with:
+          path: .haxelib
+          key: ${{ runner.os }}-haxelib-${{ hashFiles('**/*.hx', '**/*.xml', 'Project.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-haxelib-
+
+      - name: Install Libraries
+        run: |
+          haxelib install lime --always
+          haxelib install openfl --always
+          haxelib run openfl setup
+
+      - name: Build Project
+        run: haxelib run openfl build html5 -final
+
+      - name: Copy Website Files
+        run: |
+          cp site/index.html bin/html5/bin/index.html
+          cp site/index.ru.html bin/html5/bin/index.ru.html
+          cp site/index.zh.html bin/html5/bin/index.zh.html
+          cp site/demo.zh.html bin/html5/bin/demo.zh.html
+          cp site/demo.ru.html bin/html5/bin/demo.ru.html
+          cp site/demo.html bin/html5/bin/demo.html
+          cp -r site/css bin/html5/bin/css
+          cp -r site/blueprints bin/html5/bin/blueprints
+          if [ -d "site/js" ]; then cp -r site/js bin/html5/bin/js; fi
+
+      - name: Deploy to Public Repo
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          token: ${{ secrets.PUBLIC_REPO_TOKEN }}
+          repository-name: virtualik/ATOMICA
+          branch: gh-pages
+          folder: ./bin/html5/bin
+          clean: true
+
+  # ==========================================
+  # TASK 2: ASSEMBLY FOR WINDOWS (Only by button)
+  # ==========================================
+  build-windows:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v5
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache-${{ hashFiles('**/*.hx', 'Project.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-
+
+      - name: Setup Haxe
+        uses: krdlab/setup-haxe@v1
+        with:
+          haxe-version: 4.3.4
+
+      - name: Configure Custom Haxelib Path
+        run: |
+          mkdir .haxelib
+          haxelib setup .haxelib
+
+      - name: Cache Haxe libraries
+        uses: actions/cache@v5
+        with:
+          path: .haxelib
+          key: ${{ runner.os }}-haxelib-${{ hashFiles('**/*.hx', '**/*.xml', 'Project.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-haxelib-
+
+      - name: Install Libraries
+        run: |
+          haxelib install lime --always
+          haxelib install openfl --always
+          haxelib install hxcpp --always
+          haxelib run openfl setup
+
+      - name: Build Windows App
+        run: haxelib run openfl build windows -final
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ATOMICA-Windows-Build
+          path: bin/windows/bin/
+          if-no-files-found: error
+
+  # ==========================================
+  # TASK 3: ASSEMBLY FOR ANDROID (Only by button)
+  # ==========================================
+  build-android:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v5
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-android-ccache-${{ hashFiles('**/*.hx', 'Project.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-android-ccache-
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r21e
+
+      - name: Setup Haxe
+        uses: krdlab/setup-haxe@v1
+        with:
+          haxe-version: 4.3.4
+
+      - name: Configure Custom Haxelib Path
+        run: |
+          mkdir -p .haxelib
+          haxelib setup .haxelib
+
+      - name: Cache Haxe libraries
+        uses: actions/cache@v5
+        with:
+          path: .haxelib
+          key: ${{ runner.os }}-haxelib-${{ hashFiles('**/*.hx', '**/*.xml', 'Project.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-haxelib-
+
+      - name: Install Libraries
+        run: |
+          haxelib install lime --always
+          haxelib install openfl --always
+          haxelib install hxcpp --always
+          echo "a" | haxelib run openfl setup
+
+      - name: Configure Lime Android SDK Global Config
+        run: |
+          printf "%s\n%s\n%s\n" "$ANDROID_HOME" "${{ steps.setup-ndk.outputs.ndk-path }}" "$JAVA_HOME" | haxelib run lime setup android
+
+      - name: Build Android APK
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+        run: haxelib run openfl build android -final
+
+      - name: Upload Android Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ATOMICA-Android-APK
+          path: bin/android/bin/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
+  # ==========================================
+  # TASK 4: BUILDING UNDER LINUX (Only by button)
+  # ==========================================
+  build-linux:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v5
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-linux-ccache-${{ hashFiles('**/*.hx', 'Project.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-linux-ccache-
+
+      - name: Setup Haxe
+        uses: krdlab/setup-haxe@v1
+        with:
+          haxe-version: 4.3.4
+
+      - name: Configure Custom Haxelib Path
+        run: |
+          mkdir -p .haxelib
+          haxelib setup .haxelib
+
+      - name: Cache Haxe libraries
+        uses: actions/cache@v5
+        with:
+          path: .haxelib
+          key: ${{ runner.os }}-haxelib-${{ hashFiles('**/*.hx', '**/*.xml', 'Project.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-haxelib-
+
+      - name: Install Libraries
+        run: |
+          haxelib install lime --always
+          haxelib install openfl --always
+          haxelib install hxcpp --always
+          haxelib run openfl setup
+
+      - name: Build Linux App
+        run: haxelib run openfl build linux -final
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ATOMICA-Linux-Build
+          path: bin/linux/bin/
+          if-no-files-found: error
+
+  # ==========================================
+  # ЗАДАЧА 5: ПУБЛИКАЦИЯ В GITHUB RELEASES
+  # ==========================================
+  create-release:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [build-windows, build-android, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # We explicitly grant permission to write content within this task.
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v5
+
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ATOMICA-Windows-Build
+          path: ./windows-build
+
+      - name: Download Android Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ATOMICA-Android-APK
+          path: ./android-build
+
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ATOMICA-Linux-Build
+          path: ./linux-build
+
+      - name: Zip Windows Build
+        run: |
+          cd ./windows-build
+          zip -r ../ATOMICA-Windows.zip .
+          cd ..
+
+      - name: Prepare Android APK
+        run: |
+          mkdir -p ./release-files
+          find ./android-build -name "*.apk" -exec cp {} ./release-files/ATOMICA-Android.apk \;
+
+      - name: Tar Linux Build
+        run: |
+          cd ./linux-build
+          tar -czf ../ATOMICA-Linux.tar.gz .
+          cd ..
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: ATOMICA v1.0.${{ github.run_number }}
+          body: |
+            ATOMICA automatic assembly (Build #${{ github.run_number }}).
+
+            **Windows:**
+            Download `ATOMICA-Windows.zip`, unzip it and run `.exe`.
+            *Note: If SmartScreen complains, click "More details" -> "Run anyway".*
+
+            **Android:**
+            Download `ATOMICA-Android.apk` and install it on your device.
+            *Note: If Google Play Protect complains, click "Install anyway."*
+
+            **Linux:**
+            Download `ATOMICA-Linux.tar.gz` and unzip it.
+            Command to run in terminal: `./ATOMICA`
+          files: |
+            ./ATOMICA-Windows.zip
+            ./release-files/ATOMICA-Android.apk
+            ./ATOMICA-Linux.tar.gz
+          draft: false
+
+      # ==========================================
+      # ADDITIONAL STEP: COPY TO A PUBLIC REPO
+      # ==========================================
+      - name: Rename Files for Public Release
+        run: |
+          mv ./ATOMICA-Windows.zip ./ATOMICA-Windows_PUBLIC.zip
+          mv ./release-files/ATOMICA-Android.apk ./release-files/ATOMICA-Android_PUBLIC.apk
+          mv ./ATOMICA-Linux.tar.gz ./ATOMICA-Linux_PUBLIC.tar.gz
+
+      - name: Create Release in Public Repo
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.PUBLIC_REPO_TOKEN_WITH_WRITE_RIGHTS }} # <--- Strictly token:, not GITHUB_TOKEN: ----> ☕️ Coffee helped... Few people understand its real meaning :)
+          repository: virtualik/ATOMICA
+          tag_name: v1.0.${{ github.run_number }}
+          name: ATOMICA v1.0.${{ github.run_number }}
+          body: |
+            ATOMICA Public Release (Build #${{ github.run_number }}).
+
+            **Windows:** Download `ATOMICA-Windows_PUBLIC.zip`
+            **Android:** Download `ATOMICA-Android_PUBLIC.apk`
+            **Linux:** Download `ATOMICA-Linux_PUBLIC.tar.gz`
+          files: |
+            ./ATOMICA-Windows_PUBLIC.zip
+            ./release-files/ATOMICA-Android_PUBLIC.apk
+            ./ATOMICA-Linux_PUBLIC.tar.gz
+          draft: false
+      # ==========================================
+      # ДОПОЛНИТЕЛЬНЫЙ ШАГ: ГЕНЕРАЦИЯ 9 ПУБЛИЧНЫХ РЕЛИЗОВ
+      # ==========================================
+# Вот классический, очень надежный и «железобетонный» подход,
+# который в веб-разработке и геймдеве называют предварительным рендерингом или предсборкой (pre-build).
+# Поскольку количество схем строго фиксировано (всего 3 штуки), общее число файлов (9 штук) абсолютно не обременит GitHub Releases.
+# Зато для конечного пользователя это идеальный UX:
+# он просто скачивает архив, запускает .exe или устанавливает .apk, и магия работает сразу — приложение запускается с нужной схемой
+# без необходимости что-то настраивать, прописывать аргументы или разворачивать deep-линки.
+# Так как само приложение всегда ищет файл с фиксированным именем selfrun.atom, то вообще не нужно ничего перекомпилировать 9 раз!
+# Сама сборка (Haxe/OpenFL) выполнится по одному разу для каждой платформы,
+# а затем скрипт GitHub Actions просто сделает копии готовых билдов, подкладывая в каждый нужную схему под именем selfrun.atom
+# и упаковывая это в именной архив.
+# Как реализовать это для всех трех платформ.
+#
+# ------------------------------
+# 🪟 Windows и 🐧 Linux (Подмена в папке)
+# С десктопными платформами всё максимально просто. Скрипт в цикле создаст копию скомпилированного билда,
+# положит в корень или в папку ресурсов файл selfrun.atom и запакует.
+# Предположим, что файл selfrun.atom должен лежать в корне рядом с исполняемым файлом.
+# 🤖 Android (Внедрение внутрь APK)
+# С Android есть важный технический нюанс. В OpenFL встроенные ресурсы (assets) после компиляции упаковываются внутрь файла .apk
+# (который технически является обычным ZIP-архивом). Если пользователь установит пустой APK, он не сможет прочитать файл «рядом».
+# Схема должна быть внутри.
+# Буду использовать утилиту zip прямо в Ubuntu-раннере, чтобы внедрить selfrun.atom прямо внутрь готового APK без перекомпиляции!
+# 
+# В OpenFL/Haxe кастомные ресурсы обычно попадают по пути assets/blueprints/ или в корень ресурсов. Допустим, мы будем класть его в assets/selfrun.atom (внутри APK).
+# Важно: После изменения файлов внутри APK, у него нарушается цифровая подпись. Нам нужно будет автоматически переподписать APK дефолтным отладочным ключом (debug key), который есть на каждом Ubuntu-раннере (через apksigner), чтобы телефон разрешил установку.
+# ------------------------------
+#
+# Шаг деплоя:
+# Вот готовый, полностью автоматизированный код для задачи create-release.
+# Он сам переберет файлы в папке site/blueprints/, выполнит подмену, подпишет APK и создаст 9 красивых публичных файлов.
+#
+#     # ==========================================
+#     # ДОПОЛНИТЕЛЬНЫЙ ШАГ: ГЕНЕРАЦИЯ 9 ПУБЛИЧНЫХ РЕЛИЗОВ
+#     # ==========================================
+#      - name: Generate Multi-Blueprint Packages
+#        run: |
+#          # Устанавливаем apksigner для подписи Android APK
+#          sudo apt-get update && sudo apt-get install -y apksigner
+#
+#          # Создаем временную папку для готовых публичных файлов
+#          mkdir -p ./public-releases
+#
+#          # Запускаем цикл по всем .atom файлам в папке blueprints
+#          for blueprint_path in ./site/blueprints/*.atom; do
+#            # Получаем чистое имя схемы (например, ButtonAndLED, SerialTerminal)
+#            bp_name=$(basename "$blueprint_path" .atom)
+#            echo "Processing blueprint: $bp_name"
+#
+#            # -------------------------------------------
+#            # 1. СБОРКА ПОД WINDOWS
+#            # -------------------------------------------
+#            mkdir -p "./tmp-win-${bp_name}"
+#            cp -r ./windows-build/* "./tmp-win-${bp_name}/"
+#            # Копируем схему в корень билда под именем selfrun.atom
+#            cp "$blueprint_path" "./tmp-win-${bp_name}/selfrun.atom"
+#            # Запаковываем
+#            cd "./tmp-win-${bp_name}"
+#            zip -r "../public-releases/${bp_name}-Windows_PUBLIC.zip" .
+#            cd ..
+#
+#            # -------------------------------------------
+#            # 2. СБОРКА ПОД LINUX
+#            # -------------------------------------------
+#            mkdir -p "./tmp-linux-${bp_name}"
+#            cp -r ./linux-build/* "./tmp-linux-${bp_name}/"
+#            # Копируем схему в корень билда под именем selfrun.atom
+#            cp "$blueprint_path" "./tmp-linux-${bp_name}/selfrun.atom"
+#            # Запаковываем в tar.gz
+#            cd "./tmp-linux-${bp_name}"
+#            tar -czf "../public-releases/${bp_name}-Linux_PUBLIC.tar.gz" .
+#            cd ..
+#
+#            # -------------------------------------------
+#            # 3. СБОРКА ПОД ANDROID (Модификация APK)
+#            # -------------------------------------------
+#            # Берем оригинальный APK из задачи сборки
+#            orig_apk=$(find ./android-build -name "*.apk" | head -n 1)
+#            cp "$orig_apk" "./tmp-android.apk"
+#            
+#            # Создаем структуру папок, как внутри APK (assets/)
+#            mkdir -p ./assets
+#            cp "$blueprint_path" ./assets/selfrun.atom
+#            
+#            # Внедряем файл selfrun.atom внутрь APK архива в папку assets
+#            zip -g ./tmp-android.apk ./assets/selfrun.atom
+#            
+#            # Очищаем временную локальную папку assets
+#            rm -rf ./assets
+#            
+#            # Переподписываем измененный APK стандартным отладочным ключом Android (Keystore)
+#            # Раннеры GitHub имеют встроенный debug.keystore по умолчанию
+#            apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --out "./public-releases/${bp_name}-Android_PUBLIC.apk" ./tmp-android.apk
+#            rm -f ./tmp-android.apk
+#
+#          done
+#      - name: Create Release in Public Repo
+#        uses: softprops/action-gh-release@v2
+#        with:
+#          token: ${{ secrets.PUBLIC_REPO_TOKEN_WITH_WRITE_RIGHTS }}
+#          repository: virtualik/ATOMICA
+#          tag_name: v1.0.${{ github.run_number }}
+#          name: ATOMICA v1.0.${{ github.run_number }}
+#          body: |
+#            Автоматический публичный релиз модулей ATOMICA (Build #${{ github.run_number }}).
+#            
+#            Файлы содержат предустановленные схемы `selfrun.atom` для каждого модуля. Скачайте соответствующую версию для вашей платформы ниже.          # Загружаем ВСЕ сгенерированные файлы из папки public-releases
+#          files: ./public-releases/*
+#          draft: false
+#*/

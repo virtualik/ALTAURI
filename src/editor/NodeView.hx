@@ -115,10 +115,10 @@ class NodeView extends Sprite
 // =========================================================================
 // CONFIGURATION
 // =========================================================================
-        public static inline var PREVIEW_SCALE:Float = 0.7;
+        public static inline var PREVIEW_SCALE:Float = 1.03;
         public static inline var MIN_WIDTH:Float = 180;
         public static inline var MIN_BODY_HEIGHT:Float = 68;
-        public static inline var WIDGET_PADDING:Float = 5;
+        public static inline var WIDGET_PADDING:Float = 15;
         public static inline var TITLE_HEIGHT:Float = 22;
         public static inline var PORT_RADIUS:Float = 7;
         public static inline var PORT_SPACING:Float = 32;
@@ -394,38 +394,36 @@ class NodeView extends Sprite
 // =========================================================================
 // DYNAMIC SIZING (v3.0)
 // =========================================================================
-        private function recalcSize():Void
-        {
-                var bodyWidth:Float = MIN_WIDTH;
-                var widgetHeight:Float = 0;
-                
-                // v2.0: Calculate widget dimensions based on visual mode
-                // LIGHT: no widget, no inline editors
-                // MEDIUM: no widget, but inline editors present
-                // HEAVY: widget + inline editors
-                if (visualMode == NodeVisualMode.HEAVY && deviceView != null)
-                {
-                        var ws = deviceView.getWidgetSize();
-                        var scaledW = ws.width * PREVIEW_SCALE;
-                        var scaledH = ws.height * PREVIEW_SCALE;
-                        bodyWidth = Math.max(bodyWidth, scaledW + WIDGET_PADDING * 2);
-                        widgetHeight = scaledH + WIDGET_PADDING;
-                }
-                
-                var portsHeight:Float = MIN_BODY_HEIGHT;
-                var inputCount = (atom != null && atom.getInputs() != null) ? atom.getInputs().length : 0;
-                var outputCount = (atom != null && atom.getOutputs() != null) ? atom.getOutputs().length : 0;
-                var maxPorts = Std.int(Math.max(inputCount, outputCount));
-                
-                if (maxPorts > 0)
-                {
-                        portsHeight = (maxPorts + 1) * PORT_SPACING;
-                }
-                
-                var bodyHeight = portsHeight + widgetHeight;
-                _nodeWidth = bodyWidth;
-                _nodeHeight = TITLE_HEIGHT + bodyHeight;
-        }
+		private function recalcSize():Void
+		{
+			var bodyWidth:Float = MIN_WIDTH;
+			var widgetHeight:Float = 0;
+			
+			if (visualMode == NodeVisualMode.HEAVY && deviceView != null)
+			{
+				var ws = deviceView.getWidgetSize();
+				var scaledW = ws.width * PREVIEW_SCALE;
+				var scaledH = ws.height * PREVIEW_SCALE;
+				bodyWidth = Math.max(bodyWidth, scaledW + WIDGET_PADDING * 2);
+				
+				// отступы сверху и снизу:
+				widgetHeight = scaledH + (WIDGET_PADDING * 2);
+			}
+			
+			var portsHeight:Float = MIN_BODY_HEIGHT;
+			var inputCount = (atom != null && atom.getInputs() != null) ? atom.getInputs().length : 0;
+			var outputCount = (atom != null && atom.getOutputs() != null) ? atom.getOutputs().length : 0;
+			var maxPorts = Std.int(Math.max(inputCount, outputCount));
+			
+			if (maxPorts > 0)
+			{
+				portsHeight = (maxPorts + 1) * PORT_SPACING;
+			}
+			
+			var bodyHeight = portsHeight + widgetHeight;
+			_nodeWidth = bodyWidth;
+			_nodeHeight = TITLE_HEIGHT + bodyHeight;
+		}
 
         private function updateLayout():Void
         {
@@ -547,23 +545,34 @@ class NodeView extends Sprite
                 // No need to add listeners here — the guard in onMouseDown() checks the display hierarchy.
         }
 
-        private function centerPreviewContainer():Void
-        {
-                if (deviceView == null)
-                {
-                        _previewContainer.x = WIDGET_PADDING;
-                        _previewContainer.y = TITLE_HEIGHT + WIDGET_PADDING;
-                        return;
-                }
-                var ws = deviceView.getWidgetSize();
-                var scale = (visualMode == NodeVisualMode.HEAVY) ? 1.0 : PREVIEW_SCALE;
-                var scaledW = ws.width * scale;
-                var scaledH = ws.height * scale;
-                var bodyWidth = _nodeWidth;
-                
-                _previewContainer.x = (bodyWidth - scaledW) / 2;
-                _previewContainer.y = _nodeHeight - scaledH - WIDGET_PADDING;
-        }
+private function centerPreviewContainer():Void
+{
+    if (deviceView == null)
+    {
+        _previewContainer.x = WIDGET_PADDING;
+        _previewContainer.y = TITLE_HEIGHT + WIDGET_PADDING;
+        return;
+    }
+    var ws = deviceView.getWidgetSize();
+    
+    var scaledW = ws.width * PREVIEW_SCALE;
+    var scaledH = ws.height * PREVIEW_SCALE;
+    var bodyWidth = _nodeWidth;
+    
+    // === ИСПРАВЛЕНО: widgetHeight рассчитываем локально ===
+    var widgetHeight = scaledH + (WIDGET_PADDING * 2) * PREVIEW_SCALE;
+    
+    // Горизонтальное центрирование
+    _previewContainer.x = (bodyWidth / 2) - (scaledW / 2) * PREVIEW_SCALE;
+    
+	//  + (_nodeHeight - (_nodeHeight - widgetHeight) / 2) + ((widgetHeight / 2) * PREVIEW_SCALE)
+	// Separator Y = (_nodeHeight - widgetHeight)
+	// Widget Y center = (widgetHeight / 2)
+    // Вертикальное центрирование в widget area
+	var separatorYPos = _nodeHeight - widgetHeight;
+	var widgetPlaceHeight = _nodeHeight - separatorYPos;
+    _previewContainer.y = (separatorYPos + WIDGET_PADDING / 2) + (widgetPlaceHeight / 2) - (widgetHeight / 2); 
+}
 
         public function redraw():Void
         {
@@ -641,8 +650,12 @@ class NodeView extends Sprite
                 {
                         var ws = deviceView.getWidgetSize();
                         var scaledH = ws.height * PREVIEW_SCALE;
-                        var separatorY = _nodeHeight - scaledH - WIDGET_PADDING - 5;
-                        var sepG = _background.graphics;
+                        //var separatorY = _nodeHeight - scaledH - (WIDGET_PADDING * 2) - 5;
+                        // Separator на границе между ports и widget area
+						var widgetHeight = scaledH + (WIDGET_PADDING * 2);
+						var separatorY = _nodeHeight - widgetHeight;
+					
+						var sepG = _background.graphics;
                         sepG.lineStyle(1, 0x444455);
                         sepG.moveTo(0, separatorY);
                         sepG.lineTo(_nodeWidth, separatorY);
@@ -894,60 +907,89 @@ class NodeView extends Sprite
 		{
 			trace('=== [NodeView] setVisualMode CALLED with: ' + mode + ' ===');
 			
-			if (visualMode == mode) 
+			// ═══════════════════════════════════════════════════════════════
+			// v3.9 FIX: Always persist to Blueprint, even if mode unchanged
+			// Previously: if (visualMode == mode) return; — skipped Blueprint write
+			// Now: write first, then skip UI update if unchanged
+			// ═══════════════════════════════════════════════════════════════
+			_persistVisualModeToBlueprint(Std.string(mode));
+			
+			if (visualMode == mode)
 			{
-				trace('  ⏭️ Mode already set, skipping');
+				trace('  ⏭️ Mode already set, skipping UI update');
 				return;
 			}
+			
 			visualMode = mode;
-			
 			trace('  📍 visualMode changed to: ' + visualMode);
-			
-			// ═══════════════════════════════════════════════════════════════
-			// v3.9 FIX: Сохраняем visualMode в атоме через persistent state
-			// ═══════════════════════════════════════════════════════════════
-			if (atom != null)
-			{
-				trace('  ✅ Saving visualMode to atom state');
-				
-				// Получаем текущее состояние атома
-				var state = atom.getPersistentState();
-				if (state == null) state = {};
-				
-				// Сохраняем visualMode
-				Reflect.setField(state, "visualMode", Std.string(mode));
-				
-				// Восстанавливаем состояние (это вызовет обновление _visualMode в Atom)
-				atom.restoreState(state);
-				
-				trace('  ✅ visualMode saved to atom: ' + Std.string(mode));
-			}
-			else
-			{
-				trace('  ⚠️ atom is NULL, cannot save visualMode!');
-			}
-			
 			createInlineEditors();
 			updateLayout();
 			trace('  ✅ setVisualMode completed');
+		}
+
+		// ══════════════════════════════════════════════════════════════
+		// v3.9: Persist visualMode directly to Blueprint.AtomDef
+		// ═════════════════════════════════════════════════════════════
+		// Standard path: write visualMode to the same place
+		// ProjectManager.saveSelfrun() reads it from.
+		// No side effects on atom persistent state (values).
+		private function _persistVisualModeToBlueprint(modeStr:String):Void
+		{
+			if (_parentAssembly == null)
+			{
+				trace('  ️ _parentAssembly is NULL, cannot persist visualMode to Blueprint');
+				return;
+			}
+
+			// nodeId — runtime ID. Blueprint stores template IDs.
+			var templateId = _parentAssembly.getTemplateId(nodeId);
+			if (templateId == null)
+			{
+				trace('  ⚠️ templateId not found for nodeId="$nodeId"');
+				return;
+			}
+
+			var bp = _parentAssembly.blueprint;
+			if (bp == null || bp.internalAtoms == null)
+			{
+				trace('  ⚠️ Blueprint or internalAtoms is null');
+				return;
+			}
+
+			var found = false;
+			for (atomDef in bp.internalAtoms)
+			{
+				if (atomDef.instanceId == templateId)
+				{
+					atomDef.visualMode = modeStr;
+					found = true;
+					trace('  ✅ visualMode persisted to Blueprint.AtomDef["$templateId"].visualMode = "$modeStr"');
+					break;
+				}
+			}
+
+			if (!found)
+			{
+				trace('  ⚠️ AtomDef not found in Blueprint for templateId="$templateId"');
+			}
 		}
 
 		/**
 		* v3.9: Helper to restore visual mode from a saved string value.
 		* @param str Saved mode string ("LIGHT", "MEDIUM", "HEAVY")
 		*/
-		public function setVisualModeFromString(str:String):Void 
+		public function setVisualModeFromString(str:String):Void
 		{
 			trace('=== setVisualModeFromString CALLED with: "' + str + '" ===');
-			switch(str) 
+			switch(str)
 			{
-				case "LIGHT": 
+				case "LIGHT":
 					trace('  → Switching to LIGHT');
 					setVisualMode(NodeVisualMode.LIGHT);
-				case "HEAVY": 
+				case "HEAVY":
 					trace('  → Switching to HEAVY');
 					setVisualMode(NodeVisualMode.HEAVY);
-				default: 
+				default:
 					trace('  → Switching to MEDIUM (default)');
 					setVisualMode(NodeVisualMode.MEDIUM);
 			}

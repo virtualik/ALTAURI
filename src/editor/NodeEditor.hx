@@ -679,39 +679,22 @@ class NodeEditor extends Sprite
 		private function createViewForAtom(atom:Atom, id:String, x:Float, y:Float, ?visualModeStr:String):Void
 		{
 			if (_nodes.exists(id)) return;
-			
 			var view:NodeView = new NodeView(atom, id);
 			view.setPosition(x, y);
-			
-			// === v3.3: Pass parent Assembly for name uniqueness check ===
 			view.setParentAssembly(_assembly);
-			
-			// === v4.8: Pass global name uniqueness checker ===
 			view.isNameTakenGlobally = _isNameTakenGlobally;
 			
-			// ═══════════════════════════════════════════════════════════════
-			// v3.9: Восстанавливаем visualMode
-			// ═══════════════════════════════════════════════════════════════
 			var modeToRestore:String = null;
 			
-			// 1. Если передан явный visualModeStr (из blueprint.internalAtoms)
 			if (visualModeStr != null && visualModeStr != "")
 			{
 				modeToRestore = visualModeStr;
-				trace('createViewForAtom: using visualModeStr = "$modeToRestore"');
-			}
-			else
-			{
-				// 2. Пробуем получить из состояния атома (values)
-				var state = atom.getPersistentState();
-				if (state != null && Reflect.hasField(state, "visualMode"))
-				{
-					modeToRestore = Std.string(Reflect.field(state, "visualMode"));
-					trace('createViewForAtom: read visualMode from atom state = "$modeToRestore"');
-				}
+				trace('createViewForAtom: using visualModeStr from AtomDef = "$modeToRestore"');
 			}
 			
-			// Применяем режим, если он есть
+			// ═══════════════════════════════════════════════════════════════
+			// v3.9 FIX: Apply visualMode after creating view
+			// ═══════════════════════════════════════════════════════════════
 			if (modeToRestore != null && modeToRestore != "MEDIUM")
 			{
 				trace('createViewForAtom: applying visualMode "$modeToRestore" to view');
@@ -720,7 +703,6 @@ class NodeEditor extends Sprite
 			else
 			{
 				trace('createViewForAtom: using default MEDIUM mode');
-				// Явно устанавливаем MEDIUM, даже если это значение по умолчанию
 				view.setVisualMode(NodeVisualMode.MEDIUM);
 			}
 			

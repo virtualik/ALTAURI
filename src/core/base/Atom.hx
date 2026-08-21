@@ -272,23 +272,18 @@ class Atom implements IDisposable implements Driver
 	/**
 	* Save state for persistence.
 	* v7.1: Includes displayName
-	* v3.9: Includes visualMode (if not default)
+	* v3.9 FIX: visualMode removed — now stored in Blueprint.AtomDef, not atom state
 	*/
 	public function getPersistentState():Dynamic
 	{
 		var hasLogic = _isLogic;
 		var hasDisplayName = (_displayName != null && _displayName != type);
-		// ═══════════════════════════════════════════════════════════════
-		// v3.9: Сохраняем ВСЕ режимы, включая MEDIUM
-		// ═══════════════════════════════════════════════════════════════
-		var hasVisualMode = (_visualMode != null && _visualMode != "");
 		
-		if (hasLogic || hasDisplayName || hasVisualMode)
+		if (hasLogic || hasDisplayName)
 		{
 			var state:Dynamic = {};
 			if (hasLogic) state.isLogic = _isLogic;
 			if (hasDisplayName) state.displayName = _displayName;
-			if (hasVisualMode) state.visualMode = _visualMode;
 			return state;
 		}
 		return null;
@@ -297,32 +292,21 @@ class Atom implements IDisposable implements Driver
 	/**
 	* Restore state from saved data.
 	* v7.1: Restores displayName
-	* v3.9: Restores visualMode
+	* v3.9 FIX: visualMode removed — now restored from Blueprint.AtomDef via createViewForAtom()
 	*/
 	public function restoreState(state:Dynamic):Void
 	{
 		if (state == null) return;
 		
-		// Restore isLogic
 		if (Reflect.hasField(state, "isLogic"))
 		{
 			this.isLogic = state.isLogic;
 		}
 		
-		// Restore displayName
 		if (Reflect.hasField(state, "displayName"))
 		{
 			_displayName = state.displayName;
 			trace('Atom ${id}: Restored displayName = "${_displayName}"');
-		}
-		
-		// ═══════════════════════════════════════════════════════════════
-		// v3.9: Restore visualMode
-		// ═══════════════════════════════════════════════════════════════
-		if (Reflect.hasField(state, "visualMode"))
-		{
-			_visualMode = Std.string(Reflect.field(state, "visualMode"));
-			trace('Atom ${id}: Restored visualMode = "${_visualMode}"');
 		}
 	}
 

@@ -70,7 +70,7 @@ typedef AtomDef =
 	@:optional var x:Float;
 	@:optional var y:Float;
 	@:optional var values:Dynamic;
-	/** v3.9: Persisted NodeVisualMode ("LIGHT", "MEDIUM", "HEAVY"). Null = default (MEDIUM). */
+	/** v3.9: Persisted NodeVisualMode ("LIGHT", "MEDIUM", "HEAVY"). Null = default (LIGHT). */
 	@:optional var visualMode:String;
 }
 

@@ -122,7 +122,7 @@ class ComPortWidget extends DeviceView
     private var _rxLedTimer:Float = 0;
     private var _txLedTimer:Float = 0;
     private var _errLedTimer:Float = 0;
-    private var _ledPulseDuration:Float = 0.15;
+    private var _ledPulseDuration:Float = 0.5;
     private var _dtrState:Bool = false;
 
     // Impulsys callback references for proper unsubscription (Memory Optimization v1.3)

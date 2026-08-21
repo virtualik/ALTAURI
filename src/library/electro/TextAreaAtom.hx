@@ -6,7 +6,7 @@ import core.base.Contact;
 import core.types.ContactType;
 
 /**
- * TEXT AREA ATOM v1.2 (Contact Name Consistency + Silent Append Reset)
+ * TEXT AREA ATOM v1.3 (Bounded Scrollback Buffer)
  *
  * Passive atom for multi-line text display and editing.
  * Extends the concept of TextInputAtom with full textarea configuration.
@@ -27,6 +27,7 @@ import core.types.ContactType;
  * │   │  - vScroll    (Bool)    → Vertical scrollbar visibility         │   │
  * │   │  - maxChars   (Int)     → Max characters per line (width)       │   │
  * │   │  - numLines   (Int)     → Number of visible lines (height)      │   │
+ * │   │  - bufferLines (Int)    → Scrollback buffer limit (lines)       │   │
  * │   │                                                                 │   │
  * │   │  OUTPUTS:                                                       │   │
  * │   │  - textOut    (String)  → Current text content                  │   │
@@ -48,6 +49,15 @@ import core.types.ContactType;
  * │   │  Never use "text" as a contact name — it's ambiguous.           │   │
  * │   └─────────────────────────────────────────────────────────────────┘   │
  * │                                                                         │
+ * │   v1.3 BUFFER INVARIANT:                                                │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  _text is BOUNDED at all times:                                 │   │
+ * │   │    ≤ _bufferLines lines                    (Pass 1, tail trim)  │   │
+ * │   │    ≤ _bufferLines * (_maxChars + 1) chars  (Pass 2, hard cap)   │   │
+ * │   │  Enforced on EVERY ingestion path: textIn, append, widget edit, │   │
+ * │   │  restoreState — and on bufferLines/maxChars config changes.     │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
  * Default Configuration:
@@ -56,6 +66,7 @@ import core.types.ContactType;
  * ├──────────────────┼───────────────┤
  * │ maxChars         │ 40            │
  * │ numLines         │ 8             │
+ * │ bufferLines      │ 256           │
  * │ editable         │ true          │
  * │ wordWrap         │ true          │
  * │ autoScroll       │ true          │
@@ -69,6 +80,20 @@ import core.types.ContactType;
  * - FIXED: restoreState() uses setValueSilent() for textIn to prevent
  *   double propagate wave during Load-Symmetric Reconstruction.
  * - ADDED: Explicit contact name contract documentation.
+ *
+ * v1.3 Changes:
+ * - ADDED: "bufferLines" input — bounded scrollback buffer (default 256
+ *   lines, clamped 10..5000). _text can no longer grow without bound.
+ *   Root-cause fix for the "Memory exhausted" crash in high-frequency
+ *   loops (Selfrun soak test: unbounded append + O(N) garbage per append).
+ * - ADDED: trimBuffer() — line-based tail trim (Pass 1) + hard character
+ *   cap _bufferLines * (_maxChars + 1) (Pass 2) as backstop for streams
+ *   without newlines (e.g. "BeginBeginBegin...").
+ * - CHANGED: lineCount is computed by zero-allocation counter
+ *   countLines() instead of String.split("\n") — identical semantics.
+ * - CHANGED: buffer limit enforced on ALL ingestion paths: textIn,
+ *   append, setTextFromWidget, restoreState, and on bufferLines /
+ *   maxChars runtime changes.
  */
 class TextAreaAtom extends Atom
 {
@@ -83,6 +108,7 @@ class TextAreaAtom extends Atom
     private var _vScroll:Bool = true;
     private var _maxChars:Int = 40;
     private var _numLines:Int = 8;
+    private var _bufferLines:Int = 256;   // v1.3: scrollback limit (lines)
 
     // =========================================================================
     // CONSTRUCTOR
@@ -101,7 +127,8 @@ class TextAreaAtom extends Atom
                 new Contact(false, INPUT, "hScroll"),
                 new Contact(true, INPUT, "vScroll"),
                 new Contact(40, INPUT, "maxChars"),
-                new Contact(8, INPUT, "numLines")
+                new Contact(8, INPUT, "numLines"),
+                new Contact(256, INPUT, "bufferLines")   // v1.3
             ],
             // === OUTPUTS ===
             [
@@ -125,8 +152,10 @@ class TextAreaAtom extends Atom
      *
      * Data flow for text operations:
      * ┌─────────────────────────────────────────────────────────────────┐
-     * │  textIn changed → _text = newValue → pushTextToOutput()         │
-     * │  append changed → _text += newValue → pushTextToOutput()        │
+     * │  textIn changed → _text = newValue → trimBuffer()               │
+     * │                   → pushTextToOutput()                          │
+     * │  append changed → _text += newValue → trimBuffer()              │
+     * │                   → pushTextToOutput()                          │
      * │                   → setValueSilent("") to reset (no propagate)  │
      * │  clear == true  → _text = "" → pushTextToOutput()               │
      * │                   → setValueSilent(false) to reset              │
@@ -143,6 +172,11 @@ class TextAreaAtom extends Atom
                 if (newText != _text)
                 {
                     _text = newText;
+
+                    // v1.3: Bulk text from outside is subject to the
+                    // buffer limit too — a huge textIn must not blow it.
+                    trimBuffer();
+
                     pushTextToOutput();
                 }
 
@@ -153,6 +187,11 @@ class TextAreaAtom extends Atom
                     // Data is appended exactly as received,
                     // allowing the sender to control formatting.
                     _text += appendStr;
+
+                    // v1.3: Enforce scrollback limit after every append.
+                    // This is the root-cause fix for unbounded _text
+                    // growth ("Memory exhausted" in high-frequency loops).
+                    trimBuffer();
 
                     pushTextToOutput();
 
@@ -192,11 +231,25 @@ class TextAreaAtom extends Atom
 
             case "maxChars":
                 var v = Std.int(c.value);
-                if (v >= 5 && v <= 200) _maxChars = v;
+                if (v >= 5 && v <= 200)
+                {
+                    _maxChars = v;
+                    // v1.3: Hard cap depends on maxChars — re-enforce.
+                    retrimIfChanged();
+                }
 
             case "numLines":
                 var v = Std.int(c.value);
                 if (v >= 1 && v <= 100) _numLines = v;
+
+            case "bufferLines":
+                var v = Std.int(c.value);
+                if (v >= 10 && v <= 5000)
+                {
+                    _bufferLines = v;
+                    // v1.3: Shrinking the buffer trims immediately.
+                    retrimIfChanged();
+                }
         }
 
         super.onContactChanged(c);
@@ -210,7 +263,7 @@ class TextAreaAtom extends Atom
      * │       │                                                         │
      * │       ├──► textOut.value = _text                                │
      * │       │                                                         │
-     * │       ├──► lineCount.value = _text.split("\n").length           │
+     * │       ├──► lineCount.value = countLines()  (zero-alloc, v1.3)   │
      * │       │                                                         │
      * │       └──► changed.value = true                                 │
      * │              │                                                  │
@@ -226,8 +279,10 @@ class TextAreaAtom extends Atom
         var lineCountOut = getOutput("lineCount");
         if (lineCountOut != null)
         {
-            var lines = _text.split("\n");
-            lineCountOut.value = lines.length;
+            // v1.3: Zero-allocation line counting.
+            // Was: _text.split("\n").length — allocated a full array
+            // plus string copies on every append.
+            lineCountOut.value = countLines();
         }
 
         var changedOut = getOutput("changed");
@@ -252,6 +307,84 @@ class TextAreaAtom extends Atom
     }
 
     // =========================================================================
+    // BUFFER MANAGEMENT (v1.3)
+    // =========================================================================
+
+    /**
+     * Enforce the scrollback buffer limit on _text (v1.3).
+     *
+     * Pass 1 — line-based tail trim: keeps the last _bufferLines lines.
+     *          Counts '\n' terminators from the END and stops scanning
+     *          as soon as the limit is exceeded — O(K), not O(N).
+     * Pass 2 — hard character cap: _bufferLines * (_maxChars + 1) chars
+     *          (+1 accounts for each line's '\n'). Backstop for streams
+     *          without newlines (e.g. "BeginBeginBegin..."), where
+     *          Pass 1 never triggers.
+     *
+     * Both passes keep the TAIL of the text — in a terminal the newest
+     * data is at the end, so the oldest content scrolls away.
+     */
+    private function trimBuffer():Void
+    {
+        if (_text == null || _text.length == 0) return;
+
+        // ── Pass 1: keep the last _bufferLines lines ──
+        var nl = 0;
+        var i = _text.length - 1;
+        while (i >= 0)
+        {
+            if (_text.charCodeAt(i) == 10) // '\n'
+            {
+                nl++;
+                if (nl > _bufferLines)
+                {
+                    _text = _text.substr(i + 1);
+                    break;
+                }
+            }
+            i--;
+        }
+
+        // ── Pass 2: hard cap for newline-less streams ──
+        var hardCap = _bufferLines * (_maxChars + 1);
+        if (_text.length > hardCap)
+        {
+            _text = _text.substr(_text.length - hardCap);
+        }
+    }
+
+    /**
+     * v1.3: Zero-allocation line counter.
+     *
+     * Semantically identical to _text.split("\n").length
+     * ("" → 1, "a" → 1, "a\n" → 2, "a\nb" → 2, ...),
+     * but allocates nothing — no array, no string copies.
+     */
+    private function countLines():Int
+    {
+        if (_text == null || _text.length == 0) return 1;
+        var n = 1;
+        for (i in 0..._text.length)
+        {
+            if (_text.charCodeAt(i) == 10) n++;
+        }
+        return n;
+    }
+
+    /**
+     * v1.3 helper: re-enforce the buffer limit after a config change
+     * (bufferLines / maxChars). Pushes to outputs only when the text
+     * actually shrank — no spurious "changed" pulses on config-only
+     * updates.
+     */
+    private function retrimIfChanged():Void
+    {
+        var before = _text;
+        trimBuffer();
+        if (_text != before) pushTextToOutput();
+    }
+
+    // =========================================================================
     // PUBLIC API (for Widget)
     // =========================================================================
     public function getText():String return _text;
@@ -262,6 +395,7 @@ class TextAreaAtom extends Atom
     public function isVScroll():Bool return _vScroll;
     public function getMaxChars():Int return _maxChars;
     public function getNumLines():Int return _numLines;
+    public function getBufferLines():Int return _bufferLines;   // v1.3
 
     /**
      * Called by widget when user edits text.
@@ -270,12 +404,20 @@ class TextAreaAtom extends Atom
      * v1.2: Uses setValueSilent for textIn sync to prevent
      * feedback loop (textIn.value = _text would re-trigger
      * onContactChanged → case "textIn" → pushTextToOutput again).
+     *
+     * v1.3: Widget edits obey the same buffer limit as programmatic
+     * ingestion — pasting a huge block through the widget must not
+     * bypass the invariant.
      */
     public function setTextFromWidget(newText:String):Void
     {
         if (newText != _text)
         {
             _text = newText;
+
+            // v1.3: Enforce buffer limit on widget-originated text.
+            trimBuffer();
+
             // Sync input contact silently — no propagate needed
             // because we already call pushTextToOutput() below.
             var textIn = getInput("textIn");
@@ -307,7 +449,8 @@ class TextAreaAtom extends Atom
             hScroll: _hScroll,
             vScroll: _vScroll,
             maxChars: _maxChars,
-            numLines: _numLines
+            numLines: _numLines,
+            bufferLines: _bufferLines   // v1.3
         };
         if (base != null)
         {
@@ -326,6 +469,10 @@ class TextAreaAtom extends Atom
      * Load-Symmetric Reconstruction principle:
      * restoreState() must NOT trigger side-effect propagate chains.
      * The Assembly._processPendingSignals() handles final sync wave.
+     *
+     * v1.3: trimBuffer() runs AFTER config restoration (so
+     * _bufferLines/_maxChars are current) — a project saved with an
+     * oversized text blob must not resurrect it on load.
      */
     override public function restoreState(state:Dynamic):Void
     {
@@ -361,12 +508,26 @@ class TextAreaAtom extends Atom
             var v = Std.int(state.numLines);
             if (v >= 1 && v <= 100) _numLines = v;
         }
+        if (state.bufferLines != null)   // v1.3
+        {
+            var v = Std.int(state.bufferLines);
+            if (v >= 10 && v <= 5000) _bufferLines = v;
+        }
+
+        // v1.3: Enforce buffer limit on restored text, then re-sync
+        // contacts silently (still no propagate during load).
+        trimBuffer();
+        var textOutSync = getOutput("textOut");
+        if (textOutSync != null) textOutSync.setValueSilent(_text);
+
+        var textInSync = getInput("textIn");
+        if (textInSync != null) textInSync.setValueSilent(_text);
 
         // Update line count output (silent — no propagate during load)
         var lineCountOut = getOutput("lineCount");
         if (lineCountOut != null)
         {
-            lineCountOut.setValueSilent(_text.split("\n").length);
+            lineCountOut.setValueSilent(countLines());
         }
     }
 }

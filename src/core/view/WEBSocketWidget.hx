@@ -78,9 +78,19 @@ class WebSocketWidget extends DeviceView
     // LAYOUT CONSTANTS
     // =========================================================================
     /** Default widget width. Can be overridden by setting widgetWidth. */
+
+    #if html5
     public var widgetWidth:Float = 320;
-    /** Default widget height. */
-    public var widgetHeight:Float = 530;   // increased from 460 to fit auto-reconnect section
+    public var widgetHeight:Float = 500;
+    #else
+    public var widgetWidth:Float = 320;
+    public var widgetHeight:Float = 500;
+    #end
+
+    override public function getWidgetSize(): {width:Float, height:Float}
+    {
+        return {width: widgetWidth, height: widgetHeight};
+    }
 
     // ── Color palette (dark theme, matches ComPortWidget style) ──
     private var _colorBg:Int        = 0x1a1a24;
@@ -376,7 +386,7 @@ class WebSocketWidget extends DeviceView
         _binaryToggle = new Sprite();
         _binaryToggle.graphics.beginFill(_colorInputBg);
         _binaryToggle.graphics.lineStyle(1, 0x333355);
-        _binaryToggle.graphics.drawRoundRect(0, 0, 18, 18, 3, 3);
+        _binaryToggle.graphics.drawRoundRect(3, 0, 18, 18, 3, 3);
         _binaryToggle.graphics.endFill();
         _binaryToggle.x = widgetWidth - 58;
         _binaryToggle.y = yPos + 2;
@@ -429,21 +439,23 @@ class WebSocketWidget extends DeviceView
         _sendLabel = new TextField();
         _sendLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
         _sendLabel.text = "SEND DATA";
+        _sendLabel.x = 5;
         _sendLabel.width = 80;
         _sendLabel.height = 15;
         _sendLabel.selectable = false;
         _sendSection.addChild(_sendLabel);
 
         _sendInput = createInputField("", Std.int(widgetWidth - 90));
-        _sendInput.x = 0;
+        _sendInput.x = 5;
         _sendInput.y = 15;
         // Enter-to-send (only when not multiline)
         _sendInput.addEventListener(KeyboardEvent.KEY_DOWN, onSendInputKeyDown);
         _sendSection.addChild(_sendInput);
 
         _sendBtn = createActionButton("SEND", 0x224466, onSendClick);
-        _sendBtn.x = widgetWidth - 72;
-        _sendBtn.y = 14;
+        _sendBtn.x = widgetWidth - 81;
+        _sendBtn.y = 13;
+		_sendBtn.width = 77;
         _sendSection.addChild(_sendBtn);
 
         yPos += 50;
@@ -456,20 +468,22 @@ class WebSocketWidget extends DeviceView
         _rxLabel = new TextField();
         _rxLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
         _rxLabel.text = "RECEIVED DATA";
-        _rxLabel.width = 100;
+        _rxLabel.x = 5;
+		_rxLabel.width = 100;
         _rxLabel.height = 15;
         _rxLabel.selectable = false;
         _rxSection.addChild(_rxLabel);
 
-        _clearBtn = createActionButton("CLEAR", 0x442222, onClearClick);
-        _clearBtn.x = widgetWidth - 82;
+        _clearBtn = createActionButton("CLS", 0x442222, onClearClick);
+        _clearBtn.x = widgetWidth - 81;
         _clearBtn.y = -2;
+		_clearBtn.width = 76;
         _rxSection.addChild(_clearBtn);
 
         _rxDisplay = new TextField();
         _rxDisplay.defaultTextFormat = new TextFormat("_typewriter", 11, _colorActive);
         _rxDisplay.text = "";
-        _rxDisplay.width = widgetWidth - 20;
+        _rxDisplay.width = widgetWidth -11;
         _rxDisplay.height = 130;
         _rxDisplay.x = 5;
         _rxDisplay.y = 15;
@@ -623,14 +637,14 @@ class WebSocketWidget extends DeviceView
 
         _sendSection.graphics.clear();
         _sendSection.graphics.beginFill(0x0d0d18, 0.5);
-        _sendSection.graphics.lineStyle(1, 0x222244);
-        _sendSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 45, 4, 4);
+        _sendSection.graphics.lineStyle(1, 0x003a63);
+        _sendSection.graphics.drawRoundRect(2, 0, widgetWidth - 4, 45, 4, 4);
         _sendSection.graphics.endFill();
 
         _rxSection.graphics.clear();
         _rxSection.graphics.beginFill(0x0d0d18, 0.5);
         _rxSection.graphics.lineStyle(1, 0x224422);
-        _rxSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 148, 4, 4);
+        _rxSection.graphics.drawRoundRect(2, 0, widgetWidth - 4, 148, 4, 4);
         _rxSection.graphics.endFill();
 
         // Auto-reconnect section background (matches dark theme)
@@ -681,12 +695,12 @@ class WebSocketWidget extends DeviceView
     {
         var btn = new Sprite();
         btn.graphics.beginFill(color);
-        btn.graphics.drawRoundRect(0, 0, 80, 26, 4, 4);
+        btn.graphics.drawRoundRect(0, 0, 77, 26, 4, 4);
         btn.graphics.endFill();
         var tf = new TextField();
         tf.defaultTextFormat = new TextFormat("_typewriter", 11, _colorText, true, null, null, null, null, TextFormatAlign.CENTER);
         tf.text = label;
-        tf.width = 80;
+        tf.width = 77;
         tf.height = 26;
         tf.selectable = false;
         tf.mouseEnabled = false;

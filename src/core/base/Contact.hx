@@ -63,7 +63,8 @@ private var callbackTargets:Array<Dynamic -> Void>;
 private var _isScheduled:Bool = false;
 /** Is this contact disposed? */
 public var isDisposed(default, null):Bool = false;
-
+/** windows for frame */
+private var _windowStart:Float = 0.0;  // новое поле
 // ========================================================================
 // OSCILLATION PROTECTION
 // ========================================================================
@@ -307,19 +308,29 @@ if (_value == newValue && !Std.isOfType(newValue, Array)) return newValue;
 
 // Oscillation detection
 var currentTime = haxe.Timer.stamp();
-var elapsed = currentTime - _lastChangeTime;
-if (elapsed >= OSCILLATION_WINDOW)
-{
-_changeCount = 0;
-_oscillationBlocked = false;
+
+// Заблокированы? Ждём полной секунды тишины
+if (_oscillationBlocked) {
+    if (currentTime - _lastChangeTime >= OSCILLATION_WINDOW) {
+        _oscillationBlocked = false;
+        _changeCount = 0;
+        _windowStart = currentTime;
+    } else {
+        return newValue;
+    }
+}
+
+// Катим фиксированное окно
+if (currentTime - _windowStart >= OSCILLATION_WINDOW) {
+    _windowStart = currentTime;
+    _changeCount = 0;
 }
 _lastChangeTime = currentTime;
 _changeCount++;
 
-if (!ignoreOscillation && _changeCount > CHANGES_PER_SECOND_LIMIT)
-{
-_oscillationBlocked = true;
-return newValue;
+if (!ignoreOscillation && _changeCount > CHANGES_PER_SECOND_LIMIT) {
+    _oscillationBlocked = true;
+    return newValue;
 }
 
 // Recursion protection

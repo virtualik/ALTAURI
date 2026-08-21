@@ -1,108 +1,3 @@
-================================================================================
-// FILE: project.xml
-// Lines: 98 | Chars: 4931
-================================================================================
-<?xml version="1.0" encoding="utf-8"?>
-<project>
-	
-
-	<!-- ========================================================================= -->
-	<!-- META INFORMATION                                                          -->
-	<!-- ========================================================================= -->
-	<meta title="ALTAURI" package="com.virtualik.altauri" version="1.0.0" company="ViRTUALiK" />
-	
-	<!-- ========================================================================= -->
-	<!-- APPLICATION ENTRY POINTS 🐧🤖🪟🌐                                          -->
-	<!-- ========================================================================= -->
-	<!-- Используем единый класс Main для разных платформ -->
-	<app main="Main" file="ALTAURI_Windows"  path="bin" if="windows" />
-	<app main="Main" file="ALTAURI_Android"  path="bin" if="android" />
-	<app main="Main" file="ALTAURI_Linux"    path="bin" if="linux" />
-	<app main="Main" file="ALTAURI_Web"      path="bin" if="html5" />
-	
-	<!-- Для Android явно указываем тип вывода -->
-	<!-- <output type="Application" mainClass="Main" /> -->
-	
-	
-	
-	<!-- ========================================================================= -->
-	<!-- WINDOW SETTINGS                                                           -->
-	<!-- ========================================================================= -->
-	<!-- Общие настройки для всех платформ -->
-	<window hardware="true" vsync="true" allow-shaders="true" antialiasing="0" fps="60" />
-	
-	<!-- Специфичные настройки для Windows / C++ -->
-	<window if="cpp" 
-			visible="false"
-			borderless="true"
-			allow-high-dpi="false"
-			width="1024" 
-			height="600"
-			background="#FF00FF"
-			transparent="true"
-			render="webgl" hardware="true" vsync="true" />
-	
-	<!-- Специфичные настройки для HTML5 -->
-	<!-- СЛУЧАЙ 1 НА ВЕСЬ БРАУЗЕР: Не задаём width и height, чтобы браузер сам подогнал canvas 1:1 -->
-	<!-- window if="html5" background="#FFFFFF"	allow-high-dpi="false" -->
-
-	<!-- СЛУЧАЙ 2 ДЛЯ ОБЛАСТИ DIV:Фиксированный размер для демо-виджета, например 800x400 -->
-	<window if="html5" width="1024" height="600" background="#1E1E1E" />
-	<window if="html5" render="webgl" hardware="true" vsync="true" />
-
-	<config:android sdk="C:\AndroidSDK" ndk="C:\AndroidSDK\ndk\21.4.7075529" />
-
-	<!-- ========================================================================= -->
-	<!-- ENVIRONMENT VARIABLES (C++ Only)                                          -->
-	<!-- ========================================================================= -->
-	
-	<setenv name="OPENFL_DISABLE_DIRTY_REGIONS" value="true" if="cpp" />
-	<setenv name="LIME_RENDER_CONTEXT" value="opengl" if="cpp" />
-	
-	<!-- ========================================================================= -->
-	<!-- SOURCE PATHS                                                              -->
-	<!-- ========================================================================= -->
-	<source path="src" />
-	
-	<haxelib name="openfl" />
-	<haxelib name="hxcpp" if="cpp" />
-	<haxedef name="utf8" />
-	
-	<assets path="assets" />
-	<assets path="assets/icons/atoms" rename="assets/icons/atoms" recursive="true" />
-	<icon path="assets/favicon.ico" />
-	
-    <!-- ========================================================================= -->
-    <!-- ANDROID CONFIGURATION & USB SERIAL & JAVA-WEBSOCKET DEPENDENCIES          -->
-    <!-- ========================================================================= -->
-	<section if="android">
-		<!-- USB Host feature (для ComPort) -->
-		<android feature="android.hardware.usb.host" />
-		
-		<!-- INTERNET permission (для WebSocket) -->
-		<android permission="android.permission.INTERNET" />
-		
-		<!-- Подключаем распакованный classes.jar из .aar файла (для ComPort) -->
-		<java path="libs/android/java/usb-serial-extracted/classes.jar" />
-		
-		<!-- Подключаем Java-WebSocket библиотеку (для WebSocket) -->
-		<java path="libs/Java-WebSocket-1.5.6.jar" />
-		
-	    <!-- ЗАВИСИМОСТИ SLF4J (обязательны для Java-WebSocket) -->
-		<java path="libs/slf4j-api-1.7.36.jar" />
-		<java path="libs/slf4j-nop-1.7.36.jar" />
-		
-		<!-- Указывает Lime, где лежат исходники Java -->
-		<java path="libs/android/java/src/" />
-	</section>
-	
-	<!-- Запускаем синхронизацию только для HTML5 и только локально (на CI скрипт не запустится) -->
-	<postbuild if="html5" unless="CI" command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1"/>
-
-</project>
-
-
-
 
 ================================================================================
 // FILE: core\base\Assembly.hx
@@ -2934,7 +2829,7 @@ class AssemblyFactory
 
 ================================================================================
 // FILE: core\base\Atom.hx
-// Lines: 354 | Chars: 10398
+// Lines: 374 | Chars: 11224
 ================================================================================
 
 package core.base;
@@ -2978,6 +2873,18 @@ class Atom implements IDisposable implements Driver
 	*/
 	public var displayName(get, set):String;
 	private var _displayName:String;
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// v3.9: Visual mode for NodeView (LIGHT, MEDIUM, HEAVY)
+	// Persisted in JSON so it survives app restart.
+	// ═══════════════════════════════════════════════════════════════════════
+	private var _visualMode:String = "LIGHT"; // Default
+
+	public function getVisualMode():String return _visualMode;
+	public function setVisualModeState(mode:String):Void 
+	{
+		_visualMode = mode;
+	}
 
 	private function get_displayName():String
 	{
@@ -3199,34 +3106,37 @@ class Atom implements IDisposable implements Driver
 	/**
 	* Save state for persistence.
 	* v7.1: Includes displayName
+	* v3.9 FIX: visualMode removed — now stored in Blueprint.AtomDef, not atom state
 	*/
 	public function getPersistentState():Dynamic
 	{
-		if (_isLogic || _displayName != type)
+		var hasLogic = _isLogic;
+		var hasDisplayName = (_displayName != null && _displayName != type);
+		
+		if (hasLogic || hasDisplayName)
 		{
-			return
-			{
-				isLogic: _isLogic,
-				displayName: _displayName
-			};
+			var state:Dynamic = {};
+			if (hasLogic) state.isLogic = _isLogic;
+			if (hasDisplayName) state.displayName = _displayName;
+			return state;
 		}
 		return null;
 	}
-
+	
 	/**
 	* Restore state from saved data.
 	* v7.1: Restores displayName
+	* v3.9 FIX: visualMode removed — now restored from Blueprint.AtomDef via createViewForAtom()
 	*/
 	public function restoreState(state:Dynamic):Void
 	{
 		if (state == null) return;
-		// Firstly restore base feilds
+		
 		if (Reflect.hasField(state, "isLogic"))
 		{
 			this.isLogic = state.isLogic;
 		}
-
-		// === RESTORE displayName ===
+		
 		if (Reflect.hasField(state, "displayName"))
 		{
 			_displayName = state.displayName;
@@ -3275,6 +3185,7 @@ class Atom implements IDisposable implements Driver
 	{
 		// v7.0: @:volatile guarantees visibility in Audio Thread
 		_isDisposed = true;
+		
 		// v8.0: Release globally-registered displayName so the slot becomes
 		// available again for future atoms. Safe to call multiple times —
 		// NamingService.unregisterInstanceName() is idempotent.
@@ -3282,6 +3193,10 @@ class Atom implements IDisposable implements Driver
 		{
 			core.logic.NamingService.unregisterInstanceName(_displayName);
 		}
+		
+		// v3.9: Clear visualMode (не обязательно, но чисто)
+		_visualMode = null;
+		
 		if (_isActive) DriverManager.getInstance().unregister(this.id);
 		if (_inputs != null) { for (c in _inputs) { if (c != null) c.dispose(); } }
 		if (_outputs != null) { for (c in _outputs) { if (c != null) c.dispose(); } }
@@ -3496,7 +3411,7 @@ class ConductorPort
 
 ================================================================================
 // FILE: core\base\Contact.hx
-// Lines: 533 | Chars: 14130
+// Lines: 544 | Chars: 14506
 ================================================================================
 
 package core.base;
@@ -3564,7 +3479,8 @@ private var callbackTargets:Array<Dynamic -> Void>;
 private var _isScheduled:Bool = false;
 /** Is this contact disposed? */
 public var isDisposed(default, null):Bool = false;
-
+/** windows for frame */
+private var _windowStart:Float = 0.0;  // новое поле
 // ========================================================================
 // OSCILLATION PROTECTION
 // ========================================================================
@@ -3808,19 +3724,29 @@ if (_value == newValue && !Std.isOfType(newValue, Array)) return newValue;
 
 // Oscillation detection
 var currentTime = haxe.Timer.stamp();
-var elapsed = currentTime - _lastChangeTime;
-if (elapsed >= OSCILLATION_WINDOW)
-{
-_changeCount = 0;
-_oscillationBlocked = false;
+
+// Заблокированы? Ждём полной секунды тишины
+if (_oscillationBlocked) {
+    if (currentTime - _lastChangeTime >= OSCILLATION_WINDOW) {
+        _oscillationBlocked = false;
+        _changeCount = 0;
+        _windowStart = currentTime;
+    } else {
+        return newValue;
+    }
+}
+
+// Катим фиксированное окно
+if (currentTime - _windowStart >= OSCILLATION_WINDOW) {
+    _windowStart = currentTime;
+    _changeCount = 0;
 }
 _lastChangeTime = currentTime;
 _changeCount++;
 
-if (!ignoreOscillation && _changeCount > CHANGES_PER_SECOND_LIMIT)
-{
-_oscillationBlocked = true;
-return newValue;
+if (!ignoreOscillation && _changeCount > CHANGES_PER_SECOND_LIMIT) {
+    _oscillationBlocked = true;
+    return newValue;
 }
 
 // Recursion protection
@@ -4065,7 +3991,7 @@ interface IDisposable
 
 ================================================================================
 // FILE: core\data\Blueprint.hx
-// Lines: 203 | Chars: 7733
+// Lines: 203 | Chars: 7732
 ================================================================================
 
 package core.data;
@@ -4140,7 +4066,7 @@ typedef AtomDef =
 	@:optional var x:Float;
 	@:optional var y:Float;
 	@:optional var values:Dynamic;
-	/** v3.9: Persisted NodeVisualMode ("LIGHT", "MEDIUM", "HEAVY"). Null = default (MEDIUM). */
+	/** v3.9: Persisted NodeVisualMode ("LIGHT", "MEDIUM", "HEAVY"). Null = default (LIGHT). */
 	@:optional var visualMode:String;
 }
 
@@ -6899,7 +6825,7 @@ class ComEnumeratorWidget extends DeviceView
 
 ================================================================================
 // FILE: core\view\ComPortWidget.hx
-// Lines: 901 | Chars: 40430
+// Lines: 901 | Chars: 40429
 ================================================================================
 
 package core.view;
@@ -7026,7 +6952,7 @@ class ComPortWidget extends DeviceView
     private var _rxLedTimer:Float = 0;
     private var _txLedTimer:Float = 0;
     private var _errLedTimer:Float = 0;
-    private var _ledPulseDuration:Float = 0.15;
+    private var _ledPulseDuration:Float = 0.5;
     private var _dtrState:Bool = false;
 
     // Impulsys callback references for proper unsubscription (Memory Optimization v1.3)
@@ -8700,7 +8626,7 @@ class DeviceViewRegistry
 
 ================================================================================
 // FILE: core\view\DeviceWidgetFactory.hx
-// Lines: 303 | Chars: 9262
+// Lines: 303 | Chars: 9274
 ================================================================================
 
 // FILE: core/view/DeviceWidgetFactory.hx
@@ -8863,7 +8789,7 @@ class DeviceWidgetFactory
 			#end
 
 			// Cross-platform — no #if wrapper
-			case "websocket", "websocket atom":
+			case "websocketatom", "websocket atom":
 				new WebSocketWidget(asm);
 			
 			case "filewriter", "file writer":
@@ -8908,7 +8834,7 @@ class DeviceWidgetFactory
 			case "comportatom", "com port":
 				new ComPortWidget(atom);
 				
-			case "websocket":
+			case "websocketatom":
 				new WebSocketWidget(atom);
 				
 			#if cpp
@@ -8998,7 +8924,7 @@ class DeviceWidgetFactory
 			case "led" | "button" | "toggle" | "oscilloscope" | "fftatom" | "textinput" |
 				 "audioin" | "audioinput" | "relay" | "conductor" |
 				 "universalgen" | "signalgen" | "fpsmonitor" | "frametime" |
-				 "textarea" | "websocket" | "comportatom" | "filewriteratom":
+				 "textarea" | "websocketatom" | "comportatom" | "filewriteratom":
 				true;
 			default:
 				// Check Assembly
@@ -16134,7 +16060,7 @@ class URLAudioStreamPlayerWidget extends DeviceView
 
 ================================================================================
 // FILE: core\view\WebSocketWidget.hx
-// Lines: 1335 | Chars: 48054
+// Lines: 1349 | Chars: 48313
 ================================================================================
 
 // ============================================================================
@@ -16217,9 +16143,19 @@ class WebSocketWidget extends DeviceView
     // LAYOUT CONSTANTS
     // =========================================================================
     /** Default widget width. Can be overridden by setting widgetWidth. */
+
+    #if html5
     public var widgetWidth:Float = 320;
-    /** Default widget height. */
-    public var widgetHeight:Float = 530;   // increased from 460 to fit auto-reconnect section
+    public var widgetHeight:Float = 500;
+    #else
+    public var widgetWidth:Float = 320;
+    public var widgetHeight:Float = 500;
+    #end
+
+    override public function getWidgetSize(): {width:Float, height:Float}
+    {
+        return {width: widgetWidth, height: widgetHeight};
+    }
 
     // ── Color palette (dark theme, matches ComPortWidget style) ──
     private var _colorBg:Int        = 0x1a1a24;
@@ -16515,7 +16451,7 @@ class WebSocketWidget extends DeviceView
         _binaryToggle = new Sprite();
         _binaryToggle.graphics.beginFill(_colorInputBg);
         _binaryToggle.graphics.lineStyle(1, 0x333355);
-        _binaryToggle.graphics.drawRoundRect(0, 0, 18, 18, 3, 3);
+        _binaryToggle.graphics.drawRoundRect(3, 0, 18, 18, 3, 3);
         _binaryToggle.graphics.endFill();
         _binaryToggle.x = widgetWidth - 58;
         _binaryToggle.y = yPos + 2;
@@ -16568,21 +16504,23 @@ class WebSocketWidget extends DeviceView
         _sendLabel = new TextField();
         _sendLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
         _sendLabel.text = "SEND DATA";
+        _sendLabel.x = 5;
         _sendLabel.width = 80;
         _sendLabel.height = 15;
         _sendLabel.selectable = false;
         _sendSection.addChild(_sendLabel);
 
         _sendInput = createInputField("", Std.int(widgetWidth - 90));
-        _sendInput.x = 0;
+        _sendInput.x = 5;
         _sendInput.y = 15;
         // Enter-to-send (only when not multiline)
         _sendInput.addEventListener(KeyboardEvent.KEY_DOWN, onSendInputKeyDown);
         _sendSection.addChild(_sendInput);
 
         _sendBtn = createActionButton("SEND", 0x224466, onSendClick);
-        _sendBtn.x = widgetWidth - 72;
-        _sendBtn.y = 14;
+        _sendBtn.x = widgetWidth - 81;
+        _sendBtn.y = 13;
+		_sendBtn.width = 77;
         _sendSection.addChild(_sendBtn);
 
         yPos += 50;
@@ -16595,20 +16533,22 @@ class WebSocketWidget extends DeviceView
         _rxLabel = new TextField();
         _rxLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
         _rxLabel.text = "RECEIVED DATA";
-        _rxLabel.width = 100;
+        _rxLabel.x = 5;
+		_rxLabel.width = 100;
         _rxLabel.height = 15;
         _rxLabel.selectable = false;
         _rxSection.addChild(_rxLabel);
 
-        _clearBtn = createActionButton("CLEAR", 0x442222, onClearClick);
-        _clearBtn.x = widgetWidth - 82;
+        _clearBtn = createActionButton("CLS", 0x442222, onClearClick);
+        _clearBtn.x = widgetWidth - 81;
         _clearBtn.y = -2;
+		_clearBtn.width = 76;
         _rxSection.addChild(_clearBtn);
 
         _rxDisplay = new TextField();
         _rxDisplay.defaultTextFormat = new TextFormat("_typewriter", 11, _colorActive);
         _rxDisplay.text = "";
-        _rxDisplay.width = widgetWidth - 20;
+        _rxDisplay.width = widgetWidth -11;
         _rxDisplay.height = 130;
         _rxDisplay.x = 5;
         _rxDisplay.y = 15;
@@ -16762,14 +16702,14 @@ class WebSocketWidget extends DeviceView
 
         _sendSection.graphics.clear();
         _sendSection.graphics.beginFill(0x0d0d18, 0.5);
-        _sendSection.graphics.lineStyle(1, 0x222244);
-        _sendSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 45, 4, 4);
+        _sendSection.graphics.lineStyle(1, 0x003a63);
+        _sendSection.graphics.drawRoundRect(2, 0, widgetWidth - 4, 45, 4, 4);
         _sendSection.graphics.endFill();
 
         _rxSection.graphics.clear();
         _rxSection.graphics.beginFill(0x0d0d18, 0.5);
         _rxSection.graphics.lineStyle(1, 0x224422);
-        _rxSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 148, 4, 4);
+        _rxSection.graphics.drawRoundRect(2, 0, widgetWidth - 4, 148, 4, 4);
         _rxSection.graphics.endFill();
 
         // Auto-reconnect section background (matches dark theme)
@@ -16820,12 +16760,12 @@ class WebSocketWidget extends DeviceView
     {
         var btn = new Sprite();
         btn.graphics.beginFill(color);
-        btn.graphics.drawRoundRect(0, 0, 80, 26, 4, 4);
+        btn.graphics.drawRoundRect(0, 0, 77, 26, 4, 4);
         btn.graphics.endFill();
         var tf = new TextField();
         tf.defaultTextFormat = new TextFormat("_typewriter", 11, _colorText, true, null, null, null, null, TextFormatAlign.CENTER);
         tf.text = label;
-        tf.width = 80;
+        tf.width = 77;
         tf.height = 26;
         tf.selectable = false;
         tf.mouseEnabled = false;
@@ -18369,7 +18309,7 @@ class ECS {
 
 ================================================================================
 // FILE: editor\ContextMenuManager.hx
-// Lines: 500 | Chars: 18207
+// Lines: 595 | Chars: 20307
 ================================================================================
 
 package editor;
@@ -18542,6 +18482,7 @@ class ContextMenuManager
 		applySidebarPosition();
 		_menu.show(impulse.data.x, impulse.data.y);
 	}
+	
 	/**
 	* Handle node right-click (node context menu).
 	* Shows Editor commands (Delete, Group) + library categories.
@@ -18552,109 +18493,98 @@ class ContextMenuManager
 		if (impulse == null || impulse.data == null) return;
 		var view:NodeView = impulse.data.view;
 		_contextTargetId = impulse.data.id;
-// Selection logic on right-click
+
 		if (!_editor.isSelected(_contextTargetId))
 		{
-// Node not selected: reset all and select only this one
 			_editor.deselectAll();
 			_editor.selectNode(_contextTargetId, view);
 		}
 		else
 		{
-// Node already selected: keep node selection, clear wires
 			_editor.clearWireSelection();
 		}
+
 		resetMenu();
 		var nodeCount = _editor.getSelectedNodeCount();
 		var wireCount = _editor.getSelectedWireIds().length;
-// Build menu data
+
 		var categories = MenuCategory.getBuiltinCategories();
 		var entriesByCategory = new Map<String, Array<MenuEntry>>();
-// Editor commands (with Add Port for canvas context)
+
 		var editorProvider = new EditorCommandsProvider(
 			nodeCount,
 			wireCount,
 			_settingsPanel.allowAssembly,
-			true  // includeAddPort = true for node context
+			true
 		);
 		var editorEntries = editorProvider.getEntries();
 
-		// v3.9: Add visual mode selection entries at the top
-		var currentView = _editor.getNodeViewById(_contextTargetId);
-		var currentMode:NodeVisualMode = (currentView != null) ? currentView.visualMode : NodeVisualMode.MEDIUM;
+		// ========================================================================
+		// Visual Mode menu items
+		// ========================================================================
+		var selectedCount = _editor.getSelectedNodeCount();
+		var isSingleSelection = (selectedCount == 1);
 
-		// Separator label
-		editorEntries.unshift(MenuEntry.createCommand(
-			"SEPARATOR",
-			"── View Mode ──",
-			{}
-		));
+		var currentMode:NodeVisualMode = NodeVisualMode.LIGHT;
+		if (isSingleSelection)
+		{
+			var currentView = _editor.getNodeViewById(_contextTargetId);
+			if (currentView != null) currentMode = currentView.visualMode;
+		}
 
-		// Three mode options with checkmark on current
-		editorEntries.unshift(MenuEntry.createCommand(
-			"SET_NODE_VISUAL_MODE",
-			(currentMode == NodeVisualMode.HEAVY ? "● " : "   ") + "Heavy (Full Detail)",
-			{ nodeId: _contextTargetId, mode: "HEAVY" }
-		));
-		editorEntries.unshift(MenuEntry.createCommand(
-			"SET_NODE_VISUAL_MODE",
-			(currentMode == NodeVisualMode.MEDIUM ? "● " : "   ") + "Medium (Inline)",
-			{ nodeId: _contextTargetId, mode: "MEDIUM" }
-		));
-		editorEntries.unshift(MenuEntry.createCommand(
-			"SET_NODE_VISUAL_MODE",
-			(currentMode == NodeVisualMode.LIGHT ? "● " : "   ") + "Light (Ports Only)",
-			{ nodeId: _contextTargetId, mode: "LIGHT" }
-		));
+		//editorEntries.unshift(MenuEntry.createCommand(
+			//"SEPARATOR",
+			//"── View Mode ──",
+			//{}
+		//));
+
+		// ═══════════════════════════════════════════════════════════════
+		// Local function to add entries
+		// ═══════════════════════════════════════════════════════════════
+		function addModeEntry(mode:NodeVisualMode, label:String):Void
+		{
+			if (isSingleSelection && mode == currentMode) return;
+			
+			var isGroup = !isSingleSelection;
+			var prefix = "   ";
+			
+			// ═══════════════════════════════════════════════════════════════
+			// Используем push() вместо unshift()
+			// push() добавляет элементы в КОНЕЦ массива
+			// ═══════════════════════════════════════════════════════════════
+			editorEntries.push(MenuEntry.createCommand(
+				"SET_NODE_VISUAL_MODE",
+				prefix + label,
+				{ 
+					nodeId: _contextTargetId, 
+					mode: Std.string(mode), 
+					isGroup: isGroup 
+				}
+			));
+		}
+
+		addModeEntry(NodeVisualMode.LIGHT, "Light (Ports Only)");
+		addModeEntry(NodeVisualMode.MEDIUM, "Medium (Inline)");
+		addModeEntry(NodeVisualMode.HEAVY, "Heavy (Full Detail)");
 
 		entriesByCategory.set(MenuCategory.EDITOR, editorEntries);
-// Recent (always included, even if empty)
 		entriesByCategory.set(MenuCategory.RECENT, RecentMenuTracker.getInstance().getRecent());
-// Atom library
+
 		var currentBpId = (_assembly != null && _assembly.blueprint != null)
-		? _assembly.blueprint.id
-		: null;
+			? _assembly.blueprint.id
+			: null;
 		var atomProvider = new AtomLibraryProvider(currentBpId);
 		entriesByCategory.set(MenuCategory.ATOMS, atomProvider.getEntries());
-// Assembly library
+
 		var assemblyProvider = new AssemblyLibraryProvider(currentBpId);
 		entriesByCategory.set(MenuCategory.ASSEMBLIES, assemblyProvider.getEntries());
-// Set preferred category BEFORE setData so it's applied during menu build
-		_menu.setPreferredCategory(MenuCategory.EDITOR);
-// Set menu data
-		_menu.setData(categories, entriesByCategory);
-		applySidebarPosition();
-		_menu.show(impulse.data.x, impulse.data.y);
-	}
-	/**
-	* Handle wire right-click (wire context menu).
-	* Shows only Delete Wire command (no Add Port).
-	*/
-	private function onWireRightClick(impulse:Impulse):Void
-	{
-		if (_isDisposed) return;
-		if (impulse == null || impulse.data == null) return;
-		resetMenu();
-		var wireCount:Int = Std.int(impulse.data.ids.length);
-		var nodeCount = _editor.getSelectedNodeCount();
-		var categories = MenuCategory.getBuiltinCategories();
-		var entriesByCategory = new Map<String, Array<MenuEntry>>();
-// Editor commands (NO Add Port for wire context)
-		var editorProvider = new EditorCommandsProvider(
-			nodeCount,
-			wireCount,
-			_settingsPanel.allowAssembly,
-			false  // includeAddPort = false for wire context
-		);
-		entriesByCategory.set(MenuCategory.EDITOR, editorProvider.getEntries());
-// Recent (always included, even if empty)
-		entriesByCategory.set(MenuCategory.RECENT, RecentMenuTracker.getInstance().getRecent());
-// Set preferred category BEFORE setData so it's applied during menu build
+
 		_menu.setPreferredCategory(MenuCategory.EDITOR);
 		_menu.setData(categories, entriesByCategory);
 		applySidebarPosition();
 		_menu.show(impulse.data.x, impulse.data.y);
 	}
+
 	/**
 	* Handle port right-click (port context menu).
 	* Shows only Remove Port command (no Add Port).
@@ -18681,6 +18611,41 @@ class ContextMenuManager
 		applySidebarPosition();
 		_menu.show(impulse.data.x, impulse.data.y);
 	}
+	
+	/**
+	* Handle wire right-click (wire context menu).
+	* Shows only Delete Wire command (no Add Port).
+	*/
+	private function onWireRightClick(impulse:Impulse):Void
+	{
+		if (_isDisposed) return;
+		if (impulse == null || impulse.data == null) return;
+		
+		resetMenu();
+		var wireCount:Int = Std.int(impulse.data.ids.length);
+		var nodeCount = _editor.getSelectedNodeCount();
+		
+		var categories = MenuCategory.getBuiltinCategories();
+		var entriesByCategory = new Map<String, Array<MenuEntry>>();
+		
+		// Editor commands (NO Add Port for wire context)
+		var editorProvider = new EditorCommandsProvider(
+			nodeCount,
+			wireCount,
+			_settingsPanel.allowAssembly,
+			false  // includeAddPort = false for wire context
+		);
+		entriesByCategory.set(MenuCategory.EDITOR, editorProvider.getEntries());
+		
+		// Recent (always included, even if empty)
+		entriesByCategory.set(MenuCategory.RECENT, RecentMenuTracker.getInstance().getRecent());
+		
+		_menu.setPreferredCategory(MenuCategory.EDITOR);
+		_menu.setData(categories, entriesByCategory);
+		applySidebarPosition();
+		_menu.show(impulse.data.x, impulse.data.y);
+	}
+
 // ========================================================================
 // ACTIONS: Menu Item Clicked
 // ========================================================================
@@ -18689,14 +18654,29 @@ class ContextMenuManager
 	*/
 	private function onMenuAction(impulse:Impulse):Void
 	{
+		// ═══════════════════════════════════════════════════════════════
+		// БЕЗОПАСНЫЙ TRACE #1: Проверяем, вызывается ли метод
+		// ═══════════════════════════════════════════════════════════════
+		trace('=== onMenuAction CALLED ===');
+		
 		if (_isDisposed) return;
 		_menu.hide();
 		if (impulse == null || impulse.data == null || impulse.data.action == null) return;
+		
 		var action:String = Std.string(impulse.data.action);
 		var data = impulse.data.data;
 		var x = impulse.data.x;
 		var y = impulse.data.y;
-// Track recent action
+		
+		// ═══════════════════════════════════════════════════════════════
+		// БЕЗОПАСНЫЙ TRACE #2: Показываем, какое действие пришло
+		// Используем Std.string() для безопасного вывода
+		// ═══════════════════════════════════════════════════════════════
+		trace('  📌 action: ' + action);
+		trace('  📌 data: ' + Std.string(data));
+		trace('  📌 x: ' + x + ', y: ' + y);
+		
+		// Track recent action
 		var recentEntry = new MenuEntry(
 			"recent_" + action,
 			action,
@@ -18706,15 +18686,34 @@ class ContextMenuManager
 			data
 		);
 		RecentMenuTracker.getInstance().record(recentEntry);
+		
 		switch (action)
 		{
 			case "SET_NODE_VISUAL_MODE":
-				if (data != null && data.nodeId != null && data.mode != null)
+				var nodeId = Reflect.field(data, "nodeId");
+				var mode = Reflect.field(data, "mode");
+				var isGroup = Reflect.field(data, "isGroup");
+				
+				if (isGroup == true)
 				{
-					var view = _editor.getNodeViewById(Std.string(data.nodeId));
+					// Применяем режим ко ВСЕМ выделенным атомам
+					var selectedIds = _editor.getSelectedNodeIds();
+					for (id in selectedIds)
+					{
+						var view = _editor.getNodeViewById(id);
+						if (view != null)
+						{
+							view.setVisualModeFromString(Std.string(mode));
+						}
+					}
+				}
+				else if (nodeId != null && mode != null)
+				{
+					// Применяем к одному атому
+					var view = _editor.getNodeViewById(Std.string(nodeId));
 					if (view != null)
 					{
-						view.setVisualModeFromString(Std.string(data.mode));
+						view.setVisualModeFromString(Std.string(mode));
 					}
 				}
 				return;
@@ -18722,6 +18721,7 @@ class ContextMenuManager
 			case "SEPARATOR":
 				// No-op — visual separator only
 				return;
+				
 			case "DELETE_ALL_SELECTED":
 				var macrocom = new MacroCommand();
 				var nodeIds = _editor.getSelectedNodeIds();
@@ -18735,16 +18735,18 @@ class ContextMenuManager
 				if (wireIds.length > 0)
 				{
 					macrocom.addCommand(new DeleteWiresCommand(
-											_assembly.blueprint, _assembly, wireIds
-										));
+						_assembly.blueprint, _assembly, wireIds
+					));
 				}
 				UndoManager.getInstance().executeAndStore(macrocom);
 				_editor.deselectAll();
 				return;
+				
 			case "DELETE_SELECTED_ATOMS":
 				_editor.deleteSelectedNodes();
 				_contextTargetId = null;
 				return;
+				
 			case "DELETE_ATOM":
 				if (_editor.getSelectedNodeCount() > 0)
 				{
@@ -18752,40 +18754,73 @@ class ContextMenuManager
 				}
 				_contextTargetId = null;
 				return;
+				
 			case "DELETE_WIRES":
-				var cmd = new DeleteWiresCommand(
-					_assembly.blueprint, _assembly, data.ids
-				);
-				UndoManager.getInstance().executeAndStore(cmd);
+				// Используем Reflect для ids
+				var ids = Reflect.field(data, "ids");
+				if (ids != null)
+				{
+					var cmd = new DeleteWiresCommand(
+						_assembly.blueprint, _assembly, ids
+					);
+					UndoManager.getInstance().executeAndStore(cmd);
+				}
 				return;
+				
 			case "GROUP_ATOMS":
 				if (_settingsPanel.allowAssembly) groupSelectedToAssembly();
 				return;
+				
 			case "ADD_PORT":
-				if (data != null && data.type != null)
+				// Используем Reflect для type
+				var portType = Reflect.field(data, "type");
+				if (portType != null)
 				{
-					var cmd = new AddPortCommand(_assembly, data.type);
+					var cmd = new AddPortCommand(_assembly, portType);
 					UndoManager.getInstance().executeAndStore(cmd);
 				}
 				return;
+				
 			case "REMOVE_PORT":
-				if (data != null && data.name != null)
+				// Используем Reflect для name
+				var portName = Reflect.field(data, "name");
+				if (portName != null)
 				{
-					var cmd = new RemovePortCommand(_assembly, data.name);
+					var cmd = new RemovePortCommand(_assembly, portName);
 					UndoManager.getInstance().executeAndStore(cmd);
 				}
 				return;
 		}
-// Adding an atom (Action: "ADD_ATOM")
+		
+		// Adding an atom (Action: "ADD_ATOM")
 		if (action == "ADD_ATOM")
 		{
-			if (data != null && data.typeId != null)
+			trace('  🔍 ADD_ATOM branch entered');
+			
+			var typeId = Reflect.field(data, "typeId");
+			trace('    📍 typeId: ' + Std.string(typeId));
+			
+			if (typeId != null)
 			{
-				_editor.createAtom(data.typeId, x, y);
+				// ═══════════════════════════════════════════════════════════
+				// FIX: Приводим x и y к Float
+				// ═══════════════════════════════════════════════════════════
+				var posX:Float = Std.parseFloat(Std.string(x));
+				var posY:Float = Std.parseFloat(Std.string(y));
+				if (Math.isNaN(posX)) posX = 0;
+				if (Math.isNaN(posY)) posY = 0;
+				
+				trace('    📍 creating atom: ' + Std.string(typeId) + ' at (' + posX + ', ' + posY + ')');
+				_editor.createAtom(Std.string(typeId), posX, posY);
+			}
+			else
+			{
+				trace('  ⚠️ data is null or missing typeId');
 			}
 		}
 	}
-	/**
+
+/**
 	* Handle close context menu request.
 	*/
 	private function onCloseContextMenu(i:Impulse):Void
@@ -20897,7 +20932,7 @@ class GroupSelectionManager
 
 ================================================================================
 // FILE: editor\NodeEditor.hx
-// Lines: 1823 | Chars: 82854
+// Lines: 1837 | Chars: 83344
 ================================================================================
 
 package editor;
@@ -21583,17 +21618,31 @@ class NodeEditor extends Sprite
 			if (_nodes.exists(id)) return;
 			var view:NodeView = new NodeView(atom, id);
 			view.setPosition(x, y);
+			view.setParentAssembly(_assembly);
+			view.isNameTakenGlobally = _isNameTakenGlobally;
 			
-			// v3.9: Restore saved visual mode
-			if (visualModeStr != null)
+			var modeToRestore:String = null;
+			
+			if (visualModeStr != null && visualModeStr != "")
 			{
-				view.setVisualModeFromString(visualModeStr);
+				modeToRestore = visualModeStr;
+				trace('createViewForAtom: using visualModeStr from AtomDef = "$modeToRestore"');
 			}
 			
-			// === v3.3: Pass parent Assembly for name uniqueness check ===
-			view.setParentAssembly(_assembly);
-			// === v4.8: Pass global name uniqueness checker ===
-			view.isNameTakenGlobally = _isNameTakenGlobally;
+			// ═══════════════════════════════════════════════════════════════
+			// v3.9 FIX: Apply visualMode after creating view
+			// ═══════════════════════════════════════════════════════════════
+			if (modeToRestore != null && modeToRestore != "MEDIUM")
+			{
+				trace('createViewForAtom: applying visualMode "$modeToRestore" to view');
+				view.setVisualModeFromString(modeToRestore);
+			}
+			else
+			{
+				trace('createViewForAtom: using default MEDIUM mode');
+				view.setVisualMode(NodeVisualMode.MEDIUM);
+			}
+			
 			_canvas.addChild(view);
 			_nodes.set(id, view);
 		}
@@ -22726,7 +22775,7 @@ class NodeEditor extends Sprite
 
 ================================================================================
 // FILE: editor\NodeView.hx
-// Lines: 2050 | Chars: 94195
+// Lines: 2115 | Chars: 95832
 ================================================================================
 
 package editor;
@@ -22846,10 +22895,10 @@ class NodeView extends Sprite
 // =========================================================================
 // CONFIGURATION
 // =========================================================================
-        public static inline var PREVIEW_SCALE:Float = 0.7;
+        public static inline var PREVIEW_SCALE:Float = 1.03;
         public static inline var MIN_WIDTH:Float = 180;
         public static inline var MIN_BODY_HEIGHT:Float = 68;
-        public static inline var WIDGET_PADDING:Float = 5;
+        public static inline var WIDGET_PADDING:Float = 15;
         public static inline var TITLE_HEIGHT:Float = 22;
         public static inline var PORT_RADIUS:Float = 7;
         public static inline var PORT_SPACING:Float = 32;
@@ -23125,38 +23174,36 @@ class NodeView extends Sprite
 // =========================================================================
 // DYNAMIC SIZING (v3.0)
 // =========================================================================
-        private function recalcSize():Void
-        {
-                var bodyWidth:Float = MIN_WIDTH;
-                var widgetHeight:Float = 0;
-                
-                // v2.0: Calculate widget dimensions based on visual mode
-                // LIGHT: no widget, no inline editors
-                // MEDIUM: no widget, but inline editors present
-                // HEAVY: widget + inline editors
-                if (visualMode == NodeVisualMode.HEAVY && deviceView != null)
-                {
-                        var ws = deviceView.getWidgetSize();
-                        var scaledW = ws.width * PREVIEW_SCALE;
-                        var scaledH = ws.height * PREVIEW_SCALE;
-                        bodyWidth = Math.max(bodyWidth, scaledW + WIDGET_PADDING * 2);
-                        widgetHeight = scaledH + WIDGET_PADDING;
-                }
-                
-                var portsHeight:Float = MIN_BODY_HEIGHT;
-                var inputCount = (atom != null && atom.getInputs() != null) ? atom.getInputs().length : 0;
-                var outputCount = (atom != null && atom.getOutputs() != null) ? atom.getOutputs().length : 0;
-                var maxPorts = Std.int(Math.max(inputCount, outputCount));
-                
-                if (maxPorts > 0)
-                {
-                        portsHeight = (maxPorts + 1) * PORT_SPACING;
-                }
-                
-                var bodyHeight = portsHeight + widgetHeight;
-                _nodeWidth = bodyWidth;
-                _nodeHeight = TITLE_HEIGHT + bodyHeight;
-        }
+		private function recalcSize():Void
+		{
+			var bodyWidth:Float = MIN_WIDTH;
+			var widgetHeight:Float = 0;
+			
+			if (visualMode == NodeVisualMode.HEAVY && deviceView != null)
+			{
+				var ws = deviceView.getWidgetSize();
+				var scaledW = ws.width * PREVIEW_SCALE;
+				var scaledH = ws.height * PREVIEW_SCALE;
+				bodyWidth = Math.max(bodyWidth, scaledW + WIDGET_PADDING * 2);
+				
+				// отступы сверху и снизу:
+				widgetHeight = scaledH + (WIDGET_PADDING * 2);
+			}
+			
+			var portsHeight:Float = MIN_BODY_HEIGHT;
+			var inputCount = (atom != null && atom.getInputs() != null) ? atom.getInputs().length : 0;
+			var outputCount = (atom != null && atom.getOutputs() != null) ? atom.getOutputs().length : 0;
+			var maxPorts = Std.int(Math.max(inputCount, outputCount));
+			
+			if (maxPorts > 0)
+			{
+				portsHeight = (maxPorts + 1) * PORT_SPACING;
+			}
+			
+			var bodyHeight = portsHeight + widgetHeight;
+			_nodeWidth = bodyWidth;
+			_nodeHeight = TITLE_HEIGHT + bodyHeight;
+		}
 
         private function updateLayout():Void
         {
@@ -23278,23 +23325,34 @@ class NodeView extends Sprite
                 // No need to add listeners here — the guard in onMouseDown() checks the display hierarchy.
         }
 
-        private function centerPreviewContainer():Void
-        {
-                if (deviceView == null)
-                {
-                        _previewContainer.x = WIDGET_PADDING;
-                        _previewContainer.y = TITLE_HEIGHT + WIDGET_PADDING;
-                        return;
-                }
-                var ws = deviceView.getWidgetSize();
-                var scale = (visualMode == NodeVisualMode.HEAVY) ? 1.0 : PREVIEW_SCALE;
-                var scaledW = ws.width * scale;
-                var scaledH = ws.height * scale;
-                var bodyWidth = _nodeWidth;
-                
-                _previewContainer.x = (bodyWidth - scaledW) / 2;
-                _previewContainer.y = _nodeHeight - scaledH - WIDGET_PADDING;
-        }
+private function centerPreviewContainer():Void
+{
+    if (deviceView == null)
+    {
+        _previewContainer.x = WIDGET_PADDING;
+        _previewContainer.y = TITLE_HEIGHT + WIDGET_PADDING;
+        return;
+    }
+    var ws = deviceView.getWidgetSize();
+    
+    var scaledW = ws.width * PREVIEW_SCALE;
+    var scaledH = ws.height * PREVIEW_SCALE;
+    var bodyWidth = _nodeWidth;
+    
+    // === ИСПРАВЛЕНО: widgetHeight рассчитываем локально ===
+    var widgetHeight = scaledH + (WIDGET_PADDING * 2) * PREVIEW_SCALE;
+    
+    // Горизонтальное центрирование
+    _previewContainer.x = (bodyWidth / 2) - (scaledW / 2) * PREVIEW_SCALE;
+    
+	//  + (_nodeHeight - (_nodeHeight - widgetHeight) / 2) + ((widgetHeight / 2) * PREVIEW_SCALE)
+	// Separator Y = (_nodeHeight - widgetHeight)
+	// Widget Y center = (widgetHeight / 2)
+    // Вертикальное центрирование в widget area
+	var separatorYPos = _nodeHeight - widgetHeight;
+	var widgetPlaceHeight = _nodeHeight - separatorYPos;
+    _previewContainer.y = (separatorYPos + WIDGET_PADDING / 2) + (widgetPlaceHeight / 2) - (widgetHeight / 2); 
+}
 
         public function redraw():Void
         {
@@ -23372,8 +23430,12 @@ class NodeView extends Sprite
                 {
                         var ws = deviceView.getWidgetSize();
                         var scaledH = ws.height * PREVIEW_SCALE;
-                        var separatorY = _nodeHeight - scaledH - WIDGET_PADDING - 5;
-                        var sepG = _background.graphics;
+                        //var separatorY = _nodeHeight - scaledH - (WIDGET_PADDING * 2) - 5;
+                        // Separator на границе между ports и widget area
+						var widgetHeight = scaledH + (WIDGET_PADDING * 2);
+						var separatorY = _nodeHeight - widgetHeight;
+					
+						var sepG = _background.graphics;
                         sepG.lineStyle(1, 0x444455);
                         sepG.moveTo(0, separatorY);
                         sepG.lineTo(_nodeWidth, separatorY);
@@ -23623,41 +23685,93 @@ class NodeView extends Sprite
 		*/
 		public function setVisualMode(mode:NodeVisualMode):Void
 		{
-			if (visualMode == mode) return;
-			visualMode = mode;
+			trace('=== [NodeView] setVisualMode CALLED with: ' + mode + ' ===');
 			
-			// === v3.9: Persist visual mode to Blueprint ===
-			if (assembly != null && assembly.blueprint != null && assembly.blueprint.internalAtoms != null) 
+			// ═══════════════════════════════════════════════════════════════
+			// v3.9 FIX: Always persist to Blueprint, even if mode unchanged
+			// Previously: if (visualMode == mode) return; — skipped Blueprint write
+			// Now: write first, then skip UI update if unchanged
+			// ═══════════════════════════════════════════════════════════════
+			_persistVisualModeToBlueprint(Std.string(mode));
+			
+			if (visualMode == mode)
 			{
-				var templateId = assembly.getTemplateId(nodeId);
-				for (atomDef in assembly.blueprint.internalAtoms) 
-				{
-					if (atomDef.instanceId == templateId) 
-					{
-						atomDef.visualMode = Std.string(mode);
-						break;
-					}
-				}
+				trace('  ⏭️ Mode already set, skipping UI update');
+				return;
 			}
 			
-			// Recreate inline editors based on mode
+			visualMode = mode;
+			trace('  📍 visualMode changed to: ' + visualMode);
 			createInlineEditors();
-			
-			// Update layout and redraw
 			updateLayout();
+			trace('  ✅ setVisualMode completed');
+		}
+
+		// ══════════════════════════════════════════════════════════════
+		// v3.9: Persist visualMode directly to Blueprint.AtomDef
+		// ═════════════════════════════════════════════════════════════
+		// Standard path: write visualMode to the same place
+		// ProjectManager.saveSelfrun() reads it from.
+		// No side effects on atom persistent state (values).
+		private function _persistVisualModeToBlueprint(modeStr:String):Void
+		{
+			if (_parentAssembly == null)
+			{
+				trace('  ️ _parentAssembly is NULL, cannot persist visualMode to Blueprint');
+				return;
+			}
+
+			// nodeId — runtime ID. Blueprint stores template IDs.
+			var templateId = _parentAssembly.getTemplateId(nodeId);
+			if (templateId == null)
+			{
+				trace('  ⚠️ templateId not found for nodeId="$nodeId"');
+				return;
+			}
+
+			var bp = _parentAssembly.blueprint;
+			if (bp == null || bp.internalAtoms == null)
+			{
+				trace('  ⚠️ Blueprint or internalAtoms is null');
+				return;
+			}
+
+			var found = false;
+			for (atomDef in bp.internalAtoms)
+			{
+				if (atomDef.instanceId == templateId)
+				{
+					atomDef.visualMode = modeStr;
+					found = true;
+					trace('  ✅ visualMode persisted to Blueprint.AtomDef["$templateId"].visualMode = "$modeStr"');
+					break;
+				}
+			}
+
+			if (!found)
+			{
+				trace('  ⚠️ AtomDef not found in Blueprint for templateId="$templateId"');
+			}
 		}
 
 		/**
 		* v3.9: Helper to restore visual mode from a saved string value.
 		* @param str Saved mode string ("LIGHT", "MEDIUM", "HEAVY")
 		*/
-		public function setVisualModeFromString(str:String):Void 
+		public function setVisualModeFromString(str:String):Void
 		{
-			switch(str) 
+			trace('=== setVisualModeFromString CALLED with: "' + str + '" ===');
+			switch(str)
 			{
-				case "LIGHT": setVisualMode(NodeVisualMode.LIGHT);
-				case "HEAVY": setVisualMode(NodeVisualMode.HEAVY);
-				default: setVisualMode(NodeVisualMode.MEDIUM);
+				case "LIGHT":
+					trace('  → Switching to LIGHT');
+					setVisualMode(NodeVisualMode.LIGHT);
+				case "HEAVY":
+					trace('  → Switching to HEAVY');
+					setVisualMode(NodeVisualMode.HEAVY);
+				default:
+					trace('  → Switching to MEDIUM (default)');
+					setVisualMode(NodeVisualMode.MEDIUM);
 			}
 		}
 
@@ -39486,7 +39600,7 @@ class RelayAtom extends Atom
 
 ================================================================================
 // FILE: library\electro\TextAreaAtom.hx
-// Lines: 372 | Chars: 15428
+// Lines: 533 | Chars: 22028
 ================================================================================
 
 // FILE: library/electro/TextAreaAtom.hx
@@ -39497,7 +39611,7 @@ import core.base.Contact;
 import core.types.ContactType;
 
 /**
- * TEXT AREA ATOM v1.2 (Contact Name Consistency + Silent Append Reset)
+ * TEXT AREA ATOM v1.3 (Bounded Scrollback Buffer)
  *
  * Passive atom for multi-line text display and editing.
  * Extends the concept of TextInputAtom with full textarea configuration.
@@ -39518,6 +39632,7 @@ import core.types.ContactType;
  * │   │  - vScroll    (Bool)    → Vertical scrollbar visibility         │   │
  * │   │  - maxChars   (Int)     → Max characters per line (width)       │   │
  * │   │  - numLines   (Int)     → Number of visible lines (height)      │   │
+ * │   │  - bufferLines (Int)    → Scrollback buffer limit (lines)       │   │
  * │   │                                                                 │   │
  * │   │  OUTPUTS:                                                       │   │
  * │   │  - textOut    (String)  → Current text content                  │   │
@@ -39539,6 +39654,15 @@ import core.types.ContactType;
  * │   │  Never use "text" as a contact name — it's ambiguous.           │   │
  * │   └─────────────────────────────────────────────────────────────────┘   │
  * │                                                                         │
+ * │   v1.3 BUFFER INVARIANT:                                                │
+ * │   ┌─────────────────────────────────────────────────────────────────┐   │
+ * │   │  _text is BOUNDED at all times:                                 │   │
+ * │   │    ≤ _bufferLines lines                    (Pass 1, tail trim)  │   │
+ * │   │    ≤ _bufferLines * (_maxChars + 1) chars  (Pass 2, hard cap)   │   │
+ * │   │  Enforced on EVERY ingestion path: textIn, append, widget edit, │   │
+ * │   │  restoreState — and on bufferLines/maxChars config changes.     │   │
+ * │   └─────────────────────────────────────────────────────────────────┘   │
+ * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
  * Default Configuration:
@@ -39547,6 +39671,7 @@ import core.types.ContactType;
  * ├──────────────────┼───────────────┤
  * │ maxChars         │ 40            │
  * │ numLines         │ 8             │
+ * │ bufferLines      │ 256           │
  * │ editable         │ true          │
  * │ wordWrap         │ true          │
  * │ autoScroll       │ true          │
@@ -39560,6 +39685,20 @@ import core.types.ContactType;
  * - FIXED: restoreState() uses setValueSilent() for textIn to prevent
  *   double propagate wave during Load-Symmetric Reconstruction.
  * - ADDED: Explicit contact name contract documentation.
+ *
+ * v1.3 Changes:
+ * - ADDED: "bufferLines" input — bounded scrollback buffer (default 256
+ *   lines, clamped 10..5000). _text can no longer grow without bound.
+ *   Root-cause fix for the "Memory exhausted" crash in high-frequency
+ *   loops (Selfrun soak test: unbounded append + O(N) garbage per append).
+ * - ADDED: trimBuffer() — line-based tail trim (Pass 1) + hard character
+ *   cap _bufferLines * (_maxChars + 1) (Pass 2) as backstop for streams
+ *   without newlines (e.g. "BeginBeginBegin...").
+ * - CHANGED: lineCount is computed by zero-allocation counter
+ *   countLines() instead of String.split("\n") — identical semantics.
+ * - CHANGED: buffer limit enforced on ALL ingestion paths: textIn,
+ *   append, setTextFromWidget, restoreState, and on bufferLines /
+ *   maxChars runtime changes.
  */
 class TextAreaAtom extends Atom
 {
@@ -39574,6 +39713,7 @@ class TextAreaAtom extends Atom
     private var _vScroll:Bool = true;
     private var _maxChars:Int = 40;
     private var _numLines:Int = 8;
+    private var _bufferLines:Int = 256;   // v1.3: scrollback limit (lines)
 
     // =========================================================================
     // CONSTRUCTOR
@@ -39592,7 +39732,8 @@ class TextAreaAtom extends Atom
                 new Contact(false, INPUT, "hScroll"),
                 new Contact(true, INPUT, "vScroll"),
                 new Contact(40, INPUT, "maxChars"),
-                new Contact(8, INPUT, "numLines")
+                new Contact(8, INPUT, "numLines"),
+                new Contact(256, INPUT, "bufferLines")   // v1.3
             ],
             // === OUTPUTS ===
             [
@@ -39616,8 +39757,10 @@ class TextAreaAtom extends Atom
      *
      * Data flow for text operations:
      * ┌─────────────────────────────────────────────────────────────────┐
-     * │  textIn changed → _text = newValue → pushTextToOutput()         │
-     * │  append changed → _text += newValue → pushTextToOutput()        │
+     * │  textIn changed → _text = newValue → trimBuffer()               │
+     * │                   → pushTextToOutput()                          │
+     * │  append changed → _text += newValue → trimBuffer()              │
+     * │                   → pushTextToOutput()                          │
      * │                   → setValueSilent("") to reset (no propagate)  │
      * │  clear == true  → _text = "" → pushTextToOutput()               │
      * │                   → setValueSilent(false) to reset              │
@@ -39634,6 +39777,11 @@ class TextAreaAtom extends Atom
                 if (newText != _text)
                 {
                     _text = newText;
+
+                    // v1.3: Bulk text from outside is subject to the
+                    // buffer limit too — a huge textIn must not blow it.
+                    trimBuffer();
+
                     pushTextToOutput();
                 }
 
@@ -39644,6 +39792,11 @@ class TextAreaAtom extends Atom
                     // Data is appended exactly as received,
                     // allowing the sender to control formatting.
                     _text += appendStr;
+
+                    // v1.3: Enforce scrollback limit after every append.
+                    // This is the root-cause fix for unbounded _text
+                    // growth ("Memory exhausted" in high-frequency loops).
+                    trimBuffer();
 
                     pushTextToOutput();
 
@@ -39683,11 +39836,25 @@ class TextAreaAtom extends Atom
 
             case "maxChars":
                 var v = Std.int(c.value);
-                if (v >= 5 && v <= 200) _maxChars = v;
+                if (v >= 5 && v <= 200)
+                {
+                    _maxChars = v;
+                    // v1.3: Hard cap depends on maxChars — re-enforce.
+                    retrimIfChanged();
+                }
 
             case "numLines":
                 var v = Std.int(c.value);
                 if (v >= 1 && v <= 100) _numLines = v;
+
+            case "bufferLines":
+                var v = Std.int(c.value);
+                if (v >= 10 && v <= 5000)
+                {
+                    _bufferLines = v;
+                    // v1.3: Shrinking the buffer trims immediately.
+                    retrimIfChanged();
+                }
         }
 
         super.onContactChanged(c);
@@ -39701,7 +39868,7 @@ class TextAreaAtom extends Atom
      * │       │                                                         │
      * │       ├──► textOut.value = _text                                │
      * │       │                                                         │
-     * │       ├──► lineCount.value = _text.split("\n").length           │
+     * │       ├──► lineCount.value = countLines()  (zero-alloc, v1.3)   │
      * │       │                                                         │
      * │       └──► changed.value = true                                 │
      * │              │                                                  │
@@ -39717,8 +39884,10 @@ class TextAreaAtom extends Atom
         var lineCountOut = getOutput("lineCount");
         if (lineCountOut != null)
         {
-            var lines = _text.split("\n");
-            lineCountOut.value = lines.length;
+            // v1.3: Zero-allocation line counting.
+            // Was: _text.split("\n").length — allocated a full array
+            // plus string copies on every append.
+            lineCountOut.value = countLines();
         }
 
         var changedOut = getOutput("changed");
@@ -39743,6 +39912,84 @@ class TextAreaAtom extends Atom
     }
 
     // =========================================================================
+    // BUFFER MANAGEMENT (v1.3)
+    // =========================================================================
+
+    /**
+     * Enforce the scrollback buffer limit on _text (v1.3).
+     *
+     * Pass 1 — line-based tail trim: keeps the last _bufferLines lines.
+     *          Counts '\n' terminators from the END and stops scanning
+     *          as soon as the limit is exceeded — O(K), not O(N).
+     * Pass 2 — hard character cap: _bufferLines * (_maxChars + 1) chars
+     *          (+1 accounts for each line's '\n'). Backstop for streams
+     *          without newlines (e.g. "BeginBeginBegin..."), where
+     *          Pass 1 never triggers.
+     *
+     * Both passes keep the TAIL of the text — in a terminal the newest
+     * data is at the end, so the oldest content scrolls away.
+     */
+    private function trimBuffer():Void
+    {
+        if (_text == null || _text.length == 0) return;
+
+        // ── Pass 1: keep the last _bufferLines lines ──
+        var nl = 0;
+        var i = _text.length - 1;
+        while (i >= 0)
+        {
+            if (_text.charCodeAt(i) == 10) // '\n'
+            {
+                nl++;
+                if (nl > _bufferLines)
+                {
+                    _text = _text.substr(i + 1);
+                    break;
+                }
+            }
+            i--;
+        }
+
+        // ── Pass 2: hard cap for newline-less streams ──
+        var hardCap = _bufferLines * (_maxChars + 1);
+        if (_text.length > hardCap)
+        {
+            _text = _text.substr(_text.length - hardCap);
+        }
+    }
+
+    /**
+     * v1.3: Zero-allocation line counter.
+     *
+     * Semantically identical to _text.split("\n").length
+     * ("" → 1, "a" → 1, "a\n" → 2, "a\nb" → 2, ...),
+     * but allocates nothing — no array, no string copies.
+     */
+    private function countLines():Int
+    {
+        if (_text == null || _text.length == 0) return 1;
+        var n = 1;
+        for (i in 0..._text.length)
+        {
+            if (_text.charCodeAt(i) == 10) n++;
+        }
+        return n;
+    }
+
+    /**
+     * v1.3 helper: re-enforce the buffer limit after a config change
+     * (bufferLines / maxChars). Pushes to outputs only when the text
+     * actually shrank — no spurious "changed" pulses on config-only
+     * updates.
+     */
+    private function retrimIfChanged():Void
+    {
+        var before = _text;
+        trimBuffer();
+        if (_text != before) pushTextToOutput();
+    }
+
+    // =========================================================================
     // PUBLIC API (for Widget)
     // =========================================================================
     public function getText():String return _text;
@@ -39753,6 +40000,7 @@ class TextAreaAtom extends Atom
     public function isVScroll():Bool return _vScroll;
     public function getMaxChars():Int return _maxChars;
     public function getNumLines():Int return _numLines;
+    public function getBufferLines():Int return _bufferLines;   // v1.3
 
     /**
      * Called by widget when user edits text.
@@ -39761,12 +40009,20 @@ class TextAreaAtom extends Atom
      * v1.2: Uses setValueSilent for textIn sync to prevent
      * feedback loop (textIn.value = _text would re-trigger
      * onContactChanged → case "textIn" → pushTextToOutput again).
+     *
+     * v1.3: Widget edits obey the same buffer limit as programmatic
+     * ingestion — pasting a huge block through the widget must not
+     * bypass the invariant.
      */
     public function setTextFromWidget(newText:String):Void
     {
         if (newText != _text)
         {
             _text = newText;
+
+            // v1.3: Enforce buffer limit on widget-originated text.
+            trimBuffer();
+
             // Sync input contact silently — no propagate needed
             // because we already call pushTextToOutput() below.
             var textIn = getInput("textIn");
@@ -39798,7 +40054,8 @@ class TextAreaAtom extends Atom
             hScroll: _hScroll,
             vScroll: _vScroll,
             maxChars: _maxChars,
-            numLines: _numLines
+            numLines: _numLines,
+            bufferLines: _bufferLines   // v1.3
         };
         if (base != null)
         {
@@ -39817,6 +40074,10 @@ class TextAreaAtom extends Atom
      * Load-Symmetric Reconstruction principle:
      * restoreState() must NOT trigger side-effect propagate chains.
      * The Assembly._processPendingSignals() handles final sync wave.
+     *
+     * v1.3: trimBuffer() runs AFTER config restoration (so
+     * _bufferLines/_maxChars are current) — a project saved with an
+     * oversized text blob must not resurrect it on load.
      */
     override public function restoreState(state:Dynamic):Void
     {
@@ -39852,12 +40113,26 @@ class TextAreaAtom extends Atom
             var v = Std.int(state.numLines);
             if (v >= 1 && v <= 100) _numLines = v;
         }
+        if (state.bufferLines != null)   // v1.3
+        {
+            var v = Std.int(state.bufferLines);
+            if (v >= 10 && v <= 5000) _bufferLines = v;
+        }
+
+        // v1.3: Enforce buffer limit on restored text, then re-sync
+        // contacts silently (still no propagate during load).
+        trimBuffer();
+        var textOutSync = getOutput("textOut");
+        if (textOutSync != null) textOutSync.setValueSilent(_text);
+
+        var textInSync = getInput("textIn");
+        if (textInSync != null) textInSync.setValueSilent(_text);
 
         // Update line count output (silent — no propagate during load)
         var lineCountOut = getOutput("lineCount");
         if (lineCountOut != null)
         {
-            lineCountOut.setValueSilent(_text.split("\n").length);
+            lineCountOut.setValueSilent(countLines());
         }
     }
 }
@@ -46477,7 +46752,7 @@ class DriverManager
 
 ================================================================================
 // FILE: system\managers\ProjectManager.hx
-// Lines: 784 | Chars: 24779
+// Lines: 778 | Chars: 24809
 ================================================================================
 
 package system.managers;
@@ -46658,11 +46933,8 @@ class ProjectManager
 				y: atomDef.y,
 				values: values
 			};
-			// v3.9: Persist visual mode if explicitly set
-			if (atomDef.visualMode != null)
-			{
-				atomData.visualMode = atomDef.visualMode;
-			}
+			// v3.9 FIX: Always write visualMode (default to "LIGHT" if not set)
+			atomData.visualMode = atomDef.visualMode != null ? atomDef.visualMode : "LIGHT";
 			atomsToSave.push(atomData);
 		}
 // Serialize connections with template IDs
@@ -46890,11 +47162,8 @@ class ProjectManager
 				y: atomDef.y,
 				values: values
 			};
-			// v3.9: Persist visual mode if explicitly set
-			if (atomDef.visualMode != null)
-			{
-				atomData.visualMode = atomDef.visualMode;
-			}
+			// v3.9 FIX: Always write visualMode (default to "LIGHT" if not set)
+			atomData.visualMode = atomDef.visualMode != null ? atomDef.visualMode : "LIGHT";
 			atomsToSave.push(atomData);
 		}
 // Serialize connections
@@ -56216,6 +56485,112 @@ class UID {
         return str;
     }
 }
+
+
+
+================================================================================
+// FILE: project.xml
+// Lines: 98 | Chars: 4931
+================================================================================
+<?xml version="1.0" encoding="utf-8"?>
+<project>
+	
+
+	<!-- ========================================================================= -->
+	<!-- META INFORMATION                                                          -->
+	<!-- ========================================================================= -->
+	<meta title="ALTAURI" package="com.virtualik.altauri" version="1.0.0" company="ViRTUALiK" />
+	
+	<!-- ========================================================================= -->
+	<!-- APPLICATION ENTRY POINTS 🐧🤖🪟🌐                                          -->
+	<!-- ========================================================================= -->
+	<!-- Используем единый класс Main для разных платформ -->
+	<app main="Main" file="ALTAURI_Windows"  path="bin" if="windows" />
+	<app main="Main" file="ALTAURI_Android"  path="bin" if="android" />
+	<app main="Main" file="ALTAURI_Linux"    path="bin" if="linux" />
+	<app main="Main" file="ALTAURI_Web"      path="bin" if="html5" />
+	
+	<!-- Для Android явно указываем тип вывода -->
+	<!-- <output type="Application" mainClass="Main" /> -->
+	
+	
+	
+	<!-- ========================================================================= -->
+	<!-- WINDOW SETTINGS                                                           -->
+	<!-- ========================================================================= -->
+	<!-- Общие настройки для всех платформ -->
+	<window hardware="true" vsync="true" allow-shaders="true" antialiasing="0" fps="60" />
+	
+	<!-- Специфичные настройки для Windows / C++ -->
+	<window if="cpp" 
+			visible="false"
+			borderless="true"
+			allow-high-dpi="false"
+			width="1024" 
+			height="600"
+			background="#FF00FF"
+			transparent="true"
+			render="webgl" hardware="true" vsync="true" />
+	
+	<!-- Специфичные настройки для HTML5 -->
+	<!-- СЛУЧАЙ 1 НА ВЕСЬ БРАУЗЕР: Не задаём width и height, чтобы браузер сам подогнал canvas 1:1 -->
+	<!-- window if="html5" background="#FFFFFF"	allow-high-dpi="false" -->
+
+	<!-- СЛУЧАЙ 2 ДЛЯ ОБЛАСТИ DIV:Фиксированный размер для демо-виджета, например 800x400 -->
+	<window if="html5" width="1024" height="600" background="#1E1E1E" />
+	<window if="html5" render="webgl" hardware="true" vsync="true" />
+
+	<config:android sdk="C:\AndroidSDK" ndk="C:\AndroidSDK\ndk\21.4.7075529" />
+
+	<!-- ========================================================================= -->
+	<!-- ENVIRONMENT VARIABLES (C++ Only)                                          -->
+	<!-- ========================================================================= -->
+	
+	<setenv name="OPENFL_DISABLE_DIRTY_REGIONS" value="true" if="cpp" />
+	<setenv name="LIME_RENDER_CONTEXT" value="opengl" if="cpp" />
+	
+	<!-- ========================================================================= -->
+	<!-- SOURCE PATHS                                                              -->
+	<!-- ========================================================================= -->
+	<source path="src" />
+	
+	<haxelib name="openfl" />
+	<haxelib name="hxcpp" if="cpp" />
+	<haxedef name="utf8" />
+	
+	<assets path="assets" />
+	<assets path="assets/icons/atoms" rename="assets/icons/atoms" recursive="true" />
+	<icon path="assets/favicon.ico" />
+	
+    <!-- ========================================================================= -->
+    <!-- ANDROID CONFIGURATION & USB SERIAL & JAVA-WEBSOCKET DEPENDENCIES          -->
+    <!-- ========================================================================= -->
+	<section if="android">
+		<!-- USB Host feature (для ComPort) -->
+		<android feature="android.hardware.usb.host" />
+		
+		<!-- INTERNET permission (для WebSocket) -->
+		<android permission="android.permission.INTERNET" />
+		
+		<!-- Подключаем распакованный classes.jar из .aar файла (для ComPort) -->
+		<java path="libs/android/java/usb-serial-extracted/classes.jar" />
+		
+		<!-- Подключаем Java-WebSocket библиотеку (для WebSocket) -->
+		<java path="libs/Java-WebSocket-1.5.6.jar" />
+		
+	    <!-- ЗАВИСИМОСТИ SLF4J (обязательны для Java-WebSocket) -->
+		<java path="libs/slf4j-api-1.7.36.jar" />
+		<java path="libs/slf4j-nop-1.7.36.jar" />
+		
+		<!-- Указывает Lime, где лежат исходники Java -->
+		<java path="libs/android/java/src/" />
+	</section>
+	
+	<!-- Запускаем синхронизацию только для HTML5 и только локально (на CI скрипт не запустится) -->
+	<postbuild if="html5" unless="CI" command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1"/>
+
+</project>
+
 
 
 ================================================================================
