@@ -6825,7 +6825,7 @@ class ComEnumeratorWidget extends DeviceView
 
 ================================================================================
 // FILE: core\view\ComPortWidget.hx
-// Lines: 901 | Chars: 40429
+// Lines: 1057 | Chars: 46669
 ================================================================================
 
 package core.view;
@@ -6881,6 +6881,17 @@ class ComPortWidget extends DeviceView
     private var _errLed:Sprite;
     private var _statusBar:TextField;
     private var _errorDisplay:TextField;
+
+    // === APPEND MODE SECTION (4 radio buttons) ===
+    private var _appendSection:Sprite;
+    private var _appendNoneLabel:TextField;
+    private var _appendNoneRadio:Sprite;
+    private var _appendCRLabel:TextField;
+    private var _appendCRRadio:Sprite;
+    private var _appendLFLabel:TextField;
+    private var _appendLFRadio:Sprite;
+    private var _appendCRLFLabel:TextField;
+    private var _appendCRLFRadio:Sprite;
 
     // Unified scanner variables (common across Android + Windows, not HTML5)
     private var _scanBtn:Sprite;
@@ -6940,6 +6951,7 @@ class ComPortWidget extends DeviceView
     private var _closeContact:Contact;
     private var _sendContact:Contact;
     private var _txDataContact:Contact;
+    private var _appendModeContact:Contact;
     private var _setDTRContact:Contact;
     private var _isOpenContact:Contact;
     private var _rxDataContact:Contact;
@@ -6954,6 +6966,8 @@ class ComPortWidget extends DeviceView
     private var _errLedTimer:Float = 0;
     private var _ledPulseDuration:Float = 0.5;
     private var _dtrState:Bool = false;
+    /** Cached append mode: "none" | "CR" | "LF" | "CRLF". */
+    private var _appendMode:String = "none";
 
     // Impulsys callback references for proper unsubscription (Memory Optimization v1.3)
     private var _onComPortStatus: Impulse -> Void;
@@ -6994,6 +7008,7 @@ class ComPortWidget extends DeviceView
         _closeContact    = atom.getInput("close");
         _sendContact     = atom.getInput("send");
         _txDataContact   = atom.getInput("txData");
+        _appendModeContact = atom.getInput("appendMode");
         _setDTRContact   = atom.getInput("setDTR");
         _isOpenContact   = atom.getOutput("isOpen");
         _rxDataContact   = atom.getOutput("rxData");
@@ -7041,6 +7056,65 @@ class ComPortWidget extends DeviceView
         _dtrBtn.addEventListener(MouseEvent.CLICK, onDTRClick); addChild(_dtrBtn);
         #end
         yPos += 36;
+        
+        // === APPEND MODE SECTION (2x2 grid of label + radio pairs) ===
+        _appendSection = new Sprite();
+        _appendSection.y = yPos;
+        addChild(_appendSection);
+
+        // Row 1: "Append nothing" + radio, "Append CR" + radio
+        _appendNoneLabel = createLabel("Append nothing");
+        _appendNoneLabel.x = 5;
+        _appendNoneLabel.y = 0;
+        _appendNoneLabel.width = 110;
+        _appendSection.addChild(_appendNoneLabel);
+
+        _appendNoneRadio = createRadioButton();
+        _appendNoneRadio.x = 122;
+        _appendNoneRadio.y = 2;
+        _appendNoneRadio.addEventListener(MouseEvent.CLICK, onAppendNoneClick);
+        _appendSection.addChild(_appendNoneRadio);
+
+        _appendCRLabel = createLabel("Append CR");
+        _appendCRLabel.x = 160;
+        _appendCRLabel.y = 0;
+        _appendCRLabel.width = 75;
+        _appendSection.addChild(_appendCRLabel);
+
+        _appendCRRadio = createRadioButton();
+        _appendCRRadio.x = 240;
+        _appendCRRadio.y = 2;
+        _appendCRRadio.addEventListener(MouseEvent.CLICK, onAppendCRClick);
+        _appendSection.addChild(_appendCRRadio);
+
+        // Row 2: "Append LF" + radio, "Append CR+LF" + radio
+        _appendLFLabel = createLabel("Append LF");
+        _appendLFLabel.x = 5;
+        _appendLFLabel.y = 16;
+        _appendLFLabel.width = 110;
+        _appendSection.addChild(_appendLFLabel);
+
+        _appendLFRadio = createRadioButton();
+        _appendLFRadio.x = 122;
+        _appendLFRadio.y = 18;
+        _appendLFRadio.addEventListener(MouseEvent.CLICK, onAppendLFClick);
+        _appendSection.addChild(_appendLFRadio);
+
+        _appendCRLFLabel = createLabel("Append CR+LF");
+        _appendCRLFLabel.x = 160;
+        _appendCRLFLabel.y = 16;
+        _appendCRLFLabel.width = 95;
+        _appendSection.addChild(_appendCRLFLabel);
+
+        _appendCRLFRadio = createRadioButton();
+        _appendCRLFRadio.x = 265;
+        _appendCRLFRadio.y = 18;
+        _appendCRLFRadio.addEventListener(MouseEvent.CLICK, onAppendCRLFClick);
+        _appendSection.addChild(_appendCRLFRadio);
+
+        updateAppendModeVisual();  // initial state: "none" selected
+
+        yPos += 38;
         
         // === STATUS BAR + LEDs + ERROR ===
         var indicatorY:Float = yPos;
@@ -7450,6 +7524,50 @@ class ComPortWidget extends DeviceView
         return btn;
     }
 
+    /** Create a radio button sprite (12x12 hollow circle). */
+    private function createRadioButton():Sprite
+    {
+        var r = new Sprite();
+        r.buttonMode = true;
+        r.useHandCursor = true;
+        drawRadioVisual(r, false);
+        return r;
+    }
+
+    /** Redraw a radio button: hollow circle when unselected,
+     *  hollow circle + filled inner dot when selected. */
+    private function drawRadioVisual(r:Sprite, selected:Bool):Void
+    {
+        r.graphics.clear();
+        r.graphics.beginFill(_colorInputBg);
+        r.graphics.lineStyle(1, 0x333555);
+        r.graphics.drawCircle(6, 6, 6);
+        r.graphics.endFill();
+        if (selected)
+        {
+            r.graphics.beginFill(_colorActive);
+            r.graphics.drawCircle(6, 6, 3);
+            r.graphics.endFill();
+        }
+    }
+
+    /** Update all 4 append-mode radio buttons to reflect _appendMode. */
+    private function updateAppendModeVisual():Void
+    {
+        if (_appendNoneRadio != null) drawRadioVisual(_appendNoneRadio, _appendMode == "none");
+        if (_appendCRRadio   != null) drawRadioVisual(_appendCRRadio,   _appendMode == "CR");
+        if (_appendLFRadio   != null) drawRadioVisual(_appendLFRadio,   _appendMode == "LF");
+        if (_appendCRLFRadio != null) drawRadioVisual(_appendCRLFRadio, _appendMode == "CRLF");
+    }
+
+    /** Set append mode with mutual exclusion, update visuals, push to atom contact. */
+    private function setAppendMode(mode:String):Void
+    {
+        _appendMode = mode;
+        updateAppendModeVisual();
+        if (_appendModeContact != null) _appendModeContact.value = mode;
+    }
+
     // === Atom sync ===
 
     override private function syncFromAtom():Void
@@ -7459,6 +7577,16 @@ class ComPortWidget extends DeviceView
         if (_errorContact != null && _errorContact.value != null) {
             var errStr = Std.string(_errorContact.value);
             if (errStr != "" && errStr != _lastError) { _errorDisplay.text = "Error: " + errStr; _lastError = errStr; }
+        }
+        // ── Append mode ──
+        if (_appendModeContact != null && _appendModeContact.value != null)
+        {
+            var amStr = Std.string(_appendModeContact.value);
+            if (amStr != _appendMode)
+            {
+                _appendMode = amStr;
+                updateAppendModeVisual();
+            }
         }
     }
 
@@ -7489,6 +7617,18 @@ class ComPortWidget extends DeviceView
         else if (contact == _errorContact) {
             if (newValue != null && newValue != "") { _errorDisplay.text = "Error: " + Std.string(newValue); _lastError = Std.string(newValue); }
             else { _errorDisplay.text = ""; _lastError = ""; }
+        }
+        else if (contact == _appendModeContact)
+        {
+            if (newValue != null)
+            {
+                var amStr = Std.string(newValue);
+                if (amStr != _appendMode)
+                {
+                    _appendMode = amStr;
+                    updateAppendModeVisual();
+                }
+            }
         }
     }
 
@@ -7560,6 +7700,13 @@ class ComPortWidget extends DeviceView
         _dtrBtn.graphics.drawRoundRect(0, 0, 50, 26, 4, 4); _dtrBtn.graphics.endFill();
     }
     #end
+
+    // === Append mode radio click handlers ===
+
+    private function onAppendNoneClick(e:MouseEvent):Void  { setAppendMode("none"); }
+    private function onAppendCRClick(e:MouseEvent):Void    { setAppendMode("CR"); }
+    private function onAppendLFClick(e:MouseEvent):Void    { setAppendMode("LF"); }
+    private function onAppendCRLFClick(e:MouseEvent):Void  { setAppendMode("CRLF"); }
 
     // === Impulsys Handlers ===
 
@@ -7693,6 +7840,10 @@ class ComPortWidget extends DeviceView
         if (_openBtn != null) _openBtn.removeEventListener(MouseEvent.CLICK, onOpenClick);
         if (_closeBtn != null) _closeBtn.removeEventListener(MouseEvent.CLICK, onCloseClick);
         if (_baudInput != null) _baudInput.removeEventListener(Event.CHANGE, onBaudRateChanged);
+        if (_appendNoneRadio != null) _appendNoneRadio.removeEventListener(MouseEvent.CLICK, onAppendNoneClick);
+        if (_appendCRRadio != null) _appendCRRadio.removeEventListener(MouseEvent.CLICK, onAppendCRClick);
+        if (_appendLFRadio != null) _appendLFRadio.removeEventListener(MouseEvent.CLICK, onAppendLFClick);
+        if (_appendCRLFRadio != null) _appendCRLFRadio.removeEventListener(MouseEvent.CLICK, onAppendCRLFClick);
         #if cpp
         if (_dtrBtn != null) _dtrBtn.removeEventListener(MouseEvent.CLICK, onDTRClick);
         #end
@@ -7714,8 +7865,13 @@ class ComPortWidget extends DeviceView
 
         _statusLed = null; _statusGlow = null; _rxLed = null; _txLed = null; _errLed = null;
         _statusBar = null; _errorDisplay = null;
+        _appendSection = null;
+        _appendNoneLabel = null; _appendNoneRadio = null;
+        _appendCRLabel = null; _appendCRRadio = null;
+        _appendLFLabel = null; _appendLFRadio = null;
+        _appendCRLFLabel = null; _appendCRLFRadio = null;
         _portNameContact = null; _baudRateContact = null; _openContact = null; _closeContact = null;
-        _sendContact = null; _txDataContact = null; _setDTRContact = null; _isOpenContact = null;
+        _sendContact = null; _txDataContact = null; _appendModeContact = null; _setDTRContact = null; _isOpenContact = null;
         _rxDataContact = null; _rxTickContact = null; _txTickContact = null; _errorContact = null; _errorTickContact = null;
         _scanBtn = null; _clearBtn = null; _deviceListContainer = null; _deviceListBg = null; _deviceListMask = null;
         _selectedInfo = null; _noDevicesLabel = null;
@@ -16060,7 +16216,7 @@ class URLAudioStreamPlayerWidget extends DeviceView
 
 ================================================================================
 // FILE: core\view\WebSocketWidget.hx
-// Lines: 1349 | Chars: 48313
+// Lines: 1273 | Chars: 46473
 ================================================================================
 
 // ============================================================================
@@ -16089,17 +16245,14 @@ class URLAudioStreamPlayerWidget extends DeviceView
 //  │                                                    │
 //  │  [ CONNECT ]  [ DISCONNECT ]   Status: Disconnected│
 //  ├────────────────────────────────────────────────────┤
-//  │  SEND DATA                                         │
-//  │  [________________________________________] [SEND] │
-//  ├────────────────────────────────────────────────────┤
-//  │  RECEIVED DATA                          [CLEAR]    │
-//  │  ┌──────────────────────────────────────────────┐  │
-//  │  │ (multiline text area, autoscroll)            │  │
-//  │  │                                              │  │
-//  │  └──────────────────────────────────────────────┘  │
+//  │  Append nothing ○   Append CR    ○                 │  ← Append mode
+//  │  Append LF      ○   Append CR+LF ○                 │
 //  ├────────────────────────────────────────────────────┤
 //  │  RX: 0 bytes  TX: 0 bytes  Close: -                │  ← Status bar
 //  │  Last error: (none)                                │
+//  ├────────────────────────────────────────────────────┤
+//  │  [X] Auto-Reconnect   Interval: [1.0]              │
+//  │  Max retries: [0]    Attempts: 0                   │
 //  └────────────────────────────────────────────────────┘
 // ============================================================================
 
@@ -16112,8 +16265,6 @@ import openfl.text.TextFormatAlign;
 import openfl.text.TextFieldType;
 import openfl.events.MouseEvent;
 import openfl.events.Event;
-import openfl.events.KeyboardEvent;
-import openfl.ui.Keyboard;
 import core.base.Atom;
 import core.base.Contact;
 
@@ -16127,12 +16278,12 @@ import core.base.Contact;
  *   - URL input with persistence
  *   - Subprotocol input (optional, for Sec-WebSocket-Protocol header)
  *   - Binary mode toggle (send as text or binary)
+ *   - Append mode radio group (none / CR / LF / CR+LF) for outgoing data
  *   - Connect / Disconnect buttons with status LED
- *   - Send section with input field + SEND button + Enter-to-send
- *   - Send history (arrow up/down to recall previous messages)
- *   - Received data area with autoscroll and CLEAR button
  *   - Status bar with byte counters and close code
  *   - Error display
+ *   - Auto-reconnect with configurable interval, max retries, and
+ *     live attempt counter
  *
  * Mouse isolation is handled automatically by DeviceView base class
  * (v3.4) — no need to stopPropagation here.
@@ -16193,17 +16344,16 @@ class WebSocketWidget extends DeviceView
     private var _statusGlow:Sprite;
     private var _statusBar:TextField;
 
-    // Send section
-    private var _sendSection:Sprite;
-    private var _sendLabel:TextField;
-    private var _sendInput:TextField;
-    private var _sendBtn:Sprite;
-
-    // Received section
-    private var _rxSection:Sprite;
-    private var _rxLabel:TextField;
-    private var _clearBtn:Sprite;
-    private var _rxDisplay:TextField;
+    // Append mode section (4 radio buttons in 2x2 grid)
+    private var _appendSection:Sprite;
+    private var _appendNoneLabel:TextField;
+    private var _appendNoneRadio:Sprite;
+    private var _appendCRLabel:TextField;
+    private var _appendCRRadio:Sprite;
+    private var _appendLFLabel:TextField;
+    private var _appendLFRadio:Sprite;
+    private var _appendCRLFLabel:TextField;
+    private var _appendCRLFRadio:Sprite;
 
     // Stats / error display
     private var _statsBar:TextField;
@@ -16226,14 +16376,10 @@ class WebSocketWidget extends DeviceView
     private var _urlContact:Contact;
     private var _subprotoContact:Contact;
     private var _binaryModeContact:Contact;
+    private var _appendModeContact:Contact;
     private var _connectContact:Contact;
     private var _disconnectContact:Contact;
-    private var _sendContact:Contact;
-    private var _sendDataContact:Contact;
     private var _isConnectedContact:Contact;
-    private var _receivedDataContact:Contact;
-    private var _receivedTickContact:Contact;
-    private var _sentTickContact:Contact;
     private var _errorContact:Contact;
     private var _errorTickContact:Contact;
     private var _closeCodeContact:Contact;
@@ -16247,18 +16393,12 @@ class WebSocketWidget extends DeviceView
     // =========================================================================
     // UI STATE (not business data — just display/cache)
     // =========================================================================
-    /** Cached last received data — used to detect changes from atom side. */
-    private var _lastRxData:String = "";
     /** Cached last error — used to detect changes from atom side. */
     private var _lastError:String = "";
-    /** Send history for arrow-up/down recall. */
-    private var _sendHistory:Array<String> = [];
-    /** Max items in send history. */
-    private static inline var MAX_HISTORY:Int = 50;
-    /** Current position in history (-1 = not browsing history). */
-    private var _historyIndex:Int = -1;
     /** Cached binary mode state. */
     private var _binaryMode:Bool = false;
+    /** Cached append mode: "none" | "CR" | "LF" | "CRLF". */
+    private var _appendMode:String = "none";
     /** Cached byte counters. */
     private var _bytesReceived:Int = 0;
     private var _bytesSent:Int = 0;
@@ -16300,18 +16440,14 @@ class WebSocketWidget extends DeviceView
         _urlContact            = atom.getInput("url");
         _subprotoContact       = atom.getInput("subprotocol");
         _binaryModeContact     = atom.getInput("binaryMode");
+        _appendModeContact     = atom.getInput("appendMode");
         _connectContact        = atom.getInput("connect");
         _disconnectContact     = atom.getInput("disconnect");
-        _sendContact           = atom.getInput("send");
-        _sendDataContact       = atom.getInput("sendData");
         _autoReconnectContact       = atom.getInput("autoReconnect");
         _reconnectIntervalContact   = atom.getInput("reconnectInterval");
         _maxReconnectAttemptsContact = atom.getInput("maxReconnectAttempts");
 
         _isConnectedContact    = atom.getOutput("isConnected");
-        _receivedDataContact   = atom.getOutput("receivedData");
-        _receivedTickContact   = atom.getOutput("receivedTick");
-        _sentTickContact       = atom.getOutput("sentTick");
         _errorContact          = atom.getOutput("error");
         _errorTickContact      = atom.getOutput("errorTick");
         _closeCodeContact      = atom.getOutput("closeCode");
@@ -16346,6 +16482,10 @@ class WebSocketWidget extends DeviceView
         if (_binaryModeContact != null)
         {
             _binaryModeContact.value = _binaryMode;
+        }
+        if (_appendModeContact != null)
+        {
+            _appendModeContact.value = _appendMode;
         }
         if (_autoReconnectContact != null)
         {
@@ -16496,73 +16636,61 @@ class WebSocketWidget extends DeviceView
 
         yPos += 36;
 
-        // ── Send section ──
-        _sendSection = new Sprite();
-        _sendSection.y = yPos;
-        addChild(_sendSection);
+        // ── Append mode section ──
+        // 2x2 grid of (label + radio) pairs. Selecting one clears the others.
+        _appendSection = new Sprite();
+        _appendSection.y = yPos;
+        addChild(_appendSection);
 
-        _sendLabel = new TextField();
-        _sendLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-        _sendLabel.text = "SEND DATA";
-        _sendLabel.x = 5;
-        _sendLabel.width = 80;
-        _sendLabel.height = 15;
-        _sendLabel.selectable = false;
-        _sendSection.addChild(_sendLabel);
+        // Row 1: "Append nothing" + radio, "Append CR" + radio
+        _appendNoneLabel = createLabel("Append nothing", 110);
+        _appendNoneLabel.x = 5;
+        _appendNoneLabel.y = 0;
+        _appendSection.addChild(_appendNoneLabel);
 
-        _sendInput = createInputField("", Std.int(widgetWidth - 90));
-        _sendInput.x = 5;
-        _sendInput.y = 15;
-        // Enter-to-send (only when not multiline)
-        _sendInput.addEventListener(KeyboardEvent.KEY_DOWN, onSendInputKeyDown);
-        _sendSection.addChild(_sendInput);
+        _appendNoneRadio = createRadioButton();
+        _appendNoneRadio.x = 122;
+        _appendNoneRadio.y = 2;
+        _appendNoneRadio.addEventListener(MouseEvent.CLICK, onAppendNoneClick);
+        _appendSection.addChild(_appendNoneRadio);
 
-        _sendBtn = createActionButton("SEND", 0x224466, onSendClick);
-        _sendBtn.x = widgetWidth - 81;
-        _sendBtn.y = 13;
-		_sendBtn.width = 77;
-        _sendSection.addChild(_sendBtn);
+        _appendCRLabel = createLabel("Append CR", 75);
+        _appendCRLabel.x = 160;
+        _appendCRLabel.y = 0;
+        _appendSection.addChild(_appendCRLabel);
 
-        yPos += 50;
+        _appendCRRadio = createRadioButton();
+        _appendCRRadio.x = 240;
+        _appendCRRadio.y = 2;
+        _appendCRRadio.addEventListener(MouseEvent.CLICK, onAppendCRClick);
+        _appendSection.addChild(_appendCRRadio);
 
-        // ── Received section ──
-        _rxSection = new Sprite();
-        _rxSection.y = yPos;
-        addChild(_rxSection);
+        // Row 2: "Append LF" + radio, "Append CR+LF" + radio
+        _appendLFLabel = createLabel("Append LF", 110);
+        _appendLFLabel.x = 5;
+        _appendLFLabel.y = 16;
+        _appendSection.addChild(_appendLFLabel);
 
-        _rxLabel = new TextField();
-        _rxLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-        _rxLabel.text = "RECEIVED DATA";
-        _rxLabel.x = 5;
-		_rxLabel.width = 100;
-        _rxLabel.height = 15;
-        _rxLabel.selectable = false;
-        _rxSection.addChild(_rxLabel);
+        _appendLFRadio = createRadioButton();
+        _appendLFRadio.x = 122;
+        _appendLFRadio.y = 18;
+        _appendLFRadio.addEventListener(MouseEvent.CLICK, onAppendLFClick);
+        _appendSection.addChild(_appendLFRadio);
 
-        _clearBtn = createActionButton("CLS", 0x442222, onClearClick);
-        _clearBtn.x = widgetWidth - 81;
-        _clearBtn.y = -2;
-		_clearBtn.width = 76;
-        _rxSection.addChild(_clearBtn);
+        _appendCRLFLabel = createLabel("Append CR+LF", 95);
+        _appendCRLFLabel.x = 160;
+        _appendCRLFLabel.y = 16;
+        _appendSection.addChild(_appendCRLFLabel);
 
-        _rxDisplay = new TextField();
-        _rxDisplay.defaultTextFormat = new TextFormat("_typewriter", 11, _colorActive);
-        _rxDisplay.text = "";
-        _rxDisplay.width = widgetWidth -11;
-        _rxDisplay.height = 130;
-        _rxDisplay.x = 5;
-        _rxDisplay.y = 15;
-        _rxDisplay.background = true;
-        _rxDisplay.backgroundColor = _colorInputBg;
-        _rxDisplay.border = true;
-        _rxDisplay.borderColor = 0x222233;
-        _rxDisplay.multiline = true;
-        _rxDisplay.wordWrap = true;
-        _rxDisplay.selectable = true;
-        _rxDisplay.mouseEnabled = true;
-        _rxSection.addChild(_rxDisplay);
+        _appendCRLFRadio = createRadioButton();
+        _appendCRLFRadio.x = 265;
+        _appendCRLFRadio.y = 18;
+        _appendCRLFRadio.addEventListener(MouseEvent.CLICK, onAppendCRLFClick);
+        _appendSection.addChild(_appendCRLFRadio);
 
-        yPos += 152;
+        updateAppendModeVisual();  // initial state: "none" selected
+
+        yPos += 38;
 
         // ── Stats bar ──
         _statsBar = new TextField();
@@ -16700,18 +16828,6 @@ class WebSocketWidget extends DeviceView
         _header.graphics.drawRoundRectComplex(0, 0, widgetWidth, 28, 8, 8, 0, 0);
         _header.graphics.endFill();
 
-        _sendSection.graphics.clear();
-        _sendSection.graphics.beginFill(0x0d0d18, 0.5);
-        _sendSection.graphics.lineStyle(1, 0x003a63);
-        _sendSection.graphics.drawRoundRect(2, 0, widgetWidth - 4, 45, 4, 4);
-        _sendSection.graphics.endFill();
-
-        _rxSection.graphics.clear();
-        _rxSection.graphics.beginFill(0x0d0d18, 0.5);
-        _rxSection.graphics.lineStyle(1, 0x224422);
-        _rxSection.graphics.drawRoundRect(2, 0, widgetWidth - 4, 148, 4, 4);
-        _rxSection.graphics.endFill();
-
         // Auto-reconnect section background (matches dark theme)
         if (_reconnectSection != null)
         {
@@ -16776,6 +16892,64 @@ class WebSocketWidget extends DeviceView
         return btn;
     }
 
+    /**
+     * Create a radio button sprite (12x12 hollow circle).
+     * Use drawRadioVisual() to set selected state.
+     */
+    private function createRadioButton():Sprite
+    {
+        var r = new Sprite();
+        r.buttonMode = true;
+        r.useHandCursor = true;
+        drawRadioVisual(r, false);
+        return r;
+    }
+
+    /**
+     * Redraw a radio button: hollow circle when unselected,
+     * hollow circle + filled inner dot when selected.
+     */
+    private function drawRadioVisual(r:Sprite, selected:Bool):Void
+    {
+        r.graphics.clear();
+        r.graphics.beginFill(_colorInputBg);
+        r.graphics.lineStyle(1, 0x333555);
+        r.graphics.drawCircle(6, 6, 6);
+        r.graphics.endFill();
+        if (selected)
+        {
+            r.graphics.beginFill(_colorActive);
+            r.graphics.drawCircle(6, 6, 3);
+            r.graphics.endFill();
+        }
+    }
+
+    /**
+     * Update all 4 append-mode radio buttons to reflect _appendMode.
+     * Called after any state change (sync from atom or user click).
+     */
+    private function updateAppendModeVisual():Void
+    {
+        if (_appendNoneRadio  != null) drawRadioVisual(_appendNoneRadio,  _appendMode == "none");
+        if (_appendCRRadio    != null) drawRadioVisual(_appendCRRadio,    _appendMode == "CR");
+        if (_appendLFRadio    != null) drawRadioVisual(_appendLFRadio,    _appendMode == "LF");
+        if (_appendCRLFRadio  != null) drawRadioVisual(_appendCRLFRadio,  _appendMode == "CRLF");
+    }
+
+    /**
+     * Set append mode with mutual exclusion: clears other radios,
+     * updates visuals, pushes new value to atom contact.
+     */
+    private function setAppendMode(mode:String):Void
+    {
+        _appendMode = mode;
+        updateAppendModeVisual();
+        if (_appendModeContact != null)
+        {
+            _appendModeContact.value = mode;
+        }
+    }
+
     // =========================================================================
     // DATA SYNCHRONIZATION
     // =========================================================================
@@ -16810,20 +16984,21 @@ class WebSocketWidget extends DeviceView
             updateBinaryToggleVisual();
         }
 
+        // ── Append mode ──
+        if (_appendModeContact != null && _appendModeContact.value != null)
+        {
+            var amStr = Std.string(_appendModeContact.value);
+            if (amStr != _appendMode)
+            {
+                _appendMode = amStr;
+                updateAppendModeVisual();
+            }
+        }
+
         // ── Connection status ──
         if (_isConnectedContact != null && _isConnectedContact.value != null)
         {
             updateConnectionStatus(_isConnectedContact.value == true);
-        }
-
-        // ── Received data ──
-        if (_receivedDataContact != null && _receivedDataContact.value != null)
-        {
-            var rxStr = Std.string(_receivedDataContact.value);
-            if (rxStr != "" && rxStr != _lastRxData)
-            {
-                appendRxData(rxStr);
-            }
         }
 
         // ── Error ──
@@ -16903,13 +17078,6 @@ class WebSocketWidget extends DeviceView
         {
             updateConnectionStatus(newValue == true);
         }
-        else if (contact == _receivedDataContact)
-        {
-            if (newValue != null && newValue != "")
-            {
-                appendRxData(Std.string(newValue));
-            }
-        }
         else if (contact == _errorContact)
         {
             if (newValue != null && newValue != "")
@@ -16942,6 +17110,18 @@ class WebSocketWidget extends DeviceView
         {
             _binaryMode = (newValue == true);
             updateBinaryToggleVisual();
+        }
+        else if (contact == _appendModeContact)
+        {
+            if (newValue != null)
+            {
+                var amStr = Std.string(newValue);
+                if (amStr != _appendMode)
+                {
+                    _appendMode = amStr;
+                    updateAppendModeVisual();
+                }
+            }
         }
         else if (contact == _urlContact)
         {
@@ -17080,26 +17260,6 @@ class WebSocketWidget extends DeviceView
         _statsBar.text = 'RX: ${_bytesReceived} bytes   TX: ${_bytesSent} bytes   Close: ${closeStr}';
     }
 
-    /**
-     * Append received data to the display area.
-     * Auto-scrolls to the bottom. Truncates if too long (>5000 chars).
-     */
-    private function appendRxData(data:String):Void
-    {
-        if (_rxDisplay == null) return;
-        _lastRxData = data;
-        var currentText = _rxDisplay.text;
-
-        // Truncate if accumulated text is too long
-        if (currentText.length > 5000)
-        {
-            currentText = currentText.substr(currentText.length - 3000);
-        }
-
-        _rxDisplay.text = currentText + data + "\n";
-        _rxDisplay.scrollV = _rxDisplay.maxScrollV;
-    }
-
     // =========================================================================
     // EVENT HANDLERS
     // =========================================================================
@@ -17137,6 +17297,16 @@ class WebSocketWidget extends DeviceView
             _binaryModeContact.value = _binaryMode;
         }
     }
+
+    /**
+     * Append-mode radio click handlers — each delegates to setAppendMode()
+     * with the appropriate mode string. Mutual exclusion is handled inside
+     * setAppendMode() via updateAppendModeVisual().
+     */
+    private function onAppendNoneClick(e:MouseEvent):Void  { setAppendMode("none"); }
+    private function onAppendCRClick(e:MouseEvent):Void   { setAppendMode("CR"); }
+    private function onAppendLFClick(e:MouseEvent):Void   { setAppendMode("LF"); }
+    private function onAppendCRLFClick(e:MouseEvent):Void { setAppendMode("CRLF"); }
 
     /**
      * Auto-reconnect toggle clicked — flip state and push to atom.
@@ -17242,91 +17412,6 @@ class WebSocketWidget extends DeviceView
         }
     }
 
-    /**
-     * Send button clicked — push sendData + pulse send.
-     * Also stores the message in send history.
-     */
-    private function onSendClick(e:MouseEvent):Void
-    {
-        var data = _sendInput.text;
-        if (data == null || data == "") return;
-
-        // Push to history (avoid duplicates of last entry)
-        if (_sendHistory.length == 0 || _sendHistory[_sendHistory.length - 1] != data)
-        {
-            _sendHistory.push(data);
-            if (_sendHistory.length > MAX_HISTORY)
-            {
-                _sendHistory.shift();
-            }
-        }
-        _historyIndex = -1; // reset history browsing
-
-        if (_sendDataContact != null)
-        {
-            _sendDataContact.value = data;
-        }
-        if (_sendContact != null)
-        {
-            _sendContact.value = true;
-        }
-        // Clear input after send
-        _sendInput.text = "";
-    }
-
-    /**
-     * Send input keyboard handler — Enter to send, Up/Down for history.
-     */
-    private function onSendInputKeyDown(e:KeyboardEvent):Void
-    {
-        if (e.keyCode == Keyboard.ENTER)
-        {
-            onSendClick(null);
-            e.preventDefault();
-        }
-        else if (e.keyCode == Keyboard.UP)
-        {
-            // Browse history backwards
-            if (_sendHistory.length > 0)
-            {
-                if (_historyIndex == -1)
-                {
-                    _historyIndex = _sendHistory.length - 1;
-                }
-                else if (_historyIndex > 0)
-                {
-                    _historyIndex--;
-                }
-                _sendInput.text = _sendHistory[_historyIndex];
-            }
-            e.preventDefault();
-        }
-        else if (e.keyCode == Keyboard.DOWN)
-        {
-            // Browse history forwards
-            if (_historyIndex != -1 && _historyIndex < _sendHistory.length - 1)
-            {
-                _historyIndex++;
-                _sendInput.text = _sendHistory[_historyIndex];
-            }
-            else
-            {
-                _historyIndex = -1;
-                _sendInput.text = "";
-            }
-            e.preventDefault();
-        }
-    }
-
-    /**
-     * Clear button clicked — empty the received data display.
-     */
-    private function onClearClick(e:MouseEvent):Void
-    {
-        _rxDisplay.text = "";
-        _lastRxData = "";
-    }
-
     // =========================================================================
     // DISPOSE
     // =========================================================================
@@ -17335,13 +17420,14 @@ class WebSocketWidget extends DeviceView
         // Remove event listeners
         if (_connectBtn != null) _connectBtn.removeEventListener(MouseEvent.CLICK, onConnectClick);
         if (_disconnectBtn != null) _disconnectBtn.removeEventListener(MouseEvent.CLICK, onDisconnectClick);
-        if (_sendBtn != null) _sendBtn.removeEventListener(MouseEvent.CLICK, onSendClick);
-        if (_clearBtn != null) _clearBtn.removeEventListener(MouseEvent.CLICK, onClearClick);
         if (_binaryToggle != null) _binaryToggle.removeEventListener(MouseEvent.CLICK, onBinaryToggleClick);
+        if (_appendNoneRadio != null) _appendNoneRadio.removeEventListener(MouseEvent.CLICK, onAppendNoneClick);
+        if (_appendCRRadio != null) _appendCRRadio.removeEventListener(MouseEvent.CLICK, onAppendCRClick);
+        if (_appendLFRadio != null) _appendLFRadio.removeEventListener(MouseEvent.CLICK, onAppendLFClick);
+        if (_appendCRLFRadio != null) _appendCRLFRadio.removeEventListener(MouseEvent.CLICK, onAppendCRLFClick);
         if (_reconnectToggle != null) _reconnectToggle.removeEventListener(MouseEvent.CLICK, onReconnectToggleClick);
         if (_urlInput != null) _urlInput.removeEventListener(Event.CHANGE, onUrlChanged);
         if (_subprotoInput != null) _subprotoInput.removeEventListener(Event.CHANGE, onSubprotoChanged);
-        if (_sendInput != null) _sendInput.removeEventListener(KeyboardEvent.KEY_DOWN, onSendInputKeyDown);
         if (_intervalInput != null) _intervalInput.removeEventListener(Event.CHANGE, onIntervalChanged);
         if (_maxAttemptsInput != null) _maxAttemptsInput.removeEventListener(Event.CHANGE, onMaxAttemptsChanged);
 
@@ -17356,19 +17442,20 @@ class WebSocketWidget extends DeviceView
         _binaryLabel = null;
         _binaryToggle = null;
         _binaryToggleMark = null;
+        _appendSection = null;
+        _appendNoneLabel = null;
+        _appendNoneRadio = null;
+        _appendCRLabel = null;
+        _appendCRRadio = null;
+        _appendLFLabel = null;
+        _appendLFRadio = null;
+        _appendCRLFLabel = null;
+        _appendCRLFRadio = null;
         _connectBtn = null;
         _disconnectBtn = null;
         _statusLed = null;
         _statusGlow = null;
         _statusBar = null;
-        _sendSection = null;
-        _sendLabel = null;
-        _sendInput = null;
-        _sendBtn = null;
-        _rxSection = null;
-        _rxLabel = null;
-        _clearBtn = null;
-        _rxDisplay = null;
         _statsBar = null;
         _errorDisplay = null;
         // Auto-reconnect UI
@@ -17386,14 +17473,10 @@ class WebSocketWidget extends DeviceView
         _urlContact = null;
         _subprotoContact = null;
         _binaryModeContact = null;
+        _appendModeContact = null;
         _connectContact = null;
         _disconnectContact = null;
-        _sendContact = null;
-        _sendDataContact = null;
         _isConnectedContact = null;
-        _receivedDataContact = null;
-        _receivedTickContact = null;
-        _sentTickContact = null;
         _errorContact = null;
         _errorTickContact = null;
         _closeCodeContact = null;
@@ -17404,9 +17487,6 @@ class WebSocketWidget extends DeviceView
         _reconnectIntervalContact = null;
         _maxReconnectAttemptsContact = null;
         _reconnectAttemptsContact = null;
-
-        // History
-        _sendHistory = null;
 
         super.dispose();
     }
@@ -27949,7 +28029,7 @@ class ComEnumeratorAtom extends Atom implements system.managers.Driver
 
 ================================================================================
 // FILE: library\drivers\ComPortAtom.hx
-// Lines: 2296 | Chars: 113948
+// Lines: 2337 | Chars: 115732
 ================================================================================
 
 package library.drivers;
@@ -28970,6 +29050,13 @@ class ComPortAtom extends Atom implements system.managers.Driver
     private var _chunkSize:Int = DEFAULT_CHUNK_SIZE;
     private var _enabled:Bool = true;
     private var _lastTxData:String = "";
+    /** Append mode for outgoing data: "none" | "CR" | "LF" | "CRLF".
+     *  Applied in sendToDevice() BEFORE platform dispatch:
+     *  "CR" appends \r, "LF" appends \n, "CRLF" appends \r\n.
+     *  Works uniformly on every target (Android JNI / Windows WriteFile /
+     *  POSIX write / HTML5 Web Serial / HTML5 WebUSB) because all paths
+     *  treat each string char as one byte (charCodeAt & 0xFF). */
+    private var _lastAppendMode:String = "none";
     private var _lastDTR:Bool = false;
     private var _isOpenFlag:Bool = false;
 
@@ -29020,6 +29107,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 new Contact(false, ContactType.INPUT, "close"),
                 new Contact(false, ContactType.INPUT, "send"),
                 new Contact("", ContactType.INPUT, "txData"),
+                new Contact("none", ContactType.INPUT, "appendMode"),
                 new Contact(false, ContactType.INPUT, "setDTR"),
                 new Contact("", ContactType.INPUT, "testRxData")
             ],
@@ -29274,10 +29362,24 @@ class ComPortAtom extends Atom implements system.managers.Driver
         var closeC = getInput("close");
         var sendC  = getInput("send");
         var txC    = getInput("txData");
+        var appendModeC = getInput("appendMode");
         var dtrC   = getInput("setDTR");
 
         if (openC != null && openC.value == true) { openC.value = false; openDevice(); }
         if (closeC != null && closeC.value == true) { closeC.value = false; closeDevice(); }
+
+        // ── Append mode change (COMMON) ──
+        // Read line-ending append setting: "none" | "CR" | "LF" | "CRLF".
+        // Applied in sendToDevice() before platform dispatch.
+        if (appendModeC != null && appendModeC.value != null)
+        {
+            var newAm:String = Std.string(appendModeC.value);
+            if (newAm != _lastAppendMode)
+            {
+                _lastAppendMode = newAm;
+            }
+        }
+
         if (sendC != null && sendC.value == true && _isOpenFlag)
         {
             if (txC != null && txC.value != null && txC.value != "")
@@ -29699,6 +29801,25 @@ class ComPortAtom extends Atom implements system.managers.Driver
     public function sendToDevice(dataStr:String):Void
     {
         if (!_isOpenFlag) return;
+        // ── Apply line-ending append based on _lastAppendMode ──
+        // "none" → no change, "CR" → \r, "LF" → \n, "CRLF" → \r\n.
+        // Applied uniformly on every target: in HTML5 the string is later
+        // converted to Uint8Array via charCodeAt(i) & 0xFF (so \r → 0x0D,
+        // \n → 0x0A); in C++ the Haxe string's null-terminated UTF-8 buffer
+        // is passed straight to WriteFile / JNI write() / posix write(),
+        // which also preserves \r and \n as single bytes.
+        if (_lastAppendMode == "CR")
+        {
+            dataStr += "\r";
+        }
+        else if (_lastAppendMode == "LF")
+        {
+            dataStr += "\n";
+        }
+        else if (_lastAppendMode == "CRLF")
+        {
+            dataStr += "\r\n";
+        }
         _lastTxData = dataStr;
         #if cpp
         var selfPtr:Dynamic = this;
@@ -35540,7 +35661,7 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 
 ================================================================================
 // FILE: library\drivers\WebSocketAtom.hx
-// Lines: 2086 | Chars: 92564
+// Lines: 2122 | Chars: 94207
 ================================================================================
 
 // ============================================================================
@@ -36602,6 +36723,11 @@ class WebSocketAtom extends Atom implements system.managers.Driver
     private var _lastSubprotocol:String = "";
     /** Binary mode flag (true → send as binary, false → send as text). */
     private var _lastBinaryMode:Bool = false;
+    /** Append mode for outgoing data: "none" | "CR" | "LF" | "CRLF".
+     *  Applied to every send: "CR" appends \r, "LF" appends \n, "CRLF" appends \r\n.
+     *  Works for both text and binary modes (in binary mode the appended
+     *  bytes are 0x0D / 0x0A respectively). */
+    private var _lastAppendMode:String = "none";
 
     /** Last received data string (UTF-8). For binary payloads, contains raw chars. */
     private var _lastReceivedData:String = "";
@@ -36707,6 +36833,7 @@ class WebSocketAtom extends Atom implements system.managers.Driver
                 new Contact("ws://localhost:8080", INPUT, "url"),
                 new Contact("",                   INPUT, "subprotocol"),
                 new Contact(false,                INPUT, "binaryMode"),
+                new Contact("none",              INPUT, "appendMode"),
                 new Contact(false,                INPUT, "connect"),
                 new Contact(false,                INPUT, "disconnect"),
                 new Contact(false,                INPUT, "send"),
@@ -37165,6 +37292,7 @@ class WebSocketAtom extends Atom implements system.managers.Driver
         var urlC          = getInput("url");
         var subprotoC     = getInput("subprotocol");
         var binaryModeC   = getInput("binaryMode");
+        var appendModeC   = getInput("appendMode");
         var connectC      = getInput("connect");
         var disconnectC   = getInput("disconnect");
         var sendC         = getInput("send");
@@ -37260,6 +37388,18 @@ class WebSocketAtom extends Atom implements system.managers.Driver
             _lastBinaryMode = (binaryModeC.value == true);
         }
 
+        // ── Append mode change (COMMON) ──
+        // Read line-ending append setting: "none" | "CR" | "LF" | "CRLF".
+        // Applied in the Send trigger below before platform dispatch.
+        if (appendModeC != null && appendModeC.value != null)
+        {
+            var newAm:String = Std.string(appendModeC.value);
+            if (newAm != _lastAppendMode)
+            {
+                _lastAppendMode = newAm;
+            }
+        }
+
         // ── Connect trigger ──
         if (connectC != null && connectC.value == true)
         {
@@ -37338,6 +37478,23 @@ class WebSocketAtom extends Atom implements system.managers.Driver
             if (sendDataC != null && sendDataC.value != null)
             {
                 var data:String = Std.string(sendDataC.value);
+                // ── Apply line-ending append based on _lastAppendMode ──
+                // "none" → no change, "CR" → \r, "LF" → \n, "CRLF" → \r\n.
+                // Applied uniformly to text AND binary modes. In binary mode
+                // the appended chars become bytes 0x0D / 0x0A respectively,
+                // since sendWebSocketData() encodes each char as a single byte.
+                if (_lastAppendMode == "CR")
+                {
+                    data += "\r";
+                }
+                else if (_lastAppendMode == "LF")
+                {
+                    data += "\n";
+                }
+                else if (_lastAppendMode == "CRLF")
+                {
+                    data += "\r\n";
+                }
                                 #if cpp
                                                 #if android
                                                 untyped __cpp__('
@@ -56485,7 +56642,6 @@ class UID {
         return str;
     }
 }
-
 
 
 ================================================================================
