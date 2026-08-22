@@ -24,17 +24,11 @@
 //  │                                                    │
 //  │  [ CONNECT ]  [ DISCONNECT ]   Status: Disconnected│
 //  ├────────────────────────────────────────────────────┤
-//  │  SEND DATA                                         │
-//  │  [________________________________________] [SEND] │
-//  ├────────────────────────────────────────────────────┤
-//  │  RECEIVED DATA                          [CLEAR]    │
-//  │  ┌──────────────────────────────────────────────┐  │
-//  │  │ (multiline text area, autoscroll)            │  │
-//  │  │                                              │  │
-//  │  └──────────────────────────────────────────────┘  │
-//  ├────────────────────────────────────────────────────┤
 //  │  RX: 0 bytes  TX: 0 bytes  Close: -                │  ← Status bar
 //  │  Last error: (none)                                │
+//  ├────────────────────────────────────────────────────┤
+//  │  [X] Auto-Reconnect   Interval: [1.0]              │
+//  │  Max retries: [0]    Attempts: 0                   │
 //  └────────────────────────────────────────────────────┘
 // ============================================================================
 
@@ -47,8 +41,6 @@ import openfl.text.TextFormatAlign;
 import openfl.text.TextFieldType;
 import openfl.events.MouseEvent;
 import openfl.events.Event;
-import openfl.events.KeyboardEvent;
-import openfl.ui.Keyboard;
 import core.base.Atom;
 import core.base.Contact;
 
@@ -63,11 +55,10 @@ import core.base.Contact;
  *   - Subprotocol input (optional, for Sec-WebSocket-Protocol header)
  *   - Binary mode toggle (send as text or binary)
  *   - Connect / Disconnect buttons with status LED
- *   - Send section with input field + SEND button + Enter-to-send
- *   - Send history (arrow up/down to recall previous messages)
- *   - Received data area with autoscroll and CLEAR button
  *   - Status bar with byte counters and close code
  *   - Error display
+ *   - Auto-reconnect with configurable interval, max retries, and
+ *     live attempt counter
  *
  * Mouse isolation is handled automatically by DeviceView base class
  * (v3.4) — no need to stopPropagation here.
@@ -128,18 +119,6 @@ class WebSocketWidget extends DeviceView
     private var _statusGlow:Sprite;
     private var _statusBar:TextField;
 
-    // Send section
-    private var _sendSection:Sprite;
-    private var _sendLabel:TextField;
-    private var _sendInput:TextField;
-    private var _sendBtn:Sprite;
-
-    // Received section
-    private var _rxSection:Sprite;
-    private var _rxLabel:TextField;
-    private var _clearBtn:Sprite;
-    private var _rxDisplay:TextField;
-
     // Stats / error display
     private var _statsBar:TextField;
     private var _errorDisplay:TextField;
@@ -163,12 +142,7 @@ class WebSocketWidget extends DeviceView
     private var _binaryModeContact:Contact;
     private var _connectContact:Contact;
     private var _disconnectContact:Contact;
-    private var _sendContact:Contact;
-    private var _sendDataContact:Contact;
     private var _isConnectedContact:Contact;
-    private var _receivedDataContact:Contact;
-    private var _receivedTickContact:Contact;
-    private var _sentTickContact:Contact;
     private var _errorContact:Contact;
     private var _errorTickContact:Contact;
     private var _closeCodeContact:Contact;
@@ -182,16 +156,8 @@ class WebSocketWidget extends DeviceView
     // =========================================================================
     // UI STATE (not business data — just display/cache)
     // =========================================================================
-    /** Cached last received data — used to detect changes from atom side. */
-    private var _lastRxData:String = "";
     /** Cached last error — used to detect changes from atom side. */
     private var _lastError:String = "";
-    /** Send history for arrow-up/down recall. */
-    private var _sendHistory:Array<String> = [];
-    /** Max items in send history. */
-    private static inline var MAX_HISTORY:Int = 50;
-    /** Current position in history (-1 = not browsing history). */
-    private var _historyIndex:Int = -1;
     /** Cached binary mode state. */
     private var _binaryMode:Bool = false;
     /** Cached byte counters. */
@@ -237,16 +203,11 @@ class WebSocketWidget extends DeviceView
         _binaryModeContact     = atom.getInput("binaryMode");
         _connectContact        = atom.getInput("connect");
         _disconnectContact     = atom.getInput("disconnect");
-        _sendContact           = atom.getInput("send");
-        _sendDataContact       = atom.getInput("sendData");
         _autoReconnectContact       = atom.getInput("autoReconnect");
         _reconnectIntervalContact   = atom.getInput("reconnectInterval");
         _maxReconnectAttemptsContact = atom.getInput("maxReconnectAttempts");
 
         _isConnectedContact    = atom.getOutput("isConnected");
-        _receivedDataContact   = atom.getOutput("receivedData");
-        _receivedTickContact   = atom.getOutput("receivedTick");
-        _sentTickContact       = atom.getOutput("sentTick");
         _errorContact          = atom.getOutput("error");
         _errorTickContact      = atom.getOutput("errorTick");
         _closeCodeContact      = atom.getOutput("closeCode");
@@ -431,74 +392,6 @@ class WebSocketWidget extends DeviceView
 
         yPos += 36;
 
-        // ── Send section ──
-        _sendSection = new Sprite();
-        _sendSection.y = yPos;
-        addChild(_sendSection);
-
-        _sendLabel = new TextField();
-        _sendLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-        _sendLabel.text = "SEND DATA";
-        _sendLabel.x = 5;
-        _sendLabel.width = 80;
-        _sendLabel.height = 15;
-        _sendLabel.selectable = false;
-        _sendSection.addChild(_sendLabel);
-
-        _sendInput = createInputField("", Std.int(widgetWidth - 90));
-        _sendInput.x = 5;
-        _sendInput.y = 15;
-        // Enter-to-send (only when not multiline)
-        _sendInput.addEventListener(KeyboardEvent.KEY_DOWN, onSendInputKeyDown);
-        _sendSection.addChild(_sendInput);
-
-        _sendBtn = createActionButton("SEND", 0x224466, onSendClick);
-        _sendBtn.x = widgetWidth - 81;
-        _sendBtn.y = 13;
-		_sendBtn.width = 77;
-        _sendSection.addChild(_sendBtn);
-
-        yPos += 50;
-
-        // ── Received section ──
-        _rxSection = new Sprite();
-        _rxSection.y = yPos;
-        addChild(_rxSection);
-
-        _rxLabel = new TextField();
-        _rxLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorMuted);
-        _rxLabel.text = "RECEIVED DATA";
-        _rxLabel.x = 5;
-		_rxLabel.width = 100;
-        _rxLabel.height = 15;
-        _rxLabel.selectable = false;
-        _rxSection.addChild(_rxLabel);
-
-        _clearBtn = createActionButton("CLS", 0x442222, onClearClick);
-        _clearBtn.x = widgetWidth - 81;
-        _clearBtn.y = -2;
-		_clearBtn.width = 76;
-        _rxSection.addChild(_clearBtn);
-
-        _rxDisplay = new TextField();
-        _rxDisplay.defaultTextFormat = new TextFormat("_typewriter", 11, _colorActive);
-        _rxDisplay.text = "";
-        _rxDisplay.width = widgetWidth -11;
-        _rxDisplay.height = 130;
-        _rxDisplay.x = 5;
-        _rxDisplay.y = 15;
-        _rxDisplay.background = true;
-        _rxDisplay.backgroundColor = _colorInputBg;
-        _rxDisplay.border = true;
-        _rxDisplay.borderColor = 0x222233;
-        _rxDisplay.multiline = true;
-        _rxDisplay.wordWrap = true;
-        _rxDisplay.selectable = true;
-        _rxDisplay.mouseEnabled = true;
-        _rxSection.addChild(_rxDisplay);
-
-        yPos += 152;
-
         // ── Stats bar ──
         _statsBar = new TextField();
         _statsBar.defaultTextFormat = new TextFormat("_typewriter", 10, _colorMuted);
@@ -635,18 +528,6 @@ class WebSocketWidget extends DeviceView
         _header.graphics.drawRoundRectComplex(0, 0, widgetWidth, 28, 8, 8, 0, 0);
         _header.graphics.endFill();
 
-        _sendSection.graphics.clear();
-        _sendSection.graphics.beginFill(0x0d0d18, 0.5);
-        _sendSection.graphics.lineStyle(1, 0x003a63);
-        _sendSection.graphics.drawRoundRect(2, 0, widgetWidth - 4, 45, 4, 4);
-        _sendSection.graphics.endFill();
-
-        _rxSection.graphics.clear();
-        _rxSection.graphics.beginFill(0x0d0d18, 0.5);
-        _rxSection.graphics.lineStyle(1, 0x224422);
-        _rxSection.graphics.drawRoundRect(2, 0, widgetWidth - 4, 148, 4, 4);
-        _rxSection.graphics.endFill();
-
         // Auto-reconnect section background (matches dark theme)
         if (_reconnectSection != null)
         {
@@ -751,16 +632,6 @@ class WebSocketWidget extends DeviceView
             updateConnectionStatus(_isConnectedContact.value == true);
         }
 
-        // ── Received data ──
-        if (_receivedDataContact != null && _receivedDataContact.value != null)
-        {
-            var rxStr = Std.string(_receivedDataContact.value);
-            if (rxStr != "" && rxStr != _lastRxData)
-            {
-                appendRxData(rxStr);
-            }
-        }
-
         // ── Error ──
         if (_errorContact != null && _errorContact.value != null)
         {
@@ -837,13 +708,6 @@ class WebSocketWidget extends DeviceView
         if (contact == _isConnectedContact)
         {
             updateConnectionStatus(newValue == true);
-        }
-        else if (contact == _receivedDataContact)
-        {
-            if (newValue != null && newValue != "")
-            {
-                appendRxData(Std.string(newValue));
-            }
         }
         else if (contact == _errorContact)
         {
@@ -1015,26 +879,6 @@ class WebSocketWidget extends DeviceView
         _statsBar.text = 'RX: ${_bytesReceived} bytes   TX: ${_bytesSent} bytes   Close: ${closeStr}';
     }
 
-    /**
-     * Append received data to the display area.
-     * Auto-scrolls to the bottom. Truncates if too long (>5000 chars).
-     */
-    private function appendRxData(data:String):Void
-    {
-        if (_rxDisplay == null) return;
-        _lastRxData = data;
-        var currentText = _rxDisplay.text;
-
-        // Truncate if accumulated text is too long
-        if (currentText.length > 5000)
-        {
-            currentText = currentText.substr(currentText.length - 3000);
-        }
-
-        _rxDisplay.text = currentText + data + "\n";
-        _rxDisplay.scrollV = _rxDisplay.maxScrollV;
-    }
-
     // =========================================================================
     // EVENT HANDLERS
     // =========================================================================
@@ -1177,91 +1021,6 @@ class WebSocketWidget extends DeviceView
         }
     }
 
-    /**
-     * Send button clicked — push sendData + pulse send.
-     * Also stores the message in send history.
-     */
-    private function onSendClick(e:MouseEvent):Void
-    {
-        var data = _sendInput.text;
-        if (data == null || data == "") return;
-
-        // Push to history (avoid duplicates of last entry)
-        if (_sendHistory.length == 0 || _sendHistory[_sendHistory.length - 1] != data)
-        {
-            _sendHistory.push(data);
-            if (_sendHistory.length > MAX_HISTORY)
-            {
-                _sendHistory.shift();
-            }
-        }
-        _historyIndex = -1; // reset history browsing
-
-        if (_sendDataContact != null)
-        {
-            _sendDataContact.value = data;
-        }
-        if (_sendContact != null)
-        {
-            _sendContact.value = true;
-        }
-        // Clear input after send
-        _sendInput.text = "";
-    }
-
-    /**
-     * Send input keyboard handler — Enter to send, Up/Down for history.
-     */
-    private function onSendInputKeyDown(e:KeyboardEvent):Void
-    {
-        if (e.keyCode == Keyboard.ENTER)
-        {
-            onSendClick(null);
-            e.preventDefault();
-        }
-        else if (e.keyCode == Keyboard.UP)
-        {
-            // Browse history backwards
-            if (_sendHistory.length > 0)
-            {
-                if (_historyIndex == -1)
-                {
-                    _historyIndex = _sendHistory.length - 1;
-                }
-                else if (_historyIndex > 0)
-                {
-                    _historyIndex--;
-                }
-                _sendInput.text = _sendHistory[_historyIndex];
-            }
-            e.preventDefault();
-        }
-        else if (e.keyCode == Keyboard.DOWN)
-        {
-            // Browse history forwards
-            if (_historyIndex != -1 && _historyIndex < _sendHistory.length - 1)
-            {
-                _historyIndex++;
-                _sendInput.text = _sendHistory[_historyIndex];
-            }
-            else
-            {
-                _historyIndex = -1;
-                _sendInput.text = "";
-            }
-            e.preventDefault();
-        }
-    }
-
-    /**
-     * Clear button clicked — empty the received data display.
-     */
-    private function onClearClick(e:MouseEvent):Void
-    {
-        _rxDisplay.text = "";
-        _lastRxData = "";
-    }
-
     // =========================================================================
     // DISPOSE
     // =========================================================================
@@ -1270,13 +1029,10 @@ class WebSocketWidget extends DeviceView
         // Remove event listeners
         if (_connectBtn != null) _connectBtn.removeEventListener(MouseEvent.CLICK, onConnectClick);
         if (_disconnectBtn != null) _disconnectBtn.removeEventListener(MouseEvent.CLICK, onDisconnectClick);
-        if (_sendBtn != null) _sendBtn.removeEventListener(MouseEvent.CLICK, onSendClick);
-        if (_clearBtn != null) _clearBtn.removeEventListener(MouseEvent.CLICK, onClearClick);
         if (_binaryToggle != null) _binaryToggle.removeEventListener(MouseEvent.CLICK, onBinaryToggleClick);
         if (_reconnectToggle != null) _reconnectToggle.removeEventListener(MouseEvent.CLICK, onReconnectToggleClick);
         if (_urlInput != null) _urlInput.removeEventListener(Event.CHANGE, onUrlChanged);
         if (_subprotoInput != null) _subprotoInput.removeEventListener(Event.CHANGE, onSubprotoChanged);
-        if (_sendInput != null) _sendInput.removeEventListener(KeyboardEvent.KEY_DOWN, onSendInputKeyDown);
         if (_intervalInput != null) _intervalInput.removeEventListener(Event.CHANGE, onIntervalChanged);
         if (_maxAttemptsInput != null) _maxAttemptsInput.removeEventListener(Event.CHANGE, onMaxAttemptsChanged);
 
@@ -1296,14 +1052,6 @@ class WebSocketWidget extends DeviceView
         _statusLed = null;
         _statusGlow = null;
         _statusBar = null;
-        _sendSection = null;
-        _sendLabel = null;
-        _sendInput = null;
-        _sendBtn = null;
-        _rxSection = null;
-        _rxLabel = null;
-        _clearBtn = null;
-        _rxDisplay = null;
         _statsBar = null;
         _errorDisplay = null;
         // Auto-reconnect UI
@@ -1323,12 +1071,7 @@ class WebSocketWidget extends DeviceView
         _binaryModeContact = null;
         _connectContact = null;
         _disconnectContact = null;
-        _sendContact = null;
-        _sendDataContact = null;
         _isConnectedContact = null;
-        _receivedDataContact = null;
-        _receivedTickContact = null;
-        _sentTickContact = null;
         _errorContact = null;
         _errorTickContact = null;
         _closeCodeContact = null;
@@ -1339,9 +1082,6 @@ class WebSocketWidget extends DeviceView
         _reconnectIntervalContact = null;
         _maxReconnectAttemptsContact = null;
         _reconnectAttemptsContact = null;
-
-        // History
-        _sendHistory = null;
 
         super.dispose();
     }
