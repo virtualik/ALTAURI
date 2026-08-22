@@ -272,7 +272,7 @@ class AtomRegistry
         // CROSS-PLATFORM DRIVERS (C++ and HTML5)
         // =========================================================================
         // ComPortAtom is now registered for BOTH platforms, as it has dual implementation.
-        reg("ComPortAtom", "COM Port", [
+        reg("ComPortAtom", "Com Port", [
             {name: "portName",  type: INPUT,  defaultValue: "COM13", dataType: "string", priority: IMPORTANT, label: "Port"},
             {name: "baudRate",  type: INPUT,  defaultValue: 9600,   dataType: "int",    priority: IMPORTANT, label: "Baud"},
             {name: "bufferSize",type: INPUT,  defaultValue: 4096,   dataType: "int",    priority: OPTIONAL,  label: "BufSize"},

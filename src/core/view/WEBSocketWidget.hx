@@ -19,19 +19,19 @@
 //  │  URL                                               │
 //  │  [ws://localhost:8080_________________________]    │
 //  │                                                    │
-//  │  Subprotocol (optional)    [Binary: ☐]             │
+//  │  Subprotocol (optional)       Binary: [X]          │
 //  │  [__________________________________________]      │
 //  │                                                    │
 //  │  [ CONNECT ]  [ DISCONNECT ]   Status: Disconnected│
-//  ├────────────────────────────────────────────────────┤
-//  │  Append nothing ○   Append CR    ○                 │  ← Append mode
-//  │  Append LF      ○   Append CR+LF ○                 │
 //  ├────────────────────────────────────────────────────┤
 //  │  RX: 0 bytes  TX: 0 bytes  Close: -                │  ← Status bar
 //  │  Last error: (none)                                │
 //  ├────────────────────────────────────────────────────┤
 //  │  [X] Auto-Reconnect   Interval: [1.0]              │
 //  │  Max retries: [0]    Attempts: 0                   │
+//  ├────────────────────────────────────────────────────┤
+//  │  Append Mode       none   CR   LF   CR+LF          │  ← Append mode
+//  │                      ○     ○    ○     ○            │
 //  └────────────────────────────────────────────────────┘
 // ============================================================================
 
@@ -76,10 +76,10 @@ class WebSocketWidget extends DeviceView
 
     #if html5
     public var widgetWidth:Float = 320;
-    public var widgetHeight:Float = 500;
+    public var widgetHeight:Float = 370;
     #else
     public var widgetWidth:Float = 320;
-    public var widgetHeight:Float = 500;
+    public var widgetHeight:Float = 370;
     #end
 
     override public function getWidgetSize(): {width:Float, height:Float}
@@ -92,6 +92,7 @@ class WebSocketWidget extends DeviceView
     private var _colorHeader:Int    = 0x2a2a3a;
     private var _colorAccent:Int    = 0x00AAFF;
     private var _colorActive:Int    = 0x00FF88;
+    private var _colorRadioBtAct:Int= 0xFFFFFF;
     private var _colorDanger:Int    = 0xFF4444;
     private var _colorInactive:Int  = 0x333344;
     private var _colorText:Int      = 0xFFFFFF;
@@ -125,6 +126,8 @@ class WebSocketWidget extends DeviceView
 
     // Append mode section (4 radio buttons in 2x2 grid)
     private var _appendSection:Sprite;
+    private var _appendAppendLabel:TextField;
+    private var _appendModeLabel:TextField;
     private var _appendNoneLabel:TextField;
     private var _appendNoneRadio:Sprite;
     private var _appendCRLabel:TextField;
@@ -361,7 +364,7 @@ class WebSocketWidget extends DeviceView
         _binaryLabel.text = "BIN";
         _binaryLabel.width = 25;
         _binaryLabel.height = 14;
-        _binaryLabel.x = widgetWidth - 85;
+        _binaryLabel.x = widgetWidth - 80;
         _binaryLabel.y = yPos + 4;
         _binaryLabel.selectable = false;
         _binaryLabel.mouseEnabled = false;
@@ -384,8 +387,8 @@ class WebSocketWidget extends DeviceView
         _binaryToggleMark.text = "";
         _binaryToggleMark.width = 18;
         _binaryToggleMark.height = 18;
-        _binaryToggleMark.x = widgetWidth - 58 + 4;
-        _binaryToggleMark.y = yPos + 2;
+        _binaryToggleMark.x = widgetWidth - 58 + 6;
+        _binaryToggleMark.y = yPos + 3;
         _binaryToggleMark.selectable = false;
         _binaryToggleMark.mouseEnabled = false;
         addChild(_binaryToggleMark);
@@ -412,63 +415,7 @@ class WebSocketWidget extends DeviceView
         _statusBar.y = yPos + 7;
         _statusBar.selectable = false;
         addChild(_statusBar);
-
-        yPos += 36;
-
-        // ── Append mode section ──
-        // 2x2 grid of (label + radio) pairs. Selecting one clears the others.
-        _appendSection = new Sprite();
-        _appendSection.y = yPos;
-        addChild(_appendSection);
-
-        // Row 1: "Append nothing" + radio, "Append CR" + radio
-        _appendNoneLabel = createLabel("Append nothing", 110);
-        _appendNoneLabel.x = 5;
-        _appendNoneLabel.y = 0;
-        _appendSection.addChild(_appendNoneLabel);
-
-        _appendNoneRadio = createRadioButton();
-        _appendNoneRadio.x = 122;
-        _appendNoneRadio.y = 2;
-        _appendNoneRadio.addEventListener(MouseEvent.CLICK, onAppendNoneClick);
-        _appendSection.addChild(_appendNoneRadio);
-
-        _appendCRLabel = createLabel("Append CR", 75);
-        _appendCRLabel.x = 160;
-        _appendCRLabel.y = 0;
-        _appendSection.addChild(_appendCRLabel);
-
-        _appendCRRadio = createRadioButton();
-        _appendCRRadio.x = 240;
-        _appendCRRadio.y = 2;
-        _appendCRRadio.addEventListener(MouseEvent.CLICK, onAppendCRClick);
-        _appendSection.addChild(_appendCRRadio);
-
-        // Row 2: "Append LF" + radio, "Append CR+LF" + radio
-        _appendLFLabel = createLabel("Append LF", 110);
-        _appendLFLabel.x = 5;
-        _appendLFLabel.y = 16;
-        _appendSection.addChild(_appendLFLabel);
-
-        _appendLFRadio = createRadioButton();
-        _appendLFRadio.x = 122;
-        _appendLFRadio.y = 18;
-        _appendLFRadio.addEventListener(MouseEvent.CLICK, onAppendLFClick);
-        _appendSection.addChild(_appendLFRadio);
-
-        _appendCRLFLabel = createLabel("Append CR+LF", 95);
-        _appendCRLFLabel.x = 160;
-        _appendCRLFLabel.y = 16;
-        _appendSection.addChild(_appendCRLFLabel);
-
-        _appendCRLFRadio = createRadioButton();
-        _appendCRLFRadio.x = 265;
-        _appendCRLFRadio.y = 18;
-        _appendCRLFRadio.addEventListener(MouseEvent.CLICK, onAppendCRLFClick);
-        _appendSection.addChild(_appendCRLFRadio);
-
-        updateAppendModeVisual();  // initial state: "none" selected
-
+		
         yPos += 38;
 
         // ── Stats bar ──
@@ -481,19 +428,21 @@ class WebSocketWidget extends DeviceView
         _statsBar.y = yPos;
         _statsBar.selectable = false;
         addChild(_statsBar);
-        yPos += 22;
+		
+        yPos += 15;
 
         // ── Error display ──
         _errorDisplay = new TextField();
         _errorDisplay.defaultTextFormat = new TextFormat("_typewriter", 9, _colorDanger);
-        _errorDisplay.text = "";
+        _errorDisplay.text = " Error display ";
         _errorDisplay.width = widgetWidth - 20;
         _errorDisplay.height = 15;
         _errorDisplay.x = 10;
         _errorDisplay.y = yPos;
         _errorDisplay.selectable = false;
         addChild(_errorDisplay);
-        yPos += 22;
+		
+        yPos += 37;
 
         // ── Auto-reconnect section ──
         // Layout:
@@ -508,8 +457,8 @@ class WebSocketWidget extends DeviceView
         _reconnectLabel.text = "Auto-Reconnect";
         _reconnectLabel.width = 110;
         _reconnectLabel.height = 16;
-        _reconnectLabel.x = 24;
-        _reconnectLabel.y = 4;
+        _reconnectLabel.x = 30;
+        _reconnectLabel.y = 5;
         _reconnectLabel.selectable = false;
         _reconnectLabel.mouseEnabled = false;
         _reconnectSection.addChild(_reconnectLabel);
@@ -517,7 +466,7 @@ class WebSocketWidget extends DeviceView
         _reconnectToggle = new Sprite();
         _reconnectToggle.graphics.beginFill(_colorInputBg);
         _reconnectToggle.graphics.lineStyle(1, 0x333355);
-        _reconnectToggle.graphics.drawRoundRect(0, 0, 18, 18, 3, 3);
+        _reconnectToggle.graphics.drawRoundRect(3, 3, 18, 18, 3, 3);
         _reconnectToggle.graphics.endFill();
         _reconnectToggle.x = 5;
         _reconnectToggle.y = 4;
@@ -531,8 +480,8 @@ class WebSocketWidget extends DeviceView
         _reconnectToggleMark.text = "";
         _reconnectToggleMark.width = 18;
         _reconnectToggleMark.height = 18;
-        _reconnectToggleMark.x = 9;
-        _reconnectToggleMark.y = 4;
+        _reconnectToggleMark.x = 11;
+        _reconnectToggleMark.y = 8;
         _reconnectToggleMark.selectable = false;
         _reconnectToggleMark.mouseEnabled = false;
         _reconnectSection.addChild(_reconnectToggleMark);
@@ -586,6 +535,79 @@ class WebSocketWidget extends DeviceView
 
         yPos += 50;
 
+   // ── Append mode section ──
+        // label + radio pairs. Selecting one clears the others.
+        _appendSection = new Sprite();
+        _appendSection.y = yPos;
+        addChild(_appendSection);
+
+        // Row : "Append Append Label"
+        _appendAppendLabel = createLabel("Append", 40);
+		_appendAppendLabel.defaultTextFormat = new TextFormat("_typewriter", 10, _colorText, true);
+        _appendAppendLabel.x = 30;
+        _appendAppendLabel.y = 17;
+        _appendSection.addChild(_appendAppendLabel);
+		
+        // Row : "Append Mode Label"
+        _appendModeLabel = createLabel("Mode", 30);
+        _appendModeLabel.defaultTextFormat = new TextFormat("_typewriter", 10, _colorText, true);
+        _appendModeLabel.x = 80;
+        _appendModeLabel.y = 17;
+        _appendSection.addChild(_appendModeLabel);
+
+        // "Append nothing" label
+        _appendNoneLabel = createLabel("NONE", 30);
+        _appendNoneLabel.x = 124;
+        _appendNoneLabel.y = 3;
+        _appendSection.addChild(_appendNoneLabel);
+		
+        // "Append nothing" radio
+        _appendNoneRadio = createRadioButton();
+        _appendNoneRadio.x = 130;
+        _appendNoneRadio.y = 19;
+        _appendNoneRadio.addEventListener(MouseEvent.CLICK, onAppendNoneClick);
+        _appendSection.addChild(_appendNoneRadio);
+
+        // "Append CR" label
+        _appendCRLabel = createLabel("CR", 30);
+        _appendCRLabel.x = 168;
+        _appendCRLabel.y = 3;
+        _appendSection.addChild(_appendCRLabel);
+
+        // "Append CR" radio
+        _appendCRRadio = createRadioButton();
+        _appendCRRadio.x = 170;
+        _appendCRRadio.y = 19;
+        _appendCRRadio.addEventListener(MouseEvent.CLICK, onAppendCRClick);
+        _appendSection.addChild(_appendCRRadio);
+
+        // "Append LF" label
+        _appendLFLabel = createLabel("LF", 30);
+        _appendLFLabel.x = 210;
+        _appendLFLabel.y = 3;
+        _appendSection.addChild(_appendLFLabel);
+
+        // "Append LF" radio
+        _appendLFRadio = createRadioButton();
+        _appendLFRadio.x = 212;
+        _appendLFRadio.y = 19;
+        _appendLFRadio.addEventListener(MouseEvent.CLICK, onAppendLFClick);
+        _appendSection.addChild(_appendLFRadio);
+
+        // "Append CR+LF" label
+        _appendCRLFLabel = createLabel("CR+LF", 30);
+        _appendCRLFLabel.x = 247;
+        _appendCRLFLabel.y = 3;
+        _appendSection.addChild(_appendCRLFLabel);
+		
+        _appendCRLFRadio = createRadioButton();
+        _appendCRLFRadio.x = 255;
+        _appendCRLFRadio.y = 19;
+        _appendCRLFRadio.addEventListener(MouseEvent.CLICK, onAppendCRLFClick);
+        _appendSection.addChild(_appendCRLFRadio);
+		
+        updateAppendModeVisual();  // initial state: "none" selected
+
         redrawBackground();
     }
 
@@ -613,9 +635,16 @@ class WebSocketWidget extends DeviceView
             _reconnectSection.graphics.clear();
             _reconnectSection.graphics.beginFill(0x0d0d18, 0.5);
             _reconnectSection.graphics.lineStyle(1, 0x224466);
-            _reconnectSection.graphics.drawRoundRect(0, 0, widgetWidth - 20, 45, 4, 4);
+            _reconnectSection.graphics.drawRoundRect(5, 0, widgetWidth - 10, 45, 4, 4);
             _reconnectSection.graphics.endFill();
         }
+		
+		// Append mode section
+		_appendSection.graphics.clear();
+		_appendSection.graphics.beginFill(0x0d0d18, 0.5);
+        _appendSection.graphics.lineStyle(1, 0x224466);
+        _appendSection.graphics.drawRoundRect(5, 0, widgetWidth - 10, 37, 4, 4);
+        _appendSection.graphics.endFill();
     }
 
     // =========================================================================
@@ -697,6 +726,7 @@ class WebSocketWidget extends DeviceView
         r.graphics.endFill();
         if (selected)
         {
+            //r.graphics.beginFill(_colorRadioBtAct);
             r.graphics.beginFill(_colorActive);
             r.graphics.drawCircle(6, 6, 3);
             r.graphics.endFill();

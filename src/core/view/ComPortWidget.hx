@@ -27,10 +27,45 @@ import core.logic.Impulse;
 * ║  Checkbox = auto-connect on next app start (persistence stub)             ║
 * ║  Click device = select + immediate connect                                ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
+*  * ComPortWidget - это ЛИЦО (Face) для ComPortAtom.
+*
+* ┌─────────────────────────────────────────────────────────────────────────┐
+* │   ComPortWidget                                                         │
+* │                                                                         │
+* │   ┌───────────────────────────────────────────────────────────────┐     │
+* │   │  Title: COM PORT                                 [LED ●]      │     │
+* │   ├───────────────────────────────────────────────────────────────┤     │
+* │   │  [Scan USB]  [CLEAR]                                          │     │
+* │   ├───────────────────────────────────────────────────────────────┤     │
+* │   │  ┌──────────────────────────────────────────────────────────┐ │     │
+* │   │  │  Founded Ports                                           │ │     │
+* │   │  │  Founded Ports                                           │ │     │
+* │   │  │  Founded Ports                                           │ │     │
+* │   │  │  Founded Ports                                           │ │     │
+* │   │  │  Founded Ports                                           │ │     │
+* │   │  │                                                          │ │     │
+* │   │  └──────────────────────────────────────────────────────────┘ │     │
+* │   │  Selected: None (Auto)                                        │     │
+* │   │                                                               │     │
+* │   │  BAUD:                                                        │     │
+* │   │  [9600           ]                                            │     │
+* │   │                                                               │     │
+* │   │  [  OPEN  ]  [  CLOSE  ]     DTR: [ON/OFF]                    │     │
+* │   ├───────────────────────────────────────────────────────────────┤     │
+* │   │  Append nothing        ○         Append CR           ○        │     │
+* │   │  Append LF             ○         Append CR+LF        ○        │     │
+* │   ├───────────────────────────────────────────────────────────────┤     │
+* │   │  RX: ●  TX: ●  ERR: ●                                         │     │
+* │   └───────────────────────────────────────────────────────────────┘     │
+* │                                                                         │
+* │      Widget READS state from the atom's contacts (Databank)             │
+* │      Widget WRITES to contacts when interacting with the user           │
+* │                                                                         │
+* └─────────────────────────────────────────────────────────────────────────┘
 */
 class ComPortWidget extends DeviceView
 {
-    private static var DEFAULT_BAUD_RATES:Array<Int> = [9600, 19200, 38400, 57600, 115200];
+    private static var DEFAULT_BAUD_RATES:Array<Int> = [ 50, 75, 110, 150, 300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600, 1500000, 2000000, 3000000]; // CDC works on full speed USB 12000000
 
     private var _bg:Sprite;
     private var _header:Sprite;
@@ -94,10 +129,10 @@ class ComPortWidget extends DeviceView
 
     #if html5
     public var widgetWidth:Float = 300;
-    public var widgetHeight:Float = 230;
+    public var widgetHeight:Float = 370;
     #else
     public var widgetWidth:Float = 300;
-    public var widgetHeight:Float = 310;
+    public var widgetHeight:Float = 370;
     #end
 
     override public function getWidgetSize(): {width:Float, height:Float}
@@ -109,6 +144,7 @@ class ComPortWidget extends DeviceView
     private var _colorHeader:Int = 0x2a2a3a;
     private var _colorAccent:Int = 0x00AAFF;
     private var _colorActive:Int = 0x00FF88;
+	private var _colorRadioBtAct:Int= 0xFFFFFF;
     private var _colorDanger:Int = 0xFF4444;
     private var _colorWarning:Int = 0xFFAA00;
     private var _colorInactive:Int = 0x333344;
@@ -203,7 +239,7 @@ class ComPortWidget extends DeviceView
         _header = new Sprite(); _header.y = yPos; addChild(_header);
         _titleLabel = new TextField();
         _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 13, _colorText, true);
-        _titleLabel.text = "  COM PORT"; _titleLabel.width = widgetWidth - 40; _titleLabel.height = 28;
+        _titleLabel.text = "  COMPORT"; _titleLabel.width = widgetWidth - 40; _titleLabel.height = 28;
         _titleLabel.selectable = false; _titleLabel.mouseEnabled = false; _header.addChild(_titleLabel);
         _statusGlow = new Sprite(); _statusGlow.graphics.beginFill(_colorDanger, 0.2); _statusGlow.graphics.drawCircle(0, 0, 12); _statusGlow.graphics.endFill();
         _statusGlow.x = widgetWidth - 18; _statusGlow.y = 14; _statusGlow.visible = false; _header.addChild(_statusGlow);
@@ -252,7 +288,7 @@ class ComPortWidget extends DeviceView
         _appendSection.addChild(_appendCRLabel);
 
         _appendCRRadio = createRadioButton();
-        _appendCRRadio.x = 240;
+        _appendCRRadio.x = 265;
         _appendCRRadio.y = 2;
         _appendCRRadio.addEventListener(MouseEvent.CLICK, onAppendCRClick);
         _appendSection.addChild(_appendCRRadio);
@@ -715,7 +751,7 @@ class ComPortWidget extends DeviceView
         r.graphics.endFill();
         if (selected)
         {
-            r.graphics.beginFill(_colorActive);
+            r.graphics.beginFill(_colorRadioBtAct);
             r.graphics.drawCircle(6, 6, 3);
             r.graphics.endFill();
         }
