@@ -24,6 +24,9 @@
 //  │                                                    │
 //  │  [ CONNECT ]  [ DISCONNECT ]   Status: Disconnected│
 //  ├────────────────────────────────────────────────────┤
+//  │  Append nothing ○   Append CR    ○                 │  ← Append mode
+//  │  Append LF      ○   Append CR+LF ○                 │
+//  ├────────────────────────────────────────────────────┤
 //  │  RX: 0 bytes  TX: 0 bytes  Close: -                │  ← Status bar
 //  │  Last error: (none)                                │
 //  ├────────────────────────────────────────────────────┤
@@ -54,6 +57,7 @@ import core.base.Contact;
  *   - URL input with persistence
  *   - Subprotocol input (optional, for Sec-WebSocket-Protocol header)
  *   - Binary mode toggle (send as text or binary)
+ *   - Append mode radio group (none / CR / LF / CR+LF) for outgoing data
  *   - Connect / Disconnect buttons with status LED
  *   - Status bar with byte counters and close code
  *   - Error display
@@ -119,6 +123,17 @@ class WebSocketWidget extends DeviceView
     private var _statusGlow:Sprite;
     private var _statusBar:TextField;
 
+    // Append mode section (4 radio buttons in 2x2 grid)
+    private var _appendSection:Sprite;
+    private var _appendNoneLabel:TextField;
+    private var _appendNoneRadio:Sprite;
+    private var _appendCRLabel:TextField;
+    private var _appendCRRadio:Sprite;
+    private var _appendLFLabel:TextField;
+    private var _appendLFRadio:Sprite;
+    private var _appendCRLFLabel:TextField;
+    private var _appendCRLFRadio:Sprite;
+
     // Stats / error display
     private var _statsBar:TextField;
     private var _errorDisplay:TextField;
@@ -140,6 +155,7 @@ class WebSocketWidget extends DeviceView
     private var _urlContact:Contact;
     private var _subprotoContact:Contact;
     private var _binaryModeContact:Contact;
+    private var _appendModeContact:Contact;
     private var _connectContact:Contact;
     private var _disconnectContact:Contact;
     private var _isConnectedContact:Contact;
@@ -160,6 +176,8 @@ class WebSocketWidget extends DeviceView
     private var _lastError:String = "";
     /** Cached binary mode state. */
     private var _binaryMode:Bool = false;
+    /** Cached append mode: "none" | "CR" | "LF" | "CRLF". */
+    private var _appendMode:String = "none";
     /** Cached byte counters. */
     private var _bytesReceived:Int = 0;
     private var _bytesSent:Int = 0;
@@ -201,6 +219,7 @@ class WebSocketWidget extends DeviceView
         _urlContact            = atom.getInput("url");
         _subprotoContact       = atom.getInput("subprotocol");
         _binaryModeContact     = atom.getInput("binaryMode");
+        _appendModeContact     = atom.getInput("appendMode");
         _connectContact        = atom.getInput("connect");
         _disconnectContact     = atom.getInput("disconnect");
         _autoReconnectContact       = atom.getInput("autoReconnect");
@@ -242,6 +261,10 @@ class WebSocketWidget extends DeviceView
         if (_binaryModeContact != null)
         {
             _binaryModeContact.value = _binaryMode;
+        }
+        if (_appendModeContact != null)
+        {
+            _appendModeContact.value = _appendMode;
         }
         if (_autoReconnectContact != null)
         {
@@ -391,6 +414,62 @@ class WebSocketWidget extends DeviceView
         addChild(_statusBar);
 
         yPos += 36;
+
+        // ── Append mode section ──
+        // 2x2 grid of (label + radio) pairs. Selecting one clears the others.
+        _appendSection = new Sprite();
+        _appendSection.y = yPos;
+        addChild(_appendSection);
+
+        // Row 1: "Append nothing" + radio, "Append CR" + radio
+        _appendNoneLabel = createLabel("Append nothing", 110);
+        _appendNoneLabel.x = 5;
+        _appendNoneLabel.y = 0;
+        _appendSection.addChild(_appendNoneLabel);
+
+        _appendNoneRadio = createRadioButton();
+        _appendNoneRadio.x = 122;
+        _appendNoneRadio.y = 2;
+        _appendNoneRadio.addEventListener(MouseEvent.CLICK, onAppendNoneClick);
+        _appendSection.addChild(_appendNoneRadio);
+
+        _appendCRLabel = createLabel("Append CR", 75);
+        _appendCRLabel.x = 160;
+        _appendCRLabel.y = 0;
+        _appendSection.addChild(_appendCRLabel);
+
+        _appendCRRadio = createRadioButton();
+        _appendCRRadio.x = 240;
+        _appendCRRadio.y = 2;
+        _appendCRRadio.addEventListener(MouseEvent.CLICK, onAppendCRClick);
+        _appendSection.addChild(_appendCRRadio);
+
+        // Row 2: "Append LF" + radio, "Append CR+LF" + radio
+        _appendLFLabel = createLabel("Append LF", 110);
+        _appendLFLabel.x = 5;
+        _appendLFLabel.y = 16;
+        _appendSection.addChild(_appendLFLabel);
+
+        _appendLFRadio = createRadioButton();
+        _appendLFRadio.x = 122;
+        _appendLFRadio.y = 18;
+        _appendLFRadio.addEventListener(MouseEvent.CLICK, onAppendLFClick);
+        _appendSection.addChild(_appendLFRadio);
+
+        _appendCRLFLabel = createLabel("Append CR+LF", 95);
+        _appendCRLFLabel.x = 160;
+        _appendCRLFLabel.y = 16;
+        _appendSection.addChild(_appendCRLFLabel);
+
+        _appendCRLFRadio = createRadioButton();
+        _appendCRLFRadio.x = 265;
+        _appendCRLFRadio.y = 18;
+        _appendCRLFRadio.addEventListener(MouseEvent.CLICK, onAppendCRLFClick);
+        _appendSection.addChild(_appendCRLFRadio);
+
+        updateAppendModeVisual();  // initial state: "none" selected
+
+        yPos += 38;
 
         // ── Stats bar ──
         _statsBar = new TextField();
@@ -592,6 +671,64 @@ class WebSocketWidget extends DeviceView
         return btn;
     }
 
+    /**
+     * Create a radio button sprite (12x12 hollow circle).
+     * Use drawRadioVisual() to set selected state.
+     */
+    private function createRadioButton():Sprite
+    {
+        var r = new Sprite();
+        r.buttonMode = true;
+        r.useHandCursor = true;
+        drawRadioVisual(r, false);
+        return r;
+    }
+
+    /**
+     * Redraw a radio button: hollow circle when unselected,
+     * hollow circle + filled inner dot when selected.
+     */
+    private function drawRadioVisual(r:Sprite, selected:Bool):Void
+    {
+        r.graphics.clear();
+        r.graphics.beginFill(_colorInputBg);
+        r.graphics.lineStyle(1, 0x333555);
+        r.graphics.drawCircle(6, 6, 6);
+        r.graphics.endFill();
+        if (selected)
+        {
+            r.graphics.beginFill(_colorActive);
+            r.graphics.drawCircle(6, 6, 3);
+            r.graphics.endFill();
+        }
+    }
+
+    /**
+     * Update all 4 append-mode radio buttons to reflect _appendMode.
+     * Called after any state change (sync from atom or user click).
+     */
+    private function updateAppendModeVisual():Void
+    {
+        if (_appendNoneRadio  != null) drawRadioVisual(_appendNoneRadio,  _appendMode == "none");
+        if (_appendCRRadio    != null) drawRadioVisual(_appendCRRadio,    _appendMode == "CR");
+        if (_appendLFRadio    != null) drawRadioVisual(_appendLFRadio,    _appendMode == "LF");
+        if (_appendCRLFRadio  != null) drawRadioVisual(_appendCRLFRadio,  _appendMode == "CRLF");
+    }
+
+    /**
+     * Set append mode with mutual exclusion: clears other radios,
+     * updates visuals, pushes new value to atom contact.
+     */
+    private function setAppendMode(mode:String):Void
+    {
+        _appendMode = mode;
+        updateAppendModeVisual();
+        if (_appendModeContact != null)
+        {
+            _appendModeContact.value = mode;
+        }
+    }
+
     // =========================================================================
     // DATA SYNCHRONIZATION
     // =========================================================================
@@ -624,6 +761,17 @@ class WebSocketWidget extends DeviceView
         {
             _binaryMode = (_binaryModeContact.value == true);
             updateBinaryToggleVisual();
+        }
+
+        // ── Append mode ──
+        if (_appendModeContact != null && _appendModeContact.value != null)
+        {
+            var amStr = Std.string(_appendModeContact.value);
+            if (amStr != _appendMode)
+            {
+                _appendMode = amStr;
+                updateAppendModeVisual();
+            }
         }
 
         // ── Connection status ──
@@ -741,6 +889,18 @@ class WebSocketWidget extends DeviceView
         {
             _binaryMode = (newValue == true);
             updateBinaryToggleVisual();
+        }
+        else if (contact == _appendModeContact)
+        {
+            if (newValue != null)
+            {
+                var amStr = Std.string(newValue);
+                if (amStr != _appendMode)
+                {
+                    _appendMode = amStr;
+                    updateAppendModeVisual();
+                }
+            }
         }
         else if (contact == _urlContact)
         {
@@ -918,6 +1078,16 @@ class WebSocketWidget extends DeviceView
     }
 
     /**
+     * Append-mode radio click handlers — each delegates to setAppendMode()
+     * with the appropriate mode string. Mutual exclusion is handled inside
+     * setAppendMode() via updateAppendModeVisual().
+     */
+    private function onAppendNoneClick(e:MouseEvent):Void  { setAppendMode("none"); }
+    private function onAppendCRClick(e:MouseEvent):Void   { setAppendMode("CR"); }
+    private function onAppendLFClick(e:MouseEvent):Void   { setAppendMode("LF"); }
+    private function onAppendCRLFClick(e:MouseEvent):Void { setAppendMode("CRLF"); }
+
+    /**
      * Auto-reconnect toggle clicked — flip state and push to atom.
      */
     private function onReconnectToggleClick(e:MouseEvent):Void
@@ -1030,6 +1200,10 @@ class WebSocketWidget extends DeviceView
         if (_connectBtn != null) _connectBtn.removeEventListener(MouseEvent.CLICK, onConnectClick);
         if (_disconnectBtn != null) _disconnectBtn.removeEventListener(MouseEvent.CLICK, onDisconnectClick);
         if (_binaryToggle != null) _binaryToggle.removeEventListener(MouseEvent.CLICK, onBinaryToggleClick);
+        if (_appendNoneRadio != null) _appendNoneRadio.removeEventListener(MouseEvent.CLICK, onAppendNoneClick);
+        if (_appendCRRadio != null) _appendCRRadio.removeEventListener(MouseEvent.CLICK, onAppendCRClick);
+        if (_appendLFRadio != null) _appendLFRadio.removeEventListener(MouseEvent.CLICK, onAppendLFClick);
+        if (_appendCRLFRadio != null) _appendCRLFRadio.removeEventListener(MouseEvent.CLICK, onAppendCRLFClick);
         if (_reconnectToggle != null) _reconnectToggle.removeEventListener(MouseEvent.CLICK, onReconnectToggleClick);
         if (_urlInput != null) _urlInput.removeEventListener(Event.CHANGE, onUrlChanged);
         if (_subprotoInput != null) _subprotoInput.removeEventListener(Event.CHANGE, onSubprotoChanged);
@@ -1047,6 +1221,15 @@ class WebSocketWidget extends DeviceView
         _binaryLabel = null;
         _binaryToggle = null;
         _binaryToggleMark = null;
+        _appendSection = null;
+        _appendNoneLabel = null;
+        _appendNoneRadio = null;
+        _appendCRLabel = null;
+        _appendCRRadio = null;
+        _appendLFLabel = null;
+        _appendLFRadio = null;
+        _appendCRLFLabel = null;
+        _appendCRLFRadio = null;
         _connectBtn = null;
         _disconnectBtn = null;
         _statusLed = null;
@@ -1069,6 +1252,7 @@ class WebSocketWidget extends DeviceView
         _urlContact = null;
         _subprotoContact = null;
         _binaryModeContact = null;
+        _appendModeContact = null;
         _connectContact = null;
         _disconnectContact = null;
         _isConnectedContact = null;

@@ -1057,6 +1057,11 @@ class WebSocketAtom extends Atom implements system.managers.Driver
     private var _lastSubprotocol:String = "";
     /** Binary mode flag (true → send as binary, false → send as text). */
     private var _lastBinaryMode:Bool = false;
+    /** Append mode for outgoing data: "none" | "CR" | "LF" | "CRLF".
+     *  Applied to every send: "CR" appends \r, "LF" appends \n, "CRLF" appends \r\n.
+     *  Works for both text and binary modes (in binary mode the appended
+     *  bytes are 0x0D / 0x0A respectively). */
+    private var _lastAppendMode:String = "none";
 
     /** Last received data string (UTF-8). For binary payloads, contains raw chars. */
     private var _lastReceivedData:String = "";
@@ -1162,6 +1167,7 @@ class WebSocketAtom extends Atom implements system.managers.Driver
                 new Contact("ws://localhost:8080", INPUT, "url"),
                 new Contact("",                   INPUT, "subprotocol"),
                 new Contact(false,                INPUT, "binaryMode"),
+                new Contact("none",              INPUT, "appendMode"),
                 new Contact(false,                INPUT, "connect"),
                 new Contact(false,                INPUT, "disconnect"),
                 new Contact(false,                INPUT, "send"),
@@ -1620,6 +1626,7 @@ class WebSocketAtom extends Atom implements system.managers.Driver
         var urlC          = getInput("url");
         var subprotoC     = getInput("subprotocol");
         var binaryModeC   = getInput("binaryMode");
+        var appendModeC   = getInput("appendMode");
         var connectC      = getInput("connect");
         var disconnectC   = getInput("disconnect");
         var sendC         = getInput("send");
@@ -1715,6 +1722,18 @@ class WebSocketAtom extends Atom implements system.managers.Driver
             _lastBinaryMode = (binaryModeC.value == true);
         }
 
+        // ── Append mode change (COMMON) ──
+        // Read line-ending append setting: "none" | "CR" | "LF" | "CRLF".
+        // Applied in the Send trigger below before platform dispatch.
+        if (appendModeC != null && appendModeC.value != null)
+        {
+            var newAm:String = Std.string(appendModeC.value);
+            if (newAm != _lastAppendMode)
+            {
+                _lastAppendMode = newAm;
+            }
+        }
+
         // ── Connect trigger ──
         if (connectC != null && connectC.value == true)
         {
@@ -1793,6 +1812,23 @@ class WebSocketAtom extends Atom implements system.managers.Driver
             if (sendDataC != null && sendDataC.value != null)
             {
                 var data:String = Std.string(sendDataC.value);
+                // ── Apply line-ending append based on _lastAppendMode ──
+                // "none" → no change, "CR" → \r, "LF" → \n, "CRLF" → \r\n.
+                // Applied uniformly to text AND binary modes. In binary mode
+                // the appended chars become bytes 0x0D / 0x0A respectively,
+                // since sendWebSocketData() encodes each char as a single byte.
+                if (_lastAppendMode == "CR")
+                {
+                    data += "\r";
+                }
+                else if (_lastAppendMode == "LF")
+                {
+                    data += "\n";
+                }
+                else if (_lastAppendMode == "CRLF")
+                {
+                    data += "\r\n";
+                }
                                 #if cpp
                                                 #if android
                                                 untyped __cpp__('
