@@ -18,7 +18,7 @@ import ui.WireType;
 import ui.WireType.WireType as WireTypeEnum;
 
 /**
-* WIRE RENDERER v1.7 (Stage-Aware Endpoint Resolution + Hit Sprite Selection + Wire Long-Press)
+* WIRE RENDERER v1.8 (Crash Traps + Stage-Aware Endpoint Resolution + Hit Sprite Selection + Wire Long-Press)
 * Responsible for visualizing all wires (connections) in NodeEditor.
 *
 * ═══════════════════════════════════════════════════════════════════════════
@@ -347,6 +347,7 @@ class WireRenderer {
          */
         public function rebuildAll():Void {
                 if (_isDisposed) return;
+                utils.Trap.log("WR", "rebuildAll: disposed=" + _isDisposed);
                 
                 // Disable vector line repainting during zoom.
                 // WebGL automatically scales the _canvas contents, so
@@ -372,6 +373,7 @@ class WireRenderer {
                                 
                                 if (p1 == null || p2 == null) {
                                         // Ghost wire detected — one or both endpoints missing
+                                        utils.Trap.log("WR-GHOST", "ghost: " + link.from.atomId + "." + link.from.contactName + " -> " + link.to.atomId + "." + link.to.contactName);
                                         ghostWireIds.push(id);
                                         continue; // Skip drawing this wire
                                 }
@@ -996,6 +998,7 @@ class WireRenderer {
          * v1.2: Also clears the selection callback.
          */
         public function dispose():Void {
+                utils.Trap.log("WR-DISPOSE", "wireRenderer down");
                 if (_isDisposed) return;
                 _isDisposed = true;
                 

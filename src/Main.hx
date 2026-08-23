@@ -45,10 +45,22 @@ import utils.UID;
 using StringTools;
 
 /**
-* MAIN v3.0 (DisplayConfig Integration)
+* MAIN v3.1 (DisplayConfig Integration + Crash Traps)
 * Application entry point and main coordinator.
 *
 * ═══════════════════════════════════════════════════════════════════════════
+* ═══════════════════════════════════════════════════════════════════════════
+* v3.1 CHANGES (Crash Traps — BUG-A hunt)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  - onBackClicked(): entry breadcrumb (all exit paths funnel here).
+*  - closeCurrentEditor(): breadcrumbs around pop() and
+*    updateNavigationUI() (layoutChrome runs right after pop —
+*    prime crash candidate zone).
+*  - onMainLoop(): 1 Hz BEAT heartbeat to crash_trap.log — the last
+*    BEAT timestamp marks the exact death second even when stdout
+*    buffering eats the tail on a hard crash.
+*
 * v3.0 CHANGES (DisplayConfig Integration)
 * ═══════════════════════════════════════════════════════════════════════════
 *
@@ -164,6 +176,7 @@ class Main extends Sprite
 
 // --- State ---
 	private var _lastTime:Int = 0;
+	private var _trapBeatFrames:Int = 0; // v3.1: BEAT heartbeat counter
 	private var _theme:EditorTheme;
 	private var _deviceWindow:DeviceWindow;
 
@@ -910,8 +923,12 @@ class Main extends Sprite
 	private function saveOnExit():Void
 	{
 		log("Auto-saving on exit...");
+		
 		_editorContext.prepareCurrentAssemblyForSave();
+		utils.Trap.log("EXIT", "prepareForSave done");
+		
 		saveCurrentContext();
+		utils.Trap.log("EXIT", "saveCurrentContext done");
 	}
 
 // =========================================================================
@@ -923,6 +940,7 @@ class Main extends Sprite
 	*/
 	private function onBackClicked():Void
 	{
+		utils.Trap.log("EXIT", "onBackClicked: enter stack=" + _editorContext.getStackLength());
 		if (_editorContext.getStackLength() <= 1)
 		{
 			log("Cannot close root assembly.");
@@ -939,8 +957,11 @@ class Main extends Sprite
 				{
 // v2.2: Sync blueprint BEFORE save (renames, port names, template IDs)
 					_editorContext.prepareCurrentAssemblyForSave();
+					utils.Trap.log("EXIT", "prepareForSave done");
+					
 					saveNewNamedAssembly(name);
 					closeCurrentEditor(true);
+					utils.Trap.log("EXIT", "closeCurrentEditor returned");
 				}
 			});
 		}
@@ -949,8 +970,13 @@ class Main extends Sprite
 // Without this, renamed atoms and semantic port names are lost
 // on app restart.
 			_editorContext.prepareCurrentAssemblyForSave();
+			utils.Trap.log("EXIT", "prepareForSave done");
+			
 			saveCurrentContext();
+			utils.Trap.log("EXIT", "saveCurrentContext done");
+			
 			closeCurrentEditor(true);
+			utils.Trap.log("EXIT", "closeCurrentEditor returned");
 		}
 	}
 
@@ -959,9 +985,12 @@ class Main extends Sprite
 	*/
 	private function closeCurrentEditor(updateInstances:Bool):Void
 	{
+		utils.Trap.log("EXIT", "closeCurrentEditor: pre-pop updateInstances=" + updateInstances);
 		_editorContext.pop(updateInstances);
+		utils.Trap.log("EXIT", "pop returned; updateNavigationUI next");
 		updateNavigationUI();
 		updateButtonStates();
+		utils.Trap.log("EXIT", "closeCurrentEditor: done");
 		log("Returned to: " + _editorContext.currentAssembly.blueprint.name);
 	}
 
@@ -1085,6 +1114,7 @@ class Main extends Sprite
 		}
 
 		saveCurrentContext();
+		utils.Trap.log("EXIT", "saveCurrentContext done");
 	}
 
 // =========================================================================
@@ -1233,7 +1263,11 @@ class Main extends Sprite
 		_windowSaveTimer = haxe.Timer.delay(() -> {
 			syncDevicePanelToCache();
 			_editorContext.prepareCurrentAssemblyForSave();
+			utils.Trap.log("EXIT", "prepareForSave done");
+			
 			saveCurrentContext();
+			utils.Trap.log("EXIT", "saveCurrentContext done");
+			
 			_windowSaveTimer = null;
 			log("Device state auto-saved.");
 		}, 300);
@@ -1324,7 +1358,10 @@ class Main extends Sprite
 			if (_uiReady)
 			{
 					_editorContext.prepareCurrentAssemblyForSave();
+					utils.Trap.log("EXIT", "prepareForSave done");
+					
 					saveCurrentContext();
+					utils.Trap.log("EXIT", "saveCurrentContext done");
 			}
 			#end
 	}
@@ -1345,6 +1382,14 @@ class Main extends Sprite
 
 // Unified update via TickGenerator
 		TickGenerator.getInstance().update(dt);
+
+	// v3.1: 1 Hz heartbeat — last BEAT marks the death second.
+		_trapBeatFrames++;
+		if (_trapBeatFrames >= 60)
+		{
+			_trapBeatFrames = 0;
+			utils.Trap.log("BEAT", "alive");
+		}
 	}
 
 	/**
@@ -2162,7 +2207,11 @@ Impulsys.subscribeToImpulse(EventType.FULLSCREEN_TOGGLED, _onFullscreenToggled);
 	private function onValueCommitted(impulse:Impulse):Void
 	{
 		_editorContext.prepareCurrentAssemblyForSave();
+		utils.Trap.log("EXIT", "prepareForSave done");
+		
 		saveCurrentContext();
+		utils.Trap.log("EXIT", "saveCurrentContext done");
+		
 		log("Data saved.");
 	}
 
@@ -2452,7 +2501,7 @@ Impulsys.subscribeToImpulse(EventType.FULLSCREEN_TOGGLED, _onFullscreenToggled);
 // For simplicity, any TextField focus blocks single-key shortcuts.
 		if (isTextFieldFocused && !e.ctrlKey && !e.altKey) return;
 
-		if (e.keyCode == Keyboard.S && !e.ctrlKey) { _editorContext.prepareCurrentAssemblyForSave(); saveCurrentContext(); return; }
+		if (e.keyCode == Keyboard.S && !e.ctrlKey) { _editorContext.prepareCurrentAssemblyForSave(); utils.Trap.log("EXIT", "prepareForSave done"); saveCurrentContext(); utils.Trap.log("EXIT", "saveCurrentContext done"); return; }
 
 		if (e.ctrlKey && e.keyCode == Keyboard.C) { if (_editorContext.currentEditor != null) _editorContext.currentEditor.copySelection(); return; }
 		if (e.ctrlKey && e.keyCode == Keyboard.X) { if (_editorContext.currentEditor != null) _editorContext.currentEditor.cutSelection(); return; }
@@ -2472,7 +2521,7 @@ Impulsys.subscribeToImpulse(EventType.FULLSCREEN_TOGGLED, _onFullscreenToggled);
 		if (e.keyCode == Keyboard.ESCAPE)
 		{
 			if (_settingsPanel.visible) { _settingsPanel.visible = false; return; }
-			if (_editorContext.getStackLength() > 1) onBackClicked();
+			if (_editorContext.getStackLength() > 1) onBackClicked(); utils.Trap.log("EXIT", "onBackClicked: stack=" + _editorContext.getStackLength());
 			return;
 		}
 
@@ -2482,7 +2531,7 @@ Impulsys.subscribeToImpulse(EventType.FULLSCREEN_TOGGLED, _onFullscreenToggled);
 		if (e.keyCode == Keyboard.R) { onResetClick(); return; }
 		if (e.keyCode == Keyboard.D || e.keyCode == Keyboard.DELETE) { deleteSelectedOnCanvas(); return; }
 		if (e.keyCode == Keyboard.E) { if (_editorContext.getStackLength() > 1) onDeleteCurrentAssembly(); else log("Cannot erase root assembly."); return; }
-		if (e.keyCode == Keyboard.BACKSPACE) { if (_editorContext.getStackLength() > 1) onBackClicked(); return; }
+		if (e.keyCode == Keyboard.BACKSPACE) { if (_editorContext.getStackLength() > 1) onBackClicked(); utils.Trap.log("EXIT", "onBackClicked: stack=" + _editorContext.getStackLength()); return; }
 	}
 
 	/**

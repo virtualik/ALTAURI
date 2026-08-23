@@ -19,7 +19,7 @@ import library.AtomRegistry;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                      GROUP ATOMS COMMAND v3.12                            ║
+* ║                      GROUP ATOMS COMMAND v3.14                            ║
 * ║         (BP-SSOT Consistency + Parent Port Collision Fix + DeviceView     ║
 * ║          Lifecycle Cleanup + Template ID as instanceId + Unique Names)    ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
@@ -28,6 +28,43 @@ import library.AtomRegistry;
 * ║  Supports full Undo/Redo with complete state restoration.                 ║
 * ║                                                                           ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
+* ╠═════════════════════════════════════════════════════════════════════════════╣
+* ╠═════════════════════════════════════════════════════════════════════════════╣
+* ║                     v3.14 CHANGES (PHASE 2 Restored — undo fix)           ║
+* ╠═════════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  CONFIRMED BUG: the v3.11 BP-SSOT refactor dropped ALL snapshot           ║
+* ║  capture calls (addRemovedAtom / addRemovedInternalConnection /           ║
+* ║  addRemovedExternalConnection / setSelectedNodeIds). undo() then          ║
+* ║  aborted at validate() with "No atoms captured for restore" —             ║
+* ║  grouping undo was silently dead (trace-only failure).                    ║
+* ║                                                                           ║
+* ║  FIX: PHASE 2 (SNAPSHOT BEFORE-STATE) restored in executeGrouping         ║
+* ║  right after the atomsToMove guard. Together with GroupAtomsSnapshot      ║
+* ║  v2.1 (Reflect.copy — captures values + visualMode), undo fully           ║
+* ║  restores atoms, connections and configuration.                           ║
+* ║                                                                           ║
+* ║                     v3.13 CHANGES (Grouping Value Preservation)           ║
+* ╠═════════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  NOTE: no mergeLiveStateInto() is needed — the v3.8 Phase-3               ║
+* ║  live-state capture (liveAtom.getPersistentState() into                   ║
+* ║  newInternalAtoms) + driver getPersistentState() overrides                ║
+* ║  (ComPortAtom v3.2+) already preserve configuration through               ║
+* ║  grouping. Field proof (crash_trap.log 23:58:11): grouping →              ║
+* ║  dispose → auto-reopen (wasOpen=true) → opened COM17.                     ║
+* ║                                                                           ║
+* ║  BUG-1 FIXED: saveNewAssembly() wrote the .atom file with atoms           ║
+* ║  stripped of `values` — a crash/restart right after grouping              ║
+* ║  lost the live configuration (ComPort COM17 → COM1 on reload).            ║
+* ║  values are now serialized with every atom.                               ║
+* ║                                                                           ║
+* ║  BUG-2 FIXED: undo() restored atoms with STRIPPED AtomDefs (no            ║
+* ║  values, no visualMode) and recreated instances without                   ║
+* ║  initialState. Original AtomDef objects are now pushed back               ║
+* ║  as-is; instances are recreated with atomDef.values as                    ║
+* ║  initialState (load-symmetric with execute()).                            ║
+* ║                                                                           ║
 * ║                     v3.12 CHANGES (Parent Port Name Collision Fix)        ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
@@ -324,6 +361,32 @@ class GroupAtomsCommand extends Command
 			trace('ERROR: GroupAtomsCommand: No atoms to move!');
 			return;
 		}
+
+// =====================================================================
+// PHASE 2: SNAPSHOT BEFORE-STATE (v3.14 — RESTORED)
+// =====================================================================
+// The v3.11 BP-SSOT refactor accidentally removed these capture calls;
+// undo() then aborted at validate() with "No atoms captured for
+// restore" — grouping undo was silently dead. Capturing again:
+//   - selected node ids (for events)
+//   - atom defs of everything being moved (Reflect.copy — WITH values,
+//     visualMode; see GroupAtomsSnapshot v2.1)
+//   - internal connections (between selected atoms — removed)
+//   - external connections (selected <-> outside — become ports)
+		_snapshot.setSelectedNodeIds(_selectedNodeIds);
+		for (atomDef in atomsToMove)
+		{
+			_snapshot.addRemovedAtom(atomDef);
+		}
+		for (conn in internalConns)
+		{
+			_snapshot.addRemovedInternalConnection(conn);
+		}
+		for (conn in externalConns)
+		{
+			_snapshot.addRemovedExternalConnection(conn);
+		}
+
 
 // =====================================================================
 // PHASE 3: CREATE NEW ASSEMBLY BLUEPRINT (SEMANTIC NAMING)
@@ -881,15 +944,12 @@ class GroupAtomsCommand extends Command
 		AtomRegistry.remove(createdTypeId);
 		deleteAssemblyFile(createdTypeId);
 
+		// v3.13 BUG-2 FIX: push the ORIGINAL AtomDef object back as-is —
+		// the previous stripped copy (instanceId/typeId/x/y only) silently
+		// dropped `values` (displayName, driver config) and `visualMode`.
 		for (atomDef in _snapshot.getRemovedAtomDefs())
 		{
-			_blueprint.internalAtoms.push(
-			{
-				instanceId: atomDef.instanceId,
-				typeId: atomDef.typeId,
-				x: atomDef.x,
-				y: atomDef.y
-			});
+			_blueprint.internalAtoms.push(atomDef);
 		}
 
 		for (conn in _snapshot.getRemovedInternalConnections()) _blueprint.internalConnections.push(conn);
@@ -897,7 +957,9 @@ class GroupAtomsCommand extends Command
 
 		for (atomDef in _snapshot.getRemovedAtomDefs())
 		{
-			var atom = AssemblyFactory.createAtom(atomDef.typeId, atomDef.instanceId);
+			// v3.13 BUG-2 FIX: pass values as initialState so the recreated
+			// instance restores displayName/config (load-symmetric).
+			var atom = AssemblyFactory.createAtom(atomDef.typeId, atomDef.instanceId, atomDef.values);
 			if (atom != null) _assembly.internalAtoms.set(atomDef.instanceId, atom);
 		}
 
@@ -1150,7 +1212,14 @@ class GroupAtomsCommand extends Command
 		#if sys
 		var atomsData:Array<Dynamic> = [];
 		for (atomDef in bp.internalAtoms)
-			atomsData.push({instanceId: atomDef.instanceId, typeId: atomDef.typeId, x: atomDef.x, y: atomDef.y});
+		{
+			// v3.13 BUG-1 FIX: serialize values (live config: displayName,
+			// driver settings, wasOpen...) — the disk copy must be
+			// load-symmetric with the in-memory blueprint.
+			var atomData:Dynamic = {instanceId: atomDef.instanceId, typeId: atomDef.typeId, x: atomDef.x, y: atomDef.y};
+			if (atomDef.values != null) atomData.values = atomDef.values;
+			atomsData.push(atomData);
+		}
 		var connsData:Array<Dynamic> = [];
 		for (conn in bp.internalConnections)
 			connsData.push({

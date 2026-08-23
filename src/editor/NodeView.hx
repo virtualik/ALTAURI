@@ -28,7 +28,7 @@ import core.data.Blueprint.ParameterPriority;
 import ui.NodeVisualMode;
 
 /**
-* NODE VIEW v3.8 (Global Name Uniqueness + Atom Reattach + Synchronous Layout + Touch Long-Press)
+* NODE VIEW v3.9 (Zoom Cache Hard Reset [v4.4 Stage 2] + Atom Reattach + Synchronous Layout + Touch Long-Press)
 *
 * Visual representation of an Atom (node) on the schematic canvas.
 *
@@ -201,6 +201,19 @@ class NodeView extends Sprite
 // =========================================================================
         public function setCacheAsBitmapState(enabled:Bool):Void
         {
+                // ═══════════════════════════════════════════════════════════════
+                // v3.9 / ЭТАП 2 (BUGS_FIXING_SCENARIO v4.4): HARD RESET of the
+                // bitmap cache. Toggling cacheAsBitmap alone can REUSE a stale
+                // raster snapshot captured at the previous scale: the container
+                // keeps drawing the old bitmap through the new transform
+                // (zoom artifacts) and references a GPU surface that may be
+                // recreated mid-frame (zoom crash right after pop()).
+                // Drop the cached matrix FIRST, on BOTH transitions:
+                //   false -> true : raster rebuilt at the CURRENT scale
+                //   true  -> false: stale raster released immediately
+                // ═══════════════════════════════════════════════════════════════
+                this.cacheAsBitmapMatrix = null;
+                this.cacheAsBitmap = false;
                 this.cacheAsBitmap = enabled;
         }
         
@@ -349,6 +362,7 @@ class NodeView extends Sprite
         {
                 if (newAtom == null) return;
                 if (_atom == newAtom) return; // nothing to do
+                utils.Trap.log("NV", "reattach: " + (_atom != null ? _atom.id : "?") + " -> " + newAtom.id);
 
                 // 1. Release old DeviceView (releases Contact subscriptions on old atom)
                 if (deviceView != null)
@@ -2061,6 +2075,7 @@ private function centerPreviewContainer():Void
 // =========================================================================
         public function dispose():Void
         {
+                utils.Trap.log("NV-DISPOSE", "nodeView down: " + nodeId + " cacheAsBitmap=" + this.cacheAsBitmap);
                 Impulsys.removeImpulse(EventType.ASSEMBLY_PORTS_CHANGED, onAssemblyPortsChanged);
                 Impulsys.removeImpulse(EventType.REDRAW_WIRES, onWiresRedrawn);
                 ECS.unregister(nodeId);

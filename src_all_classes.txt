@@ -1,7 +1,7 @@
 
 ================================================================================
 // FILE: core\base\Assembly.hx
-// Lines: 2353 | Chars: 82473
+// Lines: 2562 | Chars: 93051
 ================================================================================
 
 package core.base;
@@ -23,9 +23,10 @@ using StringTools;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     ASSEMBLY v2.2                                         ║
+* ║                     ASSEMBLY v2.5                                         ║
 * ║  (Full Integrity + Template ID Serialization + Clean Gateway Topology     ║
-* ║   + Load-Symmetric Blueprint Sync + Atom Mapping Registration)            ║
+* ║   + Load-Symmetric Blueprint Sync + Atom Mapping Registration             ║
+* ║   + Inline Value Persistence + Crash Traps + Conn Traps)                                             ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  Universal base class for ALL nodes in the system.                        ║
@@ -67,10 +68,54 @@ using StringTools;
 * ║         for GroupAtomsCommand / CreateAtomCommand to register atoms       ║
 * ║         added at runtime. Without this, resolveContact cannot find        ║
 * ║         the atom by its template ID in blueprint.internalConnections.     ║
+* ║  - v2.3: ADDED syncAtomValuesToBlueprint() — merges LIVE persistent       ║
+* ║         state of internal atoms into atomDef.values so that               ║
+* ║         pop()-reconstruction restores current inline values               ║
+* ║         instead of the last-saved ones (BUG-B, load-symmetric).           ║
 * ║                                                                           ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                     VERSION HISTORY                                       ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  v2.5 — Connection Table Traps (gateway-link forensics)                   ║
+* ║  ──────────────────────────────────────────────                           ║
+* ║  Field evidence: after pop()-reconstruction the gateway INPUT             ║
+* ║  link for "open" (incoming_2) works while "send" (incoming_3)             ║
+* ║  is dead. Whether the SELF-connection lives in the blueprint or           ║
+* ║  dies in resolveContact is currently invisible. _createInternal           ║
+* ║  Connections() now dumps the bp connection table (ASM-CONN) and           ║
+* ║  logs every physical link it creates (ASM-LINK).                          ║
+* ║                                                                           ║
+* ║  v2.4 — Crash Traps + mergeLiveStateInto                                  ║
+* ║  ──────────────────────────────────────────────                           ║
+* ║  - dispose(): Trap.log breadcrumbs at every teardown stage                ║
+* ║    (entry, per-atom, cleared, super, resume, catch) written to            ║
+* ║    crash_trap.log with flush-per-line — survives hard crashes             ║
+* ║    (stdout buffering eats the tail on c0000005).                          ║
+* ║  - _updatePortLinks(): OUTPUT delivery callback logs the value            ║
+* ║    handoff to the external side (condution probe, logic mode).            ║
+* ║  - + mergeLiveStateInto(atomDef, atom): static helper for commands        ║
+* ║    that rebuild atoms (GroupAtoms) — fixes the grouping-path              ║
+* ║    variant of BUG-B (live driver settings lost on grouping:               ║
+* ║    ComPort reopened COM1 instead of the configured COM17).                ║
+* ║                                                                           ║
+* ║  v2.3 — Inline Value Persistence (BUG-B)                                  ║
+* ║  ──────────────────────────────────────────────                           ║
+* ║  PROBLEM:                                                                 ║
+* ║  User-edited inline values (TextInput gain 50 → 3) lived only in          ║
+* ║  runtime instances. atomDef.values received them only when                ║
+* ║  ProjectManager wrote to disk, so pop()-reconstruction restored           ║
+* ║  the LAST SAVED value — edits survived save/load but NOT the              ║
+* ║  exit/re-enter cycle (violation of Load-Symmetric Reconstruction).        ║
+* ║                                                                           ║
+* ║  SOLUTION:                                                                ║
+* ║  syncAtomValuesToBlueprint() — for every internal atom (leaf AND          ║
+* ║  nested Assembly): getPersistentState() is merged into                    ║
+* ║  atomDef.values (matched by instanceId). Called from                      ║
+* ║  EditorContext.pop() and prepareCurrentAssemblyForSave().                 ║
+* ║  EditorContext v2.8 additionally syncs the exited child state             ║
+* ║  into the PARENT atomDef.values — the parent-side restoreState()          ║
+* ║  overwrite must see FRESH data, not the last disk-save snapshot.          ║
 * ║                                                                           ║
 * ║  v2.2 — Atom Mapping Registration                                         ║
 * ║  ─────────────────────────────────────────────────                        ║
@@ -896,6 +941,7 @@ class Assembly extends Atom
 									&& targetPort.external != null
 									&& !isInitializing)
 							{
+								utils.Trap.log("COND-OUT", "port=" + targetPort.externalName + " value=" + Std.string(v));
 								targetPort.external.value = v;
 								targetPort.external.propagateCurrentValue();
 							}
@@ -1195,6 +1241,128 @@ class Assembly extends Atom
 				}
 			}
 		}
+	}
+
+	/**
+	* v2.3: Syncs the LIVE persistent state of internal atoms into
+	* blueprint.internalAtoms[].values (matched by instanceId).
+	*
+	* WHY THIS EXISTS (BUG-B — inline values do not survive exit):
+	* syncDisplayNamesToBlueprint() persists ONLY displayName. Edited
+	* inline values (e.g., TextInput 50 → 3) live exclusively in the
+	* runtime instances; atomDef.values receives them only when
+	* ProjectManager writes to disk. pop()-reconstruction builds new
+	* atoms from atomDef.values — i.e., from the LAST SAVED state —
+	* so edits silently revert on every exit/re-enter cycle while
+	* surviving a full save/load round-trip. That asymmetry violates
+	* the Load-Symmetric Reconstruction principle.
+	*
+	* This method completes the symmetry:
+	*     reconstruction = save = load
+	*
+	* ALGORITHM:
+	*   for each internal atom (by runtimeId):
+	*     1. templateId = getTemplateId(runtimeId)
+	*     2. state = atom.getPersistentState()   (null → skip)
+	*     3. merge EVERY field of state into atomDef.values
+	*
+	* NESTED ASSEMBLIES ARE INCLUDED DELIBERATELY. Their
+	* getPersistentState() returns {isLogic, internalStates, displayName}
+	* keyed by template IDs — exactly the shape a disk save stores.
+	* The parent-side restoreState() (run by _createInternalInstances
+	* AFTER the child constructor) OVERWRITES the freshly built child
+	* internals with atomDef.values — stale internalStates there would
+	* resurrect dead values and defeat the leaf-atom sync performed
+	* one level deeper. EditorContext.pop() additionally syncs the
+	* exited child state into the PARENT atomDef.values
+	* (syncChildStateToParentAtomDef) for the very same reason.
+	*
+	* KNOWN LIMITATION (shared with syncDisplayNamesToBlueprint and
+	* updateInstancesOf semantics): all instances of one blueprint
+	* type share the registered blueprint — the values of the instance
+	* being exited win. Same-type instances are treated as clones.
+	*/
+	public function syncAtomValuesToBlueprint():Void
+	{
+		if (internalAtoms == null || blueprint == null
+			|| blueprint.internalAtoms == null) return;
+
+		for (runtimeId in internalAtoms.keys())
+		{
+			var atom:Atom = cast internalAtoms.get(runtimeId);
+			if (atom == null) continue;
+
+			var templateId = getTemplateId(runtimeId);
+
+// Live state of this atom: TextInput text, Toggle position, driver
+// settings, nested Assembly internalStates... null → nothing to keep.
+			var state:Dynamic = null;
+			try
+			{
+				state = atom.getPersistentState();
+			}
+			catch (e:Dynamic)
+			{
+				trace('WARN: syncAtomValuesToBlueprint: getPersistentState() failed for "${templateId}": $e');
+				continue;
+			}
+			if (state == null) continue;
+
+			for (atomDef in blueprint.internalAtoms)
+			{
+				if (atomDef.instanceId == templateId)
+				{
+					if (atomDef.values == null) atomDef.values = {};
+					var fields:Array<String> = Reflect.fields(state);
+					for (field in fields)
+					{
+						Reflect.setField(atomDef.values, field, Reflect.field(state, field));
+					}
+					trace('📦 syncAtomValues: "${templateId}" ← ${fields.length} field(s) [${fields.join(", ")}]');
+					break;
+				}
+			}
+		}
+	}
+
+	/**
+	* v2.4: Static helper for COMMANDS that rebuild atoms (GroupAtomsCommand,
+	* CreateAtomCommand): merges a LIVE atom persistent state into the
+	* blueprint AtomDef.values BEFORE the original instance is disposed.
+	*
+	* This is the GROUPING-PATH counterpart of syncAtomValuesToBlueprint()
+	* (BUG-B variant): at grouping, the new ComPort instance restored only
+	* atomDef.values (displayName etc.) — the live driver settings (port
+	* name COM17, baud) were never merged, so the fresh atom opened the
+	* DEFAULT port (COM1) and the physical send went nowhere.
+	*
+	* Usage inside the command, per grouped atom, while it is STILL ALIVE:
+	*     Assembly.mergeLiveStateInto(newAtomDef, liveAtom);
+	*
+	* Dynamic param keeps this helper free of Blueprint typedef imports.
+	*/
+	public static function mergeLiveStateInto(atomDef:Dynamic, atom:Atom):Void
+	{
+		if (atomDef == null || atom == null) return;
+		var state:Dynamic = null;
+		try
+		{
+			state = atom.getPersistentState();
+		}
+		catch (e:Dynamic)
+		{
+			trace('WARN: mergeLiveStateInto: getPersistentState() failed: ' + e);
+			return;
+		}
+		if (state == null) return;
+
+		if (atomDef.values == null) atomDef.values = {};
+		var fields:Array<String> = Reflect.fields(state);
+		for (field in fields)
+		{
+			Reflect.setField(atomDef.values, field, Reflect.field(state, field));
+		}
+		utils.Trap.log("MERGE", "merged " + fields.length + " field(s) into def: " + fields.join(", "));
 	}
 
 	/**
@@ -1707,6 +1875,14 @@ class Assembly extends Atom
 	{
 		if (blueprint == null || blueprint.internalConnections == null) return;
 
+		// v2.5: dump the connection table this instance is built from.
+		utils.Trap.log("ASM-CONN", "Assembly(" + this.id + ") bp connections=" + blueprint.internalConnections.length);
+		for (conn in blueprint.internalConnections)
+		{
+			utils.Trap.log("ASM-CONN", "  " + conn.from.atomId + "." + conn.from.contactName + " -> " + conn.to.atomId + "." + conn.to.contactName);
+		}
+
+
 // v1.5: Track connections to remove (avoid modifying array during iteration)
 		var connectionsToRemove:Array<core.data.Blueprint.ConnectionDef> = [];
 
@@ -1754,6 +1930,7 @@ class Assembly extends Atom
 
 // Link with suppressed propagation (prevents oscillation during init)
 			fromContact.link(toContact, true);
+			utils.Trap.log("ASM-LINK", "linked " + conn.from.atomId + "." + conn.from.contactName + " -> " + conn.to.atomId + "." + conn.to.contactName);
 		}
 
 // ══════════════════════════════════════════════════════════════════
@@ -2325,36 +2502,68 @@ class Assembly extends Atom
 // ========================================================================
 // DISPOSE
 // ========================================================================
-	override public function dispose():Void
-	{
-// Dispose internal atoms
-		var keys = [for (k in internalAtoms.keys()) k];
-		for (key in keys)
-		{
-			var obj = internalAtoms.get(key);
-			if (obj != null)
-			{
-				if (Std.isOfType(obj, IDisposable))
-				{
-					try { cast(obj, IDisposable).dispose(); }
-					catch (e:Dynamic) { trace('Error: $e'); }
+    override public function dispose():Void
+    {
+// ═══════════════════════════════════════════════════════════════════
+// v1.11 (v4.4): SILENT DISPOSE — suspend TickGenerator for the whole
+// teardown cascade.
+// ═══════════════════════════════════════════════════════════════════
+// Assembly.dispose() recursively disposes internal atoms and ports.
+// Contact.dispose() unlinks and scheduled propagations may still sit in
+// TickGenerator queues; a task firing mid-teardown (between
+// internalAtoms.clear() and ports.clear()) dereferences half-dead state.
+// Suspending the generator freezes process() so the cascade runs in
+// silence; try/finally guarantees resume even on exception — a stuck
+// suspend would freeze the whole simulation permanently.
+// NOTE: when called from EditorContext.pop() v2.6 the outer topology
+// lock already defers propagations; this suspend is the belt-and-
+// suspenders layer for ALL other dispose call sites (hard reset,
+// GroupAtoms Phase 4, project reload).
+utils.Trap.log("ASM-DISPOSE", "dispose enter: id=" + this.id);
+	TickGenerator.getInstance().suspend();
+		try {
+			// Dispose internal atoms
+			var keys = [for (k in internalAtoms.keys()) k];
+			for (key in keys) {
+				var obj = internalAtoms.get(key);
+				if (obj != null) {
+					utils.Trap.log("ASM-DISPOSE", "atom down: " + key + " (" + Type.getClassName(Type.getClass(obj)) + ")");
+					if (Std.isOfType(obj, IDisposable)) {
+						try {
+							cast(obj, IDisposable).dispose();
+						} catch (e:Dynamic) {
+							trace('Error: $e');
+						}
+					}
 				}
 			}
-		}
-		internalAtoms.clear();
-		internalAtoms = null;
+			internalAtoms.clear();
+			utils.Trap.log("ASM-DISPOSE", "internalAtoms cleared");
+			internalAtoms = null;
 
-// Dispose ports
-		var portKeys = [for (k in ports.keys()) k];
-		for (key in portKeys)
-		{
-			var port = ports.get(key);
-			if (port != null) port.dispose();
-		}
-		ports.clear();
-		ports = null;
+			// Dispose ports
+			var portKeys = [for (k in ports.keys()) k];
+			for (key in portKeys) {
+				var port = ports.get(key);
+				if (port != null) port.dispose();
+			}
+			ports.clear();
+			utils.Trap.log("ASM-DISPOSE", "ports cleared");
+			ports = null;
 
-		super.dispose();
+			super.dispose();
+			utils.Trap.log("ASM-DISPOSE", "super.dispose done");
+			
+			utils.Trap.log("ASM-DISPOSE", "teardown OK -> resume");
+			// Если всё прошло успешно, возобновляем генератор
+			TickGenerator.getInstance().resume();
+		} catch (e:Dynamic) {
+			// Если произошла ошибка, ВСЁ РАВНО возобновляем генератор
+			utils.Trap.log("ASM-DISPOSE", "EXCEPTION in dispose: " + e);
+			TickGenerator.getInstance().resume();
+			// Пробрасываем ошибку дальше, чтобы симуляция знала о сбое
+			throw e;
+		}
 	}
 }
 
@@ -2829,7 +3038,7 @@ class AssemblyFactory
 
 ================================================================================
 // FILE: core\base\Atom.hx
-// Lines: 374 | Chars: 11224
+// Lines: 394 | Chars: 12189
 ================================================================================
 
 package core.base;
@@ -3196,8 +3405,28 @@ class Atom implements IDisposable implements Driver
 		
 		// v3.9: Clear visualMode (не обязательно, но чисто)
 		_visualMode = null;
+	
+// old record:
+	//	if (_isActive) DriverManager.getInstance().unregister(this.id);
+	// ═══════════════════════════════════════════════════════════════════
+
+// new record:
+// v4.4: DRIVER ZOMBIE GUARD — safety net at the base class level.
+// ═══════════════════════════════════════════════════════════════════
+// DriverManager.unregister() intentionally does not call dispose()
+// (caller-is-responsible contract). Active drivers DO unregister in
+// their own dispose overrides (MiniAudioAtom), but the contract is a
+// trap for future drivers: one forgotten unregister leaves a zombie
+// entry that gets update(dt) called on a disposed atom every frame.
+// This guard makes the base class responsible: if THIS atom was
+// registered as a driver, unregister it NOW (idempotent — double
+// unregister with the driver's own call is harmless: the second call
+// is a no-op because the map entry is already gone).
+        if (_isActive)
+        {
+            system.managers.DriverManager.getInstance().unregister(this.id);
+        }
 		
-		if (_isActive) DriverManager.getInstance().unregister(this.id);
 		if (_inputs != null) { for (c in _inputs) { if (c != null) c.dispose(); } }
 		if (_outputs != null) { for (c in _outputs) { if (c != null) c.dispose(); } }
 		_inputs = null;
@@ -3209,7 +3438,7 @@ class Atom implements IDisposable implements Driver
 
 ================================================================================
 // FILE: core\base\ConductorPort.hx
-// Lines: 196 | Chars: 9392
+// Lines: 208 | Chars: 10103
 ================================================================================
 
 package core.base;
@@ -3219,13 +3448,14 @@ import core.types.ContactType.*;
 
 /**
  * ╔═══════════════════════════════════════════════════════════════════════════╗
- * ║                     CONDUCTOR PORT v2.0 (Dual Naming)                     ║
+ * ║                     CONDUCTOR PORT v2.2 (Dual Naming)                     ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  A bidirectional gateway that exposes an Atom's internal contact          ║
  * ║  to the outside world.                                                    ║
  * ║                                                                           ║
  * ║  v2.0: Supports DIFFERENT names for external and internal contacts.       ║
+ * ║  v2.1: dispose() breadcrumb (utils.Trap) — teardown forensics.            ║
  * ║                                                                           ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                        DUAL NAMING ARCHITECTURE                           ║
@@ -3341,6 +3571,15 @@ class ConductorPort
 		
 		// Create external contact with EXTERNAL name (visible on parent)
 		this.external = new Contact(defaultValue, type, this.externalName);
+
+		// v2.2: GATEWAY REPEAT FORWARDING. Both contacts of a port are
+		// pure conduits — they must deliver every write, including
+		// repeated identical values (a consumer behind the wall may use
+		// the consume-and-reset pattern; a repeat is a real event).
+		// Without this, ComPort rxData -> TextArea.append inside an
+		// assembly delivered only the FIRST response (field-proven).
+		this.internal.forwardRepeats = true;
+		this.external.forwardRepeats = true;
 	}
 
     // ========================================================================
@@ -3394,6 +3633,8 @@ class ConductorPort
      */
     public function dispose():Void
     {
+        utils.Trap.log("PORT-DISPOSE", "external=" + (external != null ? external.name : "?")
+            + " internal=" + (internal != null ? internal.name : "?"));
         if (isDisposed) return;
         isDisposed = true;
         
@@ -3411,7 +3652,7 @@ class ConductorPort
 
 ================================================================================
 // FILE: core\base\Contact.hx
-// Lines: 544 | Chars: 14506
+// Lines: 569 | Chars: 16338
 ================================================================================
 
 package core.base;
@@ -3421,7 +3662,7 @@ import core.types.ContactType.*;
 import utils.UID;
 
 /**
-* CONTACT v5.9 (Reentrancy-safe Topology Transaction Guard Integration)
+* CONTACT v5.12 (Gateway Repeat Forwarding + Link Lifecycle Traps)
 *
 * A connection point that can be linked to other contacts.
 * When value changes, it propagates to linked targets.
@@ -3431,6 +3672,10 @@ import utils.UID;
 * - Silent value setting (for batched driver updates)
 * - Callback subscription (for widgets and DeviceViews)
 * - v5.9: TOPOLOGY GUARD (Defers propagation during graph mutation)
+* - v5.10: TRAP PROBE (filtered set_value logging for conduction
+* - v5.11: LINK/UNLINK lifecycle traps + _receiveValue probe
+*   (gateway-link death forensics)
+*   forensics — see utils.Trap.NAMES)
 *
 * Comparison of Write Methods:
 * ┌────────────────────┬───────────────────────────────────────────────────────┐
@@ -3496,6 +3741,12 @@ private var _changeCount:Int = 0;
 private var _oscillationBlocked:Bool = false;
 /** Should this contact ignore oscillation detection? */
 public var ignoreOscillation:Bool = false;
+/** v5.12: GATEWAY MODE — forward repeated identical values.
+ * Conduit contacts (ConductorPort internal/external) MUST
+ * deliver every write: consumers behind them may use the
+ * consume-and-reset pattern (e.g. TextArea.append), so a
+ * repeat IS a meaningful event. Leaf atoms keep the dedup. */
+public var forwardRepeats:Bool = false;
 /** Maximum changes per second before blocking. */
 private static inline var CHANGES_PER_SECOND_LIMIT:Int = 600;
 /** Time window for oscillation detection (seconds). */
@@ -3537,6 +3788,9 @@ public function link(target:Contact, ?suppressPropagation:Bool = false):Void
 {
 if (target == null) return;
 if (hasLink(target)) return;
+// v5.11: link lifecycle trap
+if (utils.Trap.nameMatches(this.name) || utils.Trap.nameMatches(target.name))
+utils.Trap.log("LINK", (owner != null ? owner.id : "?") + "." + this.name + " -> " + (target.owner != null ? target.owner.id : "?") + "." + target.name + (suppressPropagation ? " [silent]" : ""));
 linkedTargets.push(target);
 if (_value != null && !suppressPropagation)
 {
@@ -3608,9 +3862,11 @@ if (callback != null) callback(this._value);
 private function _receiveValue(newValue:Dynamic):Void
 {
 if (isDisposed) return;
-if (_value == newValue) return;
+if (!forwardRepeats && _value == newValue) return;
 if (_oscillationBlocked) return;
 
+// v5.11: probe the propagateCurrentValue delivery path
+if (utils.Trap.nameMatches(this.name)) utils.Trap.log("CONTACT", (owner != null ? owner.id : "?") + "." + this.name + " <= " + Std.string(newValue) + " [recv]");
 _value = newValue;
 
 // v5.9: TOPOLOGY GUARD - Defer if graph is mutating
@@ -3648,7 +3904,13 @@ return true;
 */
 public function unlink(target:Contact):Void
 {
-if (linkedTargets != null) linkedTargets.remove(target);
+if (linkedTargets != null)
+{
+var removed = linkedTargets.remove(target);
+// v5.11: unlink lifecycle trap
+if (removed && (utils.Trap.nameMatches(this.name) || utils.Trap.nameMatches(target.name)))
+utils.Trap.log("UNLINK", (owner != null ? owner.id : "?") + "." + this.name + " -x- " + (target.owner != null ? target.owner.id : "?") + "." + target.name);
+}
 }
 
 /**
@@ -3720,7 +3982,9 @@ return callbackTargets != null && callbackTargets.indexOf(callback) != -1;
 private function set_value(newValue:Dynamic):Dynamic
 {
 if (isDisposed) return newValue;
-if (_value == newValue && !Std.isOfType(newValue, Array)) return newValue;
+// v5.10: TRAP PROBE — filtered, crash-proof conduction trace.
+if (utils.Trap.nameMatches(this.name)) utils.Trap.log("CONTACT", (owner != null ? owner.id : "?") + "." + this.name + " <= " + Std.string(newValue));
+if (!forwardRepeats && _value == newValue && !Std.isOfType(newValue, Array)) return newValue;
 
 // Oscillation detection
 var currentTime = haxe.Timer.stamp();
@@ -3933,6 +4197,8 @@ return (linkedTargets != null) ? linkedTargets.copy() : [];
 public function dispose():Void
 {
 if (isDisposed) return;
+// v5.11: contact death trap
+if (utils.Trap.nameMatches(this.name)) utils.Trap.log("CONTACT-DISPOSE", (owner != null ? owner.id : "?") + "." + this.name + " (links=" + (linkedTargets != null ? linkedTargets.length : 0) + ")");
 isDisposed = true;
 
 // Unlink all targets
@@ -19486,7 +19752,7 @@ typedef ClipboardAtomData = {
 
 ================================================================================
 // FILE: editor\EditorContext.hx
-// Lines: 1051 | Chars: 44039
+// Lines: 1644 | Chars: 91379
 ================================================================================
 
 package editor;
@@ -19503,18 +19769,187 @@ import core.logic.Impulse;
 import core.types.ContactType;
 import core.types.ContactType.*;
 import core.base.AssemblyFactory;
+import core.logic.TickGenerator;
 
 /**
-* EDITOR CONTEXT v2.5 (Global Name Uniqueness via NamingService + Load-Symmetric Reconstruction + isActive + Reattach + Pre-Save Sync)
+* EDITOR CONTEXT v2.11 (Progressive Suffix Matching + Value Re-Alignment + Traps)
 * Manages the stack of open editors (NodeEditor instances) and their camera states.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.11 CHANGES (Progressive Suffix Matching — wire disappearance fix)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  FIELD EVIDENCE (crash_trap.log + output.txt, session 2026-08-24):
+*  After a pop() the parent wires vanished: reconnect logged
+*  "cIn=null -> FAILED to link!" x21 and WireRenderer warned
+*  "No port position for Custom_Assembly_2_Com_Port_*" x573 while the
+*  blueprint still had all 6 connections. The child's ports were named
+*  "Custom_Assembly_1_Com_Port_*" — the nested atom's displayName had
+*  changed between pop cycles, and semantic port externalNames follow
+*  it (refreshExternalPortNames: atomName + "_" + contactName).
+*
+*  FIX: findPortByProgressiveSuffix() — strips leading tokens of the
+*  requested name until EXACTLY ONE port of the right type ends with
+*  "_"+tail:
+*     "Custom_Assembly_2_Com_Port_close"
+*       -> tail "Assembly_2_Com_Port_close"  (no unique match)
+*       -> tail "2_Com_Port_close"           (no unique match)
+*       -> tail "Com_Port_close"             -> UNIQUE port
+*          "Custom_Assembly_1_Com_Port_close"  -> match, rewrite.
+*  The rewrite lands in blueprint.internalConnections (in-memory AND
+*  on the next disk save), so the fix is self-healing: every cycle
+*  re-anchors the parent connections to the CURRENT port names.
+*
+*  Ambiguity (several ports share the tail) resolves to NO match —
+*  logged, connection left untouched (better broken than mis-wired).
+*
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.10 CHANGES (Value Re-Alignment Wave — persistent values lost on exit)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  FIELD EVIDENCE (crash_trap.log): after pop()-reconstruction the
+*  txData wire carried no value — the driver's txData input stayed
+*  empty, so pressing SEND inside fired the driver but produced no
+*  transmission ("send REFUSED" pattern). Root cause: reconnect links
+*  are created with suppressPropagation=true (correct — no signals
+*  mid-reconstruction), and the new instance's Deferred Sync Wave can
+*  only align values that live ON the port external contact. Values
+*  living UPSTREAM (e.g., TextInput.out holding "ABC") never cross
+*  the silent link — links PUSH, they never PULL.
+*
+*  FIX: reconnectExternalLinksToAssembly() now records the SOURCE
+*  contact (cOut) of every reconnected wire and schedules a
+*  Re-Alignment Wave on the next tick (graph whole, topology
+*  unlocked): each source propagates its CURRENT value through the
+*  fresh links. Event inputs (button pulses) are unaffected; LEVEL
+*  inputs (texts, gains, toggles) are restored — reconstruction
+*  becomes truly load-symmetric for values.
+*
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.9 CHANGES (BUG-A hunt: crash-proof trace breadcrumbs)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  All breadcrumbs go to crash_trap.log via utils.Trap (flush-per-line
+*  file logger — survives c0000005, unlike buffered stdout whose tail
+*  is lost on hard crash; the exit-crash log ended with NO pop traces
+*  at all, which is exactly the blindness this removes).
+*
+*  Markers:
+*    POP   — pop() pipeline: entry / before updateInstancesOf /
+*            normal unlock / exception
+*    RECON — updateInstancesOf microscope: found / pre-unlink /
+*            pre-dispose / post-createAtom / post-reattach
+*
+*  See patches/TRAP_PLAN_v1.md for the full trap map (Main/ComPortAtom/
+*  Contact points are manual one-liners).
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.8 CHANGES (BUG-B fix: inline values do not survive exit)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM (field-reported):
+*  Editing an inline value deep inside a nested assembly (TextInput
+*  gain 50 → 3 on level 4) works live, but after exiting ONE level
+*  up the reconstructed instance shows 50 again. The same edit DOES
+*  survive a full app save/load round-trip — the asymmetry pinpoints
+*  the reconstruction path as the gap.
+*
+*  ROOT CAUSE (two gaps, both violate Load-Symmetric Reconstruction):
+*  1. Assembly.syncDisplayNamesToBlueprint() persists ONLY displayName.
+*     Live inline values never reached atomDef.values in memory — they
+*     were written there only by ProjectManager during disk saves.
+*     pop()-reconstruction therefore restores the LAST SAVED values.
+*  2. The parent-side restoreState(atomDef.values) that runs AFTER the
+*     child Assembly constructor (inside _createInternalInstances)
+*     OVERWRITES the freshly built child internals with the saved
+*     state.internalStates snapshot. If the parent atomDef.values holds
+*     the snapshot from the last DISK save, stale values resurrect EVEN
+*     AFTER gap 1 is closed.
+*
+*  SOLUTION (this version, together with Assembly v2.3):
+*  A) pop() now calls asm.syncAtomValuesToBlueprint() (new Assembly
+*     method): merges every internal atom's live getPersistentState()
+*     into atomDef.values — leaf atoms AND nested assemblies.
+*  B) pop() now calls syncChildStateToParentAtomDef(asm) (new): merges
+*     the exited child's full persistent state into the PARENT's
+*     atomDef.values, so the post-create overwrite (gap 2) reads FRESH
+*     internalStates instead of the last-saved snapshot.
+*  C) prepareCurrentAssemblyForSave() also calls (A), so DISK saves
+*     capture current values through the very same funnel.
+*
+*  Result: reconstruction = save = load (full load-symmetry for values).
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.6 CHANGES (Crash fix: exit-from-assembly freeze/crash)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM (field-reported):
+*  Enter an assembly (nesting 3-4), interact with atoms (button presses,
+*  wire reconnections), then exit 1-2 levels up → app FREEZES then CRASHES.
+*
+*  ROOT CAUSE (forensic conclusion after auditing TickGenerator, Contact,
+*  Assembly, NodeView, MiniAudioAtom, DriverManager):
+*  pop(updateInstances=true) was the ONLY graph mutation running OUTSIDE the
+*  Topology Transaction Guard. During pop the following race unfolds:
+*
+*    1. updateInstancesOf() disposes the child assembly and reconstructs it
+*       via AssemblyFactory.createAtom → the Assembly constructor performs
+*       suspend() → build → resume() → _processPendingSignals(), and
+*       scheduleNextTick() queues the Final Sync Wave carrying references
+*       to the fresh contacts.
+*    2. reconnectExternalLinksToAssembly() called cOut.link(cIn) WITHOUT
+*       suppressPropagation → link() synchronously pushes the current value
+*       into the half-reconstructed graph MID-OPERATION.
+*    3. A quick second pop() disposes the parent that holds the freshly
+*       created instances → the queued sync waves and deferred propagations
+*       then fire against contacts/views that are mid-teardown, while the
+*       parent editor's NodeViews are between reattach states.
+*    4. unlockTopology() (from OTHER guarded commands finishing nearby)
+*       emits REDRAW_WIRES while the blueprint still references disposed
+*       assemblies.
+*
+*  SOLUTION (this version):
+*  A) pop() now runs the WHOLE operation (child editor dispose + sync +
+*     updateInstancesOf reconstruction + parent reactivation) inside
+*     TickGenerator.lockTopology()/unlockTopology(). Every value push and
+*     propagation attempted during the reconstruction is deferred into
+*     _deferredTopologyTasks and flushed ONLY after the graph is whole
+*     again. This puts pop() in line with GroupAtoms/Undo/Redo/PortDelete,
+*     which were already guarded — pop() was the one uncovered path.
+*  B) reconnectExternalLinksToAssembly() now links with
+*     suppressPropagation=true. Values are aligned afterwards by the
+*     Deferred Sync Wave of the freshly constructed instance (the
+*     Hot-Start pattern), NOT synchronously mid-operation.
+*
+*  ╔══════════════════════════════════════════════════════════════════╗
+*  ║  TRANSACTION LIFECYCLE OF pop() v2.6:                            ║
+*  ║                                                                  ║
+*  ║  lockTopology()                                                  ║
+*  ║    ├─ save camera state                                          ║
+*  ║    ├─ dispose child editor (view layer)                          ║
+*  ║    ├─ reactivate parent editor (isActive=true)                   ║
+*  ║    ├─ sync blueprint (4 methods + register)                      ║
+*  ║    ├─ updateInstancesOf():                                       ║
+*  ║    │    unlink parent wires → dispose child asm →                ║
+*  ║    │    createAtom (suspend/resume inside, pushes deferred) →    ║
+*  ║    │    reconnect links (suppressed, no value push) →            ║
+*  ║    │    reattachNodeView                                         ║
+*  ║    └─ refreshAssemblyViews                                       ║
+*  ║  unlockTopology()                                                ║
+*  ║    ├─ flush _deferredTopologyTasks (graph is WHOLE now)          ║
+*  ║    ├─ quickEmit(REDRAW_WIRES)                                   ║
+*  ║    └─ resume process()                                           ║
+*  ╚══════════════════════════════════════════════════════════════════╝
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v2.5 CHANGES (NamingService Delegation)
 * ═══════════════════════════════════════════════════════════════════════════
 *
 *  PROBLEM:
-*  Previous tree-walk approach (hasNameRecursive) only saw atoms in the 
-*  currently-loaded editor stack and duplicated state already maintained 
+*  Previous tree-walk approach (hasNameRecursive) only saw atoms in the
+*  currently-loaded editor stack and duplicated state already maintained
 *  by NamingService, causing potential desync.
 *
 *  SOLUTION:
@@ -19531,7 +19966,7 @@ import core.base.AssemblyFactory;
 *  different nesting levels, causing wire misrouting and UI confusion.
 *
 *  SOLUTION:
-*  Added isNameTakenGlobally() callback passed down to NodeEditor, which 
+*  Added isNameTakenGlobally() callback passed down to NodeEditor, which
 *  forwards it to NodeView and EditorActionHandler.
 *
 * ═══════════════════════════════════════════════════════════════════════════
@@ -19547,7 +19982,7 @@ import core.base.AssemblyFactory;
 *
 *  SOLUTION:
 *  push() now sets top.editor.isActive = false on the parent.
-*  pop() sets prev.editor.isActive = true and calls forceFullRedraw()
+*  pop() sets it back to true and calls forceFullRedraw()
 *  (already did the redraw — now also reactivates impulse handling).
 *
 * ═══════════════════════════════════════════════════════════════════════════
@@ -19653,7 +20088,7 @@ import core.base.AssemblyFactory;
 *    1. Remember the assembly's runtime ID
 *    2. Unlink parent-side wires pointing at the assembly's port.external
 *       (Contact.dispose() only removes THIS from targets that THIS links to;
-*        it cannot remove THIS from contacts that link TO this — see unlinkParentWiresTo)
+*        it cannot remove THIS from contacts that link TO it — see unlinkParentWiresTo)
 *    3. Dispose the old assembly completely
 *       → disposes internal atoms → disposes their contacts → nullifies
 *         callbackTargets → leaked DeviceView callbacks can no longer fire
@@ -19690,6 +20125,12 @@ import core.base.AssemblyFactory;
 * │   │  - clear()           → Reset entire stack                       │   │
 * │   │  - getStackEntries() → Return array of entries (for external)   │   │
 * │   │                                                                 │   │
+* │   │  v2.6 Topology Transaction on pop:                              │   │
+* │   │  - pop() wrapped in lockTopology()/unlockTopology()             │   │
+* │   │  - All mid-reconstruction propagations deferred                 │   │
+* │   │  - reconnectExternalLinksToAssembly links with                  │   │
+* │   │    suppressPropagation=true                                     │   │
+* │   │                                                                 │   │
 * │   │  v2.5 Global Name Uniqueness:                                   │   │
 * │   │  - isNameTakenGlobally(name, excludeId) → delegates to          │   │
 * │   │    NamingService.isInstanceNameTaken()                          │   │
@@ -19710,7 +20151,7 @@ import core.base.AssemblyFactory;
 * │   │    → unlinkParentWiresTo(asm)                                   │   │
 * │   │    → asm.dispose()                                              │   │
 * │   │    → AssemblyFactory.createAtom(typeId, oldRuntimeId)           │   │
-* │   │    → reconnectExternalLinksToAssembly(newAsm)                   │   │
+* │   │    → reconnectExternalLinksToAssembly(newAsm) [v2.6: no push]   │   │
 * │   │    → currentEditor.reattachNodeView(oldRuntimeId, newInstance)  │   │
 * │   │                                                                 │   │
 * │   │  v2.2 Pre-Save Sync (called by Main BEFORE saveCurrentContext): │   │
@@ -19731,636 +20172,971 @@ import core.base.AssemblyFactory;
 */
 class EditorContext
 {
-	// =========================================================================
-	// DEPENDENCIES
-	// =========================================================================
-	private var _layer:Sprite;
-	private var _theme:EditorTheme;
+        // =========================================================================
+        // DEPENDENCIES
+        // =========================================================================
+        private var _layer:Sprite;
+        private var _theme:EditorTheme;
 
-	// =========================================================================
-	// STATE
-	// =========================================================================
-	private var _stack:Array<EditorEntry>;
+        // =========================================================================
+        // STATE
+        // =========================================================================
+        private var _stack:Array<EditorEntry>;
 
-	public var currentAssembly(default, null):Assembly;
-	public var currentEditor(default, null):NodeEditor;
+        public var currentAssembly(default, null):Assembly;
+        public var currentEditor(default, null):NodeEditor;
 
-	// =========================================================================
-	// v1.2: CAMERA STATE STORAGE
-	// =========================================================================
-	/**
-	 * Map: blueprint.id → {x, y, zoom}
-	 * Stores the last known camera state for each assembly.
-	 * Used to restore viewport when re-entering a previously visited assembly.
-	 */
-	private var _cameraStates:Map<String, {x:Float, y:Float, zoom:Float}>;
+        // =========================================================================
+        // v1.2: CAMERA STATE STORAGE
+        // =========================================================================
+        /**
+         * Map: blueprint.id → {x, y, zoom}
+         * Stores the last known camera state for each assembly.
+         * Used to restore viewport when re-entering a previously visited assembly.
+         */
+        private var _cameraStates:Map<String, {x:Float, y:Float, zoom:Float}>;
 
-	// =========================================================================
-	// CONSTRUCTOR
-	// =========================================================================
-	public function new(layer:Sprite)
-	{
-		_layer = layer;
-		_stack = [];
-		_theme = EditorTheme.getInstance();
-		_cameraStates = new Map();
-	}
+        // =========================================================================
+        // CONSTRUCTOR
+        // =========================================================================
+        public function new(layer:Sprite)
+        {
+                _layer = layer;
+                _stack = [];
+                _theme = EditorTheme.getInstance();
+                _cameraStates = new Map();
+        }
 
-	// =========================================================================
-	// STACK OPERATIONS
-	// =========================================================================
-	/**
-	 * Open a new assembly (drill down into nested structure).
-	 * Creates a new editor instance and adds it to the stack.
-	 *
-	 * @param assembly Assembly to open
-	 * @param isRoot   If true, this is the root assembly (no blocker)
-	 */
-	public function push(assembly:Assembly, ?isRoot:Bool = false):Void
-	{
-		// If not root, block the previous editor
-		var parentState: {x:Float, y:Float, zoom:Float} = null;
-		if (!isRoot && _stack.length > 0)
-		{
-			var top = _stack[_stack.length - 1];
+        // =========================================================================
+        // STACK OPERATIONS
+        // =========================================================================
+        /**
+         * Open a new assembly (drill down into nested structure).
+         * Creates a new editor instance and adds it to the stack.
+         *
+         * @param assembly Assembly to open
+         * @param isRoot   If true, this is the root assembly (no blocker)
+         */
+        public function push(assembly:Assembly, ?isRoot:Bool = false):Void
+        {
+                // If not root, block the previous editor
+                var parentState: {x:Float, y:Float, zoom:Float} = null;
+                if (!isRoot && _stack.length > 0)
+                {
+                        var top = _stack[_stack.length - 1];
 
-			// ── Save parent camera state before entering child ──
-			parentState = top.editor.getViewState();
+                        // ── Save parent camera state before entering child ──
+                        parentState = top.editor.getViewState();
 
-			var blocker = new Sprite();
-			blocker.graphics.beginFill(0x808080, 0.6);
-			blocker.graphics.drawRect(0, 0, _layer.stage.stageWidth, _layer.stage.stageHeight);
-			blocker.graphics.endFill();
+                        var blocker = new Sprite();
+                        blocker.graphics.beginFill(0x808080, 0.6);
+                        blocker.graphics.drawRect(0, 0, _layer.stage.stageWidth, _layer.stage.stageHeight);
+                        blocker.graphics.endFill();
 
-			// Blocker intercepts clicks (prevents interaction with background)
-			blocker.addEventListener(openfl.events.MouseEvent.CLICK, function(e) e.stopPropagation());
-			_layer.addChild(blocker);
+                        // Blocker intercepts clicks (prevents interaction with background)
+                        blocker.addEventListener(openfl.events.MouseEvent.CLICK, function(e) e.stopPropagation());
+                        _layer.addChild(blocker);
 
-			top.editor.mouseEnabled = false;
-			top.editor.mouseChildren = false;
-			// v2.3: Deactivate parent editor's impulse handlers to prevent
-			// broadcast storm at deep nesting levels.
-			top.editor.isActive = false;
-			top.blocker = blocker;
-		}
+                        top.editor.mouseEnabled = false;
+                        top.editor.mouseChildren = false;
+                        // v2.3: Deactivate parent editor's impulse handlers to prevent
+                        // broadcast storm at deep nesting levels.
+                        top.editor.isActive = false;
+                        top.blocker = blocker;
+                }
 
-		// Create container for new editor
-			var container = new Sprite();
-			drawContainerFrame(container);
-			_layer.addChild(container);
+                // Create container for new editor
+                        var container = new Sprite();
+                        drawContainerFrame(container);
+                        _layer.addChild(container);
 
-			// v3.0 FIX: Use explicit stage dimensions instead of container.width/height
-			// which may be 0 before the next render frame
-			var margin = 12;
-			var w = (_layer.stage != null) ? _layer.stage.stageWidth - (margin * 2) : 1000;
-			var h = (_layer.stage != null) ? _layer.stage.stageHeight - (margin * 2) : 700;
+                        // v3.0 FIX: Use explicit stage dimensions instead of container.width/height
+                        // which may be 0 before the next render frame
+                        var margin = 12;
+                        var w = (_layer.stage != null) ? _layer.stage.stageWidth - (margin * 2) : 1000;
+                        var h = (_layer.stage != null) ? _layer.stage.stageHeight - (margin * 2) : 700;
 
-			// Create editor (v2.5: pass global name uniqueness checker)
-			var editor = new NodeEditor(assembly, isNameTakenGlobally);
-			editor.setSize(w, h);
-			container.addChild(editor);
+                        // Create editor (v2.5: pass global name uniqueness checker)
+                        var editor = new NodeEditor(assembly, isNameTakenGlobally);
+                        editor.setSize(w, h);
+                        container.addChild(editor);
 
-		// =========================================================================
-		// v1.4 FIX: Двойной принудительный реблд для гарантии
-		// =========================================================================
-		// Сначала сразу после добавления, потом через 100 мс.
-		editor.forceFullRedraw();
-		haxe.Timer.delay(() -> {
-			if (editor != null && !editor.isDisposed)
-			{
-				editor.forceFullRedraw();
-			}
-		}, 100);
-		// =========================================================================
+                // =========================================================================
+                // v1.4 FIX: Двойной принудительный реблд для гарантии
+                // =========================================================================
+                // Сначала сразу после добавления, потом через 100 мс.
+                editor.forceFullRedraw();
+                haxe.Timer.delay(() -> {
+                        if (editor != null && !editor.isDisposed)
+                        {
+                                editor.forceFullRedraw();
+                        }
+                }, 100);
+                // =========================================================================
 
-		var entry:EditorEntry = {
-			assembly: assembly,
-			editor: editor,
-			blocker: null,
-			container: container,
-			parentCameraState: parentState
-		};
-		_stack.push(entry);
+                var entry:EditorEntry = {
+                        assembly: assembly,
+                        editor: editor,
+                        blocker: null,
+                        container: container,
+                        parentCameraState: parentState
+                };
+                _stack.push(entry);
 
-		currentEditor = editor;
-		currentAssembly = assembly;
+                currentEditor = editor;
+                currentAssembly = assembly;
 
-		// ═══════════════════════════════════════════════════════════════════
-		// v1.2: RESTORE OR AUTO-CENTER CAMERA
-		// ═══════════════════════════════════════════════════════════════════
-		var bpId = assembly.blueprint.id;
-		if (_cameraStates.exists(bpId))
-		{
-			// Restore previously saved state
-			var state = _cameraStates.get(bpId);
-			editor.setViewState(state);
-			trace('EditorContext: Restored camera state for "$bpId"');
-		}
-		else
-		{
-			// First time entering this assembly — auto-center on content
-			editor.centerOnContent();
-			trace('EditorContext: Auto-centered on "$bpId"');
-		}
-	}
+                // ═══════════════════════════════════════════════════════════════════
+                // v1.2: RESTORE OR AUTO-CENTER CAMERA
+                // ═══════════════════════════════════════════════════════════════════
+                var bpId = assembly.blueprint.id;
+                if (_cameraStates.exists(bpId))
+                {
+                        // Restore previously saved state
+                        var state = _cameraStates.get(bpId);
+                        editor.setViewState(state);
+                        trace('EditorContext: Restored camera state for "$bpId"');
+                }
+                else
+                {
+                        // First time entering this assembly — auto-center on content
+                        editor.centerOnContent();
+                        trace('EditorContext: Auto-centered on "$bpId"');
+                }
+        }
+        /**
+         * Close current assembly and return to parent.
+         *
+         * v2.6: THE ENTIRE OPERATION RUNS INSIDE A TOPOLOGY TRANSACTION.
+         * See the class-level v2.6 documentation for the forensic rationale.
+         * Everything attempted by the reactive graph while pop() is tearing
+         * down and rebuilding (value pushes from link(), propagations from
+         * the Assembly constructor Hot-Start, deferred sync waves) is parked
+         * in TickGenerator._deferredTopologyTasks and flushed ONLY after the
+         * graph is whole again — at which point REDRAW_WIRES is also emitted,
+         * so every live WireRenderer rebuilds against a consistent blueprint.
+         *
+         * @param updateInstances If true, update assembly instances in parent after save
+         */
+        public function pop(updateInstances:Bool = false):Void
+        {
+                if (_stack.length <= 1) return; // Cannot close root
 
-	/**
-	 * Close current assembly and return to parent.
-	 *
-	 * @param updateInstances If true, update assembly instances in parent after save
-	 */
-	public function pop(updateInstances:Bool = false):Void
-	{
-		if (_stack.length <= 1) return; // Cannot close root
+                var tg = TickGenerator.getInstance();
+                utils.Trap.log("POP", "enter: stack=" + _stack.length + " updateInstances=" + updateInstances);
+                tg.lockTopology();
+                try
+                {
+                        var current = _stack.pop();
+                        var editedId = current.assembly.blueprint.id;
 
-		var current = _stack.pop();
-		var editedId = current.assembly.blueprint.id;
+                        // ── v1.2: Save current camera state for this assembly ──
+                        var currentState = current.editor.getViewState();
+                        _cameraStates.set(editedId, currentState);
+                        trace('EditorContext: Saved camera state for "$editedId"');
 
-		// ── v1.2: Save current camera state for this assembly ──
-		var currentState = current.editor.getViewState();
-		_cameraStates.set(editedId, currentState);
-		trace('EditorContext: Saved camera state for "$editedId"');
+                        // Remove current editor
+                        current.editor.dispose();
+                        if (_layer.contains(current.container)) _layer.removeChild(current.container);
 
-		// Remove current editor
-		current.editor.dispose();
-		if (_layer.contains(current.container)) _layer.removeChild(current.container);
+                        // Restore previous editor
+                        var prev = _stack[_stack.length - 1];
+                        if (prev.blocker != null)
+                        {
+                                if (_layer.contains(prev.blocker)) _layer.removeChild(prev.blocker);
+                                prev.blocker = null;
+                        }
 
-		// Restore previous editor
-		var prev = _stack[_stack.length - 1];
-		if (prev.blocker != null)
-		{
-			if (_layer.contains(prev.blocker)) _layer.removeChild(prev.blocker);
-			prev.blocker = null;
-		}
+                        prev.editor.mouseEnabled = true;
+                        prev.editor.mouseChildren = true;
+                        // v2.3: Reactivate parent editor's impulse handlers.
+                        // forceFullRedraw below will catch up on any missed REDRAW_WIRES
+                        // events that were skipped while isActive was false.
+                        prev.editor.isActive = true;
 
-		prev.editor.mouseEnabled = true;
-		prev.editor.mouseChildren = true;
-		// v2.3: Reactivate parent editor's impulse handlers.
-		// forceFullRedraw below will catch up on any missed REDRAW_WIRES
-		// events that were skipped while isActive was false.
-		prev.editor.isActive = true;
+                        currentEditor = prev.editor;
+                        currentAssembly = prev.assembly;
 
-		currentEditor = prev.editor;
-		currentAssembly = prev.assembly;
+                        // =========================================================================
+                        // v1.4 FIX: Двойной реблд родительского редактора
+                        // =========================================================================
+                        prev.editor.forceFullRedraw();
+                        haxe.Timer.delay(() -> {
+                                if (prev.editor != null && !prev.editor.isDisposed)
+                                {
+                                        prev.editor.forceFullRedraw();
+                                }
+                        }, 50);
+                        // =========================================================================
 
-		// =========================================================================
-		// v1.4 FIX: Двойной реблд родительского редактора
-		// =========================================================================
-		prev.editor.forceFullRedraw();
-		haxe.Timer.delay(() -> {
-			if (prev.editor != null && !prev.editor.isDisposed)
-			{
-				prev.editor.forceFullRedraw();
-			}
-		}, 50);
-		// =========================================================================
+                        // ── v1.2: Restore parent camera state (if we saved it) ──
+                        if (current.parentCameraState != null)
+                        {
+                                currentEditor.setViewState(current.parentCameraState);
+                                trace('EditorContext: Restored parent camera state');
+                        }
 
-		// ── v1.2: Restore parent camera state (if we saved it) ──
-		if (current.parentCameraState != null)
-		{
-			currentEditor.setViewState(current.parentCameraState);
-			trace('EditorContext: Restored parent camera state');
-		}
+                        // Update assembly preview in parent if it changed
+                        if (updateInstances)
+                        {
+                                // ═══════════════════════════════════════════════════════════════════
+                                // v2.1: Load-Symmetric Blueprint Sync BEFORE reconstruction
+                                // ═══════════════════════════════════════════════════════════════════
+                                // The child assembly is about to be disposed + recreated via
+                                // AssemblyFactory.createAtom. For the new instance to inherit the
+                                // user's edits (renamed atoms, new wires, semantic port names),
+                                // we must first synchronize the in-memory blueprint so that it is
+                                // in the SAME state as a freshly-loaded-from-disk blueprint.
+                                //
+                                // Order matters:
+                                //   1. refreshExternalPortNames()    — needs runtime IDs to resolve
+                                //                                      atoms; updates PinDef.externalName
+                                //   2. syncDisplayNamesToBlueprint() — writes displayName into
+                                //                                      atomDef.values for restoreState
+                                //   2b. syncAtomValuesToBlueprint() [v2.8] — writes LIVE inline values
+                                //                                       into atomDef.values (BUG-B fix)
+                                //   2c. syncChildStateToParentAtomDef() [v2.8] — writes child state
+                                //                                       into PARENT atomDef.values (prevents
+                                //                                       the stale internalStates overwrite)
+                                //   3. syncConnectionsToTemplateIds()— translates runtime IDs in
+                                //                                      internalConnections to template IDs
+                                //   4. registerBlueprint()           — publish updated bp to AtomRegistry
+                                //   5. updateInstancesOf()           — dispose + recreate via Factory
+                                //
+                                // After step 3, the bp is structurally identical to what
+                                // ProjectManager.saveAssemblyToLibrary() writes to disk, so the
+                                // reconstruction path is load-symmetric.
+                                // ═══════════════════════════════════════════════════════════════════
+                                utils.Trap.log("POP", "editor disposed, parent reactivated; sync+reconstruct begin");
+                                var asm = current.assembly;
 
-		// Update assembly preview in parent if it changed
-		if (updateInstances)
-		{
-			// ═══════════════════════════════════════════════════════════════════
-			// v2.1: Load-Symmetric Blueprint Sync BEFORE reconstruction
-			// ═══════════════════════════════════════════════════════════════════
-			// The child assembly is about to be disposed + recreated via
-			// AssemblyFactory.createAtom. For the new instance to inherit the
-			// user's edits (renamed atoms, new wires, semantic port names),
-			// we must first synchronize the in-memory blueprint so that it is
-			// in the SAME state as a freshly-loaded-from-disk blueprint.
-			//
-			// Order matters:
-			//   1. refreshExternalPortNames()    — needs runtime IDs to resolve
-			//                                      atoms; updates PinDef.externalName
-			//   2. syncDisplayNamesToBlueprint() — writes displayName into
-			//                                      atomDef.values for restoreState
-			//   3. syncConnectionsToTemplateIds()— translates runtime IDs in
-			//                                      internalConnections to template IDs
-			//   4. registerBlueprint()           — publish updated bp to AtomRegistry
-			//   5. updateInstancesOf()           — dispose + recreate via Factory
-			//
-			// After step 3, the bp is structurally identical to what
-			// ProjectManager.saveAssemblyToLibrary() writes to disk, so the
-			// reconstruction path is load-symmetric.
-			// ═══════════════════════════════════════════════════════════════════
-			var asm = current.assembly;
+                                // 1. Refresh external port names based on connected atoms
+                                asm.refreshExternalPortNames();
 
-			// 1. Refresh external port names based on connected atoms
-			asm.refreshExternalPortNames();
+                                // 1b. v2.7: REMAP parent connection contactNames to the
+                                // refreshed external names. refreshExternalPortNames()
+                                // renames ports (PinDef + ConductorPort) but does NOT
+                                // notify the PARENT — its blueprint.internalConnections
+                                // keep referencing OLD names (internalName or stale
+                                // externalName), which breaks reconnect + WireRenderer
+                                // after reconstruction (the exit-crash forensics:
+                                // "cOut=null → FAILED to link"). This remap restores
+                                // in-memory consistency to the same state a
+                                // save→load cycle would produce.
+                                remapParentConnectionsToPortNames(asm);
 
-			// 2. Sync renamed atom displayNames into atomDef.values
-			asm.syncDisplayNamesToBlueprint();
+                                // 2. Sync renamed atom displayNames into atomDef.values
+                                asm.syncDisplayNamesToBlueprint();
 
-			// 3. Translate runtime IDs → template IDs in internalConnections
-			asm.syncConnectionsToTemplateIds();
+                                // 2b. v2.8 (BUG-B): Sync LIVE inline values of internal atoms
+                                //     (TextInput text, gains, toggle states...) into
+                                //     atomDef.values. Before this, values reached the
+                                //     in-memory blueprint ONLY during disk saves, so
+                                //     pop()-reconstruction restored the LAST SAVED state
+                                //     (e.g., 50 instead of the edited 3).
+                                asm.syncAtomValuesToBlueprint();
 
-			// 4. Register the UPDATED blueprint in registry so that
-			//    AssemblyFactory.createAtom(typeId, ...) sees the latest state
-			library.AtomRegistry.registerBlueprint(asm.blueprint.id, asm.blueprint);
+                                // 2c. v2.8 (BUG-B level-2): Sync the exited child's own
+                                //     persistent state into the PARENT's atomDef.values.
+                                //     _createInternalInstances() calls restoreState()
+                                //     AFTER the child constructor finishes — which
+                                //     OVERWRITES the child internals with whatever the
+                                //     parent atomDef.values holds. Stale internalStates
+                                //     there (from the last disk save) would resurrect
+                                //     dead values; this keeps the overwrite fresh.
+                                syncChildStateToParentAtomDef(asm);
 
-			// 5. Now reconstruct with up-to-date data
-			updateInstancesOf(asm.blueprint.id);
-		}
+                                // 3. Translate runtime IDs → template IDs in internalConnections
+                                asm.syncConnectionsToTemplateIds();
 
-		// Refresh assembly views and wires
-		currentEditor.refreshAssemblyViews();
-	}
+                                // 4. Register the UPDATED blueprint in registry so that
+                                //    AssemblyFactory.createAtom(typeId, ...) sees the latest state
+                                library.AtomRegistry.registerBlueprint(asm.blueprint.id, asm.blueprint);
 
-	/**
-	 * Update visual representation of assemblies with specified ID
-	 * in all open editors.
-	 *
-	 * v2.0 FIX: After the child assembly's internal structure may have changed,
-	 * we NO LONGER call asm.updateFromBlueprint(newBp). That partial mutation
-	 * preserved stale internal atom instances together with their leaked
-	 * DeviceView callback subscriptions, which crashed the app when signals
-	 * later reached those atoms.
-	 *
-	 * Instead, we FULLY RECONSTRUCT the child assembly through the same path
-	 * used at project load:
-	 *   1. unlinkParentWiresTo(asm) — break parent-side Contact.linkedTargets
-	 *      references to the soon-to-be-disposed port.external contacts
-	 *   2. asm.dispose() — disposes internal atoms, their contacts, and
-	 *      nullifies contact.callbackTargets (neutralizing any leaked
-	 *      DeviceView subscriptions)
-	 *   3. AssemblyFactory.createAtom(typeId, oldRuntimeId) — runs the
-	 *      constructor path: _createInterface + _createInternalInstances +
-	 *      _createInternalConnections + _initializeLogicState + _updatePortLinks
-	 *   4. reconnectExternalLinksToAssembly(newAsm) — re-establish physical
-	 *      Contact.link() between parent's wires and the new port.external
-	 *   5. currentEditor.reattachNodeView(oldRuntimeId, newInstance) —
-	 *      v2.2: swap the parent's NodeView atom reference to the new
-	 *      instance, release old DeviceView, acquire fresh one
-	 *
-	 * The runtime ID is preserved (forcedId) so the parent blueprint's
-	 * AtomDef.instanceId reference remains valid and no blueprint mutation
-	 * is required.
-	 */
-	private function updateInstancesOf(typeId:String):Void
-	{
-		trace('🔍 updateInstancesOf: Looking for assemblies of type "$typeId" in parent "${currentAssembly.blueprint.name}"');
-		var newBp = library.AtomRegistry.get(typeId);
-		if (newBp == null)
-		{
-			trace('❌ updateInstancesOf: Blueprint "$typeId" not found in registry!');
-			return;
-		}
-		var foundCount = 0;
-		// Iterate through all atoms in CURRENT editor (the parent)
-		for (id in currentAssembly.internalAtoms.keys())
-		{
-			var atom = currentAssembly.internalAtoms.get(id);
-			if (Std.isOfType(atom, Assembly))
-			{
-				var asm = cast(atom, Assembly);
-				if (asm.blueprint.id == typeId)
-				{
-					foundCount++;
-					trace('✅ updateInstancesOf: Found assembly "$typeId" with runtimeId="$id"');
+                                // 5. Now reconstruct with up-to-date data
+                                updateInstancesOf(asm.blueprint.id);
+                        }
 
-					// ═══════════════════════════════════════════════════════════════════
-					// v2.0: FULL RECONSTRUCTION (load-symmetric)
-					// ═══════════════════════════════════════════════════════════════════
+                        // Refresh assembly views and wires
+                        currentEditor.refreshAssemblyViews();
+                }
+                catch (e:Dynamic)
+                {
+                        // v2.6: NO finally-block in Haxe (try REQUIRES catch, and the
+                        // finally keyword does not exist in the language). This catch
+                        // serves as the finally-substitute: the topology lock MUST be
+                        // released even on exception — a stuck lock would freeze the
+                        // whole simulation permanently. Re-throw afterwards so the
+                        // caller learns about the failure.
+                        utils.Trap.log("POP", "EXCEPTION in pop: " + e);
+                        tg.unlockTopology();
+                        throw e;
+                }
+                // v2.6: Normal path — the graph is whole again. Flush deferred
+                utils.Trap.log("POP", "unlockTopology (normal) — graph whole");
+                // propagations + emit REDRAW_WIRES.
+                tg.unlockTopology();
+        }
 
-					var oldRuntimeId = asm.id;
+        /**
+         * Update visual representation of assemblies with specified ID
+         * in all open editors.
+         *
+         * v2.0 FIX: After the child assembly's internal structure may have changed,
+         * we NO LONGER call asm.updateFromBlueprint(newBp). That partial mutation
+         * preserved stale internal atom instances together with their leaked
+         * DeviceView callback subscriptions, which crashed the app when signals
+         * later reached those atoms.
+         *
+         * Instead, we FULLY RECONSTRUCT the child assembly through the same path
+         * used at project load:
+         *   1. unlinkParentWiresTo(asm) — break parent-side Contact.linkedTargets
+         *      references to the soon-to-be-disposed port.external contacts
+         *   2. asm.dispose() — disposes internal atoms, their contacts, and
+         *      nullifies contact.callbackTargets (neutralizing any leaked
+         *      DeviceView subscriptions)
+         *   3. AssemblyFactory.createAtom(typeId, oldRuntimeId) — runs the
+         *      constructor path: _createInterface + _createInternalInstances +
+         *      _createInternalConnections + _initializeLogicState + _updatePortLinks
+         *   4. reconnectExternalLinksToAssembly(newAsm) — re-establish physical
+         *      Contact.link() between parent's wires and the new port.external
+         *      (v2.6: with suppressPropagation — NO value push mid-operation)
+         *   5. currentEditor.reattachNodeView(oldRuntimeId, newInstance) —
+         *      v2.2: swap the parent's NodeView atom reference to the new
+         *      instance, release old DeviceView, acquire fresh one
+         *
+         * The runtime ID is preserved (forcedId) so the parent blueprint's
+         * AtomDef.instanceId reference remains valid and no blueprint mutation
+         * is required.
+         *
+         * v2.6 NOTE: runs inside the pop() topology transaction. The Assembly
+         * constructor's suspend/resume and _processPendingSignals pushes all
+         * land in _deferredTopologyTasks and flush after the graph is whole.
+         */
+        private function updateInstancesOf(typeId:String):Void
+        {
+                utils.Trap.log("RECON", "updateInstancesOf: " + typeId + " in parent " + currentAssembly.blueprint.name);
+                trace('🔍 updateInstancesOf: Looking for assemblies of type "$typeId" in parent "${currentAssembly.blueprint.name}"');
+                var newBp = library.AtomRegistry.get(typeId);
+                if (newBp == null)
+                {
+                        trace('❌ updateInstancesOf: Blueprint "$typeId" not found in registry!');
+                        return;
+                }
+                var foundCount = 0;
+                // Iterate through all atoms in CURRENT editor (the parent)
+                for (id in currentAssembly.internalAtoms.keys())
+                {
+                        var atom = currentAssembly.internalAtoms.get(id);
+                        if (Std.isOfType(atom, Assembly))
+                        {
+                                var asm = cast(atom, Assembly);
+                                if (asm.blueprint.id == typeId)
+                                {
+                                        foundCount++;
+                                        utils.Trap.log("RECON", "found: runtime=" + id);
+                                        trace('✅ updateInstancesOf: Found assembly "$typeId" with runtimeId="$id"');
 
-					// 1. Unlink parent's external wires to old assembly's port.external.
-					//    This MUST happen BEFORE dispose() because Contact.dispose()
-					//    only removes THIS from contacts that THIS links to — it
-					//    cannot remove THIS from contacts that link TO this.
-					unlinkParentWiresTo(asm);
+                                        // ═══════════════════════════════════════════════════════════════════
+                                        // v2.0: FULL RECONSTRUCTION (load-symmetric)
+                                        // ═══════════════════════════════════════════════════════════════════
 
-					// 2. Dispose old assembly completely.
-					//    This disposes internal atoms → their contacts →
-					//    contact.callbackTargets = null → leaked DeviceView
-					//    callbacks can no longer fire.
-					asm.dispose();
+                                        var oldRuntimeId = asm.id;
 
-					// 3. Recreate via Factory using the SAME runtime ID so the
-					//    parent's blueprint.internalAtoms references stay valid.
-					//    AssemblyFactory.createAtom() runs the full Assembly
-					//    constructor, which is identical to the project-load path.
-					var newInstance = AssemblyFactory.createAtom(typeId, oldRuntimeId);
-					if (newInstance == null)
-					{
-						trace('ERROR: EditorContext.updateInstancesOf: Failed to recreate assembly $typeId ($oldRuntimeId)');
-						continue;
-					}
+                                        // 1. Unlink parent's external wires to old assembly's port.external.
+                                        //    This MUST happen BEFORE dispose() because Contact.dispose()
+                                        //    only removes THIS from contacts that THIS links to — it
+                                        //    cannot remove THIS from contacts that link TO this.
+                                        utils.Trap.log("RECON", "pre-unlink wires");
+                                        unlinkParentWiresTo(asm);
 
-					// 4. Replace in parent's internalAtoms map (key unchanged).
-					currentAssembly.internalAtoms.set(oldRuntimeId, newInstance);
+                                        // 2. Dispose old assembly completely.
+                                        //    This disposes internal atoms → their contacts →
+                                        //    contact.callbackTargets = null → leaked DeviceView
+                                        //    callbacks can no longer fire.
+                                        utils.Trap.log("RECON", "pre-dispose old instance");
+                                        asm.dispose();
 
-					// 5. Reconnect parent's external wires to the new port.external
-					//    contacts of the freshly constructed assembly.
-					if (Std.isOfType(newInstance, Assembly))
-					{
-						reconnectExternalLinksToAssembly(cast(newInstance, Assembly));
-					}
+                                        // 3. Recreate via Factory using the SAME runtime ID so the
+                                        //    parent's blueprint.internalAtoms references stay valid.
+                                        //    AssemblyFactory.createAtom() runs the full Assembly
+                                        //    constructor, which is identical to the project-load path.
+                                        //    (v2.6: under the topology lock its value pushes are
+                                        //    deferred — see class docs.)
+                                        var newInstance = AssemblyFactory.createAtom(typeId, oldRuntimeId);
+                                        utils.Trap.log("RECON", "createAtom returned: " + (newInstance != null ? newInstance.id : "NULL"));
+                                        if (newInstance == null)
+                                        {
+                                                trace('ERROR: EditorContext.updateInstancesOf: Failed to recreate assembly $typeId ($oldRuntimeId)');
+                                                continue;
+                                        }
 
-					// ═══════════════════════════════════════════════════════════════════
-					// v2.2 FIX: Reattach the parent's NodeView to the new instance.
-					// ═══════════════════════════════════════════════════════════════════
-					// Without this, the NodeView in the parent editor keeps holding
-					// a reference to the OLD (disposed) Assembly. After dispose():
-					//   - internalAtoms = null
-					//   - ports = null
-					//   - _inputs / _outputs = null
-					//
-					// The first time createPorts() runs after a mode switch,
-					// atom.getInputs() returns null and no ports are created,
-					// manifesting as "графика контактов и названия контактов
-					// пропадают" after Editor → Device Panel → Editor.
-					//
-					// reattachNodeView swaps the atom reference, releases the
-					// old DeviceView, acquires a fresh one, and rebuilds layout.
-					// ═══════════════════════════════════════════════════════════════════
-					currentEditor.reattachNodeView(oldRuntimeId, newInstance);
-				}
-			}
-		}
-	    if (foundCount == 0) {
-			trace('⚠️ updateInstancesOf: No assemblies of type "$typeId" found in parent!');
-		}
-	}
+                                        // 4. Replace in parent's internalAtoms map (key unchanged).
+                                        currentAssembly.internalAtoms.set(oldRuntimeId, newInstance);
 
-	/**
-	 * v2.0: Unlink parent's external wires pointing TO a child assembly's
-	 * port.external contacts.
-	 *
-	 * WHY THIS IS NEEDED:
-	 * When the parent established a wire to the child assembly, it called
-	 * `parentContact.link(childPort.external)`, which pushed
-	 * `childPort.external` into `parentContact.linkedTargets`. The reverse
-	 * direction (parentContact in childPort.external.linkedTargets) was NOT
-	 * registered.
-	 *
-	 * When the child is later disposed, `Contact.dispose()` iterates the
-	 * dying contact's OWN linkedTargets and unlinks itself from them. But
-	 * it has no way to find contacts in the system that hold a reference
-	 * TO it. So `parentContact.linkedTargets` would retain a stale entry
-	 * pointing to a disposed Contact.
-	 *
-	 * Stale entries in linkedTargets are mostly tolerated (propagation
-	 * checks `!target.isDisposed`), but they:
-	 *   - grow `linkedTargets` arrays on every entry/exit cycle
-	 *   - break code that iterates linkedTargets without re-checking
-	 *     isDisposed (e.g., hasLinks(), getLinkCount())
-	 *   - are a smell that something elsewhere may dereference them
-	 *
-	 * This method cleanly removes those references BEFORE disposal.
-	 *
-	 * Algorithm:
-	 *   For each connection in the parent's blueprint that references the
-	 *   target assembly, resolve the parent-side contact (the end that is
-	 *   NOT on the assembly), then unlink any of the assembly's
-	 *   port.external contacts that parentContact currently links to.
-	 */
-	private function unlinkParentWiresTo(targetAsm:Assembly):Void
-	{
-		var bp = currentAssembly.blueprint;
-		if (bp.internalConnections == null) return;
+                                        // 5. Reconnect parent's external wires to the new port.external
+                                        //    contacts of the freshly constructed assembly.
+                                        //    (v2.6: suppressPropagation — values are aligned by the
+                                        //    new instance's Deferred Sync Wave, not pushed mid-operation.)
+                                        if (Std.isOfType(newInstance, Assembly))
+                                        {
+                                                reconnectExternalLinksToAssembly(cast(newInstance, Assembly));
+                                        }
 
-		for (conn in bp.internalConnections)
-		{
-			var isTarget = false;
-			var parentSide:ConnectionPoint = null; // the end that is NOT the assembly
+                                        // ═══════════════════════════════════════════════════════════════════
+                                        // v2.2 FIX: Reattach the parent's NodeView to the new instance.
+                                        // ═══════════════════════════════════════════════════════════════════
+                                        // Without this, the NodeView in the parent editor keeps holding
+                                        // a reference to the OLD (disposed) Assembly. After dispose():
+                                        //   - internalAtoms = null
+                                        //   - ports = null
+                                        //   - _inputs / _outputs = null
+                                        //
+                                        // The first time createPorts() runs after a mode switch,
+                                        // atom.getInputs() returns null and no ports are created,
+                                        // manifesting as "графика контактов и названия контактов
+                                        // пропадают" after Editor → Device Panel → Editor.
+                                        //
+                                        // reattachNodeView swaps the atom reference, releases the
+                                        // old DeviceView, acquires a fresh one, and rebuilds layout.
+                                        // ═══════════════════════════════════════════════════════════════════
+                                        currentEditor.reattachNodeView(oldRuntimeId, newInstance);
+                                        utils.Trap.log("RECON", "reattachNodeView done");
+                                }
+                        }
+                }
+                if (foundCount == 0) {
+                        trace('⚠️ updateInstancesOf: No assemblies of type "$typeId" found in parent!');
+                }
+        }
 
-			// Check 'to' side: if 'to' references targetAsm, then 'from' is the parent side
-			if (conn.to.atomId != "SELF")
-			{
-				var realAtomId = currentAssembly.idMap.get(conn.to.atomId);
-				if (realAtomId == null) realAtomId = conn.to.atomId;
+        /**
+         * v2.7: Remap PARENT blueprint connection contactNames to the actual
+         * (refreshed) external port names of the child assembly.
+         *
+         * WHY THIS EXISTS (exit-crash forensics):
+         * Assembly.refreshExternalPortNames() renames the child's ports
+         * (PinDef.externalName + recreated ConductorPort), but the PARENT's
+         * blueprint.internalConnections still reference the OLD contactName
+         * (often the port's internalName, e.g. "outgoing_1", while the port
+         * is now called "Mini_Audio_Capture_buffer"). Reconstruction then
+         * fails to resolve contacts ("cOut=null → FAILED to link"), wires
+         * vanish, and the app later crashes on the inconsistent graph.
+         * A save→load cycle works fine because the DISK file stores the
+         * refreshed externalName — this remap restores the SAME consistency
+         * in memory.
+         *
+         * Matching strategy per connection endpoint that references the
+         * child assembly (by runtime or template id):
+         *   1. exact externalName match → OK, nothing to do
+         *   2. contactName == port.internalName → remap (the common case:
+         *      parent connections created before the first refresh, or via
+         *      GroupAtoms which stores internalName)
+         *   3. suffix match: externalName ends with "_" + contactName → remap
+         *
+         * @param childAsm The assembly whose ports were just refreshed
+         */
+        private function remapParentConnectionsToPortNames(childAsm:Assembly):Void
+        {
+                if (childAsm == null || childAsm.ports == null) return;
+                var bp = currentAssembly.blueprint;
+                if (bp == null || bp.internalConnections == null) return;
 
-				if (realAtomId == targetAsm.id || conn.to.atomId == targetAsm.id)
-				{
-					isTarget = true;
-					parentSide = conn.from;
-				}
-			}
+                // Build lookup: internalName → ConductorPort
+                var byInternal = new Map<String, ConductorPort>();
+                for (port in childAsm.ports)
+                {
+                        if (port != null && port.internalName != null)
+                        {
+                                byInternal.set(port.internalName, port);
+                        }
+                }
 
-			// Check 'from' side (if not already matched)
-			if (!isTarget && conn.from.atomId != "SELF")
-			{
-				var realAtomId = currentAssembly.idMap.get(conn.from.atomId);
-				if (realAtomId == null) realAtomId = conn.from.atomId;
+                var remapped = 0;
+                for (conn in bp.internalConnections)
+                {
+                        // TO side references the child?
+                        if (conn.to.atomId != "SELF" && _connRefersTo(conn.to.atomId, childAsm))
+                        {
+                                var port = _resolveChildPort(conn.to.contactName, childAsm, byInternal);
+                                if (port != null && port.externalName != conn.to.contactName)
+                                {
+                                        trace('🔄 remap to: "${conn.to.contactName}" → "${port.externalName}"');
+                                        conn.to.contactName = port.externalName;
+                                        remapped++;
+                                }
+                        }
+                        // FROM side references the child?
+                        if (conn.from.atomId != "SELF" && _connRefersTo(conn.from.atomId, childAsm))
+                        {
+                                var port = _resolveChildPort(conn.from.contactName, childAsm, byInternal);
+                                if (port != null && port.externalName != conn.from.contactName)
+                                {
+                                        trace('🔄 remap from: "${conn.from.contactName}" → "${port.externalName}"');
+                                        conn.from.contactName = port.externalName;
+                                        remapped++;
+                                }
+                        }
+                }
+                if (remapped > 0)
+                {
+                        trace('🔄 remapParentConnectionsToPortNames: remapped $remapped endpoint names for "${childAsm.blueprint.id}"');
+                }
+        }
 
-				if (realAtomId == targetAsm.id || conn.from.atomId == targetAsm.id)
-				{
-					isTarget = true;
-					parentSide = conn.to;
-				}
-			}
+        /** v2.7: does the connection atomId (runtime or template) refer to the child? */
+        private function _connRefersTo(atomId:String, childAsm:Assembly):Bool
+        {
+                if (atomId == childAsm.id) return true;
+                var realAtomId = currentAssembly.idMap.get(atomId);
+                if (realAtomId == null) realAtomId = atomId;
+                return realAtomId == childAsm.id;
+        }
 
-			if (!isTarget || parentSide == null) continue;
+        /** v2.7: resolve a child port by contactName — exact, internalName, suffix */
+        private function _resolveChildPort(contactName:String, childAsm:Assembly, byInternal:Map<String, ConductorPort>):ConductorPort
+        {
+                // 1. Exact externalName
+                for (port in childAsm.ports)
+                {
+                        if (port != null && port.externalName == contactName) return port;
+                }
+                // 2. internalName (the common stale-name case)
+                if (byInternal.exists(contactName)) return byInternal.get(contactName);
+                // 3. Suffix "_name"
+                var suffix = "_" + contactName;
+                for (port in childAsm.ports)
+                {
+                        if (port != null && port.externalName != null
+                                && StringTools.endsWith(port.externalName, suffix)) return port;
+                }
+                // 4. v2.11: PROGRESSIVE suffix — semantic names drift when the
+                //    nested atom gets renamed (e.g. "Custom_Assembly_2_Com_Port_close"
+                //    vs "Custom_Assembly_1_Com_Port_close"). Strip leading tokens
+                //    until exactly one port matches the tail.
+                return findPortByProgressiveSuffix(childAsm, contactName, null);
+        }
 
-			// Resolve the parent-side contact (could be SELF of parent, or another atom)
-			var parentContact = resolveContactInParent(parentSide);
-			if (parentContact == null) continue;
+        /**
+         * v2.8: Syncs the EXITED child assembly's persistent state into the
+         * PARENT blueprint's atomDef.values (matched by template id).
+         *
+         * WHY THIS EXISTS (BUG-B, level-2):
+         * _createInternalInstances() calls instance.restoreState(atomDef.values)
+         * AFTER the child Assembly constructor has finished. For a nested
+         * Assembly, restoreState() re-applies state.internalStates to the
+         * freshly built internal atoms — OVERWRITING whatever the child's own
+         * constructor restored from its (freshly synced) registry blueprint.
+         *
+         * If the parent's atomDef.values still holds internalStates from the
+         * LAST DISK SAVE (e.g., value: 50 when the user edited 50 → 3), the
+         * overwrite resurrects the stale value and defeats the leaf-atom sync
+         * performed by Assembly.syncAtomValuesToBlueprint() one level deeper.
+         *
+         * This method keeps the overwrite source FRESH: the child's live
+         * getPersistentState() (captured BEFORE dispose) is merged into the
+         * parent's atomDef.values, mirroring what a save→load cycle would
+         * have produced. Load-symmetry restored.
+         */
+        private function syncChildStateToParentAtomDef(childAsm:Assembly):Void
+        {
+                if (childAsm == null || currentAssembly == null) return;
+                var parentBp = currentAssembly.blueprint;
+                if (parentBp == null || parentBp.internalAtoms == null) return;
 
-			// Unlink any of targetAsm's port.external contacts that parentContact
-			// currently links to. We don't need to know which specific port this
-			// connection referenced — hasLink() guards the unlink safely, and
-			// the assembly is about to be disposed anyway.
-			for (port in targetAsm.ports)
-			{
-				if (port == null || port.external == null || port.external.isDisposed) continue;
-				if (parentContact.hasLink(port.external))
-				{
-					parentContact.unlink(port.external);
-				}
-			}
-		}
-	}
+                // Child's runtime id → template id, as seen from the PARENT's _idMap
+                // (getTemplateId falls back to the runtime id itself for atoms that
+                // were added at runtime without a registered mapping).
+                var templateId = currentAssembly.getTemplateId(childAsm.id);
 
-	/**
-	 * v2.2: Synchronizes the current assembly's blueprint BEFORE saving to disk.
-	 *
-	 * MUST be called by Main.hx BEFORE saveCurrentContext() in onBackClicked().
-	 *
-	 * PROBLEM:
-	 * Previously the sync methods (refreshExternalPortNames,
-	 * syncDisplayNamesToBlueprint, syncConnectionsToTemplateIds) were called
-	 * INSIDE pop(), which runs AFTER saveCurrentContext() in the typical
-	 * onBackClicked flow:
-	 *
-	 *     saveCurrentContext();        ← writes OLD bp to disk
-	 *     closeCurrentEditor(true);    ← pop() runs sync, but too late
-	 *
-	 * This caused user-renamed atom displayNames to be lost on disk after
-	 * app restart (the in-memory bp was synced, but the disk copy was stale).
-	 *
-	 * SOLUTION:
-	 * Main.hx now calls prepareCurrentAssemblyForSave() BEFORE saveCurrentContext():
-	 *
-	 *     _editorContext.prepareCurrentAssemblyForSave();   ← sync in-memory bp
-	 *     saveCurrentContext();                              ← writes synced bp
-	 *     closeCurrentEditor(true);                          ← pop() (sync calls
-	 *                                                        in pop are now
-	 *                                                        redundant but
-	 *                                                        idempotent and safe)
-	 *
-	 * This method is also safe to call from any other code path that intends
-	 * to persist the current assembly — e.g., an explicit "Save" menu action.
-	 */
-	public function prepareCurrentAssemblyForSave():Void
-	{
-		if (currentAssembly == null) return;
+                var state:Dynamic = null;
+                try
+                {
+                        state = childAsm.getPersistentState();
+                }
+                catch (e:Dynamic)
+                {
+                        trace('WARN: syncChildStateToParentAtomDef: getPersistentState() failed for "${templateId}": $e');
+                        return;
+                }
 
-		// 1. Refresh external port names based on connected atoms
-		currentAssembly.refreshExternalPortNames();
+                for (atomDef in parentBp.internalAtoms)
+                {
+                        if (atomDef.instanceId != templateId) continue;
 
-		// 2. Sync renamed atom displayNames into atomDef.values
-		currentAssembly.syncDisplayNamesToBlueprint();
-		
-		// 2b. Sync the assembly's own displayName into blueprint.name
-		//     so the .atom file on disk reflects the user's rename.
-		if (currentAssembly.displayName != null
-			&& currentAssembly.displayName != currentAssembly.blueprint.name)
-		{
-			currentAssembly.blueprint.name = currentAssembly.displayName;
-		}
-		
-		// 3. Translate runtime IDs → template IDs in internalConnections
-		currentAssembly.syncConnectionsToTemplateIds();
+                        if (state == null)
+                        {
+                                // Nothing live to preserve — drop stale internalStates so the
+                                // post-create overwrite cannot resurrect dead values.
+                                if (atomDef.values != null
+                                        && Reflect.hasField(atomDef.values, "internalStates"))
+                                {
+                                        Reflect.deleteField(atomDef.values, "internalStates");
+                                        trace('📦 syncChildState: cleared stale internalStates for "${templateId}"');
+                                }
+                                return;
+                        }
 
-		// 4. Register the UPDATED blueprint in registry so that
-		//    ProjectManager.saveAssemblyToLibrary() sees the latest state
-		//    and so that AssemblyFactory.createAtom(typeId, ...) on any
-		//    future reconstruction uses the synced bp.
-		library.AtomRegistry.registerBlueprint(
-			currentAssembly.blueprint.id, currentAssembly.blueprint);
-	}
+                        if (atomDef.values == null) atomDef.values = {};
+                        var fields:Array<String> = Reflect.fields(state);
+                        for (field in fields)
+                        {
+                                Reflect.setField(atomDef.values, field, Reflect.field(state, field));
+                        }
+                        trace('📦 syncChildState: "${templateId}" → parent atomDef.values (${fields.length} field(s) [${fields.join(", ")}])');
+                        return;
+                }
+        }
 
-	/**
-	 * Reconnects wires from the parent assembly to the updated child assembly.
-	 *
-	 * When a child assembly updates, its ports are recreated (new Contact instances).
-	 * The parent's blueprint still has the correct ConnectionDef, but the physical
-	 * Contact.link() is broken. This method restores the physical links.
-	 */
-	private function reconnectExternalLinksToAssembly(targetAsm:Assembly):Void
-	{
-		trace('🔗 reconnectExternalLinksToAssembly: targetAsm.id="${targetAsm.id}", targetAsm.blueprint.id="${targetAsm.blueprint.id}"');
-		var bp = currentAssembly.blueprint;
-		if (bp.internalConnections == null)
-		{
-			trace('❌ reconnectExternalLinksToAssembly: parent blueprint has NO connections!');
-			return;
-		}
-		trace('🔗 reconnectExternalLinksToAssembly: parent has ${bp.internalConnections.length} connections');
-		var reconnectedCount = 0;
-		for (conn in bp.internalConnections)
-		{
-			// Check if this connection involves our updated assembly
-			var isTarget = false;
-			
-			// Check 'to' side
-			if (conn.to.atomId != "SELF")
-			{
-				var realAtomId = currentAssembly.idMap.get(conn.to.atomId);
-				if (realAtomId == null) realAtomId = conn.to.atomId; // fallback if already runtime ID
-				
-				if (realAtomId == targetAsm.id || conn.to.atomId == targetAsm.id) 
-				{
-					isTarget = true;
-				}
-			}
-			
-			// Check 'from' side (for completeness)
-			if (!isTarget && conn.from.atomId != "SELF")
-			{
-				var realAtomId = currentAssembly.idMap.get(conn.from.atomId);
-				if (realAtomId == null) realAtomId = conn.from.atomId;
-				
-				if (realAtomId == targetAsm.id || conn.from.atomId == targetAsm.id)
-				{
-					isTarget = true;
-				}
-			}
-			
-			if (isTarget) {
-				reconnectedCount++;
+        /**
+         * v2.0: Unlink parent's external wires pointing TO a child assembly's
+         * port.external contacts.
+         *
+         * WHY THIS IS NEEDED:
+         * When the parent established a wire to the child assembly, it called
+         * `parentContact.link(childPort.external)`, which pushed
+         * `childPort.external` into `parentContact.linkedTargets`. The reverse
+         * direction (parentContact in childPort.external.linkedTargets) was NOT
+         * registered.
+         *
+         * When the child is later disposed, `Contact.dispose()` iterates the
+         * dying contact's OWN linkedTargets and unlinks itself from them. But
+         * it has no way to find contacts in the system that hold a reference
+         * TO it. So `parentContact.linkedTargets` would retain a stale entry
+         * pointing to a disposed Contact.
+         *
+         * Stale entries in linkedTargets are mostly tolerated (propagation
+         * checks `!target.isDisposed`), but they:
+         *   - grow `linkedTargets` arrays on every entry/exit cycle
+         *   - break code that iterates linkedTargets without re-checking
+         *     isDisposed (e.g., hasLinks(), getLinkCount())
+         *   - are a smell that something elsewhere may dereference them
+         *
+         * This method cleanly removes those references BEFORE disposal.
+         *
+         * Algorithm:
+         *   For each connection in the parent's blueprint that references the
+         *   target assembly, resolve the parent-side contact (the end that is
+         *   NOT on the assembly), then unlink any of the assembly's
+         *   port.external contacts that parentContact currently links to.
+         */
+        private function unlinkParentWiresTo(targetAsm:Assembly):Void
+        {
+                var bp = currentAssembly.blueprint;
+                if (bp.internalConnections == null) return;
 
-				// ═══════════════════════════════════════════════════════════════════
-				// v2.7 FIX: Reconcile conn.contactName with actual port externalName.
-				// ═══════════════════════════════════════════════════════════════════
-				// After refreshExternalPortNames() runs on the child assembly,
-				// its port externalNames may have changed (e.g., "Pass_in" →
-				// "Custom_Assembly_1_Pass_in" because the child contains a
-				// sub-assembly whose displayName is "Custom Assembly_1").
-				//
-				// parent.bp.internalConnections still references the OLD
-				// externalName. Without reconciliation, resolveContactInParent
-				// returns null because getInput(oldName) finds nothing.
-				//
-				// Solution: when cIn (or cOut) is null and the connection
-				// references an Assembly, look up the Assembly's actual ports
-				// and find the one that matches by internalName. We then
-				// rewrite conn.contactName in-place so future calls (and
-				// save-to-disk) use the correct externalName.
-				// ═══════════════════════════════════════════════════════════════════
-				var cOut = resolveContactInParent(conn.from);
-				var cIn = resolveContactInParent(conn.to);
+                for (conn in bp.internalConnections)
+                {
+                        var isTarget = false;
+                        var parentSide:ConnectionPoint = null; // the end that is NOT the assembly
 
-				// If cIn is null and conn.to references an Assembly,
-				// try to reconcile the contactName with actual port externalNames.
-				if (cIn == null && conn.to.atomId != "SELF")
-				{
-					var toAsm = resolveAssemblyInParent(conn.to.atomId);
-					if (toAsm != null)
-					{
-						// Find a port whose externalName ends with the
-						// requested contactName pattern. This handles the
-						// common case where refreshExternalPortNames
-						// prefixed the name with the assembly displayName.
-						var requestedName = conn.to.contactName;
-						var fallbackPort = findPortByContactSuffix(toAsm, requestedName, INPUT);
-						if (fallbackPort != null)
-						{
-							// Update connection in-place
-							conn.to.contactName = fallbackPort.externalName;
-							// Re-resolve cIn
-							cIn = resolveContactInParent(conn.to);
-							trace('   🔄 Reconciled cIn: "${requestedName}" → "${conn.to.contactName}"');
-						}
-					}
-				}
+                        // Check 'to' side: if 'to' references targetAsm, then 'from' is the parent side
+                        if (conn.to.atomId != "SELF")
+                        {
+                                var realAtomId = currentAssembly.idMap.get(conn.to.atomId);
+                                if (realAtomId == null) realAtomId = conn.to.atomId;
 
-				// Same for cOut (if conn.from references an Assembly)
-				if (cOut == null && conn.from.atomId != "SELF")
-				{
-					var fromAsm = resolveAssemblyInParent(conn.from.atomId);
-					if (fromAsm != null)
-					{
-						var requestedName = conn.from.contactName;
-						var fallbackPort = findPortByContactSuffix(fromAsm, requestedName, OUTPUT);
-						if (fallbackPort != null)
-						{
-							conn.from.contactName = fallbackPort.externalName;
-							cOut = resolveContactInParent(conn.from);
-							trace('   🔄 Reconciled cOut: "${requestedName}" → "${conn.from.contactName}"');
-						}
-					}
-				}
+                                if (realAtomId == targetAsm.id || conn.to.atomId == targetAsm.id)
+                                {
+                                        isTarget = true;
+                                        parentSide = conn.from;
+                                }
+                        }
 
-				trace('🔗 reconnect: ${conn.from.atomId}.${conn.from.contactName} → ${conn.to.atomId}.${conn.to.contactName}');
-				trace('   cOut=${cOut != null ? cOut.name : "null"}, cIn=${cIn != null ? cIn.name : "null"}');
-				if (cOut != null && cIn != null && !cOut.hasLink(cIn)) {
-					cOut.link(cIn);
-					trace('   ✓ Linked!');
-				} else if (cOut == null || cIn == null) {
-					trace('   ✗ FAILED to link!');
-				}
-			}
-		}
-		trace('🔗 reconnect: Reconnected $reconnectedCount links');
-	}
+                        // Check 'from' side (if not already matched)
+                        if (!isTarget && conn.from.atomId != "SELF")
+                        {
+                                var realAtomId = currentAssembly.idMap.get(conn.from.atomId);
+                                if (realAtomId == null) realAtomId = conn.from.atomId;
 
+                                if (realAtomId == targetAsm.id || conn.from.atomId == targetAsm.id)
+                                {
+                                        isTarget = true;
+                                        parentSide = conn.to;
+                                }
+                        }
+
+                        if (!isTarget || parentSide == null) continue;
+
+                        // Resolve the parent-side contact (could be SELF of parent, or another atom)
+                        var parentContact = resolveContactInParent(parentSide);
+                        if (parentContact == null) continue;
+
+                        // Unlink any of targetAsm's port.external contacts that parentContact
+                        // currently links to. We don't need to know which specific port this
+                        // connection referenced — hasLink() guards the unlink safely, and
+                        // the assembly is about to be disposed anyway.
+                        for (port in targetAsm.ports)
+                        {
+                                if (port == null || port.external == null || port.external.isDisposed) continue;
+                                if (parentContact.hasLink(port.external))
+                                {
+                                        parentContact.unlink(port.external);
+                                }
+                        }
+                }
+        }
+
+        /**
+         * v2.2: Synchronizes the current assembly's blueprint BEFORE saving to disk.
+         *
+         * MUST be called by Main.hx BEFORE saveCurrentContext() in onBackClicked().
+         *
+         * PROBLEM:
+         * Previously the sync methods (refreshExternalPortNames,
+         * syncDisplayNamesToBlueprint, syncConnectionsToTemplateIds) were called
+         * INSIDE pop(), which runs AFTER saveCurrentContext() in the typical
+         * onBackClicked flow:
+         *
+         *     saveCurrentContext();        ← writes OLD bp to disk
+         *     closeCurrentEditor(true);    ← pop() runs sync, but too late
+         *
+         * This caused user-renamed atom displayNames to be lost on disk after
+         * app restart (the in-memory bp was synced, but the disk copy was stale).
+         *
+         * SOLUTION:
+         * Main.hx now calls prepareCurrentAssemblyForSave() BEFORE saveCurrentContext():
+         *
+         *     _editorContext.prepareCurrentAssemblyForSave();   ← sync in-memory bp
+         *     saveCurrentContext();                              ← writes synced bp
+         *     closeCurrentEditor(true);                          ← pop() (sync calls
+         *                                                        in pop are now
+         *                                                        redundant but
+         *                                                        idempotent and safe)
+         *
+         * This method is also safe to call from any other code path that intends
+         * to persist the current assembly — e.g., an explicit "Save" menu action.
+         */
+        public function prepareCurrentAssemblyForSave():Void
+        {
+                if (currentAssembly == null) return;
+
+                // 1. Refresh external port names based on connected atoms
+                currentAssembly.refreshExternalPortNames();
+
+                // 2. Sync renamed atom displayNames into atomDef.values
+                currentAssembly.syncDisplayNamesToBlueprint();
+
+                // 2b. Sync the assembly's own displayName into blueprint.name
+                //     so the .atom file on disk reflects the user's rename.
+                if (currentAssembly.displayName != null
+                        && currentAssembly.displayName != currentAssembly.blueprint.name)
+                {
+                        currentAssembly.blueprint.name = currentAssembly.displayName;
+                }
+
+                // 2c. v2.8 (BUG-B): Sync live inline values into atomDef.values so
+                //     DISK saves capture the CURRENT state through the same funnel
+                //     the pop()-reconstruction path relies on (save = load =
+                //     reconstruct — full load-symmetry).
+                currentAssembly.syncAtomValuesToBlueprint();
+
+                // 3. Translate runtime IDs → template IDs in internalConnections
+                currentAssembly.syncConnectionsToTemplateIds();
+
+                // 4. Register the UPDATED blueprint in registry so that
+                //    ProjectManager.saveAssemblyToLibrary() sees the latest state
+                //    and so that AssemblyFactory.createAtom(typeId, ...) on any
+                //    future reconstruction uses the synced bp.
+                library.AtomRegistry.registerBlueprint(
+                        currentAssembly.blueprint.id, currentAssembly.blueprint);
+        }
+        /**
+         * Reconnects wires from the parent assembly to the updated child assembly.
+         *
+         * When a child assembly updates, its ports are recreated (new Contact instances).
+         * The parent's blueprint still has the correct ConnectionDef, but the physical
+         * Contact.link() is broken. This method restores the physical links.
+         *
+         * v2.6 FIX: links are created with suppressPropagation = true.
+         * Previously link() synchronously pushed the current value into the
+         * freshly constructed (but not yet reattached) assembly — a signal
+         * travelling through a graph that is mid-reconstruction. Now the
+         * physical link is established silently, and values are aligned by
+         * the Deferred Sync Wave of the new instance (the Hot-Start pattern:
+         * _processPendingSignals → scheduleNextTick Final Sync), which runs
+         * after the topology transaction is complete and every view is
+         * reattached.
+         */
+        private function reconnectExternalLinksToAssembly(targetAsm:Assembly):Void
+        {
+                trace('🔗 reconnectExternalLinksToAssembly: targetAsm.id="${targetAsm.id}", targetAsm.blueprint.id="${targetAsm.blueprint.id}"');
+                var bp = currentAssembly.blueprint;
+                if (bp.internalConnections == null)
+                {
+                        trace('❌ reconnectExternalLinksToAssembly: parent blueprint has NO connections!');
+                        return;
+                }
+                trace('🔗 reconnectExternalLinksToAssembly: parent has ${bp.internalConnections.length} connections');
+                var reconnectedCount = 0;
+                // v2.10: sources of reconnected wires — for the Value Re-Alignment Wave.
+                var realignSources:Array<Contact> = [];
+                for (conn in bp.internalConnections)
+                {
+                        // Check if this connection involves our updated assembly
+                        var isTarget = false;
+
+                        // Check 'to' side
+                        if (conn.to.atomId != "SELF")
+                        {
+                                var realAtomId = currentAssembly.idMap.get(conn.to.atomId);
+                                if (realAtomId == null) realAtomId = conn.to.atomId; // fallback if already runtime ID
+
+                                if (realAtomId == targetAsm.id || conn.to.atomId == targetAsm.id)
+                                {
+                                        isTarget = true;
+                                }
+                        }
+
+                        // Check 'from' side (for completeness)
+                        if (!isTarget && conn.from.atomId != "SELF")
+                        {
+                                var realAtomId = currentAssembly.idMap.get(conn.from.atomId);
+                                if (realAtomId == null) realAtomId = conn.from.atomId;
+
+                                if (realAtomId == targetAsm.id || conn.from.atomId == targetAsm.id)
+                                {
+                                        isTarget = true;
+                                }
+                        }
+
+                        if (isTarget) {
+                                reconnectedCount++;
+
+                                // ═══════════════════════════════════════════════════════════════════
+                                // v2.7 FIX: Reconcile conn.contactName with actual port externalName.
+                                // ═══════════════════════════════════════════════════════════════════
+                                // After refreshExternalPortNames() runs on the child assembly,
+                                // its port externalNames may have changed (e.g., "Pass_in" →
+                                // "Custom_Assembly_1_Pass_in" because the child contains a
+                                // sub-assembly whose displayName is "Custom Assembly_1").
+                                //
+                                // parent.bp.internalConnections still references the OLD
+                                // externalName. Without reconciliation, resolveContactInParent
+                                // returns null because getInput(oldName) finds nothing.
+                                //
+                                // Solution: when cIn (or cOut) is null and the connection
+                                // references an Assembly, look up the Assembly's actual ports
+                                // and find the one that matches by internalName. We then
+                                // rewrite conn.contactName in-place so future calls (and
+                                // save-to-disk) use the correct externalName.
+                                // ═══════════════════════════════════════════════════════════════════
+                                var cOut = resolveContactInParent(conn.from);
+                                var cIn = resolveContactInParent(conn.to);
+
+                                // If cIn is null and conn.to references an Assembly,
+                                // try to reconcile the contactName with actual port externalNames.
+                                if (cIn == null && conn.to.atomId != "SELF")
+                                {
+                                        var toAsm = resolveAssemblyInParent(conn.to.atomId);
+                                        if (toAsm != null)
+                                        {
+                                                // v2.7 STEEL RECONCILIATION (in priority order):
+                                                //   a) suffix match (externalName ends with "_"+requested) — legacy v2.7
+                                                //   b) internalName match — the common stale-name case:
+                                                //      GroupAtoms stored internalName; refreshExternalPortNames
+                                                //      renamed the port to a semantic externalName
+                                                var requestedName = conn.to.contactName;
+                                                var fallbackPort = findPortByContactSuffix(toAsm, requestedName, INPUT);
+                                                if (fallbackPort == null)
+                                                {
+                                                        for (p in toAsm.ports)
+                                                        {
+                                                                if (p != null && p.internalName == requestedName && p.type == INPUT)
+                                                                {
+                                                                        fallbackPort = p;
+                                                                        break;
+                                                                }
+                                                        }
+                                                }
+                                                if (fallbackPort == null)
+                                                {
+                                                        fallbackPort = findPortByProgressiveSuffix(toAsm, requestedName, INPUT);
+                                                }
+                                                if (fallbackPort != null)
+                                                {
+                                                        // Update connection in-place
+                                                        conn.to.contactName = fallbackPort.externalName;
+                                                        // Re-resolve cIn
+                                                        cIn = resolveContactInParent(conn.to);
+                                                        trace('   🔄 Reconciled cIn: "${requestedName}" → "${conn.to.contactName}"');
+                                                }
+                                        }
+                                }
+
+                                // Same for cOut (if conn.from references an Assembly)
+                                if (cOut == null && conn.from.atomId != "SELF")
+                                {
+                                        var fromAsm = resolveAssemblyInParent(conn.from.atomId);
+                                        if (fromAsm != null)
+                                        {
+                                                // v2.7 STEEL RECONCILIATION: suffix, then internalName
+                                                var requestedName = conn.from.contactName;
+                                                var fallbackPort = findPortByContactSuffix(fromAsm, requestedName, OUTPUT);
+                                                if (fallbackPort == null)
+                                                {
+                                                        for (p in fromAsm.ports)
+                                                        {
+                                                                if (p != null && p.internalName == requestedName && p.type == OUTPUT)
+                                                                {
+                                                                        fallbackPort = p;
+                                                                        break;
+                                                                }
+                                                        }
+                                                }
+                                                if (fallbackPort == null)
+                                                {
+                                                        fallbackPort = findPortByProgressiveSuffix(fromAsm, requestedName, OUTPUT);
+                                                }
+                                                if (fallbackPort != null)
+                                                {
+                                                        conn.from.contactName = fallbackPort.externalName;
+                                                        cOut = resolveContactInParent(conn.from);
+                                                        trace('   🔄 Reconciled cOut: "${requestedName}" → "${conn.from.contactName}"');
+                                                }
+                                        }
+                                }
+
+                                trace('🔗 reconnect: ${conn.from.atomId}.${conn.from.contactName} → ${conn.to.atomId}.${conn.to.contactName}');
+                                trace('   cOut=${cOut != null ? cOut.name : "null"}, cIn=${cIn != null ? cIn.name : "null"}');
+                                if (cOut != null && cIn != null && !cOut.hasLink(cIn)) {
+                                        // v2.6: suppressPropagation=true — NO synchronous value
+                                        // push through the half-reconstructed graph. Values are
+                                        // aligned by the new instance's Deferred Sync Wave.
+                                        cOut.link(cIn, true);
+                                        trace('   ✓ Linked (suppressed propagation)');
+                                        if (realignSources.indexOf(cOut) == -1) realignSources.push(cOut);
+                                } else if (cOut == null || cIn == null) {
+                                        trace('   ✗ FAILED to link!');
+                                }
+                        }
+                }
+                trace('🔗 reconnect: Reconnected $reconnectedCount links');
+
+                // ═══════════════════════════════════════════════════════════════
+                // v2.10: VALUE RE-ALIGNMENT WAVE.
+                // The links above were created silent (suppressPropagation) —
+                // correct during reconstruction, but LEVEL values living on
+                // upstream sources (TextInput.out, Toggle.out...) never cross
+                // a silent link. On the next tick (graph whole, unlocked) each
+                // recorded source pushes its CURRENT value through the fresh
+                // links, restoring the pre-exit signal state.
+                // ═══════════════════════════════════════════════════════════════
+                if (realignSources.length > 0)
+                {
+                        TickGenerator.getInstance().scheduleNextTick(function()
+                        {
+                                for (src in realignSources)
+                                {
+                                        if (src != null && !src.isDisposed)
+                                        {
+                                                utils.Trap.log("REALIGN", "pushing value from " + (src.owner != null ? src.owner.id : "?") + "." + src.name);
+                                                src.propagateCurrentValue();
+                                        }
+                                }
+                        });
+                }
+        }
     /**
      * v2.7: Resolve an atomId (template or runtime) to an Assembly instance
      * in the parent's internalAtoms. Returns null if the atom is not an Assembly.
@@ -20397,6 +21173,71 @@ class EditorContext
      * @param type          Expected port type (INPUT or OUTPUT)
      * @return Matching ConductorPort or null
      */
+    /**
+     * v2.11: Progressive suffix matching — the weapon against semantic
+     * port-name drift.
+     *
+     * Port externalNames are composed from the connected atom's displayName
+     * ("Custom_Assembly_2_Com_Port_close"). When that displayName changes
+     * between pop cycles, the parent blueprint keeps the OLD composed name.
+     * Exact / internalName / full-suffix matchers all fail on such drift.
+     *
+     * This matcher strips leading tokens of the requested name, one at a
+     * time, and at each level collects the ports (of the requested type,
+     * when given) whose externalName ends with "_" + tail. The FIRST level
+     * with EXACTLY ONE candidate wins — the match is unambiguous.
+     *
+     *   requested: "Custom_Assembly_2_Com_Port_close"
+     *   ports:      "Custom_Assembly_1_Com_Port_close" ... (unique tails)
+     *   level tail "Com_Port_close" -> unique -> MATCH
+     *
+     * Ambiguity at every level returns null (never mis-wire), with a trace.
+     *
+     * @param asm           Target assembly
+     * @param requestedName Stale contactName from the parent blueprint
+     * @param type          Optional port type filter (INPUT / OUTPUT)
+     * @return The uniquely matching ConductorPort or null
+     */
+    private function findPortByProgressiveSuffix(asm:core.base.Assembly, requestedName:String, ?type:Null<core.types.ContactType>):core.base.ConductorPort
+    {
+        if (asm == null || asm.ports == null || requestedName == null) return null;
+
+        var tokens:Array<String> = requestedName.split("_");
+        if (tokens.length < 2) return null; // nothing to strip
+
+// Walk from the longest tail to the shortest, dropping one leading
+// token per level. Stop at the tail of length 1 (shorter tails are
+// too generic to be trusted).
+        var level:Int = 1;
+        while (level < tokens.length - 1)
+        {
+                var tail:String = tokens.slice(level).join("_");
+                var suffix:String = "_" + tail;
+                var candidate:core.base.ConductorPort = null;
+                var count:Int = 0;
+                for (p in asm.ports)
+                {
+                        if (p == null || p.externalName == null) continue;
+                        if (type != null && p.type != type) continue;
+                        if (p.externalName == requestedName) continue; // exact tried already
+                        if (StringTools.endsWith(p.externalName, suffix))
+                        {
+                                candidate = p;
+                                count++;
+                                if (count > 1) break; // ambiguous — stop early
+                        }
+                }
+                if (count == 1)
+                {
+                        trace('🔄 Progressive suffix match: "${requestedName}" ~ "${candidate.externalName}" (tail "${tail}")');
+                        return candidate;
+                }
+                level++;
+        }
+        trace('⚠️ Progressive suffix match: no unique port for "${requestedName}"');
+        return null;
+    }
+
     private function findPortByContactSuffix(asm:core.base.Assembly, requestedName:String, type:core.types.ContactType):core.base.ConductorPort
     {
         if (asm == null || asm.ports == null) return null;
@@ -20422,124 +21263,142 @@ class EditorContext
         return null;
     }
 
-	/**
-	 * Resolves a Contact in the context of the CURRENT (parent) assembly.
-	 *
-	 * This brilliantly leverages the existing Atom.getInput/getOutput methods,
-	 * which already know how to find Assembly ports by their externalName!
-	 */
-	private function resolveContactInParent(point:core.data.Blueprint.ConnectionPoint):core.base.Contact
-	{
-		if (point.atomId == "SELF")
-		{
-			var port = currentAssembly.ports.get(point.contactName);
-			return port != null ? port.internal : null;
-		}
-		else
-		{
-			// Resolve Template ID to Runtime ID
-			var realAtomId = currentAssembly.idMap.get(point.atomId);
-			if (realAtomId == null) realAtomId = point.atomId;
+        /**
+         * Resolves a Contact in the context of the CURRENT (parent) assembly.
+         *
+         * This brilliantly leverages the existing Atom.getInput/getOutput methods,
+         * which already know how to find Assembly ports by their externalName!
+         */
+        private function resolveContactInParent(point:core.data.Blueprint.ConnectionPoint):core.base.Contact
+        {
+                if (point.atomId == "SELF")
+                {
+                        var port = currentAssembly.ports.get(point.contactName);
+                        return port != null ? port.internal : null;
+                }
+                else
+                {
+                        // Resolve Template ID to Runtime ID
+                        var realAtomId = currentAssembly.idMap.get(point.atomId);
+                        if (realAtomId == null) realAtomId = point.atomId;
 
-			var obj = currentAssembly.internalAtoms.get(realAtomId);
-			if (obj == null) return null;
+                        var obj = currentAssembly.internalAtoms.get(realAtomId);
+                        if (obj == null) return null;
 
-			var atom:core.base.Atom = cast obj;
+                        var atom:core.base.Atom = cast obj;
 
-			// getInput and getOutput search by Contact.name.
-			// For Assemblies, external contacts are registered with externalName.
-			// For simple atoms, contacts are registered with their standard name.
-			// This perfectly matches the contactName stored in the parent's blueprint!
-			var c = atom.getInput(point.contactName);
-			if (c != null) return c;
+                        // getInput and getOutput search by Contact.name.
+                        // For Assemblies, external contacts are registered with externalName.
+                        // For simple atoms, contacts are registered with their standard name.
+                        // This perfectly matches the contactName stored in the parent's blueprint!
+                        var c = atom.getInput(point.contactName);
+                        if (c != null) return c;
 
-			return atom.getOutput(point.contactName);
-		}
-	}
+                        return atom.getOutput(point.contactName);
+                }
+        }
 
-	/**
-	 * Reset entire stack (on project reload) and clear camera states.
-	 */
-	public function clear():Void
-	{
-		while (_stack.length > 0)
-		{
-			var item = _stack.pop();
-			item.editor.dispose();
-			if (item.container.parent != null) _layer.removeChild(item.container);
-			if (item.blocker != null && item.blocker.parent != null) _layer.removeChild(item.blocker);
-		}
-		currentEditor = null;
-		currentAssembly = null;
-		_cameraStates.clear();
-	}
+        /**
+         * Reset entire stack (on project reload) and clear camera states.
+         */
+        public function clear():Void
+        {
+                while (_stack.length > 0)
+                {
+                        var item = _stack.pop();
+                        item.editor.dispose();
+                        if (item.container.parent != null) _layer.removeChild(item.container);
+                        if (item.blocker != null && item.blocker.parent != null) _layer.removeChild(item.blocker);
+                }
+                currentEditor = null;
+                currentAssembly = null;
+                _cameraStates.clear();
+        }
 
-	public function getStackLength():Int return _stack.length;
+        public function getStackLength():Int return _stack.length;
 
-	// =========================================================================
-	// v1.1: GET STACK ENTRIES (for external operations)
-	// =========================================================================
-	/**
-	 * Returns a copy of the current editor stack entries.
-	 * Used by Main to find parent assemblies when handling PORT_REMOVED events.
-	 *
-	 * @return Array of EditorEntry (copy)
-	 */
-	public function getStackEntries():Array<EditorEntry>
-	{
-		return _stack.copy();
-	}
+        // =========================================================================
+        // v1.1: GET STACK ENTRIES (for external operations)
+        // =========================================================================
+        /**
+         * Returns a copy of the current editor stack entries.
+         * Used by Main to find parent assemblies when handling PORT_REMOVED events.
+         *
+         * @return Array of EditorEntry (copy)
+         */
+        public function getStackEntries():Array<EditorEntry>
+        {
+                return _stack.copy();
+        }
 
-	/**
-	* v2.5: Delegates to NamingService instead of walking the tree.
-	*
-	* The previous tree-walk approach had two issues:
-	*  (a) It only saw atoms in the currently-loaded editor stack — atoms
-	*      in not-yet-loaded or already-closed contexts were invisible.
-	*  (b) It was duplicating state already maintained by NamingService,
-	*      causing potential desync.
-	*
-	* NamingService is the single source of truth: every atom's displayName
-	* is registered on creation and unregistered on dispose, so its map is
-	* always in sync with the live atom set.
-	*
-	* The signature (name, ?excludeId) → Bool is preserved for backwards
-	* compatibility with all callers that pass this method as a callback
-	* to NodeEditor / NodeView / GroupAtomsCommand.
-	*/
-	public function isNameTakenGlobally(name:String, ?excludeId:String):Bool
-	{
-		return core.logic.NamingService.isInstanceNameTaken(name, excludeId);
-	}
+        /**
+        * v2.5: Delegates to NamingService instead of walking the tree.
+        *
+        * The previous tree-walk approach had two issues:
+        *  (a) It only saw atoms in the currently-loaded editor stack — atoms
+        *      in not-yet-loaded or already-closed contexts were invisible.
+        *  (b) It was duplicating state already maintained by NamingService,
+        *      causing potential desync.
+        *
+        * NamingService is the single source of truth: every atom's displayName
+        * is registered on creation and unregistered on dispose, so its map is
+        * always in sync with the live atom set.
+        *
+        * The signature (name, ?excludeId) → Bool is preserved for backwards
+        * compatibility with all callers that pass this method as a callback
+        * to NodeEditor / NodeView / GroupAtomsCommand.
+        */
+        public function isNameTakenGlobally(name:String, ?excludeId:String):Bool
+        {
+                return core.logic.NamingService.isInstanceNameTaken(name, excludeId);
+        }
 
-	// =========================================================================
-	// VISUAL
-	// =========================================================================
-	private function drawContainerFrame(container:Sprite):Void
-	{
-		var margin = 12;
-		var w = _layer.stage.stageWidth - (margin * 2);
-		var h = _layer.stage.stageHeight - (margin * 2);
+        // =========================================================================
+        // VISUAL
+        // =========================================================================
+        private function drawContainerFrame(container:Sprite):Void
+        {
+                var margin = 12;
+                var w = _layer.stage.stageWidth - (margin * 2);
+                var h = _layer.stage.stageHeight - (margin * 2);
 
-		container.graphics.clear();
-		//container.graphics.beginFill(_theme.FRAME_FILL_COLOR, _theme.FRAME_FILL_ALPHA);
-		//container.graphics.lineStyle(1, _theme.FRAME_BORDER_COLOR);
-		container.graphics.drawRoundRect(0, 0, w, h, 10, 10);
-		container.graphics.endFill();
+                container.graphics.clear();
+                //container.graphics.beginFill(_theme.FRAME_FILL_COLOR, _theme.FRAME_FILL_ALPHA);
+                //container.graphics.lineStyle(1, _theme.FRAME_BORDER_COLOR);
+                container.graphics.drawRoundRect(0, 0, w, h, 10, 10);
+                container.graphics.endFill();
 
-		container.x = margin;
-		container.y = margin;
-	}
+                container.x = margin;
+                container.y = margin;
+        }
+
+        // =========================================================================
+        // v2.6 HELPER: suppressPropagation variants for future call sites
+        // =========================================================================
+        /**
+        * v2.6: Creates a physical link between two contacts WITHOUT pushing
+        * the current value (suppressPropagation). Kept as a named helper so
+        * future call sites that must not inject signals mid-mutation have a
+        * self-documenting entry point instead of remembering the flag.
+        */
+        public static function linkSilent(cOut:Contact, cIn:Contact):Bool
+        {
+                if (cOut == null || cIn == null) return false;
+                if (cOut.hasLink(cIn)) return true;
+                cOut.link(cIn, true);
+                return true;
+        }
 }
 
 typedef EditorEntry =
 {
-	var assembly:Assembly;
-	var editor:NodeEditor;
-	var blocker:Sprite;
-	var container:Sprite;
-	@:optional var parentCameraState:{x:Float, y:Float, zoom:Float};
+        var assembly:Assembly;
+        var editor:NodeEditor;
+        var blocker:Sprite;
+        var container:Sprite;
+        @:optional var parentCameraState:{x:Float, y:Float, zoom:Float};
 }
+
 
 ================================================================================
 // FILE: editor\EditorState.hx
@@ -21078,7 +21937,7 @@ class GroupSelectionManager
 
 ================================================================================
 // FILE: editor\NodeEditor.hx
-// Lines: 1837 | Chars: 83372
+// Lines: 1843 | Chars: 83975
 ================================================================================
 
 package editor;
@@ -21119,7 +21978,7 @@ import ui.NodeVisualMode;
 using StringTools;
 
 /**
-* NODE EDITOR v4.9 (Zoom Performance Fix + Global Name Uniqueness + Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
+* NODE EDITOR v4.10 (Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
 * Visual schematic editing coordinator.
 *
 * ═══════════════════════════════════════════════════════════════════════════
@@ -21484,12 +22343,14 @@ class NodeEditor extends Sprite
                 * at the new scale without blocking the UI thread.
                 */
                 _viewport.onZoomStart = function() {
+                        utils.Trap.log("ZOOM", "start: nodes=" + Lambda.count(_nodes));
                         for (view in _nodes) {
                                 if (view != null) view.setCacheAsBitmapState(false);
                         }
                 };
 
                 _viewport.onZoomEnd = function() {
+                        utils.Trap.log("ZOOM", "end: scaleX=" + _canvas.scaleX + " -> cache reset for " + Lambda.count(_nodes) + " views");
                         for (view in _nodes) {
                                 if (view != null) view.setCacheAsBitmapState(true);
                         }
@@ -21500,6 +22361,7 @@ class NodeEditor extends Sprite
                         * at the new scale without blocking the gesture completion.
                         */
                         haxe.Timer.delay(function() {
+                                utils.Trap.log("ZOOM", "deferred rebuildAll firing");
                                 if (_wireRenderer != null) _wireRenderer.rebuildAll();
                         }, 100);
                 };
@@ -21861,6 +22723,7 @@ class NodeEditor extends Sprite
         */
         public function forceFullRedraw():Void
         {
+                utils.Trap.log("NE", "forceFullRedraw: nodes=" + Lambda.count(_nodes));
                 if (isDisposed) return;
 
                 // 1. Reset visibility throttle timer
@@ -22502,6 +23365,7 @@ class NodeEditor extends Sprite
 
         private function onMouseWheel(e:MouseEvent):Void
         {
+                utils.Trap.log("ZOOM", "wheel: delta=" + e.delta + " canvas.scaleX=" + _canvas.scaleX);
                 _viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
                 // НЕ вызываем _wireRenderer.rebuildAll(); здесь — провода масштабируются 
                 // автоматически вместе с canvas. Перерисуем после зума.
@@ -22856,6 +23720,7 @@ class NodeEditor extends Sprite
 // =========================================================================
         public function dispose():Void
         {
+                utils.Trap.log("NE-DISPOSE", "editor down: " + (_blueprint != null ? _blueprint.id : "?"));
                 if (isDisposed) return;
                 isDisposed = true;
 
@@ -22921,7 +23786,7 @@ class NodeEditor extends Sprite
 
 ================================================================================
 // FILE: editor\NodeView.hx
-// Lines: 2115 | Chars: 95832
+// Lines: 2130 | Chars: 97006
 ================================================================================
 
 package editor;
@@ -22954,7 +23819,7 @@ import core.data.Blueprint.ParameterPriority;
 import ui.NodeVisualMode;
 
 /**
-* NODE VIEW v3.8 (Global Name Uniqueness + Atom Reattach + Synchronous Layout + Touch Long-Press)
+* NODE VIEW v3.9 (Zoom Cache Hard Reset [v4.4 Stage 2] + Atom Reattach + Synchronous Layout + Touch Long-Press)
 *
 * Visual representation of an Atom (node) on the schematic canvas.
 *
@@ -23127,6 +23992,19 @@ class NodeView extends Sprite
 // =========================================================================
         public function setCacheAsBitmapState(enabled:Bool):Void
         {
+                // ═══════════════════════════════════════════════════════════════
+                // v3.9 / ЭТАП 2 (BUGS_FIXING_SCENARIO v4.4): HARD RESET of the
+                // bitmap cache. Toggling cacheAsBitmap alone can REUSE a stale
+                // raster snapshot captured at the previous scale: the container
+                // keeps drawing the old bitmap through the new transform
+                // (zoom artifacts) and references a GPU surface that may be
+                // recreated mid-frame (zoom crash right after pop()).
+                // Drop the cached matrix FIRST, on BOTH transitions:
+                //   false -> true : raster rebuilt at the CURRENT scale
+                //   true  -> false: stale raster released immediately
+                // ═══════════════════════════════════════════════════════════════
+                this.cacheAsBitmapMatrix = null;
+                this.cacheAsBitmap = false;
                 this.cacheAsBitmap = enabled;
         }
         
@@ -23275,6 +24153,7 @@ class NodeView extends Sprite
         {
                 if (newAtom == null) return;
                 if (_atom == newAtom) return; // nothing to do
+                utils.Trap.log("NV", "reattach: " + (_atom != null ? _atom.id : "?") + " -> " + newAtom.id);
 
                 // 1. Release old DeviceView (releases Contact subscriptions on old atom)
                 if (deviceView != null)
@@ -24987,6 +25866,7 @@ private function centerPreviewContainer():Void
 // =========================================================================
         public function dispose():Void
         {
+                utils.Trap.log("NV-DISPOSE", "nodeView down: " + nodeId + " cacheAsBitmap=" + this.cacheAsBitmap);
                 Impulsys.removeImpulse(EventType.ASSEMBLY_PORTS_CHANGED, onAssemblyPortsChanged);
                 Impulsys.removeImpulse(EventType.REDRAW_WIRES, onWiresRedrawn);
                 ECS.unregister(nodeId);
@@ -26056,7 +26936,7 @@ private typedef TouchData = {
 
 ================================================================================
 // FILE: editor\WireRenderer.hx
-// Lines: 1049 | Chars: 50959
+// Lines: 1052 | Chars: 51299
 ================================================================================
 
 package editor;
@@ -26079,7 +26959,7 @@ import ui.WireType;
 import ui.WireType.WireType as WireTypeEnum;
 
 /**
-* WIRE RENDERER v1.7 (Stage-Aware Endpoint Resolution + Hit Sprite Selection + Wire Long-Press)
+* WIRE RENDERER v1.8 (Crash Traps + Stage-Aware Endpoint Resolution + Hit Sprite Selection + Wire Long-Press)
 * Responsible for visualizing all wires (connections) in NodeEditor.
 *
 * ═══════════════════════════════════════════════════════════════════════════
@@ -26408,6 +27288,7 @@ class WireRenderer {
          */
         public function rebuildAll():Void {
                 if (_isDisposed) return;
+                utils.Trap.log("WR", "rebuildAll: disposed=" + _isDisposed);
                 
                 // Disable vector line repainting during zoom.
                 // WebGL automatically scales the _canvas contents, so
@@ -26433,6 +27314,7 @@ class WireRenderer {
                                 
                                 if (p1 == null || p2 == null) {
                                         // Ghost wire detected — one or both endpoints missing
+                                        utils.Trap.log("WR-GHOST", "ghost: " + link.from.atomId + "." + link.from.contactName + " -> " + link.to.atomId + "." + link.to.contactName);
                                         ghostWireIds.push(id);
                                         continue; // Skip drawing this wire
                                 }
@@ -27057,6 +27939,7 @@ class WireRenderer {
          * v1.2: Also clears the selection callback.
          */
         public function dispose():Void {
+                utils.Trap.log("WR-DISPOSE", "wireRenderer down");
                 if (_isDisposed) return;
                 _isDisposed = true;
                 
@@ -28095,7 +28978,7 @@ class ComEnumeratorAtom extends Atom implements system.managers.Driver
 
 ================================================================================
 // FILE: library\drivers\ComPortAtom.hx
-// Lines: 2337 | Chars: 115732
+// Lines: 2432 | Chars: 120554
 ================================================================================
 
 package library.drivers;
@@ -29045,7 +29928,7 @@ extern "C" const char* scanWindowsCOMPorts() {
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     COM PORT ATOM v3.1                                    ║
+* ║                     COM PORT ATOM v3.3                                    ║
 * ║     (Multi-Platform Driver: WinAPI/POSIX/Android JNI + HTML5 Web)         ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
@@ -29098,6 +29981,30 @@ extern "C" const char* scanWindowsCOMPorts() {
 * ║  └────────────────────────┴────────┴──────────────────┴─────────────────┘ ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
 */
+/**
+/**
+* v3.3 CHANGES (Auto-Reopen — "port closes after grouping/pop"):
+* - getPersistentState() now persists wasOpen = _isOpenFlag.
+* - restoreState() sets _autoReopenRequested when wasOpen was true.
+* - update() performs ONE deferred openDevice() attempt — the port
+*   reopens automatically after grouping, pop()-reconstruction and
+*   app restart (load-symmetric behavior: the system restores the
+*   state as it was). To keep a port closed on next start, close it
+*   before saving.
+*
+* v3.2 CHANGES (Crash Traps + Persistent Configuration — BUG-B):
+* - utils.Trap breadcrumbs: openDevice / closeDevice / sendToDevice /
+*   rx delivery (marker map: patches/TRAP_PLAN_v1.md).
+* - NEW getPersistentState()/restoreState() overrides: portName,
+*   baudRate, bufferSize, chunkSize, enabled, appendMode are persisted
+*   into atomDef.values — the configuration now survives grouping,
+*   pop()-reconstruction and disk save/load. Before this, reconstructed
+*   instances fell back to COM1/9600 defaults (field evidence:
+*   "Successfully opened COM1" right after grouping a COM17 setup).
+*   Action inputs (open/close/send/setDTR/testRxData) are deliberately
+*   NOT persisted — restoring them would fire side effects on Hot Start.
+*/
+
 class ComPortAtom extends Atom implements system.managers.Driver
 {
     private static inline var PULSE_DURATION:Float = 0.05;
@@ -29125,6 +30032,8 @@ class ComPortAtom extends Atom implements system.managers.Driver
     private var _lastAppendMode:String = "none";
     private var _lastDTR:Bool = false;
     private var _isOpenFlag:Bool = false;
+    /** v3.3: reopen once after reconstruction when wasOpen was true. */
+    private var _autoReopenRequested:Bool = false;
 
     @:volatile private var _hasPendingRx:Bool = false;
     @:volatile private var _hasPendingErr:Bool = false;
@@ -29261,6 +30170,17 @@ class ComPortAtom extends Atom implements system.managers.Driver
         readConfiguration();
         if (!_enabled) return;
 
+        // v3.3: Auto-reopen — wasOpen persisted through reconstruction/save.
+        if (_autoReopenRequested)
+        {
+            _autoReopenRequested = false;
+            if (!_isOpenFlag)
+            {
+                utils.Trap.log("COMPORT", "auto-reopen (wasOpen=true)");
+                openDevice();
+            }
+        }
+
         #if android
 
         // === Авто-открытие порта после выдачи прав Android ===
@@ -29340,6 +30260,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
             if (rxOut != null) { rxOut.setValueSilent(_pendingRxStr); rxOut.propagateCurrentValue(); }
             var rxTick = getOutput("rxTick");
             if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
+            utils.Trap.log("COMPORT", "rx: \"" + _pendingRxStr + "\"");
             Impulsys.quickEmit(EventType.COMPORT_RX_DATA, _pendingRxStr);
         }
 
@@ -29391,6 +30312,8 @@ class ComPortAtom extends Atom implements system.managers.Driver
 
     override public function dispose():Void
     {
+		utils.Trap.log("COMPORT", "dispose enter");
+		
         #if cpp
         closeDevice();
         #elseif html5
@@ -29399,6 +30322,49 @@ class ComPortAtom extends Atom implements system.managers.Driver
         DriverManager.getInstance().unregister(this.id);
         super.dispose();
     }
+
+    /**
+    * v3.2: Persist the current CONFIGURATION inputs so reconstructed
+    * instances keep the user setup (port, baud, buffer, chunk, enabled,
+    * append mode). See the class-level v3.2 notes.
+    */
+    override public function getPersistentState():Dynamic
+    {
+        var state:Dynamic = super.getPersistentState();
+        if (state == null) state = {};
+
+        var c:Contact;
+        c = getInput("portName");   if (c != null && c.value != null) state.portName = c.value;
+        c = getInput("baudRate");   if (c != null && c.value != null) state.baudRate = c.value;
+        c = getInput("bufferSize"); if (c != null && c.value != null) state.bufferSize = c.value;
+        c = getInput("chunkSize");  if (c != null && c.value != null) state.chunkSize = c.value;
+        c = getInput("enabled");    if (c != null && c.value != null) state.enabled = c.value;
+        state.appendMode = _lastAppendMode;
+        state.wasOpen = _isOpenFlag;
+
+        return state;
+    }
+
+    /**
+    * v3.2: Restore configuration written by getPersistentState().
+    * Uses Contact.setValueDirect() — restores must never trigger
+    * propagation (reconstruction runs inside topology transactions).
+    */
+    override public function restoreState(state:Dynamic):Void
+    {
+        super.restoreState(state);
+        if (state == null) return;
+
+        var c:Contact;
+        if (Reflect.hasField(state, "portName"))   { c = getInput("portName");   if (c != null) c.setValueDirect(Reflect.field(state, "portName")); }
+        if (Reflect.hasField(state, "baudRate"))   { c = getInput("baudRate");   if (c != null) c.setValueDirect(Reflect.field(state, "baudRate")); }
+        if (Reflect.hasField(state, "bufferSize")) { c = getInput("bufferSize"); if (c != null) c.setValueDirect(Reflect.field(state, "bufferSize")); }
+        if (Reflect.hasField(state, "chunkSize"))  { c = getInput("chunkSize");  if (c != null) c.setValueDirect(Reflect.field(state, "chunkSize")); }
+        if (Reflect.hasField(state, "enabled"))    { c = getInput("enabled");    if (c != null) c.setValueDirect(Reflect.field(state, "enabled")); }
+        if (Reflect.hasField(state, "appendMode")) { _lastAppendMode = Std.string(Reflect.field(state, "appendMode")); }
+        if (Reflect.hasField(state, "wasOpen")) { _autoReopenRequested = Reflect.field(state, "wasOpen") == true; }
+    }
+
 
     private function readConfiguration():Void
     {
@@ -29565,6 +30531,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
 
     public function openDevice():Void
     {
+        utils.Trap.log("COMPORT", "openDevice enter");
         if (_isOpenFlag) closeDevice();
         var portNameC = getInput("portName");
         var baudRateC = getInput("baudRate");
@@ -29647,9 +30614,11 @@ class ComPortAtom extends Atom implements system.managers.Driver
             if (openOut != null) { openOut.setValueSilent(true); openOut.propagateCurrentValue(); }
             Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected to " + portName);
             trace('ComPortAtom: Successfully opened $portName at $baudRate baud');
+            utils.Trap.log("COMPORT", "opened: " + portName + " @ " + baudRate);
         }
         else
         {
+            utils.Trap.log("COMPORT", "open FAILED: " + (errMessage != "" ? errMessage : portName));
             #if android
             if (errMessage.indexOf("Requesting USB permission") >= 0) {
                 _isWaitingForUsbPermission = true;
@@ -29713,6 +30682,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
 
     public function closeDevice():Void
     {
+        utils.Trap.log("COMPORT", "closeDevice enter isOpen=" + _isOpenFlag);
         #if cpp
         var selfPtr:Dynamic = this;
         untyped __cpp__('
@@ -29765,8 +30735,11 @@ class ComPortAtom extends Atom implements system.managers.Driver
         _rxDebounceTime = 0;
         var openOut = getOutput("isOpen");
         if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
+        utils.Trap.log("COMPORT", "pre status-emit Disconnected");
         Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
         trace('ComPortAtom: Closed serial device');
+		utils.Trap.log("COMPORT", "native closed");
+		
         #elseif html5
                 if (!_isOpenFlag) return;
                 _isOpenFlag = false;
@@ -29866,7 +30839,12 @@ class ComPortAtom extends Atom implements system.managers.Driver
 
     public function sendToDevice(dataStr:String):Void
     {
-        if (!_isOpenFlag) return;
+        if (!_isOpenFlag)
+        {
+            utils.Trap.log("COMPORT", "send REFUSED (port closed): \"" + dataStr + "\"");
+            return;
+        }
+        utils.Trap.log("COMPORT", "send: \"" + dataStr + "\" append=" + _lastAppendMode);
         // ── Apply line-ending append based on _lastAppendMode ──
         // "none" → no change, "CR" → \r, "LF" → \n, "CRLF" → \r\n.
         // Applied uniformly on every target: in HTML5 the string is later
@@ -40779,7 +41757,7 @@ class ToggleAtom extends Atom
 
 ================================================================================
 // FILE: Main.hx
-// Lines: 2676 | Chars: 86716
+// Lines: 2725 | Chars: 88935
 ================================================================================
 
 package;
@@ -40829,10 +41807,22 @@ import utils.UID;
 using StringTools;
 
 /**
-* MAIN v3.0 (DisplayConfig Integration)
+* MAIN v3.1 (DisplayConfig Integration + Crash Traps)
 * Application entry point and main coordinator.
 *
 * ═══════════════════════════════════════════════════════════════════════════
+* ═══════════════════════════════════════════════════════════════════════════
+* v3.1 CHANGES (Crash Traps — BUG-A hunt)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  - onBackClicked(): entry breadcrumb (all exit paths funnel here).
+*  - closeCurrentEditor(): breadcrumbs around pop() and
+*    updateNavigationUI() (layoutChrome runs right after pop —
+*    prime crash candidate zone).
+*  - onMainLoop(): 1 Hz BEAT heartbeat to crash_trap.log — the last
+*    BEAT timestamp marks the exact death second even when stdout
+*    buffering eats the tail on a hard crash.
+*
 * v3.0 CHANGES (DisplayConfig Integration)
 * ═══════════════════════════════════════════════════════════════════════════
 *
@@ -40948,6 +41938,7 @@ class Main extends Sprite
 
 // --- State ---
 	private var _lastTime:Int = 0;
+	private var _trapBeatFrames:Int = 0; // v3.1: BEAT heartbeat counter
 	private var _theme:EditorTheme;
 	private var _deviceWindow:DeviceWindow;
 
@@ -41694,8 +42685,12 @@ class Main extends Sprite
 	private function saveOnExit():Void
 	{
 		log("Auto-saving on exit...");
+		
 		_editorContext.prepareCurrentAssemblyForSave();
+		utils.Trap.log("EXIT", "prepareForSave done");
+		
 		saveCurrentContext();
+		utils.Trap.log("EXIT", "saveCurrentContext done");
 	}
 
 // =========================================================================
@@ -41707,6 +42702,7 @@ class Main extends Sprite
 	*/
 	private function onBackClicked():Void
 	{
+		utils.Trap.log("EXIT", "onBackClicked: enter stack=" + _editorContext.getStackLength());
 		if (_editorContext.getStackLength() <= 1)
 		{
 			log("Cannot close root assembly.");
@@ -41723,8 +42719,11 @@ class Main extends Sprite
 				{
 // v2.2: Sync blueprint BEFORE save (renames, port names, template IDs)
 					_editorContext.prepareCurrentAssemblyForSave();
+					utils.Trap.log("EXIT", "prepareForSave done");
+					
 					saveNewNamedAssembly(name);
 					closeCurrentEditor(true);
+					utils.Trap.log("EXIT", "closeCurrentEditor returned");
 				}
 			});
 		}
@@ -41733,8 +42732,13 @@ class Main extends Sprite
 // Without this, renamed atoms and semantic port names are lost
 // on app restart.
 			_editorContext.prepareCurrentAssemblyForSave();
+			utils.Trap.log("EXIT", "prepareForSave done");
+			
 			saveCurrentContext();
+			utils.Trap.log("EXIT", "saveCurrentContext done");
+			
 			closeCurrentEditor(true);
+			utils.Trap.log("EXIT", "closeCurrentEditor returned");
 		}
 	}
 
@@ -41743,9 +42747,12 @@ class Main extends Sprite
 	*/
 	private function closeCurrentEditor(updateInstances:Bool):Void
 	{
+		utils.Trap.log("EXIT", "closeCurrentEditor: pre-pop updateInstances=" + updateInstances);
 		_editorContext.pop(updateInstances);
+		utils.Trap.log("EXIT", "pop returned; updateNavigationUI next");
 		updateNavigationUI();
 		updateButtonStates();
+		utils.Trap.log("EXIT", "closeCurrentEditor: done");
 		log("Returned to: " + _editorContext.currentAssembly.blueprint.name);
 	}
 
@@ -41869,6 +42876,7 @@ class Main extends Sprite
 		}
 
 		saveCurrentContext();
+		utils.Trap.log("EXIT", "saveCurrentContext done");
 	}
 
 // =========================================================================
@@ -42017,7 +43025,11 @@ class Main extends Sprite
 		_windowSaveTimer = haxe.Timer.delay(() -> {
 			syncDevicePanelToCache();
 			_editorContext.prepareCurrentAssemblyForSave();
+			utils.Trap.log("EXIT", "prepareForSave done");
+			
 			saveCurrentContext();
+			utils.Trap.log("EXIT", "saveCurrentContext done");
+			
 			_windowSaveTimer = null;
 			log("Device state auto-saved.");
 		}, 300);
@@ -42108,7 +43120,10 @@ class Main extends Sprite
 			if (_uiReady)
 			{
 					_editorContext.prepareCurrentAssemblyForSave();
+					utils.Trap.log("EXIT", "prepareForSave done");
+					
 					saveCurrentContext();
+					utils.Trap.log("EXIT", "saveCurrentContext done");
 			}
 			#end
 	}
@@ -42129,6 +43144,14 @@ class Main extends Sprite
 
 // Unified update via TickGenerator
 		TickGenerator.getInstance().update(dt);
+
+	// v3.1: 1 Hz heartbeat — last BEAT marks the death second.
+		_trapBeatFrames++;
+		if (_trapBeatFrames >= 60)
+		{
+			_trapBeatFrames = 0;
+			utils.Trap.log("BEAT", "alive");
+		}
 	}
 
 	/**
@@ -42946,7 +43969,11 @@ Impulsys.subscribeToImpulse(EventType.FULLSCREEN_TOGGLED, _onFullscreenToggled);
 	private function onValueCommitted(impulse:Impulse):Void
 	{
 		_editorContext.prepareCurrentAssemblyForSave();
+		utils.Trap.log("EXIT", "prepareForSave done");
+		
 		saveCurrentContext();
+		utils.Trap.log("EXIT", "saveCurrentContext done");
+		
 		log("Data saved.");
 	}
 
@@ -43236,7 +44263,7 @@ Impulsys.subscribeToImpulse(EventType.FULLSCREEN_TOGGLED, _onFullscreenToggled);
 // For simplicity, any TextField focus blocks single-key shortcuts.
 		if (isTextFieldFocused && !e.ctrlKey && !e.altKey) return;
 
-		if (e.keyCode == Keyboard.S && !e.ctrlKey) { _editorContext.prepareCurrentAssemblyForSave(); saveCurrentContext(); return; }
+		if (e.keyCode == Keyboard.S && !e.ctrlKey) { _editorContext.prepareCurrentAssemblyForSave(); utils.Trap.log("EXIT", "prepareForSave done"); saveCurrentContext(); utils.Trap.log("EXIT", "saveCurrentContext done"); return; }
 
 		if (e.ctrlKey && e.keyCode == Keyboard.C) { if (_editorContext.currentEditor != null) _editorContext.currentEditor.copySelection(); return; }
 		if (e.ctrlKey && e.keyCode == Keyboard.X) { if (_editorContext.currentEditor != null) _editorContext.currentEditor.cutSelection(); return; }
@@ -43256,7 +44283,7 @@ Impulsys.subscribeToImpulse(EventType.FULLSCREEN_TOGGLED, _onFullscreenToggled);
 		if (e.keyCode == Keyboard.ESCAPE)
 		{
 			if (_settingsPanel.visible) { _settingsPanel.visible = false; return; }
-			if (_editorContext.getStackLength() > 1) onBackClicked();
+			if (_editorContext.getStackLength() > 1) onBackClicked(); utils.Trap.log("EXIT", "onBackClicked: stack=" + _editorContext.getStackLength());
 			return;
 		}
 
@@ -43266,7 +44293,7 @@ Impulsys.subscribeToImpulse(EventType.FULLSCREEN_TOGGLED, _onFullscreenToggled);
 		if (e.keyCode == Keyboard.R) { onResetClick(); return; }
 		if (e.keyCode == Keyboard.D || e.keyCode == Keyboard.DELETE) { deleteSelectedOnCanvas(); return; }
 		if (e.keyCode == Keyboard.E) { if (_editorContext.getStackLength() > 1) onDeleteCurrentAssembly(); else log("Cannot erase root assembly."); return; }
-		if (e.keyCode == Keyboard.BACKSPACE) { if (_editorContext.getStackLength() > 1) onBackClicked(); return; }
+		if (e.keyCode == Keyboard.BACKSPACE) { if (_editorContext.getStackLength() > 1) onBackClicked(); utils.Trap.log("EXIT", "onBackClicked: stack=" + _editorContext.getStackLength()); return; }
 	}
 
 	/**
@@ -44719,7 +45746,7 @@ class DeleteWiresCommand extends Command {
 
 ================================================================================
 // FILE: system\commands\editor\GroupAtomsCommand.hx
-// Lines: 1215 | Chars: 50930
+// Lines: 1284 | Chars: 55424
 ================================================================================
 
 package system.commands.editor;
@@ -44743,7 +45770,7 @@ import library.AtomRegistry;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                      GROUP ATOMS COMMAND v3.12                            ║
+* ║                      GROUP ATOMS COMMAND v3.14                            ║
 * ║         (BP-SSOT Consistency + Parent Port Collision Fix + DeviceView     ║
 * ║          Lifecycle Cleanup + Template ID as instanceId + Unique Names)    ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
@@ -44752,6 +45779,43 @@ import library.AtomRegistry;
 * ║  Supports full Undo/Redo with complete state restoration.                 ║
 * ║                                                                           ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
+* ╠═════════════════════════════════════════════════════════════════════════════╣
+* ╠═════════════════════════════════════════════════════════════════════════════╣
+* ║                     v3.14 CHANGES (PHASE 2 Restored — undo fix)           ║
+* ╠═════════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  CONFIRMED BUG: the v3.11 BP-SSOT refactor dropped ALL snapshot           ║
+* ║  capture calls (addRemovedAtom / addRemovedInternalConnection /           ║
+* ║  addRemovedExternalConnection / setSelectedNodeIds). undo() then          ║
+* ║  aborted at validate() with "No atoms captured for restore" —             ║
+* ║  grouping undo was silently dead (trace-only failure).                    ║
+* ║                                                                           ║
+* ║  FIX: PHASE 2 (SNAPSHOT BEFORE-STATE) restored in executeGrouping         ║
+* ║  right after the atomsToMove guard. Together with GroupAtomsSnapshot      ║
+* ║  v2.1 (Reflect.copy — captures values + visualMode), undo fully           ║
+* ║  restores atoms, connections and configuration.                           ║
+* ║                                                                           ║
+* ║                     v3.13 CHANGES (Grouping Value Preservation)           ║
+* ╠═════════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  NOTE: no mergeLiveStateInto() is needed — the v3.8 Phase-3               ║
+* ║  live-state capture (liveAtom.getPersistentState() into                   ║
+* ║  newInternalAtoms) + driver getPersistentState() overrides                ║
+* ║  (ComPortAtom v3.2+) already preserve configuration through               ║
+* ║  grouping. Field proof (crash_trap.log 23:58:11): grouping →              ║
+* ║  dispose → auto-reopen (wasOpen=true) → opened COM17.                     ║
+* ║                                                                           ║
+* ║  BUG-1 FIXED: saveNewAssembly() wrote the .atom file with atoms           ║
+* ║  stripped of `values` — a crash/restart right after grouping              ║
+* ║  lost the live configuration (ComPort COM17 → COM1 on reload).            ║
+* ║  values are now serialized with every atom.                               ║
+* ║                                                                           ║
+* ║  BUG-2 FIXED: undo() restored atoms with STRIPPED AtomDefs (no            ║
+* ║  values, no visualMode) and recreated instances without                   ║
+* ║  initialState. Original AtomDef objects are now pushed back               ║
+* ║  as-is; instances are recreated with atomDef.values as                    ║
+* ║  initialState (load-symmetric with execute()).                            ║
+* ║                                                                           ║
 * ║                     v3.12 CHANGES (Parent Port Name Collision Fix)        ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
@@ -45048,6 +46112,32 @@ class GroupAtomsCommand extends Command
 			trace('ERROR: GroupAtomsCommand: No atoms to move!');
 			return;
 		}
+
+// =====================================================================
+// PHASE 2: SNAPSHOT BEFORE-STATE (v3.14 — RESTORED)
+// =====================================================================
+// The v3.11 BP-SSOT refactor accidentally removed these capture calls;
+// undo() then aborted at validate() with "No atoms captured for
+// restore" — grouping undo was silently dead. Capturing again:
+//   - selected node ids (for events)
+//   - atom defs of everything being moved (Reflect.copy — WITH values,
+//     visualMode; see GroupAtomsSnapshot v2.1)
+//   - internal connections (between selected atoms — removed)
+//   - external connections (selected <-> outside — become ports)
+		_snapshot.setSelectedNodeIds(_selectedNodeIds);
+		for (atomDef in atomsToMove)
+		{
+			_snapshot.addRemovedAtom(atomDef);
+		}
+		for (conn in internalConns)
+		{
+			_snapshot.addRemovedInternalConnection(conn);
+		}
+		for (conn in externalConns)
+		{
+			_snapshot.addRemovedExternalConnection(conn);
+		}
+
 
 // =====================================================================
 // PHASE 3: CREATE NEW ASSEMBLY BLUEPRINT (SEMANTIC NAMING)
@@ -45605,15 +46695,12 @@ class GroupAtomsCommand extends Command
 		AtomRegistry.remove(createdTypeId);
 		deleteAssemblyFile(createdTypeId);
 
+		// v3.13 BUG-2 FIX: push the ORIGINAL AtomDef object back as-is —
+		// the previous stripped copy (instanceId/typeId/x/y only) silently
+		// dropped `values` (displayName, driver config) and `visualMode`.
 		for (atomDef in _snapshot.getRemovedAtomDefs())
 		{
-			_blueprint.internalAtoms.push(
-			{
-				instanceId: atomDef.instanceId,
-				typeId: atomDef.typeId,
-				x: atomDef.x,
-				y: atomDef.y
-			});
+			_blueprint.internalAtoms.push(atomDef);
 		}
 
 		for (conn in _snapshot.getRemovedInternalConnections()) _blueprint.internalConnections.push(conn);
@@ -45621,7 +46708,9 @@ class GroupAtomsCommand extends Command
 
 		for (atomDef in _snapshot.getRemovedAtomDefs())
 		{
-			var atom = AssemblyFactory.createAtom(atomDef.typeId, atomDef.instanceId);
+			// v3.13 BUG-2 FIX: pass values as initialState so the recreated
+			// instance restores displayName/config (load-symmetric).
+			var atom = AssemblyFactory.createAtom(atomDef.typeId, atomDef.instanceId, atomDef.values);
 			if (atom != null) _assembly.internalAtoms.set(atomDef.instanceId, atom);
 		}
 
@@ -45874,7 +46963,14 @@ class GroupAtomsCommand extends Command
 		#if sys
 		var atomsData:Array<Dynamic> = [];
 		for (atomDef in bp.internalAtoms)
-			atomsData.push({instanceId: atomDef.instanceId, typeId: atomDef.typeId, x: atomDef.x, y: atomDef.y});
+		{
+			// v3.13 BUG-1 FIX: serialize values (live config: displayName,
+			// driver settings, wasOpen...) — the disk copy must be
+			// load-symmetric with the in-memory blueprint.
+			var atomData:Dynamic = {instanceId: atomDef.instanceId, typeId: atomDef.typeId, x: atomDef.x, y: atomDef.y};
+			if (atomDef.values != null) atomData.values = atomDef.values;
+			atomsData.push(atomData);
+		}
 		var connsData:Array<Dynamic> = [];
 		for (conn in bp.internalConnections)
 			connsData.push({
@@ -45940,7 +47036,7 @@ class GroupAtomsCommand extends Command
 
 ================================================================================
 // FILE: system\commands\editor\GroupAtomsSnapshot.hx
-// Lines: 282 | Chars: 10898
+// Lines: 281 | Chars: 11054
 ================================================================================
 
 package system.commands.editor;
@@ -45952,7 +47048,7 @@ import core.data.Blueprint.ConnectionPoint;
 import core.types.ContactType;
 
 /**
- * GROUP ATOMS SNAPSHOT v2.0
+ * GROUP ATOMS SNAPSHOT v2.1
  * Complete data container for GroupAtomsCommand undo/redo.
  *
  * Architecture:
@@ -46038,12 +47134,11 @@ class GroupAtomsSnapshot {
      * Add an atom definition that will be removed.
      */
     public function addRemovedAtom(def:AtomDef):Void {
-        _removedAtomDefs.push({
-            instanceId: def.instanceId,
-            typeId: def.typeId,
-            x: def.x,
-            y: def.y
-        });
+        // v2.1: Reflect.copy preserves ALL fields — values (displayName,
+        // driver config, wasOpen), visualMode, and any future AtomDef
+        // field. The previous stripped clone dropped them, so undo
+        // resurrected atoms without configuration.
+        _removedAtomDefs.push(Reflect.copy(def));
     }
     
     /**
@@ -58595,6 +59690,122 @@ enum WireType {
 }
 
 ================================================================================
+// FILE: utils\Trap.hx
+// Lines: 110 | Chars: 5013
+================================================================================
+
+package utils;
+
+/**
+* ╔═══════════════════════════════════════════════════════════════════════════╗
+* ║                        TRAP v1.0                                          ║
+* ║          (Crash-Proof Trace Logger — BUG-A Hunt)                          ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  PURPOSE:                                                                 ║
+* ║  stdout on Windows is BUFFERED when the app runs through "lime run"       ║
+* ║  (pipe). On a hard crash (c0000005) the buffered tail is LOST —           ║
+* ║  exactly the most valuable part (the last moments before death).          ║
+* ║  Field evidence: the exit-crash log ended with NO pop() traces at         ║
+* ║  all, neither "Saved camera state" nor "Closed serial device", so         ║
+* ║  the death location is currently invisible.                               ║
+* ║                                                                           ║
+* ║  TRAP writes every line to crash_trap.log with IMMEDIATE FLUSH.           ║
+* ║  Data that was flushed before the crash survives it.                      ║
+* ║                                                                           ║
+* ║  USAGE:                                                                   ║
+* ║    utils.Trap.log("TAG", "message");                                      ║
+* ║    →  [17][2026-08-24 12:34:56][TAG] message                              ║
+* ║                                                                           ║
+* ║  The file is created in the working directory of the process              ║
+* ║  (bin/windows/bin/ when launched via lime run). Search "crash_trap.log"   ║
+* ║  in the project if unsure.                                                ║
+* ║                                                                           ║
+* ║  CONTACT FILTER:                                                          ║
+* ║  nameMatches() gates per-contact traps (set_value probe) so the log       ║
+* ║  is not flooded at 60 Hz. The default list targets the ComPort            ║
+* ║  grouping test; EDIT IT for the next scenario.                            ║
+* ║                                                                           ║
+* ║  cpp-only: sys.io.File. On HTML5 Trap.log compiles to a no-op.            ║
+* ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+class Trap
+{
+        /** Master switch — set false to silence everything. */
+        public static var ENABLE:Bool = true;
+
+        /**
+        * Contact names that pass the set_value probe filter.
+        * Edit per test scenario. Defaults = ComPort grouping test:
+        * assembly gateway ports (Com_Port_*), driver's own contacts,
+        * and the generic incoming_N/outgoing_N gateway contacts.
+        */
+        public static var NAMES:Array<String> = [
+                "Com_Port_open", "Com_Port_close", "Com_Port_send",
+                "Com_Port_txData", "Com_Port_isOpen", "Com_Port_rxData",
+                "open", "close", "send", "txData", "isOpen", "rxData",
+                "incoming_1", "incoming_2", "incoming_3", "incoming_4",
+                "outgoing_1", "outgoing_2", "outgoing_3", "outgoing_4"
+        ];
+
+#if cpp
+        private static var _out:sys.io.FileOutput = null;
+#end
+        private static var _seq:Int = 0;
+
+        /**
+        * Append one line to crash_trap.log and FLUSH immediately.
+        * Never throws — trapping must not change program behavior.
+        */
+        public static function log(tag:String, msg:String = ""):Void
+        {
+#if cpp
+                if (!ENABLE) return;
+                try
+                {
+                        if (_out == null)
+                        {
+                                _out = sys.io.File.append("crash_trap.log", true);
+                        }
+                        _seq++;
+                        _out.writeString('[' + _seq + '][' + Date.now().toString() + '][' + tag + '] ' + msg + '\n');
+                        _out.flush();
+                }
+                catch (e:Dynamic)
+                {
+                        // Swallow — traps must never break the app.
+                }
+#end
+        }
+
+        /**
+        * Contact-name filter for the set_value probe (see TRAP_PLAN_v1.md).
+        */
+        public static function nameMatches(n:String):Bool
+        {
+                if (!ENABLE || n == null) return false;
+                for (t in NAMES)
+                {
+                        if (t == n) return true;
+                }
+                return false;
+        }
+
+        /** Close the handle (optional; OS closes it on exit anyway). */
+        public static function close():Void
+        {
+#if cpp
+                if (_out != null)
+                {
+                        try { _out.close(); } catch (e:Dynamic) {}
+                        _out = null;
+                }
+#end
+        }
+}
+
+
+================================================================================
 // FILE: utils\UID.hx
 // Lines: 55 | Chars: 2395
 ================================================================================
@@ -58654,6 +59865,8 @@ class UID {
         return str;
     }
 }
+
+
 
 
 ================================================================================

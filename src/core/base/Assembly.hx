@@ -17,9 +17,10 @@ using StringTools;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     ASSEMBLY v2.2                                         ║
+* ║                     ASSEMBLY v2.5                                         ║
 * ║  (Full Integrity + Template ID Serialization + Clean Gateway Topology     ║
-* ║   + Load-Symmetric Blueprint Sync + Atom Mapping Registration)            ║
+* ║   + Load-Symmetric Blueprint Sync + Atom Mapping Registration             ║
+* ║   + Inline Value Persistence + Crash Traps + Conn Traps)                                             ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  Universal base class for ALL nodes in the system.                        ║
@@ -61,10 +62,54 @@ using StringTools;
 * ║         for GroupAtomsCommand / CreateAtomCommand to register atoms       ║
 * ║         added at runtime. Without this, resolveContact cannot find        ║
 * ║         the atom by its template ID in blueprint.internalConnections.     ║
+* ║  - v2.3: ADDED syncAtomValuesToBlueprint() — merges LIVE persistent       ║
+* ║         state of internal atoms into atomDef.values so that               ║
+* ║         pop()-reconstruction restores current inline values               ║
+* ║         instead of the last-saved ones (BUG-B, load-symmetric).           ║
 * ║                                                                           ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                     VERSION HISTORY                                       ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  v2.5 — Connection Table Traps (gateway-link forensics)                   ║
+* ║  ──────────────────────────────────────────────                           ║
+* ║  Field evidence: after pop()-reconstruction the gateway INPUT             ║
+* ║  link for "open" (incoming_2) works while "send" (incoming_3)             ║
+* ║  is dead. Whether the SELF-connection lives in the blueprint or           ║
+* ║  dies in resolveContact is currently invisible. _createInternal           ║
+* ║  Connections() now dumps the bp connection table (ASM-CONN) and           ║
+* ║  logs every physical link it creates (ASM-LINK).                          ║
+* ║                                                                           ║
+* ║  v2.4 — Crash Traps + mergeLiveStateInto                                  ║
+* ║  ──────────────────────────────────────────────                           ║
+* ║  - dispose(): Trap.log breadcrumbs at every teardown stage                ║
+* ║    (entry, per-atom, cleared, super, resume, catch) written to            ║
+* ║    crash_trap.log with flush-per-line — survives hard crashes             ║
+* ║    (stdout buffering eats the tail on c0000005).                          ║
+* ║  - _updatePortLinks(): OUTPUT delivery callback logs the value            ║
+* ║    handoff to the external side (condution probe, logic mode).            ║
+* ║  - + mergeLiveStateInto(atomDef, atom): static helper for commands        ║
+* ║    that rebuild atoms (GroupAtoms) — fixes the grouping-path              ║
+* ║    variant of BUG-B (live driver settings lost on grouping:               ║
+* ║    ComPort reopened COM1 instead of the configured COM17).                ║
+* ║                                                                           ║
+* ║  v2.3 — Inline Value Persistence (BUG-B)                                  ║
+* ║  ──────────────────────────────────────────────                           ║
+* ║  PROBLEM:                                                                 ║
+* ║  User-edited inline values (TextInput gain 50 → 3) lived only in          ║
+* ║  runtime instances. atomDef.values received them only when                ║
+* ║  ProjectManager wrote to disk, so pop()-reconstruction restored           ║
+* ║  the LAST SAVED value — edits survived save/load but NOT the              ║
+* ║  exit/re-enter cycle (violation of Load-Symmetric Reconstruction).        ║
+* ║                                                                           ║
+* ║  SOLUTION:                                                                ║
+* ║  syncAtomValuesToBlueprint() — for every internal atom (leaf AND          ║
+* ║  nested Assembly): getPersistentState() is merged into                    ║
+* ║  atomDef.values (matched by instanceId). Called from                      ║
+* ║  EditorContext.pop() and prepareCurrentAssemblyForSave().                 ║
+* ║  EditorContext v2.8 additionally syncs the exited child state             ║
+* ║  into the PARENT atomDef.values — the parent-side restoreState()          ║
+* ║  overwrite must see FRESH data, not the last disk-save snapshot.          ║
 * ║                                                                           ║
 * ║  v2.2 — Atom Mapping Registration                                         ║
 * ║  ─────────────────────────────────────────────────                        ║
@@ -890,6 +935,7 @@ class Assembly extends Atom
 									&& targetPort.external != null
 									&& !isInitializing)
 							{
+								utils.Trap.log("COND-OUT", "port=" + targetPort.externalName + " value=" + Std.string(v));
 								targetPort.external.value = v;
 								targetPort.external.propagateCurrentValue();
 							}
@@ -1189,6 +1235,128 @@ class Assembly extends Atom
 				}
 			}
 		}
+	}
+
+	/**
+	* v2.3: Syncs the LIVE persistent state of internal atoms into
+	* blueprint.internalAtoms[].values (matched by instanceId).
+	*
+	* WHY THIS EXISTS (BUG-B — inline values do not survive exit):
+	* syncDisplayNamesToBlueprint() persists ONLY displayName. Edited
+	* inline values (e.g., TextInput 50 → 3) live exclusively in the
+	* runtime instances; atomDef.values receives them only when
+	* ProjectManager writes to disk. pop()-reconstruction builds new
+	* atoms from atomDef.values — i.e., from the LAST SAVED state —
+	* so edits silently revert on every exit/re-enter cycle while
+	* surviving a full save/load round-trip. That asymmetry violates
+	* the Load-Symmetric Reconstruction principle.
+	*
+	* This method completes the symmetry:
+	*     reconstruction = save = load
+	*
+	* ALGORITHM:
+	*   for each internal atom (by runtimeId):
+	*     1. templateId = getTemplateId(runtimeId)
+	*     2. state = atom.getPersistentState()   (null → skip)
+	*     3. merge EVERY field of state into atomDef.values
+	*
+	* NESTED ASSEMBLIES ARE INCLUDED DELIBERATELY. Their
+	* getPersistentState() returns {isLogic, internalStates, displayName}
+	* keyed by template IDs — exactly the shape a disk save stores.
+	* The parent-side restoreState() (run by _createInternalInstances
+	* AFTER the child constructor) OVERWRITES the freshly built child
+	* internals with atomDef.values — stale internalStates there would
+	* resurrect dead values and defeat the leaf-atom sync performed
+	* one level deeper. EditorContext.pop() additionally syncs the
+	* exited child state into the PARENT atomDef.values
+	* (syncChildStateToParentAtomDef) for the very same reason.
+	*
+	* KNOWN LIMITATION (shared with syncDisplayNamesToBlueprint and
+	* updateInstancesOf semantics): all instances of one blueprint
+	* type share the registered blueprint — the values of the instance
+	* being exited win. Same-type instances are treated as clones.
+	*/
+	public function syncAtomValuesToBlueprint():Void
+	{
+		if (internalAtoms == null || blueprint == null
+			|| blueprint.internalAtoms == null) return;
+
+		for (runtimeId in internalAtoms.keys())
+		{
+			var atom:Atom = cast internalAtoms.get(runtimeId);
+			if (atom == null) continue;
+
+			var templateId = getTemplateId(runtimeId);
+
+// Live state of this atom: TextInput text, Toggle position, driver
+// settings, nested Assembly internalStates... null → nothing to keep.
+			var state:Dynamic = null;
+			try
+			{
+				state = atom.getPersistentState();
+			}
+			catch (e:Dynamic)
+			{
+				trace('WARN: syncAtomValuesToBlueprint: getPersistentState() failed for "${templateId}": $e');
+				continue;
+			}
+			if (state == null) continue;
+
+			for (atomDef in blueprint.internalAtoms)
+			{
+				if (atomDef.instanceId == templateId)
+				{
+					if (atomDef.values == null) atomDef.values = {};
+					var fields:Array<String> = Reflect.fields(state);
+					for (field in fields)
+					{
+						Reflect.setField(atomDef.values, field, Reflect.field(state, field));
+					}
+					trace('📦 syncAtomValues: "${templateId}" ← ${fields.length} field(s) [${fields.join(", ")}]');
+					break;
+				}
+			}
+		}
+	}
+
+	/**
+	* v2.4: Static helper for COMMANDS that rebuild atoms (GroupAtomsCommand,
+	* CreateAtomCommand): merges a LIVE atom persistent state into the
+	* blueprint AtomDef.values BEFORE the original instance is disposed.
+	*
+	* This is the GROUPING-PATH counterpart of syncAtomValuesToBlueprint()
+	* (BUG-B variant): at grouping, the new ComPort instance restored only
+	* atomDef.values (displayName etc.) — the live driver settings (port
+	* name COM17, baud) were never merged, so the fresh atom opened the
+	* DEFAULT port (COM1) and the physical send went nowhere.
+	*
+	* Usage inside the command, per grouped atom, while it is STILL ALIVE:
+	*     Assembly.mergeLiveStateInto(newAtomDef, liveAtom);
+	*
+	* Dynamic param keeps this helper free of Blueprint typedef imports.
+	*/
+	public static function mergeLiveStateInto(atomDef:Dynamic, atom:Atom):Void
+	{
+		if (atomDef == null || atom == null) return;
+		var state:Dynamic = null;
+		try
+		{
+			state = atom.getPersistentState();
+		}
+		catch (e:Dynamic)
+		{
+			trace('WARN: mergeLiveStateInto: getPersistentState() failed: ' + e);
+			return;
+		}
+		if (state == null) return;
+
+		if (atomDef.values == null) atomDef.values = {};
+		var fields:Array<String> = Reflect.fields(state);
+		for (field in fields)
+		{
+			Reflect.setField(atomDef.values, field, Reflect.field(state, field));
+		}
+		utils.Trap.log("MERGE", "merged " + fields.length + " field(s) into def: " + fields.join(", "));
 	}
 
 	/**
@@ -1701,6 +1869,14 @@ class Assembly extends Atom
 	{
 		if (blueprint == null || blueprint.internalConnections == null) return;
 
+		// v2.5: dump the connection table this instance is built from.
+		utils.Trap.log("ASM-CONN", "Assembly(" + this.id + ") bp connections=" + blueprint.internalConnections.length);
+		for (conn in blueprint.internalConnections)
+		{
+			utils.Trap.log("ASM-CONN", "  " + conn.from.atomId + "." + conn.from.contactName + " -> " + conn.to.atomId + "." + conn.to.contactName);
+		}
+
+
 // v1.5: Track connections to remove (avoid modifying array during iteration)
 		var connectionsToRemove:Array<core.data.Blueprint.ConnectionDef> = [];
 
@@ -1748,6 +1924,7 @@ class Assembly extends Atom
 
 // Link with suppressed propagation (prevents oscillation during init)
 			fromContact.link(toContact, true);
+			utils.Trap.log("ASM-LINK", "linked " + conn.from.atomId + "." + conn.from.contactName + " -> " + conn.to.atomId + "." + conn.to.contactName);
 		}
 
 // ══════════════════════════════════════════════════════════════════
@@ -2319,35 +2496,67 @@ class Assembly extends Atom
 // ========================================================================
 // DISPOSE
 // ========================================================================
-	override public function dispose():Void
-	{
-// Dispose internal atoms
-		var keys = [for (k in internalAtoms.keys()) k];
-		for (key in keys)
-		{
-			var obj = internalAtoms.get(key);
-			if (obj != null)
-			{
-				if (Std.isOfType(obj, IDisposable))
-				{
-					try { cast(obj, IDisposable).dispose(); }
-					catch (e:Dynamic) { trace('Error: $e'); }
+    override public function dispose():Void
+    {
+// ═══════════════════════════════════════════════════════════════════
+// v1.11 (v4.4): SILENT DISPOSE — suspend TickGenerator for the whole
+// teardown cascade.
+// ═══════════════════════════════════════════════════════════════════
+// Assembly.dispose() recursively disposes internal atoms and ports.
+// Contact.dispose() unlinks and scheduled propagations may still sit in
+// TickGenerator queues; a task firing mid-teardown (between
+// internalAtoms.clear() and ports.clear()) dereferences half-dead state.
+// Suspending the generator freezes process() so the cascade runs in
+// silence; try/finally guarantees resume even on exception — a stuck
+// suspend would freeze the whole simulation permanently.
+// NOTE: when called from EditorContext.pop() v2.6 the outer topology
+// lock already defers propagations; this suspend is the belt-and-
+// suspenders layer for ALL other dispose call sites (hard reset,
+// GroupAtoms Phase 4, project reload).
+utils.Trap.log("ASM-DISPOSE", "dispose enter: id=" + this.id);
+	TickGenerator.getInstance().suspend();
+		try {
+			// Dispose internal atoms
+			var keys = [for (k in internalAtoms.keys()) k];
+			for (key in keys) {
+				var obj = internalAtoms.get(key);
+				if (obj != null) {
+					utils.Trap.log("ASM-DISPOSE", "atom down: " + key + " (" + Type.getClassName(Type.getClass(obj)) + ")");
+					if (Std.isOfType(obj, IDisposable)) {
+						try {
+							cast(obj, IDisposable).dispose();
+						} catch (e:Dynamic) {
+							trace('Error: $e');
+						}
+					}
 				}
 			}
-		}
-		internalAtoms.clear();
-		internalAtoms = null;
+			internalAtoms.clear();
+			utils.Trap.log("ASM-DISPOSE", "internalAtoms cleared");
+			internalAtoms = null;
 
-// Dispose ports
-		var portKeys = [for (k in ports.keys()) k];
-		for (key in portKeys)
-		{
-			var port = ports.get(key);
-			if (port != null) port.dispose();
-		}
-		ports.clear();
-		ports = null;
+			// Dispose ports
+			var portKeys = [for (k in ports.keys()) k];
+			for (key in portKeys) {
+				var port = ports.get(key);
+				if (port != null) port.dispose();
+			}
+			ports.clear();
+			utils.Trap.log("ASM-DISPOSE", "ports cleared");
+			ports = null;
 
-		super.dispose();
+			super.dispose();
+			utils.Trap.log("ASM-DISPOSE", "super.dispose done");
+			
+			utils.Trap.log("ASM-DISPOSE", "teardown OK -> resume");
+			// Если всё прошло успешно, возобновляем генератор
+			TickGenerator.getInstance().resume();
+		} catch (e:Dynamic) {
+			// Если произошла ошибка, ВСЁ РАВНО возобновляем генератор
+			utils.Trap.log("ASM-DISPOSE", "EXCEPTION in dispose: " + e);
+			TickGenerator.getInstance().resume();
+			// Пробрасываем ошибку дальше, чтобы симуляция знала о сбое
+			throw e;
+		}
 	}
 }

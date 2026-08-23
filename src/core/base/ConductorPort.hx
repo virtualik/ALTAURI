@@ -5,13 +5,14 @@ import core.types.ContactType.*;
 
 /**
  * ╔═══════════════════════════════════════════════════════════════════════════╗
- * ║                     CONDUCTOR PORT v2.0 (Dual Naming)                     ║
+ * ║                     CONDUCTOR PORT v2.2 (Dual Naming)                     ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  A bidirectional gateway that exposes an Atom's internal contact          ║
  * ║  to the outside world.                                                    ║
  * ║                                                                           ║
  * ║  v2.0: Supports DIFFERENT names for external and internal contacts.       ║
+ * ║  v2.1: dispose() breadcrumb (utils.Trap) — teardown forensics.            ║
  * ║                                                                           ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                        DUAL NAMING ARCHITECTURE                           ║
@@ -127,6 +128,15 @@ class ConductorPort
 		
 		// Create external contact with EXTERNAL name (visible on parent)
 		this.external = new Contact(defaultValue, type, this.externalName);
+
+		// v2.2: GATEWAY REPEAT FORWARDING. Both contacts of a port are
+		// pure conduits — they must deliver every write, including
+		// repeated identical values (a consumer behind the wall may use
+		// the consume-and-reset pattern; a repeat is a real event).
+		// Without this, ComPort rxData -> TextArea.append inside an
+		// assembly delivered only the FIRST response (field-proven).
+		this.internal.forwardRepeats = true;
+		this.external.forwardRepeats = true;
 	}
 
     // ========================================================================
@@ -180,6 +190,8 @@ class ConductorPort
      */
     public function dispose():Void
     {
+        utils.Trap.log("PORT-DISPOSE", "external=" + (external != null ? external.name : "?")
+            + " internal=" + (internal != null ? internal.name : "?"));
         if (isDisposed) return;
         isDisposed = true;
         

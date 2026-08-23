@@ -5,7 +5,7 @@ import core.types.ContactType.*;
 import utils.UID;
 
 /**
-* CONTACT v5.9 (Reentrancy-safe Topology Transaction Guard Integration)
+* CONTACT v5.12 (Gateway Repeat Forwarding + Link Lifecycle Traps)
 *
 * A connection point that can be linked to other contacts.
 * When value changes, it propagates to linked targets.
@@ -15,6 +15,10 @@ import utils.UID;
 * - Silent value setting (for batched driver updates)
 * - Callback subscription (for widgets and DeviceViews)
 * - v5.9: TOPOLOGY GUARD (Defers propagation during graph mutation)
+* - v5.10: TRAP PROBE (filtered set_value logging for conduction
+* - v5.11: LINK/UNLINK lifecycle traps + _receiveValue probe
+*   (gateway-link death forensics)
+*   forensics — see utils.Trap.NAMES)
 *
 * Comparison of Write Methods:
 * ┌────────────────────┬───────────────────────────────────────────────────────┐
@@ -80,6 +84,12 @@ private var _changeCount:Int = 0;
 private var _oscillationBlocked:Bool = false;
 /** Should this contact ignore oscillation detection? */
 public var ignoreOscillation:Bool = false;
+/** v5.12: GATEWAY MODE — forward repeated identical values.
+ * Conduit contacts (ConductorPort internal/external) MUST
+ * deliver every write: consumers behind them may use the
+ * consume-and-reset pattern (e.g. TextArea.append), so a
+ * repeat IS a meaningful event. Leaf atoms keep the dedup. */
+public var forwardRepeats:Bool = false;
 /** Maximum changes per second before blocking. */
 private static inline var CHANGES_PER_SECOND_LIMIT:Int = 600;
 /** Time window for oscillation detection (seconds). */
@@ -121,6 +131,9 @@ public function link(target:Contact, ?suppressPropagation:Bool = false):Void
 {
 if (target == null) return;
 if (hasLink(target)) return;
+// v5.11: link lifecycle trap
+if (utils.Trap.nameMatches(this.name) || utils.Trap.nameMatches(target.name))
+utils.Trap.log("LINK", (owner != null ? owner.id : "?") + "." + this.name + " -> " + (target.owner != null ? target.owner.id : "?") + "." + target.name + (suppressPropagation ? " [silent]" : ""));
 linkedTargets.push(target);
 if (_value != null && !suppressPropagation)
 {
@@ -192,9 +205,11 @@ if (callback != null) callback(this._value);
 private function _receiveValue(newValue:Dynamic):Void
 {
 if (isDisposed) return;
-if (_value == newValue) return;
+if (!forwardRepeats && _value == newValue) return;
 if (_oscillationBlocked) return;
 
+// v5.11: probe the propagateCurrentValue delivery path
+if (utils.Trap.nameMatches(this.name)) utils.Trap.log("CONTACT", (owner != null ? owner.id : "?") + "." + this.name + " <= " + Std.string(newValue) + " [recv]");
 _value = newValue;
 
 // v5.9: TOPOLOGY GUARD - Defer if graph is mutating
@@ -232,7 +247,13 @@ return true;
 */
 public function unlink(target:Contact):Void
 {
-if (linkedTargets != null) linkedTargets.remove(target);
+if (linkedTargets != null)
+{
+var removed = linkedTargets.remove(target);
+// v5.11: unlink lifecycle trap
+if (removed && (utils.Trap.nameMatches(this.name) || utils.Trap.nameMatches(target.name)))
+utils.Trap.log("UNLINK", (owner != null ? owner.id : "?") + "." + this.name + " -x- " + (target.owner != null ? target.owner.id : "?") + "." + target.name);
+}
 }
 
 /**
@@ -304,7 +325,9 @@ return callbackTargets != null && callbackTargets.indexOf(callback) != -1;
 private function set_value(newValue:Dynamic):Dynamic
 {
 if (isDisposed) return newValue;
-if (_value == newValue && !Std.isOfType(newValue, Array)) return newValue;
+// v5.10: TRAP PROBE — filtered, crash-proof conduction trace.
+if (utils.Trap.nameMatches(this.name)) utils.Trap.log("CONTACT", (owner != null ? owner.id : "?") + "." + this.name + " <= " + Std.string(newValue));
+if (!forwardRepeats && _value == newValue && !Std.isOfType(newValue, Array)) return newValue;
 
 // Oscillation detection
 var currentTime = haxe.Timer.stamp();
@@ -517,6 +540,8 @@ return (linkedTargets != null) ? linkedTargets.copy() : [];
 public function dispose():Void
 {
 if (isDisposed) return;
+// v5.11: contact death trap
+if (utils.Trap.nameMatches(this.name)) utils.Trap.log("CONTACT-DISPOSE", (owner != null ? owner.id : "?") + "." + this.name + " (links=" + (linkedTargets != null ? linkedTargets.length : 0) + ")");
 isDisposed = true;
 
 // Unlink all targets

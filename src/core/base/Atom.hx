@@ -362,8 +362,28 @@ class Atom implements IDisposable implements Driver
 		
 		// v3.9: Clear visualMode (не обязательно, но чисто)
 		_visualMode = null;
+	
+// old record:
+	//	if (_isActive) DriverManager.getInstance().unregister(this.id);
+	// ═══════════════════════════════════════════════════════════════════
+
+// new record:
+// v4.4: DRIVER ZOMBIE GUARD — safety net at the base class level.
+// ═══════════════════════════════════════════════════════════════════
+// DriverManager.unregister() intentionally does not call dispose()
+// (caller-is-responsible contract). Active drivers DO unregister in
+// their own dispose overrides (MiniAudioAtom), but the contract is a
+// trap for future drivers: one forgotten unregister leaves a zombie
+// entry that gets update(dt) called on a disposed atom every frame.
+// This guard makes the base class responsible: if THIS atom was
+// registered as a driver, unregister it NOW (idempotent — double
+// unregister with the driver's own call is harmless: the second call
+// is a no-op because the map entry is already gone).
+        if (_isActive)
+        {
+            system.managers.DriverManager.getInstance().unregister(this.id);
+        }
 		
-		if (_isActive) DriverManager.getInstance().unregister(this.id);
 		if (_inputs != null) { for (c in _inputs) { if (c != null) c.dispose(); } }
 		if (_outputs != null) { for (c in _outputs) { if (c != null) c.dispose(); } }
 		_inputs = null;

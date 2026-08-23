@@ -36,7 +36,7 @@ import ui.NodeVisualMode;
 using StringTools;
 
 /**
-* NODE EDITOR v4.9 (Zoom Performance Fix + Global Name Uniqueness + Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
+* NODE EDITOR v4.10 (Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
 * Visual schematic editing coordinator.
 *
 * ═══════════════════════════════════════════════════════════════════════════
@@ -401,12 +401,14 @@ class NodeEditor extends Sprite
                 * at the new scale without blocking the UI thread.
                 */
                 _viewport.onZoomStart = function() {
+                        utils.Trap.log("ZOOM", "start: nodes=" + Lambda.count(_nodes));
                         for (view in _nodes) {
                                 if (view != null) view.setCacheAsBitmapState(false);
                         }
                 };
 
                 _viewport.onZoomEnd = function() {
+                        utils.Trap.log("ZOOM", "end: scaleX=" + _canvas.scaleX + " -> cache reset for " + Lambda.count(_nodes) + " views");
                         for (view in _nodes) {
                                 if (view != null) view.setCacheAsBitmapState(true);
                         }
@@ -417,6 +419,7 @@ class NodeEditor extends Sprite
                         * at the new scale without blocking the gesture completion.
                         */
                         haxe.Timer.delay(function() {
+                                utils.Trap.log("ZOOM", "deferred rebuildAll firing");
                                 if (_wireRenderer != null) _wireRenderer.rebuildAll();
                         }, 100);
                 };
@@ -778,6 +781,7 @@ class NodeEditor extends Sprite
         */
         public function forceFullRedraw():Void
         {
+                utils.Trap.log("NE", "forceFullRedraw: nodes=" + Lambda.count(_nodes));
                 if (isDisposed) return;
 
                 // 1. Reset visibility throttle timer
@@ -1419,6 +1423,7 @@ class NodeEditor extends Sprite
 
         private function onMouseWheel(e:MouseEvent):Void
         {
+                utils.Trap.log("ZOOM", "wheel: delta=" + e.delta + " canvas.scaleX=" + _canvas.scaleX);
                 _viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
                 // НЕ вызываем _wireRenderer.rebuildAll(); здесь — провода масштабируются 
                 // автоматически вместе с canvas. Перерисуем после зума.
@@ -1773,6 +1778,7 @@ class NodeEditor extends Sprite
 // =========================================================================
         public function dispose():Void
         {
+                utils.Trap.log("NE-DISPOSE", "editor down: " + (_blueprint != null ? _blueprint.id : "?"));
                 if (isDisposed) return;
                 isDisposed = true;
 

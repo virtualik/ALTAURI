@@ -7,7 +7,7 @@ import core.data.Blueprint.ConnectionPoint;
 import core.types.ContactType;
 
 /**
- * GROUP ATOMS SNAPSHOT v2.0
+ * GROUP ATOMS SNAPSHOT v2.1
  * Complete data container for GroupAtomsCommand undo/redo.
  *
  * Architecture:
@@ -93,12 +93,11 @@ class GroupAtomsSnapshot {
      * Add an atom definition that will be removed.
      */
     public function addRemovedAtom(def:AtomDef):Void {
-        _removedAtomDefs.push({
-            instanceId: def.instanceId,
-            typeId: def.typeId,
-            x: def.x,
-            y: def.y
-        });
+        // v2.1: Reflect.copy preserves ALL fields — values (displayName,
+        // driver config, wasOpen), visualMode, and any future AtomDef
+        // field. The previous stripped clone dropped them, so undo
+        // resurrected atoms without configuration.
+        _removedAtomDefs.push(Reflect.copy(def));
     }
     
     /**

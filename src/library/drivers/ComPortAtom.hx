@@ -945,7 +945,7 @@ extern "C" const char* scanWindowsCOMPorts() {
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     COM PORT ATOM v3.1                                    ║
+* ║                     COM PORT ATOM v3.3                                    ║
 * ║     (Multi-Platform Driver: WinAPI/POSIX/Android JNI + HTML5 Web)         ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
@@ -998,6 +998,30 @@ extern "C" const char* scanWindowsCOMPorts() {
 * ║  └────────────────────────┴────────┴──────────────────┴─────────────────┘ ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
 */
+/**
+/**
+* v3.3 CHANGES (Auto-Reopen — "port closes after grouping/pop"):
+* - getPersistentState() now persists wasOpen = _isOpenFlag.
+* - restoreState() sets _autoReopenRequested when wasOpen was true.
+* - update() performs ONE deferred openDevice() attempt — the port
+*   reopens automatically after grouping, pop()-reconstruction and
+*   app restart (load-symmetric behavior: the system restores the
+*   state as it was). To keep a port closed on next start, close it
+*   before saving.
+*
+* v3.2 CHANGES (Crash Traps + Persistent Configuration — BUG-B):
+* - utils.Trap breadcrumbs: openDevice / closeDevice / sendToDevice /
+*   rx delivery (marker map: patches/TRAP_PLAN_v1.md).
+* - NEW getPersistentState()/restoreState() overrides: portName,
+*   baudRate, bufferSize, chunkSize, enabled, appendMode are persisted
+*   into atomDef.values — the configuration now survives grouping,
+*   pop()-reconstruction and disk save/load. Before this, reconstructed
+*   instances fell back to COM1/9600 defaults (field evidence:
+*   "Successfully opened COM1" right after grouping a COM17 setup).
+*   Action inputs (open/close/send/setDTR/testRxData) are deliberately
+*   NOT persisted — restoring them would fire side effects on Hot Start.
+*/
+
 class ComPortAtom extends Atom implements system.managers.Driver
 {
     private static inline var PULSE_DURATION:Float = 0.05;
@@ -1025,6 +1049,8 @@ class ComPortAtom extends Atom implements system.managers.Driver
     private var _lastAppendMode:String = "none";
     private var _lastDTR:Bool = false;
     private var _isOpenFlag:Bool = false;
+    /** v3.3: reopen once after reconstruction when wasOpen was true. */
+    private var _autoReopenRequested:Bool = false;
 
     @:volatile private var _hasPendingRx:Bool = false;
     @:volatile private var _hasPendingErr:Bool = false;
@@ -1161,6 +1187,17 @@ class ComPortAtom extends Atom implements system.managers.Driver
         readConfiguration();
         if (!_enabled) return;
 
+        // v3.3: Auto-reopen — wasOpen persisted through reconstruction/save.
+        if (_autoReopenRequested)
+        {
+            _autoReopenRequested = false;
+            if (!_isOpenFlag)
+            {
+                utils.Trap.log("COMPORT", "auto-reopen (wasOpen=true)");
+                openDevice();
+            }
+        }
+
         #if android
 
         // === Авто-открытие порта после выдачи прав Android ===
@@ -1240,6 +1277,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
             if (rxOut != null) { rxOut.setValueSilent(_pendingRxStr); rxOut.propagateCurrentValue(); }
             var rxTick = getOutput("rxTick");
             if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
+            utils.Trap.log("COMPORT", "rx: \"" + _pendingRxStr + "\"");
             Impulsys.quickEmit(EventType.COMPORT_RX_DATA, _pendingRxStr);
         }
 
@@ -1291,6 +1329,8 @@ class ComPortAtom extends Atom implements system.managers.Driver
 
     override public function dispose():Void
     {
+		utils.Trap.log("COMPORT", "dispose enter");
+		
         #if cpp
         closeDevice();
         #elseif html5
@@ -1299,6 +1339,49 @@ class ComPortAtom extends Atom implements system.managers.Driver
         DriverManager.getInstance().unregister(this.id);
         super.dispose();
     }
+
+    /**
+    * v3.2: Persist the current CONFIGURATION inputs so reconstructed
+    * instances keep the user setup (port, baud, buffer, chunk, enabled,
+    * append mode). See the class-level v3.2 notes.
+    */
+    override public function getPersistentState():Dynamic
+    {
+        var state:Dynamic = super.getPersistentState();
+        if (state == null) state = {};
+
+        var c:Contact;
+        c = getInput("portName");   if (c != null && c.value != null) state.portName = c.value;
+        c = getInput("baudRate");   if (c != null && c.value != null) state.baudRate = c.value;
+        c = getInput("bufferSize"); if (c != null && c.value != null) state.bufferSize = c.value;
+        c = getInput("chunkSize");  if (c != null && c.value != null) state.chunkSize = c.value;
+        c = getInput("enabled");    if (c != null && c.value != null) state.enabled = c.value;
+        state.appendMode = _lastAppendMode;
+        state.wasOpen = _isOpenFlag;
+
+        return state;
+    }
+
+    /**
+    * v3.2: Restore configuration written by getPersistentState().
+    * Uses Contact.setValueDirect() — restores must never trigger
+    * propagation (reconstruction runs inside topology transactions).
+    */
+    override public function restoreState(state:Dynamic):Void
+    {
+        super.restoreState(state);
+        if (state == null) return;
+
+        var c:Contact;
+        if (Reflect.hasField(state, "portName"))   { c = getInput("portName");   if (c != null) c.setValueDirect(Reflect.field(state, "portName")); }
+        if (Reflect.hasField(state, "baudRate"))   { c = getInput("baudRate");   if (c != null) c.setValueDirect(Reflect.field(state, "baudRate")); }
+        if (Reflect.hasField(state, "bufferSize")) { c = getInput("bufferSize"); if (c != null) c.setValueDirect(Reflect.field(state, "bufferSize")); }
+        if (Reflect.hasField(state, "chunkSize"))  { c = getInput("chunkSize");  if (c != null) c.setValueDirect(Reflect.field(state, "chunkSize")); }
+        if (Reflect.hasField(state, "enabled"))    { c = getInput("enabled");    if (c != null) c.setValueDirect(Reflect.field(state, "enabled")); }
+        if (Reflect.hasField(state, "appendMode")) { _lastAppendMode = Std.string(Reflect.field(state, "appendMode")); }
+        if (Reflect.hasField(state, "wasOpen")) { _autoReopenRequested = Reflect.field(state, "wasOpen") == true; }
+    }
+
 
     private function readConfiguration():Void
     {
@@ -1465,6 +1548,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
 
     public function openDevice():Void
     {
+        utils.Trap.log("COMPORT", "openDevice enter");
         if (_isOpenFlag) closeDevice();
         var portNameC = getInput("portName");
         var baudRateC = getInput("baudRate");
@@ -1547,9 +1631,11 @@ class ComPortAtom extends Atom implements system.managers.Driver
             if (openOut != null) { openOut.setValueSilent(true); openOut.propagateCurrentValue(); }
             Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected to " + portName);
             trace('ComPortAtom: Successfully opened $portName at $baudRate baud');
+            utils.Trap.log("COMPORT", "opened: " + portName + " @ " + baudRate);
         }
         else
         {
+            utils.Trap.log("COMPORT", "open FAILED: " + (errMessage != "" ? errMessage : portName));
             #if android
             if (errMessage.indexOf("Requesting USB permission") >= 0) {
                 _isWaitingForUsbPermission = true;
@@ -1613,6 +1699,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
 
     public function closeDevice():Void
     {
+        utils.Trap.log("COMPORT", "closeDevice enter isOpen=" + _isOpenFlag);
         #if cpp
         var selfPtr:Dynamic = this;
         untyped __cpp__('
@@ -1665,8 +1752,11 @@ class ComPortAtom extends Atom implements system.managers.Driver
         _rxDebounceTime = 0;
         var openOut = getOutput("isOpen");
         if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
+        utils.Trap.log("COMPORT", "pre status-emit Disconnected");
         Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
         trace('ComPortAtom: Closed serial device');
+		utils.Trap.log("COMPORT", "native closed");
+		
         #elseif html5
                 if (!_isOpenFlag) return;
                 _isOpenFlag = false;
@@ -1766,7 +1856,12 @@ class ComPortAtom extends Atom implements system.managers.Driver
 
     public function sendToDevice(dataStr:String):Void
     {
-        if (!_isOpenFlag) return;
+        if (!_isOpenFlag)
+        {
+            utils.Trap.log("COMPORT", "send REFUSED (port closed): \"" + dataStr + "\"");
+            return;
+        }
+        utils.Trap.log("COMPORT", "send: \"" + dataStr + "\" append=" + _lastAppendMode);
         // ── Apply line-ending append based on _lastAppendMode ──
         // "none" → no change, "CR" → \r, "LF" → \n, "CRLF" → \r\n.
         // Applied uniformly on every target: in HTML5 the string is later
