@@ -46,6 +46,10 @@ static VOID CALLBACK _dp_DragTimerProc(HWND hWnd, UINT uMsg, UINT_PTR idEvent, D
     }
 }
 // Find the main Haxe/OpenFL window by process ID.
+// NOTE: the API is GetWindowThreadProcessId — it returns the thread id AND
+// optionally writes the process id through the second parameter. There is
+// no "GetWindowThreadId" in the Windows SDK (an old paste carried that
+// phantom name, which breaks MSVC with C3861).
 static HWND _dp_findMainWindow() {
     DWORD pid = GetCurrentProcessId();
     HWND best = NULL;
@@ -98,7 +102,7 @@ void _dp_registerDragTick(void* inTick) {
 #end
 
 /**
-* DEVICE PANEL v3.8 (Maximize/Restore + Native Drag + Force Render)
+* DEVICE PANEL v3.9 (Vector Icons + Restore-Before-Drag + Native Drag + Force Render)
 * Full-size device display panel inside the Main Window.
 *
 * Architecture: "ATOM IS DATABANK & COMPUTE CORE"
@@ -114,8 +118,8 @@ void _dp_registerDragTick(void* inTick) {
 * │                                     │   ┌────────────────────┐   │      │
 * │                                     │   │   DeviceCard       │   │      │
 * │                                     │   │ ┌────────────────┐ │   │      │
-* │                                     │   │ │   DeviceView   │ │   │      │
-* │                                     │   │ │   (Widget)     │ │   │      │
+* │                                     │   │ │   DeviceView   │   │      │
+* │                                     │   │ │   (Widget)     │   │      │
 * │                                     │   │ └────────────────┘ │   │      │
 * │                                     │   └────────────────────┘   │      │
 * │                                     │                            │      │
@@ -132,89 +136,29 @@ void _dp_registerDragTick(void* inTick) {
 * └─────────────────────────────────────────────────────────────────────────┘
 *
 * ═══════════════════════════════════════════════════════════════════════════
-* MAXIMIZE/RESTORE ARCHITECTURE (v3.8)
-* ═══════════════════════════════════════════════════════════════════════════
-*
-* ┌─────────────────────────────────────────────────────────────────────────┐
-* │   DevicePanel (embedded Sprite)                                         │
-* │        │                                                                │
-* │        │  User clicks [□] OR double-clicks header                       │
-* │        ▼                                                                │
-* │   onToggleMaximize callback                                             │
-* │        │                                                                │
-* │        ▼                                                                │
-* │   Main.hx (controls the OS window)                                      │
-* │        │                                                                │
-* │        ├── If windowed → maximize OS window to fullscreen               │
-* │        │   win.resize(screenWidth, screenHeight)                        │
-* │        │   win.move(0, 0)                                               │
-* │        │   _isWindowMaximized = true                                    │
-* │        │   _devicePanel.setMaximizedState(true)  ← update icon to [◱]   │
-* │        │                                                                │
-* │        └── If maximized → restore OS window to saved size               │
-* │            win.resize(savedWidth, savedHeight)                          │
-* │            win.move(savedX, savedY)                                     │
-* │            _isWindowMaximized = false                                   │
-* │            _devicePanel.setMaximizedState(false) ← update icon to [□]   │
-* └─────────────────────────────────────────────────────────────────────────┘
-*
-* Why callback architecture?
-* ──────────────────────────
-* DevicePanel is a Sprite INSIDE the Main Window — it cannot resize the OS
-* window directly. The Main.hx owns the lime.ui.Window reference and manages
-* the maximize/restore state. DevicePanel only SENDS the request via callback.
-*
-* Icon switching:
-* ───────────────
-* [□] = U+25A1 WHITE SQUARE     → means "click to maximize"
-* [◱] = U+25F1 LOWER RIGHT      → means "click to restore"
-*
-* ═══════════════════════════════════════════════════════════════════════════
-* NATIVE DRAG ARCHITECTURE (v3.6+)
-* ═══════════════════════════════════════════════════════════════════════════
-*
-* ┌─────────────────────────────────────────────────────────────────────────┐
-* │   User clicks header → onHeaderMouseDown()                              │
-* │                                                                         │
-* │   ┌──────────────────────────────────────────────────────────────────┐  │
-* │   │  Windows Platform:                                               │  │
-* │   │                                                                  │  │
-* │   │  1. _nativeStartDrag()                                           │  │
-* │   │     ├── SetTimer(15ms) → _dp_DragTimerProc                       │  │
-* │   │     ├── ReleaseCapture()                                         │  │
-* │   │     └── SendMessage(WM_NCLBUTTONDOWN, HTCAPTION)                 │  │
-* │   │              │                                                   │  │
-* │   │              ▼                                                   │  │
-* │   │         [BLOCKS Haxe Thread]                                     │  │
-* │   │              │                                                   │  │
-* │   │              ├── Every 15ms: TimerProc fires                     │  │
-* │   │              │    └── _onDragTick()                              │  │
-* │   │              │         ├── app.onUpdate.dispatch(15)             │  │
-* │   │              │         ├── stage.__renderDirty = true            │  │
-* │   │              │         ├── win.onRender.dispatch(ctx)            │  │
-* │   │              │         └── SwapBuffers(wglGetCurrentDC())        │  │
-* │   │              │                                                   │  │
-* │   │              └── User releases mouse                             │  │
-* │   │                   └── KillTimer() + return                       │  │
-* │   │                                                                  │  │
-* │   │  Result: Perfect 1:1 cursor tracking, UI stays animated          │  │
-* │   └──────────────────────────────────────────────────────────────────┘  │
-* │                                                                         │
-* │   ┌──────────────────────────────────────────────────────────────────┐  │
-* │   │  Non-Windows / Native Failed:                                    │  │
-* │   │                                                                  │  │
-* │   │  1. Store start position: _mouseStartX/Y = e.stageX/Y            │  │
-* │   │  2. Call onWindowDragStart() → Main.hx captures window pos       │  │
-* │   │  3. On MOUSE_MOVE: compute delta from START (not previous frame) │  │
-* │   │  4. Call onWindowDrag(dx, dy) → Main.hx moves window             │  │
-* │   │                                                                  │  │
-* │   │  Result: Smooth drag without accumulated rounding errors         │  │
-* │   └──────────────────────────────────────────────────────────────────┘  │
-* └─────────────────────────────────────────────────────────────────────────┘
-*
-* ═══════════════════════════════════════════════════════════════════════════
 * VERSION HISTORY
 * ═══════════════════════════════════════════════════════════════════════════
+*
+* v3.11 Changes:
+* - REMOVED: manual restore-under-cursor block (v3.10) — with real
+*   SW_MAXIMIZE (WindowController v1.5) DefWindowProc performs the restore
+*   dance natively during caption drag of a zoomed window.
+*
+* v3.10 Changes:
+* - IMPROVED: restore-before-drag now REPOSITIONS the restored window under
+*   the cursor (Windows 10 caption behavior) — the cursor keeps holding the
+*   header at the same relative grab point instead of being stranded near
+*   the top edge of the screen.
+*
+* v3.9 Changes:
+* - REPLACED: Text glyph maximize icon "□"/"◱" → vector icons (WindowGlyphs).
+*   "◱" (U+25F1) is missing from Arial and renders as tofu on C++ targets —
+*   Lime/FreeType has no font fallback chain.
+* - FIXED: createHeaderButton() applied defaultTextFormat AFTER setting
+*   text (Flash semantics: the format does not restyle existing text).
+* - ADDED: _maximizeIcon sprite field (redrawn by setMaximizedState).
+* - ADDED: onHeaderMouseDown() restores the window FIRST when dragging
+*   while fullscreen (standard OS behavior; icon syncs via FULLSCREEN_TOGGLED).
 *
 * v3.8 Changes:
 * - ADDED: Maximize/Restore button [□]/[◱] in header (28x26, same style as [E]/[C])
@@ -289,7 +233,7 @@ void _dp_registerDragTick(void* inTick) {
 * addChild(_devicePanel);
 *
 * _devicePanel.onShowEditor = function() {
-*     if (_isPanelMode) onToggleView();
+*     if (DisplayConfig.getInstance().isDeviceMode()) onToggleView();
 * };
 *
 * _devicePanel.onGetAssemblyList = getAllDevicesRecursive;
@@ -298,52 +242,14 @@ void _dp_registerDragTick(void* inTick) {
 *     onCloseClicked();
 * };
 *
-* _devicePanel.onWindowDragStart = function() {
-*     var win = Lib.current.stage.window;
-*     if (win != null) {
-*         _dragWindowStartX = win.x;
-*         _dragWindowStartY = win.y;
-*     }
-* };
-*
-* _devicePanel.onWindowDrag = function(dx:Float, dy:Float) {
-*     var win = Lib.current.stage.window;
-*     if (win != null) {
-*         win.x = _dragWindowStartX + Std.int(dx);
-*         win.y = _dragWindowStartY + Std.int(dy);
-*     }
-* };
-*
-* // v3.8: Maximize/Restore callback
+* // v3.9: Maximize/Restore callback — delegate to DisplayConfig
 * _devicePanel.onToggleMaximize = function() {
 *     var win = Lib.current.stage.window;
-*     if (win == null) return;
-*     
-*     if (_isWindowMaximized) {
-*         // RESTORE
-*         win.resize(Std.int(_savedWindowWidth), Std.int(_savedWindowHeight));
-*         win.move(Std.int(_savedWindowX), Std.int(_savedWindowY));
-*         _isWindowMaximized = false;
-*     } else {
-*         // MAXIMIZE
-*         _savedWindowX = win.x;
-*         _savedWindowY = win.y;
-*         _savedWindowWidth = win.width;
-*         _savedWindowHeight = win.height;
-*         var screen = lime.system.Display.primary;
-*         if (screen != null) {
-*             win.resize(screen.currentMode.width, screen.currentMode.height);
-*             win.move(0, 0);
-*         }
-*         _isWindowMaximized = true;
-*     }
-*     
-*     // Update button icon
-*     _devicePanel.setMaximizedState(_isWindowMaximized);
+*     DisplayConfig.getInstance().toggleFullscreen(win);
 * };
 *
 * @author ALTAURI Team
-* @version 3.8
+* @version 3.11
 * @since 3.0
 */
 class DevicePanel extends Sprite
@@ -351,7 +257,7 @@ class DevicePanel extends Sprite
     // =========================================================================
     // CALLBACKS
     // =========================================================================
-    
+
     /**
     * Callback to request switching back to Editor Mode.
     * Called when [E] button is pressed.
@@ -359,7 +265,7 @@ class DevicePanel extends Sprite
     * Usage: Main.hx assigns onToggleView() to switch from Device Panel to Editor.
     */
     public var onShowEditor:Void -> Void;
-    
+
     /**
     * Callback to get the list of available devices.
     * Used to populate the context menu when user right-clicks.
@@ -369,7 +275,7 @@ class DevicePanel extends Sprite
     * Usage: Main.hx assigns getAllDevicesRecursive() to provide device list.
     */
     public var onGetAssemblyList:Void -> Array< {id:String, name:String, atom:Atom}>;
-    
+
     /**
     * Callback for closing the application.
     * Called when [X] button is pressed.
@@ -377,7 +283,7 @@ class DevicePanel extends Sprite
     * Usage: Main.hx assigns onCloseClicked() to show save confirmation dialog.
     */
     public var onCloseApp:Void -> Void;
-    
+
     /**
     * v3.6: Called when drag starts.
     * Main.hx must capture current window position for absolute delta calculation.
@@ -385,7 +291,7 @@ class DevicePanel extends Sprite
     * Usage: Main.hx stores win.x and win.y in _dragWindowStartX/Y.
     */
     public var onWindowDragStart:Void -> Void;
-    
+
     /**
     * v3.6: Called during drag with DELTA from START position (not previous frame).
     *
@@ -397,57 +303,56 @@ class DevicePanel extends Sprite
     * Why absolute delta: Prevents accumulated rounding errors that cause flicker.
     */
     public var onWindowDrag:Float -> Float -> Void;
-    
+
     /**
     * v3.8: Callback for toggling maximize/restore of the main OS window.
-    * 
+    *
     * Triggered by:
-    *   - Click on [□]/[◱] button in header
+    *   - Click on [□]/restore button in header
     *   - Double-click on header background
+    *   - v3.9: Drag start while fullscreen (restore-before-drag)
     *
     * Main.hx implementation:
-    *   - If currently maximized → restore to saved window size/position
-    *   - If currently windowed → save current state and maximize to fullscreen
-    *   - Then call setMaximizedState() to update button icon
+    *   - Delegates to DisplayConfig.toggleFullscreen(win) (cross-platform)
     *
     * Why callback?
     *   DevicePanel is a Sprite inside Main Window — it cannot resize the OS
     *   window directly. Only Main.hx has access to lime.ui.Window.
     */
     public var onToggleMaximize:Void -> Void;
-    
+
     // =========================================================================
     // PRIVATE FIELDS
     // =========================================================================
-    
+
     /** Current assembly context (set via setContext()) */
     private var _assembly:Assembly;
-    
+
     /** Array of all DeviceCard instances currently displayed */
     private var _deviceCards:Array<DeviceCard>;
-    
+
     /** Header bar sprite (contains title and buttons) */
     private var _header:Sprite;
-    
+
     /** Title text field showing "Device Panel: [assembly name]" */
     private var _titleLabel:TextField;
-    
+
     /** Context menu sprite (shown on right-click) */
     private var _contextMenu:Sprite;
-    
+
     /** Flag indicating if context menu is currently visible */
     private var _menuVisible:Bool = false;
-    
+
     /** Background sprite (drawn with DEVICE_CANVAS_BG_COLOR) */
     private var _bg:Sprite;
-    
+
     /** Reference to EditorTheme singleton for color constants */
     private var _theme:EditorTheme;
-    
+
     // =========================================================================
     // v3.5: EDITOR-STYLE CLOSE BUTTON
     // =========================================================================
-    
+
     /**
     * Large close button (40x40) in the top-right corner.
     * Same style and position as Main.hx _btnClose.
@@ -457,31 +362,40 @@ class DevicePanel extends Sprite
     * Size: 40x40 pixels (ButtonComponent standard)
     */
     private var _btnClose:ButtonComponent;
-    
+
     // =========================================================================
     // v3.8: MAXIMIZE/RESTORE BUTTON
     // =========================================================================
-    
+
     /**
     * Maximize/Restore button sprite (28x26, same style as [E] and [C]).
-    * Icon switches dynamically:
-    *   [□] = U+25A1 WHITE SQUARE     → means "click to maximize"
-    *   [◱] = U+25F1 LOWER RIGHT      → means "click to restore"
+    * v3.9: Icon is a VECTOR drawing (WindowGlyphs), not a text glyph:
+    *   windowed  → single outlined square (maximize)
+    *   fullscreen→ two stacked squares (restore)
     *
     * Triggers onToggleMaximize callback when clicked.
     */
     private var _maximizeBtn:Sprite;
-    
+
     /**
-    * TextField inside _maximizeBtn for dynamic icon updates.
-    * Updated by setMaximizedState() when Main.hx confirms state change.
+    * TextField inside _maximizeBtn.
+    * v3.9: Kept for API compatibility, but no longer used for the icon —
+    * the icon is drawn into _maximizeIcon instead.
     */
     private var _maximizeBtnLabel:TextField;
-    
+
+    /**
+    * v3.9: Icon sprite inside _maximizeBtn (font-independent vector icon).
+    * Redrawn by setMaximizedState() via WindowGlyphs painter:
+    *   windowed  → single square (maximize)
+    *   fullscreen→ stacked squares (restore)
+    */
+    private var _maximizeIcon:Sprite;
+
     // =========================================================================
     // v3.6: DRAG STATE (Absolute Position Model)
     // =========================================================================
-    
+
     /**
     * Drag state for header movement (Haxe-side fallback).
     *
@@ -499,11 +413,11 @@ class DevicePanel extends Sprite
     private var _dragging:Bool = false;
     private var _mouseStartX:Float = 0;
     private var _mouseStartY:Float = 0;
-    
+
     // =========================================================================
     // v3.7: NATIVE DRAG STATE
     // =========================================================================
-    
+
     /**
     * Flag indicating whether drag tick callback has been registered.
     * Ensures registration happens only once per application lifetime.
@@ -511,11 +425,11 @@ class DevicePanel extends Sprite
     * Static because the C++ callback is global (not per-instance).
     */
     private static var _dragTickRegistered:Bool = false;
-    
+
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
-    
+
     /**
     * Create a new DevicePanel instance.
     *
@@ -530,14 +444,14 @@ class DevicePanel extends Sprite
         super();
         _deviceCards = new Array();
         _theme = EditorTheme.getInstance();
-        
+
         #if windows
         _ensureDragTickRegistered();
         #end
-        
+
         addEventListener(Event.ADDED_TO_STAGE, onAdded);
     }
-    
+
     /**
     * Called when panel is added to stage.
     * Removes listener and calls setupUI() to build visual elements.
@@ -547,11 +461,11 @@ class DevicePanel extends Sprite
         removeEventListener(Event.ADDED_TO_STAGE, onAdded);
         setupUI();
     }
-    
+
     // =========================================================================
     // v3.7: DRAG TICK REGISTRATION
     // =========================================================================
-    
+
     /**
     * Register the drag tick callback with C++ layer.
     * Called once per application lifetime (static flag prevents duplicates).
@@ -572,7 +486,7 @@ class DevicePanel extends Sprite
         _registerDragTickBridge(untyped __cpp__('(void*){0}', cpp.Function.fromStaticFunction(_onDragTick)));
         #end
     }
-    
+
     /**
     * Called ~60 times/second WHILE native drag is active.
     *
@@ -619,7 +533,7 @@ class DevicePanel extends Sprite
             // Try to get correct rendering context
             var ctx = untyped win.context;
             if (ctx == null) ctx = untyped stage.__context;
-            
+
             if (win != null && ctx != null) {
                 // Call Lime render event that OpenFL listens to
                 untyped win.onRender.dispatch(ctx);
@@ -645,11 +559,11 @@ class DevicePanel extends Sprite
         ');
         #end
     }
-    
+
     // =========================================================================
     // PUBLIC API
     // =========================================================================
-    
+
     /**
     * Resize the panel to fit the stage.
     *
@@ -670,7 +584,7 @@ class DevicePanel extends Sprite
     public function setSize(w:Float, h:Float):Void
     {
         drawBackground(w, h);
-        
+
         // Resize header
         if (_header != null)
         {
@@ -678,21 +592,21 @@ class DevicePanel extends Sprite
             _header.graphics.beginFill(0x2a2a34);
             _header.graphics.drawRect(0, 0, w, 30);
             _header.graphics.endFill();
-            
-// =========================================================================
-// v3.5: REPOSITION BUTTONS ON RESIZE
-// =========================================================================
-// Keep buttons in the same positions as Main.hx
-			if (_btnClose != null)
-			{
-				_btnClose.x = w - 45;
-				_btnClose.y = 5;
-				
-				// Обновляем видимость при ресайзе/смене режима 
-				var cfg = DisplayConfig.getInstance();
-				_btnClose.visible = cfg.deviceButtons.showClose;
-			}
-            
+
+            // =========================================================================
+            // v3.5: REPOSITION BUTTONS ON RESIZE
+            // =========================================================================
+            // Keep buttons in the same positions as Main.hx
+            if (_btnClose != null)
+            {
+                _btnClose.x = w - 45;
+                _btnClose.y = 5;
+
+                // Update visibility on resize / mode switch
+                var cfg = DisplayConfig.getInstance();
+                _btnClose.visible = cfg.deviceButtons.showClose;
+            }
+
             // Recalculate positions for [E], [C], [□]
             var btnX = w - 45; // Start from close button position
             for (i in 0..._header.numChildren)
@@ -706,7 +620,7 @@ class DevicePanel extends Sprite
             }
         }
     }
-    
+
     /**
     * Set the current assembly context.
     * Updates the title to show "Device Panel: [assembly name]".
@@ -720,25 +634,28 @@ class DevicePanel extends Sprite
         _assembly = assembly;
         _titleLabel.text = "  Device Panel: " + assembly.blueprint.name;
     }
-    
+
     /**
-    * v3.8: Update the maximize button icon based on window state.
-    * Called by Main.hx after it has completed the maximize/restore operation.
+    * v3.9: Update the maximize button VECTOR icon based on window state.
+    * Called by Main._onFullscreenToggled() (FULLSCREEN_TOGGLED impulse).
     *
-    * @param isMaximized true = show restore icon [◱], false = show maximize icon [□]
-    *
-    * Icon meanings:
-    *   [□] = U+25A1 WHITE SQUARE     → "click to maximize" (window is currently windowed)
-    *   [◱] = U+25F1 LOWER RIGHT      → "click to restore" (window is currently maximized)
+    * @param isMaximized true = "restore" stacked squares, false = "maximize" square
     */
     public function setMaximizedState(isMaximized:Bool):Void
     {
-        if (_maximizeBtnLabel != null)
+        if (_maximizeIcon == null) return;
+
+        _maximizeIcon.graphics.clear();
+        if (isMaximized)
         {
-            _maximizeBtnLabel.text = isMaximized ? "◱" : "□";
+            WindowGlyphs.drawRestore(_maximizeIcon.graphics, 28, 26, 0xFFFFFF, 0x555500);
+        }
+        else
+        {
+            WindowGlyphs.drawMaximize(_maximizeIcon.graphics, 28, 26, 0xFFFFFF);
         }
     }
-    
+
     /**
     * Add a device (atom) to the panel.
     *
@@ -758,18 +675,18 @@ class DevicePanel extends Sprite
     public function addDevice(atom:Atom, ?x:Float = null, ?y:Float = null):Void
     {
         if (atom == null) return;
-        
+
         // Avoid duplicates
         for (card in _deviceCards)
         {
             if (card.atom == atom) return;
         }
-        
+
         var card = new DeviceCard(atom, this);
-		card.alpha = 1.0;
+        card.alpha = 1.0;
         _deviceCards.push(card);
         addChild(card);
-        
+
         if (x != null && y != null)
         {
             card.x = x;
@@ -780,11 +697,11 @@ class DevicePanel extends Sprite
             card.x = pos.x;
             card.y = pos.y;
         }
-        
+
         // Emit save signal when adding a new device
         Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
     }
-    
+
     /**
     * Remove a device card from the panel.
     *
@@ -807,7 +724,7 @@ class DevicePanel extends Sprite
             Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
         }
     }
-    
+
     /**
     * Remove all devices from the panel.
     *
@@ -831,7 +748,7 @@ class DevicePanel extends Sprite
         }
         // Do NOT emit event here to prevent cache wipe during mode switch
     }
-    
+
     /**
     * Returns the list of current device cards.
     * Used by Main.hx to sync state to cache before saving.
@@ -842,11 +759,11 @@ class DevicePanel extends Sprite
     {
         return _deviceCards;
     }
-    
+
     // =========================================================================
     // SETUP UI
     // =========================================================================
-    
+
     /**
     * Initialize UI elements and event listeners.
     * Called once when panel is added to stage.
@@ -864,13 +781,13 @@ class DevicePanel extends Sprite
     {
         drawBackground(800, 600);
         createHeader();
-        
+
         // Listeners
         stage.addEventListener(MouseEvent.CLICK, onStageClick);
         stage.addEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
         Impulsys.subscribeToImpulse(EventType.ATOM_DELETED, onAtomDeleted);
     }
-    
+
     /**
     * Draw the panel background.
     * Uses DEVICE_CANVAS_BG_COLOR from EditorTheme.
@@ -885,7 +802,6 @@ class DevicePanel extends Sprite
         graphics.drawRect(0, 0, w, h);
         graphics.endFill();
     }
-    
     /**
     * Create the header bar with title and control buttons.
     *
@@ -899,17 +815,18 @@ class DevicePanel extends Sprite
     * All buttons stop MOUSE_DOWN propagation to prevent unwanted drag.
     *
     * v3.8: Added maximize button and double-click handler for header.
+    * v3.9: Maximize icon is a vector drawing (WindowGlyphs), not a text glyph.
     */
     private function createHeader():Void
     {
         var headerWidth = (stage != null) ? stage.stageWidth : 800;
-        
+
         _header = new Sprite();
         _header.graphics.beginFill(0x2a2a34);
         _header.graphics.drawRect(0, 0, headerWidth, 30);
         _header.graphics.endFill();
         addChild(_header);
-        
+
         _titleLabel = new TextField();
         _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 12, 0xFFFFFF, true);
         _titleLabel.text = "  Device Panel";
@@ -918,7 +835,7 @@ class DevicePanel extends Sprite
         _titleLabel.selectable = false;
         _titleLabel.mouseEnabled = false;
         _header.addChild(_titleLabel);
-        
+
         // =========================================================================
         // v3.5: SHIFTED BUTTONS — moved left to avoid overlap with large [X]
         // =========================================================================
@@ -926,7 +843,7 @@ class DevicePanel extends Sprite
         // [□] button: headerWidth-88 .. headerWidth-60 (safe gap)
         // [C] button: headerWidth-126 .. headerWidth-98 (safe gap)
         // [E] button: headerWidth-164 .. headerWidth-136 (safe gap)
-        
+
         // Button [E] - Editor Mode (leftmost of the group)
         var editorBtn = createHeaderButton("E", 0x005500, function(_)
         {
@@ -934,7 +851,7 @@ class DevicePanel extends Sprite
         });
         editorBtn.x = headerWidth - 164;
         _header.addChild(editorBtn);
-        
+
         // Button [C] - Clear
         var clearBtn = createHeaderButton("C", 0x555500, function(_)
         {
@@ -943,44 +860,47 @@ class DevicePanel extends Sprite
         });
         clearBtn.x = headerWidth - 126;
     //    _header.addChild(clearBtn);
-        
+
         // =========================================================================
-        // v3.8: MAXIMIZE/RESTORE BUTTON [□]/[◱]
+        // v3.9: MAXIMIZE/RESTORE BUTTON — VECTOR ICON (no text glyph → no tofu risk)
         // =========================================================================
-        // Same style as [E] and [C] (28x26).
-        // Icon starts as [□] (maximize). Updated by setMaximizedState().
-        _maximizeBtn = createHeaderButton("□", 0x555500, function(_)
+        // "◱" (U+25F1) is missing from Arial; Lime/FreeType has no font fallback
+        // on C++ targets. The icon is drawn via WindowGlyphs instead and redrawn
+        // by setMaximizedState() on every fullscreen state change.
+        _maximizeBtn = createHeaderButton("", 0x555500, function(_)
         {
             if (onToggleMaximize != null) onToggleMaximize();
         });
         _maximizeBtn.x = headerWidth - 88;
-    //   _header.addChild(_maximizeBtn);
-        
-        // Store label reference for dynamic icon updates
-        _maximizeBtnLabel = cast(_maximizeBtn.getChildAt(0), TextField);
-        // =========================================================================
-        
-		// =========================================================================
-		// v3.5: CREATE EDITOR-STYLE CLOSE BUTTON
-		// =========================================================================
-		_btnClose = new ButtonComponent("X", function()
-		{
-			if (onCloseApp != null) onCloseApp();
-		});
-		_btnClose.x = headerWidth - 45;
-		_btnClose.y = 5;
-	//	_header.addChild(_btnClose);
+        _header.addChild(_maximizeBtn);
 
-		// Читаем начальное состояние видимости из DisplayConfig
-		var cfg = DisplayConfig.getInstance();
-		_btnClose.visible = cfg.deviceButtons.showClose;
-        
+        // Vector icon sprite (mouse-transparent), redrawn by setMaximizedState()
+        _maximizeIcon = new Sprite();
+        _maximizeIcon.mouseEnabled = false;
+        WindowGlyphs.drawMaximize(_maximizeIcon.graphics, 28, 26, 0xFFFFFF);
+        _maximizeBtn.addChild(_maximizeIcon);
+
+        // =========================================================================
+        // v3.5: CREATE EDITOR-STYLE CLOSE BUTTON
+        // =========================================================================
+        _btnClose = new ButtonComponent("x", function()
+        {
+            if (onCloseApp != null) onCloseApp();
+        });
+        _btnClose.x = headerWidth - 45;
+        _btnClose.y = -5;
+        _header.addChild(_btnClose);
+
+        // Read initial visibility state from DisplayConfig
+        var cfg = DisplayConfig.getInstance();
+        _btnClose.visible = cfg.deviceButtons.showClose;
+
         // =========================================================================
         // v3.6: HEADER DRAG FUNCTIONALITY
         // =========================================================================
         _header.addEventListener(MouseEvent.MOUSE_DOWN, onHeaderMouseDown);
         _header.buttonMode = true;
-        
+
         // =========================================================================
         // v3.8: DOUBLE-CLICK HEADER TO TOGGLE MAXIMIZE
         // =========================================================================
@@ -989,14 +909,19 @@ class DevicePanel extends Sprite
         _header.doubleClickEnabled = true;
         _header.addEventListener(MouseEvent.DOUBLE_CLICK, onHeaderDoubleClick);
     }
-    
+
     /**
     * Create a header button with label and click handler.
     *
     * IMPORTANT: Stops MOUSE_DOWN propagation to prevent bubbling to header,
     * which would trigger unwanted drag initiation.
     *
-    * @param label Button text (single character: "E", "C", "□", etc.)
+    * v3.9 FIX: defaultTextFormat is assigned BEFORE setting text.
+    * Flash/OpenFL semantics: defaultTextFormat only applies to text assigned
+    * AFTER it — setting text first leaves the label with default formatting
+    * (no bold, no center alignment).
+    *
+    * @param label Button text (single character: "E", "C", etc.; "" for icon-only buttons)
     * @param color Background color (hex)
     * @param onClick Click handler function
     * @return Sprite containing button graphics and text
@@ -1007,29 +932,29 @@ class DevicePanel extends Sprite
         btn.graphics.beginFill(color);
         btn.graphics.drawRect(0, 0, 28, 26);
         btn.graphics.endFill();
-        
+
         var txt = new TextField();
-        txt.text = label;
         txt.width = 28;
         txt.height = 26;
         txt.selectable = false;
         txt.mouseEnabled = false;
         txt.defaultTextFormat = new TextFormat("_sans", 11, 0xFFFFFF, true, null, null, null, null, "center");
+        txt.text = label;
         btn.addChild(txt);
-        
+
         btn.buttonMode = true;
         btn.addEventListener(MouseEvent.CLICK, onClick);
-        
+
         // Stop MOUSE_DOWN from propagating to header (prevents unwanted drag)
         btn.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent) e.stopPropagation());
-        
+
         return btn;
     }
-    
+
     // =========================================================================
     // v3.7: NATIVE DRAG BRIDGE
     // =========================================================================
-    
+
     /**
     * Start native OS-level window drag (Windows only).
     *
@@ -1060,7 +985,7 @@ class DevicePanel extends Sprite
         return false;
         #end
     }
-    
+
     /**
     * Register Haxe function pointer with C++ layer.
     * Called once during initialization via _ensureDragTickRegistered().
@@ -1071,24 +996,25 @@ class DevicePanel extends Sprite
     * declared in @:cppFileCode, avoiding namespace resolution issues.
     */
     #if windows
-	private static function _registerDragTickBridge(inTick:cpp.RawPointer<cpp.Void>):Void
+        private static function _registerDragTickBridge(inTick:cpp.RawPointer<cpp.Void>):Void
     {
-        
+
         untyped __cpp__('::_dp_registerDragTick((void*){0});', inTick);
-       
+
     }
      #end
     // =========================================================================
     // v3.6: HEADER DRAG HANDLERS
     // =========================================================================
-    
+
     /**
     * Handle MOUSE_DOWN on header to initiate window drag.
     *
     * Strategy:
     * 1. Check if click was on a button (skip drag if so)
-    * 2. Try native OS drag first (Windows only) — perfect smoothness
-    * 3. If native drag fails or non-Windows — fall back to Haxe-side drag
+    * 2. v3.9: If window is fullscreen — restore it FIRST (standard OS behavior)
+    * 3. Try native OS drag first (Windows only) — perfect smoothness
+    * 4. If native drag fails or non-Windows — fall back to Haxe-side drag
     *
     * Native drag blocks the thread until mouse-up, so no Haxe listeners are needed.
     * Haxe-side drag uses absolute position model to prevent flicker.
@@ -1098,7 +1024,7 @@ class DevicePanel extends Sprite
     private function onHeaderMouseDown(e:MouseEvent):Void
     {
         if (_dragging) return;
-        
+
         // Check if click was on a button (walk up display list)
         var targetObj:openfl.display.DisplayObject = cast e.target;
         while (targetObj != null && targetObj != _header)
@@ -1110,7 +1036,17 @@ class DevicePanel extends Sprite
             }
             targetObj = targetObj.parent;
         }
-        
+
+        // =========================================================================
+        // v3.11 NOTE: With true SW_MAXIMIZE (WindowController v1.5) the native
+        // caption drag performs the restore-under-cursor dance AUTOMATICALLY
+        // when the user drags a zoomed window — the former manual reposition
+        // block (v3.10) was removed because it would fight the OS behavior
+        // (double restore, lost cursor ratio).
+        // DisplayConfig.isFullscreen is re-synced by Main.onResize (IsZoomed)
+        // right after the modal loop returns.
+        // =========================================================================
+
         // =========================================================================
         // v3.7: TRY NATIVE OS DRAG FIRST (Windows only)
         // =========================================================================
@@ -1120,26 +1056,26 @@ class DevicePanel extends Sprite
             // Window is now at its final position. Done.
             return;
         }
-        
+
         // =========================================================================
         // FALLBACK: Haxe-side absolute-position drag (non-Windows or native failed)
         // =========================================================================
         _dragging = true;
-        
+
         // Store START mouse position (absolute, not delta)
         _mouseStartX = e.stageX;
         _mouseStartY = e.stageY;
-        
+
         // Notify Main.hx to capture current window position
         if (onWindowDragStart != null) onWindowDragStart();
-        
+
         if (stage != null)
         {
             stage.addEventListener(MouseEvent.MOUSE_MOVE, onHeaderMouseMove);
             stage.addEventListener(MouseEvent.MOUSE_UP, onHeaderMouseUp);
         }
     }
-    
+
     /**
     * Handle MOUSE_MOVE during Haxe-side drag.
     * Computes delta from START position (not previous frame) to prevent flicker.
@@ -1149,18 +1085,18 @@ class DevicePanel extends Sprite
     private function onHeaderMouseMove(e:MouseEvent):Void
     {
         if (!_dragging) return;
-        
+
         // Delta from START position (absolute model)
         var dx = e.stageX - _mouseStartX;
         var dy = e.stageY - _mouseStartY;
-        
+
         // Notify Main.hx with absolute delta
         if (onWindowDrag != null)
         {
             onWindowDrag(dx, dy);
         }
     }
-    
+
     /**
     * Handle MOUSE_UP to end Haxe-side drag.
     * Removes move/up listeners and resets _dragging flag.
@@ -1170,18 +1106,18 @@ class DevicePanel extends Sprite
     private function onHeaderMouseUp(e:MouseEvent):Void
     {
         _dragging = false;
-        
+
         if (stage != null)
         {
             stage.removeEventListener(MouseEvent.MOUSE_MOVE, onHeaderMouseMove);
             stage.removeEventListener(MouseEvent.MOUSE_UP, onHeaderMouseUp);
         }
     }
-    
+
     // =========================================================================
     // v3.8: DOUBLE-CLICK HANDLER (Maximize/Restore)
     // =========================================================================
-    
+
     /**
     * Handle double-click on header to toggle maximize/restore.
     *
@@ -1206,15 +1142,15 @@ class DevicePanel extends Sprite
             }
             targetObj = targetObj.parent;
         }
-        
+
         // Double-click was on header background — toggle maximize
         if (onToggleMaximize != null) onToggleMaximize();
     }
-    
+
     // =========================================================================
     // CONTEXT MENU
     // =========================================================================
-    
+
     /**
     * Handle RIGHT_CLICK to show/hide context menu.
     * Toggles menu visibility at click coordinates.
@@ -1226,7 +1162,7 @@ class DevicePanel extends Sprite
         if (_menuVisible) hideContextMenu();
         else showContextMenu(e.stageX, e.stageY);
     }
-    
+
     /**
     * Show context menu with list of available devices.
     *
@@ -1245,19 +1181,19 @@ class DevicePanel extends Sprite
     private function showContextMenu(x:Float, y:Float):Void
     {
         hideContextMenu(); // Clean previous
-        
+
         _contextMenu = new Sprite();
         var yPos = 5;
-        
+
         var headerItem = createMenuItem("Add Device:", null, true);
         headerItem.y = yPos;
         _contextMenu.addChild(headerItem);
         yPos += 28;
-        
+
         // Get list from Main
         var devices = (onGetAssemblyList != null) ? onGetAssemblyList() : [];
         devices = [for (d in devices) if (d.id != "selfrun") d];
-        
+
         if (devices.length == 0)
         {
             var emptyItem = createMenuItem("(No devices)", null, true);
@@ -1275,21 +1211,21 @@ class DevicePanel extends Sprite
                 yPos += 26;
             }
         }
-        
+
         // Draw background
         _contextMenu.graphics.beginFill(0x333344, 0.98);
         _contextMenu.graphics.lineStyle(1, 0x555566);
         _contextMenu.graphics.drawRoundRect(0, 0, 190, yPos + 10, 6, 6);
         _contextMenu.graphics.endFill();
-        
+
         // Clamp to stage bounds
         _contextMenu.x = Math.min(x, stage.stageWidth - 200);
         _contextMenu.y = Math.min(Math.max(y - 30, 0), stage.stageHeight - yPos - 20);
-        
+
         addChild(_contextMenu);
         _menuVisible = true;
     }
-    
+
     /**
     * Hide and remove context menu from display list.
     */
@@ -1302,7 +1238,7 @@ class DevicePanel extends Sprite
         _contextMenu = null;
         _menuVisible = false;
     }
-    
+
     /**
     * Handle CLICK on stage to hide context menu if clicked outside.
     *
@@ -1318,7 +1254,7 @@ class DevicePanel extends Sprite
             }
         }
     }
-    
+
     /**
     * Create a context menu item with label and optional atom reference.
     *
@@ -1333,7 +1269,7 @@ class DevicePanel extends Sprite
         item.graphics.beginFill(disabled ? 0x333344 : 0x444455);
         item.graphics.drawRect(0, 0, 180, 24);
         item.graphics.endFill();
-        
+
         var txt = new TextField();
         txt.defaultTextFormat = new TextFormat("_typewriter", 11, disabled ? 0x777788 : 0xFFFFFF);
         txt.text = (disabled || atom == null) ? label : "+ " + label;
@@ -1343,18 +1279,18 @@ class DevicePanel extends Sprite
         txt.selectable = false;
         txt.mouseEnabled = false;
         item.addChild(txt);
-        
+
         if (!disabled && atom != null)
         {
             item.buttonMode = true;
             final capturedAtom = atom;
-            
+
             item.addEventListener(MouseEvent.CLICK, function(e:MouseEvent)
             {
                 addDevice(capturedAtom);
                 hideContextMenu();
             });
-            
+
             item.addEventListener(MouseEvent.MOUSE_OVER, function(e:MouseEvent)
             {
                 item.graphics.clear();
@@ -1362,7 +1298,7 @@ class DevicePanel extends Sprite
                 item.graphics.drawRect(0, 0, 180, 24);
                 item.graphics.endFill();
             });
-            
+
             item.addEventListener(MouseEvent.MOUSE_OUT, function(e:MouseEvent)
             {
                 item.graphics.clear();
@@ -1371,14 +1307,14 @@ class DevicePanel extends Sprite
                 item.graphics.endFill();
             });
         }
-        
+
         return item;
     }
-    
+
     // =========================================================================
     // EVENTS & HELPERS
     // =========================================================================
-    
+
     /**
     * Handle ATOM_DELETED impulse to remove deleted atom's card.
     *
@@ -1391,7 +1327,7 @@ class DevicePanel extends Sprite
     {
         if (impulse.data == null) return;
         var deletedId:String = impulse.data.id;
-        
+
         var toRemove:Array<DeviceCard> = [];
         for (card in _deviceCards)
         {
@@ -1400,13 +1336,13 @@ class DevicePanel extends Sprite
                 toRemove.push(card);
             }
         }
-        
+
         for (card in toRemove)
         {
             removeDevice(card);
         }
     }
-    
+
     /**
     * Find a free position for a new device card.
     * Uses grid-based search with fallback to random position.
@@ -1425,7 +1361,7 @@ class DevicePanel extends Sprite
         var startY = 50; // Below header
         var stepX = 120;
         var stepY = 100;
-        
+
         for (y in 0...10)
         {
             for (x in 0...5)
@@ -1435,11 +1371,11 @@ class DevicePanel extends Sprite
                 if (isPositionFree(px, py)) return {x: px, y: py};
             }
         }
-        
+
         // Fallback: random position
         return {x: startX + Math.random() * 200, y: startY + Math.random() * 150};
     }
-    
+
     /**
     * Check if a position is free (no overlapping cards).
     *
@@ -1455,7 +1391,7 @@ class DevicePanel extends Sprite
         }
         return true;
     }
-    
+
     /**
     * Clean up all resources and event listeners.
     *
@@ -1471,7 +1407,7 @@ class DevicePanel extends Sprite
     public function dispose():Void
     {
         clearDevices();
-        
+
         // Cleanup close button
         if (_btnClose != null)
         {
@@ -1481,16 +1417,18 @@ class DevicePanel extends Sprite
             }
             _btnClose = null;
         }
-        
+
         // =========================================================================
         // v3.8: CLEANUP MAXIMIZE BUTTON
         // =========================================================================
         _maximizeBtn = null;
         _maximizeBtnLabel = null;
+        _maximizeIcon = null; // v3.9
         // =========================================================================
-        
+
         stage.removeEventListener(MouseEvent.CLICK, onStageClick);
         stage.removeEventListener(MouseEvent.RIGHT_CLICK, onRightClick);
         Impulsys.removeImpulse(EventType.ATOM_DELETED, onAtomDeleted);
     }
 }
+

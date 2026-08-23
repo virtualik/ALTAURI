@@ -28,15 +28,16 @@
 	<window hardware="true" vsync="true" allow-shaders="true" antialiasing="0" fps="60" />
 	
 	<!-- Специфичные настройки для Windows / C++ -->
-	<window if="cpp" 
-			visible="false"
-			borderless="true"
-			allow-high-dpi="false"
-			width="1024" 
-			height="600"
-			background="#FF00FF"
-			transparent="true"
-			render="webgl" hardware="true" vsync="true" />
+	<window if="cpp"
+        visible="false"
+        borderless="true"
+        resizable="true"
+        allow-high-dpi="false"
+        width="1024"
+        height="600"
+        background="#FF00FF"
+        transparent="true"
+        render="webgl" hardware="true" vsync="true" />
 	
 	<!-- Специфичные настройки для HTML5 -->
 	<!-- СЛУЧАЙ 1 НА ВЕСЬ БРАУЗЕР: Не задаём width и height, чтобы браузер сам подогнал canvas 1:1 -->

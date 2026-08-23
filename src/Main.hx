@@ -33,6 +33,8 @@ import ui.DevicePanel;
 import ui.WindowController;
 import ui.DisplayConfig;
 import ui.DisplayMode;
+import ui.TitleBar;
+import ui.ResizeGrip;
 import system.commands.editor.CreateNewAssemblyCommand;
 import system.commands.editor.DeleteWiresCommand;
 import system.commands.editor.DeleteAtomCommand;
@@ -169,13 +171,13 @@ class Main extends Sprite
 	private var _devicePanel:DevicePanel;
 	private var _windowController:WindowController;
 
-// ═══════════════════════════════════════════════════════════════════════
-// v3.0 REMOVED: _isPanelMode and _isWindowMaximized
-// These are now managed by DisplayConfig singleton.
-// ═══════════════════════════════════════════════════════════════════════
-// private var _isPanelMode:Bool = false;
-// private var _isWindowMaximized:Bool = false;
+// --- v4.0: Editor chrome (title bar + corner resize grip) ---
+	private var _titleBar:TitleBar;
+	private var _resizeGrip:ResizeGrip;
 
+// --- v4.3: startup-complete guard for fullscreen autosave ---
+	private var _uiReady:Bool = false;
+	
 // v2.2: Cache for window position
 	private var _cachedDeviceWindowState:Array<
 	{
@@ -315,9 +317,16 @@ class Main extends Sprite
 		log("System initialized");
 
 		removeEventListener(Event.ADDED_TO_STAGE, init);
+		
+// v4.3: Restore window rect + maximized state from the previous session
+// BEFORE the window becomes visible (project.xml starts it hidden → no flash)
+		#if !html5
+		restoreMainWindowState();
+		#end
+		
 		openfl.Lib.current.stage.window.visible = true;
 		stage.color = _theme.APP_BG_BLACK;
-
+		
 // Set low rendering quality.
 // This disables Anti-Aliasing for vector graphics (lines, circles).
 		stage.quality = openfl.display.StageQuality.LOW;
@@ -371,6 +380,9 @@ class Main extends Sprite
 		
 // Pass control of the limit to TickGenerator
 		TickGenerator.getInstance().maxStepsPerFrame = 100;
+		
+// v4.3: Startup complete — enable fullscreen-toggle autosave
+		_uiReady = true;
 	}
 
 // =========================================================================
@@ -382,7 +394,8 @@ class Main extends Sprite
 	*/
 	private function initTransparency():Void
 	{
-		_windowController = new WindowController();
+		// v1.1: Singleton — TitleBar and ResizeGrip share this instance
+		_windowController = WindowController.getInstance();
 
 		#if windows
 // Enable transparency by default at startup
@@ -882,7 +895,7 @@ class Main extends Sprite
 				_cachedWindowWidth,
 				_cachedWindowHeight,
 				_cachedWindowX,
-				_cachedWindowY
+				_cachedWindowY, collectMainWindowState()
 			);
 		}
 		else {
@@ -1277,25 +1290,8 @@ class Main extends Sprite
 		var h:Float = impulse.data.height;
 
 // Update button positions (right-to-left layout)
-		var cfg = DisplayConfig.getInstance();
-		var btnSize = cfg.editorButtons.buttonSize;
-		var btnPadding = cfg.buttonPadding;
-		var rightEdge = w - btnPadding;
-
-		if (_btnClose != null) _btnClose.x = rightEdge - btnSize;
-		if (_btnBack != null) _btnBack.x = _btnClose.x - btnSize - btnPadding;
-		if (_btnDelete != null) _btnDelete.x = _btnBack.x - btnSize - btnPadding;
-		if (_btnView != null) _btnView.x = _btnDelete.x - btnSize - btnPadding;
-		if (_btnNew != null) _btnNew.x = _btnView.x - btnSize - btnPadding;
-		if (_btnReset != null) _btnReset.x = _btnNew.x - btnSize - btnPadding;
-		if (_btnSettings != null) _btnSettings.x = _btnReset.x - btnSize - btnPadding;
-
-// Update editor size
-		if (_editorContext.currentEditor != null)
-		{
-			var margin = 12;
-			_editorContext.currentEditor.setSize(w - margin * 2, h - margin * 2);
-		}
+		// v4.0: Unified chrome layout (TitleBar + buttons + editor offset + grip)
+		layoutChrome();
 
 // Update device panel size
 		if (_devicePanel != null && _devicePanel.visible)
@@ -1306,21 +1302,31 @@ class Main extends Sprite
 
 	/**
 	* Handle FULLSCREEN_TOGGLED event from DisplayConfig.
-	* Updates the DevicePanel maximize button icon when fullscreen state changes.
+	* Updates maximize icons (TitleBar + DevicePanel), resize grip visibility,
+	* and v4.3: persists the window state (agreed cadence: exit + toggle).
 	*
 	* @param impulse Impulse containing {isFullscreen: Bool}
 	*/
 	private function _onFullscreenToggled(impulse:Impulse):Void
 	{
-		if (impulse == null || impulse.data == null) return;
+			if (impulse == null || impulse.data == null) return;
 
-		var isFullscreen:Bool = impulse.data.isFullscreen;
+			var isFullscreen:Bool = impulse.data.isFullscreen;
 
-// Update DevicePanel maximize button icon
-		if (_devicePanel != null)
-		{
-			_devicePanel.setMaximizedState(isFullscreen);
-		}
+			if (_devicePanel != null) _devicePanel.setMaximizedState(isFullscreen);
+			if (_titleBar != null) _titleBar.setMaximizedState(isFullscreen);
+			if (_resizeGrip != null) _resizeGrip.visible = !isFullscreen;
+
+// v4.3: persist window state on every fullscreen toggle.
+// _uiReady guards the startup maximize (restoreMainWindowState) from
+// triggering a save BEFORE the project is fully loaded.
+			#if !html5
+			if (_uiReady)
+			{
+					_editorContext.prepareCurrentAssemblyForSave();
+					saveCurrentContext();
+			}
+			#end
 	}
 
 // =========================================================================
@@ -1431,36 +1437,90 @@ class Main extends Sprite
 		var startX = stage.stageWidth - btnPadding;
 		var startY = btnPadding;
 
+		// =========================================================================
+// v4.0: EDITOR TITLE BAR (top chrome: drag + [-] minimize + [□] maximize)
+// =========================================================================
+// Created FIRST so it renders behind every other _uiLayer child.
+// Main's editor buttons are re-parented INTO the bar (see M5), the bar
+// owns their layout via setSize(); the three duplicated positioning
+// blocks (buildUI / onResize / _onSceneResized) collapse into layoutChrome().
+		_titleBar = new TitleBar();
+		_uiLayer.addChild(_titleBar);
+
+// Maximize/Restore → DisplayConfig (cross-platform; emits FULLSCREEN_TOGGLED,
+// which updates BOTH TitleBar and DevicePanel icons — single source of truth)
+		_titleBar.onToggleMaximize = function()
+		{
+				var win = Lib.current.stage.window;
+				DisplayConfig.getInstance().toggleFullscreen(win);
+		};
+
+// Minimize → OS taskbar (button is hidden on HTML5 inside TitleBar itself)
+		_titleBar.onMinimize = function()
+		{
+				_windowController.minimize();
+		};
+
+// Haxe-side drag fallback (absolute position model — same as DevicePanel v3.5)
+	{
+			var dragStartX:Int = 0;
+			var dragStartY:Int = 0;
+
+			_titleBar.onWindowDragStart = function()
+			{
+					var win = Lib.current.stage.window;
+					if (win != null)
+					{
+							dragStartX = win.x;
+							dragStartY = win.y;
+					}
+			};
+
+			_titleBar.onWindowDrag = function(dx:Float, dy:Float)
+			{
+					var win = Lib.current.stage.window;
+					if (win != null)
+					{
+							// Absolute position = start + delta (no rounding drift)
+							win.x = dragStartX + Std.int(dx);
+							win.y = dragStartY + Std.int(dy);
+					}
+			};
+	}
+
 		_popup = new TextInputPopup();
 		addChild(_popup);
-
+// Registration order matters: [X] first (rightmost), then <, E, V, N, R, ? —
+// TitleBar places them right-to-left AFTER the native [-][□] pair:
+// [ Selfrun ... ]                   [?][R][N][V][E][<]   [-]    [□]    [X]
+//  └ drag zone ┘                   └──── Main 40×40 ──┘└28×26┘└28×26┘└40×40┘
 		_btnClose = new ButtonComponent("X", onCloseClicked);
 		_btnClose.x = startX - btnSize; _btnClose.y = startY;
-		_uiLayer.addChild(_btnClose);
+		_titleBar.addControlButton(_btnClose);
 
 		_btnBack = new ButtonComponent("<", onBackClicked);
 		_btnBack.x = _btnClose.x - btnSize - btnPadding; _btnBack.y = startY;
-		_uiLayer.addChild(_btnBack);
+		_titleBar.addControlButton(_btnBack);
 
 		_btnDelete = new ButtonComponent("E", onDeleteCurrentAssembly);
 		_btnDelete.x = _btnBack.x - btnSize - btnPadding; _btnDelete.y = startY;
-		_uiLayer.addChild(_btnDelete);
+		_titleBar.addControlButton(_btnDelete);
 
 		_btnView = new ButtonComponent("V", onToggleView);
 		_btnView.x = _btnDelete.x - btnSize - btnPadding; _btnView.y = startY;
-		_uiLayer.addChild(_btnView);
+		_titleBar.addControlButton(_btnView);
 
 		_btnNew = new ButtonComponent("N", onNewAssembly);
 		_btnNew.x = _btnView.x - btnSize - btnPadding; _btnNew.y = startY;
-		_uiLayer.addChild(_btnNew);
+		_titleBar.addControlButton(_btnNew);
 
 		_btnReset = new ButtonComponent("R", onResetClick);
 		_btnReset.x = _btnNew.x - btnSize - btnPadding; _btnReset.y = startY;
-		_uiLayer.addChild(_btnReset);
+		_titleBar.addControlButton(_btnReset);
 
 		_btnSettings = new ButtonComponent("?", onSettingsClick);
 		_btnSettings.x = _btnReset.x - btnSize - btnPadding; _btnSettings.y = startY;
-		_uiLayer.addChild(_btnSettings);
+		 _titleBar.addControlButton(_btnSettings);
 
 		_nameField = new TextField();
 		_nameField.defaultTextFormat = new TextFormat("_sans", 24, _theme.TITLE_TEXT_COLOR, true);
@@ -1589,6 +1649,18 @@ Impulsys.subscribeToImpulse(EventType.FULLSCREEN_TOGGLED, _onFullscreenToggled);
 		// UI update is handled by _onFullscreenToggled handler via Impulsys
 		// which calls _devicePanel.setMaximizedState(cfg.isFullscreen)
 		};
+		// =========================================================================
+		// v4.0: RESIZE GRIP (manual window resize — works in BOTH display modes)
+		// =========================================================================
+		// Added to Main ROOT after all layers → always on top, never clipped.
+		// Hidden on HTML5 (browser owns canvas size).
+		#if !html5
+		_resizeGrip = new ResizeGrip();
+		_resizeGrip.windowController = _windowController;
+		addChild(_resizeGrip);
+		#end
+		// v4.0: Initial chrome layout (bar + buttons + editor offset + grip position)
+		layoutChrome();
 	}
 
 	/**
@@ -1608,79 +1680,346 @@ Impulsys.subscribeToImpulse(EventType.FULLSCREEN_TOGGLED, _onFullscreenToggled);
 		updateSettingsStats();
 	}
 
-	/**
-	* Window resize handler.
-	*
-	* v3.0: Uses DisplayConfig for scene dimensions and fullscreen state.
-	*/
-	private function onResize(e:Event):Void
-	{
-		graphics.clear();
-		graphics.beginFill(_theme.APP_BG_COLOR, 0); // Alpha = 0 (Fully transparent)
-		graphics.drawRect(0, 0, stage.stageWidth, stage.stageHeight);
-		graphics.endFill();
+    /**
+    * Window resize handler.
+    *
+    * v4.2: fullscreen state sync uses IsZoomed (OS truth) on Windows;
+    * the old size heuristic stays only for non-Windows native targets.
+    */
+    private function onResize(e:Event):Void
+    {
+        graphics.clear();
+        graphics.beginFill(_theme.APP_BG_COLOR, 0); // Alpha = 0 (Fully transparent)
+        graphics.drawRect(0, 0, stage.stageWidth, stage.stageHeight);
+        graphics.endFill();
 
-		_debugField.y = stage.stageHeight - 40;
-		_pathField.y = stage.stageHeight - 20;
+        _debugField.y = stage.stageHeight - 40;
+        _pathField.y = stage.stageHeight - 20;
 
-// v3.0: Use DisplayConfig for button sizes
-		var cfg = DisplayConfig.getInstance();
-		var btnSize = cfg.editorButtons.buttonSize;
-		var btnPadding = cfg.buttonPadding;
-		var rightEdge = stage.stageWidth - btnPadding;
+        var cfg = DisplayConfig.getInstance();
 
-		_btnClose.x = rightEdge - btnSize;
-		_btnBack.x = _btnClose.x - btnSize - btnPadding;
-		_btnDelete.x = _btnBack.x - btnSize - btnPadding;
-		_btnView.x = _btnDelete.x - btnSize - btnPadding;
-		_btnNew.x = _btnView.x - btnSize - btnPadding;
-		_btnReset.x = _btnNew.x - btnSize - btnPadding;
-		_btnSettings.x = _btnReset.x - btnSize - btnPadding;
-
-		if (_editorContext.currentEditor != null)
-		{
-			var margin = 12;
-			_editorContext.currentEditor.setSize(stage.stageWidth - margin*2, stage.stageHeight - margin*2);
-		}
+// v4.0: Unified chrome layout (TitleBar + buttons + editor offset + grip)
+        layoutChrome();
 
 // v2.5: Resize DevicePanel if active
-// v3.0: Use DisplayConfig instead of _isPanelMode
-		if (cfg.isDeviceMode() && _devicePanel != null)
-		{
-			_devicePanel.setSize(stage.stageWidth, stage.stageHeight);
-		}
+        if (cfg.isDeviceMode() && _devicePanel != null)
+        {
+            _devicePanel.setSize(stage.stageWidth, stage.stageHeight);
+        }
 
 // =========================================================================
-// v3.8: SYNC MAXIMIZE STATE WITH WINDOW SIZE
+// v3.8 / v4.2: SYNC MAXIMIZE STATE WITH THE OS
 // =========================================================================
-// If window was resized externally (e.g., user dragged to screen edge),
-// update maximize state to match
-// v3.0: Use DisplayConfig instead of _isWindowMaximized
-		if (cfg.isDeviceMode() && _devicePanel != null)
-		{
-			var win = Lib.current.stage.window;
-			if (win != null)
-			{
-				var display = win.display;
-				if (display != null && display.currentMode != null)
-				{
-					var isFullscreen = (win.width >= display.currentMode.width - 10 &&
-					win.height >= display.currentMode.height - 10);
+// Windows: IsZoomed is the authoritative source (SW_MAXIMIZE).
+// Other native: legacy size heuristic.
+// Icon updates happen automatically via the isFullscreen setter, which
+// emits FULLSCREEN_TOGGLED → _onFullscreenToggled() → both bars + grip.
+        if (_devicePanel != null || _titleBar != null)
+        {
+            var win = Lib.current.stage.window;
+            if (win != null)
+            {
+                #if windows
+                var isFullscreen = _windowController.isZoomed();
+                #else
+                var isFullscreen = false;
+                var display = win.display;
+                if (display != null && display.currentMode != null)
+                {
+                    isFullscreen = (win.width >= display.currentMode.width - 10 &&
+                        win.height >= display.currentMode.height - 10);
+                }
+                #end
 
-					if (isFullscreen != cfg.isFullscreen)
-					{
-						cfg.isFullscreen = isFullscreen;
-						_devicePanel.setMaximizedState(cfg.isFullscreen);
-					}
-				}
-			}
-		}
+                if (isFullscreen != cfg.isFullscreen)
+                {
+                    cfg.isFullscreen = isFullscreen; // setter emits FULLSCREEN_TOGGLED
+                }
+            }
+        }
 
 // v3.0: Update DisplayConfig scene dimensions
-		cfg.sceneWidth = stage.stageWidth;
-		cfg.sceneHeight = stage.stageHeight;
+        cfg.sceneWidth = stage.stageWidth;
+        cfg.sceneHeight = stage.stageHeight;
+    }
+	
+	/**
+	* v4.0: Unified top-chrome layout.
+	* Single place that positions:
+	*   1. TitleBar background + ALL control buttons (native + editor row)
+	*   2. Editor layer vertical offset (content starts below the bar)
+	*   3. Current editor forced size (stage minus bar minus margins)
+	*   4. Resize grip pinned to the bottom-right corner
+	*
+	* Called from: buildUI, onResize, _onSceneResized, updateNavigationUI
+	* (updateNavigationUI ensures freshly pushed NodeEditors — created when
+	*  the user enters an assembly — also receive the bar offset).
+	*/
+	private function layoutChrome():Void
+	{
+			if (stage == null) return;
+			var w:Float = stage.stageWidth;
+			var h:Float = stage.stageHeight;
+
+			// 1. Title bar + all control buttons inside it
+			if (_titleBar != null) _titleBar.setSize(w, h);
+
+			// 2. Editor content starts below the bar
+			if (_editorLayer != null) _editorLayer.y = TitleBar.BAR_HEIGHT;
+
+			if (_editorContext != null && _editorContext.currentEditor != null)
+			{
+					var margin = 12;
+					_editorContext.currentEditor.setSize(
+							w - margin * 2,
+							h - TitleBar.BAR_HEIGHT - margin * 2);
+			}
+
+			// 3. Resize grip pinned to bottom-right corner
+			if (_resizeGrip != null)
+			{
+					_resizeGrip.x = w - ResizeGrip.SIZE;
+					_resizeGrip.y = h - ResizeGrip.SIZE;
+			}
 	}
 
+    /**
+	* v4.3: Restore the main window rect + maximized state from the previous
+	* session (Selfrun.atom → "mainWindow" section).
+	*
+	* v4.3.2 FIXES:
+	* - Saved rect sanitized BEFORE applying: an entry covering >= 98% of the
+	*   target display (corrupt "fullscreen stored as windowed" — the bug
+	*   where restore produced a taskbar-covering windowed window) is
+	*   self-healed to 90% of the display.
+	* - cfg.saveWindowState(win) is called AFTER positioning and BEFORE
+	*   SW_MAXIMIZE, seeding DisplayConfig.savedWindowRect with the TRUE
+	*   pre-maximize rect. Previously a session that STARTED maximized and
+	*   never toggled [□] could exit with a stale/null savedWindowRect and
+	*   persist the fullscreen rect as the windowed one.
+	*/
+	private function restoreMainWindowState():Void
+	{
+		#if !html5
+		var st = _projectManager.loadMainWindowStateEarly();
+		var win = Lib.current.stage.window;
+		if (st == null || win == null) return;
+
+		var bounds = _currentDisplayBounds(win, st.screen);
+		if (bounds == null) bounds = new lime.math.Rectangle(0, 0, 1920, 1080);
+
+		var w = Math.min(Math.max(st.width, WindowController.MIN_TRACK_W), bounds.width);
+		var h = Math.min(Math.max(st.height, WindowController.MIN_TRACK_H), bounds.height);
+
+// v4.3.2: self-heal a corrupt fullscreen-sized windowed rect
+		if (w >= bounds.width * 0.98 && h >= bounds.height * 0.98)
+		{
+				w = bounds.width * 0.9;
+				h = bounds.height * 0.9;
+		}
+
+		var x = Math.min(Math.max(st.x, bounds.x), bounds.x + bounds.width - 100);
+		var y = Math.min(Math.max(st.y, bounds.y), bounds.y + bounds.height - 40);
+
+		win.resize(Std.int(w), Std.int(h));
+		win.move(Std.int(x), Std.int(y));
+
+// v4.3.2: seed savedWindowRect with the TRUE pre-maximize rect
+		DisplayConfig.getInstance().saveWindowState(win);
+
+		#if windows
+		if (st.maximized && _windowController != null)
+		{
+				_windowController.maximize();
+				// cfg.isFullscreen is synced by onResize (IsZoomed) — icons follow
+		}
+		#end
+		#end
+	}
+
+  /**
+	* v4.3: Collect the current main window state for persistence.
+	*
+	* v4.3.2: while zoomed, the pre-maximize rect is taken from
+	* DisplayConfig.savedWindowRect ONLY when it is sane (>= min track size
+	* and < 98% of the display). Otherwise it is synthesized as 90% of the
+	* display, centered — a corrupt/stale savedWindowRect can no longer
+	* poison the save file with a fullscreen-sized windowed rect.
+	*/
+	private function collectMainWindowState():{x:Float, y:Float, width:Float, height:Float, screen:Int, maximized:Bool}
+	{
+		var win = Lib.current.stage.window;
+		var cfg = DisplayConfig.getInstance();
+		var maximized:Bool = false;
+		#if windows
+		if (_windowController != null) maximized = _windowController.isZoomed();
+		#end
+
+		var x:Float = win.x;
+		var y:Float = win.y;
+		var w:Float = win.width;
+		var h:Float = win.height;
+
+		if (maximized)
+		{
+				var bounds = _currentDisplayBounds(win, -1);
+				if (bounds == null) bounds = new lime.math.Rectangle(0, 0, 1920, 1080);
+
+				var r = cfg.savedWindowRect;
+				var sane:Bool = (r != null
+						&& r.w >= WindowController.MIN_TRACK_W && r.h >= WindowController.MIN_TRACK_H
+						&& r.w <= bounds.width * 0.98 && r.h <= bounds.height * 0.98);
+
+				if (sane)
+				{
+						x = r.x; y = r.y; w = r.w; h = r.h;
+				}
+				else
+				{
+						// v4.3.2: synthesize 90% of the display, centered
+						x = bounds.x + bounds.width * 0.05;
+						y = bounds.y + bounds.height * 0.05;
+						w = bounds.width * 0.9;
+						h = bounds.height * 0.9;
+				}
+		}
+
+		return { x: x, y: y, width: w, height: h, screen: findScreenIndex(win), maximized: maximized };
+	}
+
+	/**
+	* v4.3.2: Index of the display the window currently sits on.
+	* Reference comparison of win.display is NOT reliable on C++ (Lime may
+	* return a different instance), so the check is geometric: which display
+	* bounds CONTAIN the window center; ties resolved by max overlap area.
+	* Fallback: 0 (primary).
+	*/
+	private function findScreenIndex(win:lime.ui.Window):Int
+	{
+		var displays = _getDisplayList();
+		if (displays == null || displays.length == 0) return 0;
+
+		var cx = win.x + win.width / 2;
+		var cy = win.y + win.height / 2;
+
+		// Pass 1: center containment
+		for (i in 0...displays.length)
+		{
+				var d = displays[i];
+				if (d == null || d.bounds == null) continue;
+				var b = d.bounds;
+				if (cx >= b.x && cx <= b.x + b.width && cy >= b.y && cy <= b.y + b.height)
+				{
+						return i;
+				}
+		}
+
+		// Pass 2: max overlap area (window between monitors)
+		var best = 0;
+		var bestArea:Float = -1;
+		for (i in 0...displays.length)
+		{
+				var d = displays[i];
+				if (d == null || d.bounds == null) continue;
+				var b = d.bounds;
+				var ox = Math.max(0, Math.min(win.x + win.width, b.x + b.width) - Math.max(win.x, b.x));
+				var oy = Math.max(0, Math.min(win.y + win.height, b.y + b.height) - Math.max(win.y, b.y));
+				var area = ox * oy;
+				if (area > bestArea) { bestArea = area; best = i; }
+		}
+		return best;
+	}
+
+	/**
+	* v4.3.2: Bounds of a display by saved index (or of the window current
+	* display when index < 0). Fallback chain: display list → win.display.
+	*/
+	private function _currentDisplayBounds(win:lime.ui.Window, screenIdx:Int):lime.math.Rectangle
+	{
+			var displays = _getDisplayList();
+			if (displays != null && displays.length > 0)
+			{
+					if (screenIdx >= 0 && screenIdx < displays.length && displays[screenIdx] != null)
+					{
+							return displays[screenIdx].bounds;
+					}
+			}
+			if (win != null && win.display != null) return win.display.bounds;
+			return null;
+	}
+		
+    /**
+    * v4.3.3 FIX: Enumerate connected displays version-safely.
+    * The display-list API shape differs across Lime builds and NONE of the
+    * static paths can be referenced directly at compile time:
+    *   - lime.system.DisplayManager.displays  (static var, Lime 7.x)
+    *   - lime.system.Display.getDisplays()    (static method, some builds)
+    * Neither exists in this Lime build (both produced compile errors), so
+    * EVERYTHING goes through reflection. When no static list is resolvable
+    * the method returns null and all callers fall back to win.display
+    * (the instance getter that provably works in this project — it was
+    * used by the pre-v4.x onResize fullscreen heuristic).
+    */
+    private function _getDisplayList():Array<lime.system.Display>
+    {
+        // Path 1: DisplayManager.displays (Lime 7.x)
+        try
+        {
+            var dm = Type.resolveClass("lime.system.DisplayManager");
+            if (dm != null)
+            {
+                var list = Reflect.field(dm, "displays");
+                if (list != null) return cast list;
+            }
+        }
+        catch (e:Dynamic) {}
+
+        // Path 2: Display.getDisplays() (static, some builds)
+        try
+        {
+            var d = Type.resolveClass("lime.system.Display");
+            if (d != null)
+            {
+                var fn = Reflect.field(d, "getDisplays");
+                if (fn != null)
+                {
+                    var list = Reflect.callMethod(d, fn, []);
+                    if (list != null) return cast list;
+                }
+            }
+        }
+        catch (e:Dynamic) {}
+
+        // Path 3: Display internals + static var (last resort)
+        try
+        {
+            var d = Type.resolveClass("lime.system.Display");
+            if (d != null)
+            {
+                for (fieldName in ["displayList", "__displayList", "displays"])
+                {
+                    var list = Reflect.field(d, fieldName);
+                    if (list != null) return cast list;
+                }
+            }
+        }
+        catch (e:Dynamic) {}
+
+        // Path 4: lime.system.System.displays (if the build exposes it there)
+        try
+        {
+            var s = Type.resolveClass("lime.system.System");
+            if (s != null)
+            {
+                var list = Reflect.field(s, "displays");
+                if (list != null) return cast list;
+            }
+        }
+        catch (e:Dynamic) {}
+
+        return null;
+    }
+		
 	/**
 	* Update button visibility based on context.
 	*/
@@ -1716,6 +2055,9 @@ Impulsys.subscribeToImpulse(EventType.FULLSCREEN_TOGGLED, _onFullscreenToggled);
 				_editorContext.isNameTakenGlobally
 			);
 		}
+		// v4.0: Re-apply chrome layout so a freshly pushed NodeEditor (created on
+		// entering an assembly) immediately receives the bar offset and size.
+		layoutChrome();
 	}
 
 // =========================================================================

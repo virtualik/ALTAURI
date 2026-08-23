@@ -1170,8 +1170,9 @@ class WebSocketAtom extends Atom implements system.managers.Driver
                 new Contact("none",              INPUT, "appendMode"),
                 new Contact(false,                INPUT, "connect"),
                 new Contact(false,                INPUT, "disconnect"),
-                new Contact(false,                INPUT, "send"),
                 new Contact("",                   INPUT, "sendData"),
+				new Contact(false,                INPUT, "send"),
+ 
                 // ── AUTO-RECONNECT INPUTS ──
                 new Contact(false,                INPUT, "autoReconnect"),
                 new Contact(1.0,                  INPUT, "reconnectInterval"),

@@ -580,7 +580,7 @@ class NodeEditor extends Sprite
 
                 _editorContainer.scrollRect = new Rectangle(0, 0, w, h);
 
-                _fileNameField.x = w - 10 - _fileNameField.width;
+                _fileNameField.x = w - 10 - _fileNameField.width - 24; // 24 = grip clearance
                 _fileNameField.y = h - 20;
 
                 _edgePortsContainer.removeChildren();
