@@ -21,7 +21,7 @@ import library.drivers.WebSocketAtom;
 using StringTools;
 
 /**
-* ASSEMBLY FACTORY v1.3 (Global Naming & Paste Logic)
+* ASSEMBLY FACTORY v1.4 (Global Naming & Paste Logic)
 *
 * Central factory that creates every Atom in the system.
 * It decides whether to instantiate a native C++ driver (SignalGenerator, MiniAudioAtom, etc.)
@@ -394,8 +394,16 @@ class AssemblyFactory
                 }
                 else
                 {
-// Create: use base name as-is if free (and no forced suffix)
-                        if (parsedNum == null && !isNameTaken(baseName))
+// v1.4 FIX: use base name as-is whenever it is FREE — even when it already
+// carries a "_N" suffix. The old condition (parsedNum == null && ...) forced
+// a bump for every numbered base: GroupAtomsCommand resolved blueprint name
+// "Custom Assembly_2" (unique among blueprints), then the instance got
+// "Custom Assembly_3" (bumped from parsed num 2). Result: node label in the
+// parent said "Custom Assembly_3" while the editor title (blueprint.name)
+// said "Custom Assembly_2" — "мы внутри Custom Assembly_3, но индицируется
+// Custom Assembly_2". The paste flow (isPaste=true) still forces a bump in
+// the branch above and is NOT affected by this change.
+                        if (!isNameTaken(baseName))
                         {
                                 return baseName;
                         }

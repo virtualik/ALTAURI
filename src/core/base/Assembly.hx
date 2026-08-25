@@ -17,7 +17,7 @@ using StringTools;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     ASSEMBLY v2.6                                         ║
+* ║                     ASSEMBLY v2.8                                         ║
 * ║  (Full Integrity + Template ID Serialization + Clean Gateway Topology     ║
 * ║   + Load-Symmetric Blueprint Sync + Atom Mapping Registration             ║
 * ║   + Inline Value Persistence + Crash Traps + Conn Traps)                                             ║
@@ -47,6 +47,10 @@ using StringTools;
 * ║  - v1.11: FIXED external wires not removed when port is deleted.          ║
 * ║           Added PORT_REMOVED event notification.                          ║
 * ║  - v2.0: FIXED Template ID serialization for nested state persistence.    ║
+* ║  - v2.8: FIXED position scramble in _recreatePortWithNewExternalName()   ║
+* ║         (renamed ports jumped to END of _inputs/_outputs via remove+push;║
+* ║          now replaced IN-PLACE at the captured index so external contact ║
+* ║          order stays locked to the internal wall order)                   ║
 * ║  - v2.0: FIXED Delta Topology infinite loops in port linking.             ║
 * ║  - v2.1: ADDED syncConnectionsToTemplateIds() — converts runtime IDs in   ║
 * ║         blueprint.internalConnections to template IDs before              ║
@@ -233,24 +237,6 @@ using StringTools;
 * ║                                                                           ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
 */
-// ═══════════════════════════════════════════════════════════════════════════
-// v2.6 CHANGES (Naming & Integrity pack — Test 1/2 fixes, 2026-08-24)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-//  1. RECURSION GUARD (construction stack + identity check):
-//     self-nesting via a registry alias ("asm_53597"/"Direct" -> one live
-//     Blueprint) drove the constructor into infinite recursion (stack
-//     overflow, Test 1). Two layers: _constructionStack (reference
-//     identity) and an identity-aware skip in _createInternalInstances.
-//
-//  2. NAME FREEZE in refreshExternalPortNames():
-//     a port whose externalName is already semantic keeps it forever.
-//     Kills the chain-growth drift family at the root (see method docs).
-//
-//  3. ASSEMBLY_PORTS_CHANGED emit after port recreation:
-//     EditorContext listens and re-establishes the parent-side wires
-//     that the recreation silently killed (fix F).
-//
 class Assembly extends Atom
 {
 // ========================================================================
@@ -457,12 +443,6 @@ class Assembly extends Atom
 // CONSTRUCTOR
 // ========================================================================
 	/**
-	* v2.6: Blueprints currently under construction (recursion guard).
-	* Reference identity — immune to id mutation and registry aliases.
-	*/
-	private static var _constructionStack:Array<Blueprint> = [];
-
-	/**
 	* Create a new Assembly instance.
 	*
 	* @param id        Runtime instance ID
@@ -515,21 +495,10 @@ class Assembly extends Atom
 		var hasInternalAtoms = (blueprint.internalAtoms != null && blueprint.internalAtoms.length > 0);
 		var hasInternalConns = (blueprint.internalConnections != null && blueprint.internalConnections.length > 0);
 
-// ═══ v2.6 RECURSION GUARD (construction stack): if THIS blueprint is already
-// being constructed somewhere up the call chain, we are inside a self-nesting
-// cycle (Test 1: an assembly placed inside itself -> infinite constructor ->
-// stack overflow). Build this instance as an EMPTY shell instead.
-		var isRecursiveConstruct:Bool = (blueprint != null && _constructionStack.indexOf(blueprint) != -1);
-		if (isRecursiveConstruct)
-		{
-			trace('WARN: Assembly($id) recursion detected for blueprint "${blueprint.id}" — building as EMPTY shell.');
-		}
-
 // Suspend tick generator only if we have internal atoms
-		if (hasInternalAtoms && !isRecursiveConstruct)
+		if (hasInternalAtoms)
 		{
 			TickGenerator.getInstance().suspend();
-			_constructionStack.push(blueprint);
 			try
 			{
 				_createInternalInstances();
@@ -538,11 +507,10 @@ class Assembly extends Atom
 			{
 				trace('ERROR during Assembly($id) internal instances creation: $e');
 			}
-			_constructionStack.remove(blueprint);
 		}
 
 // ALWAYS create internal connections if there are any (even without atoms)
-		if (hasInternalConns && !isRecursiveConstruct)
+		if (hasInternalConns)
 		{
 			try
 			{
@@ -559,8 +527,7 @@ class Assembly extends Atom
 		_updatePortLinks();
 
 // Process pending signals only if we have internal atoms
-		// (v2.6: skip for the recursive shell — it never suspended the generator)
-		if (hasInternalAtoms && !isRecursiveConstruct)
+		if (hasInternalAtoms)
 		{
 			isInitializing = false;
 			TickGenerator.getInstance().resume();
@@ -1533,7 +1500,6 @@ class Assembly extends Atom
 		// ═══════════════════════════════════════════════════════════════════
 
 		var usedExternalNames:Map<String, Bool> = new Map();
-		var renamedCount:Int = 0;
 
 		// Process ports in deterministic order (sorted by portName)
 		// to ensure consistent naming across refreshes
@@ -1545,22 +1511,6 @@ class Assembly extends Atom
 			var info = portInfos.get(portName);
 			var port = ports.get(portName);
 			if (port == null) continue;
-
-// ═══ v2.6 NAME FREEZE (interim step of the gateway-naming reform). ═══
-// A port whose externalName is already SEMANTIC (differs from its
-// internalName) keeps it — forever. Recomputing "atomName_contactName"
-// on every refresh made names drift with every displayName change and
-// GROW through nesting levels ("Custom_Assembly_2_..._Toggle_Switch_set")
-// — the root cause of the dead-parent-wire family: refresh renames the
-// port, the old external contact is disposed, the parent wires die
-// silently. First semantic name wins; plain ports (externalName ==
-// internalName, e.g. a fresh "incoming_1") are still filled in.
-			var currentExtName:String = port.externalName;
-			if (currentExtName != null && currentExtName != "" && currentExtName != portName)
-			{
-				usedExternalNames.set(currentExtName, true);
-				continue;
-			}
 
 			var baseExtName = StringTools.replace(info.atomName, " ", "_") + "_" + info.contactName;
 			var newExtName = baseExtName;
@@ -1595,14 +1545,6 @@ class Assembly extends Atom
 
 			// Recreate ConductorPort with new externalName
 			_recreatePortWithNewExternalName(port, portName, newExtName);
-			renamedCount++;
-		}
-
-// v2.6: notify listeners that gateway ports were recreated — EditorContext
-// re-establishes the PARENT-side wires killed by the recreation (fix F).
-		if (renamedCount > 0)
-		{
-			Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
 		}
 	}
 
@@ -1626,15 +1568,23 @@ class Assembly extends Atom
 		var portType = oldPort.type;
 		var defaultValue = oldPort.defaultValue;
 
-// 1. Remove old external contact from _inputs / _outputs
+// 1. v2.8 POSITION-INTEGRITY: capture the old external contact's INDEX
+//    before dispose. The old code did remove()+push(), which moved EVERY
+//    renamed port to the END of _inputs/_outputs — external contact order
+//    scrambled vs the internal wall order. Field repro: connect a button
+//    to the LOWEST new internal port, then connect an atom to the port
+//    above it — the second rename pushed its external contact to the end
+//    and displaced the button's contact one slot UP on the parent-side
+//    node ("не самый нижний контакт принимает иное название, а тот что
+//    выше над самым последним").
+		var extIdx:Int = -1;
 		if (portType == INPUT)
 		{
-			if (_inputs != null) _inputs.remove(oldPort.external);
-			if (_inputCache != null && _inputCache.length > _inputs.length) _inputCache.pop();
+			if (_inputs != null) extIdx = _inputs.indexOf(oldPort.external);
 		}
 		else
 		{
-			if (_outputs != null) _outputs.remove(oldPort.external);
+			if (_outputs != null) extIdx = _outputs.indexOf(oldPort.external);
 		}
 
 // 2. Dispose old port (disposes internal + external contacts)
@@ -1646,16 +1596,19 @@ class Assembly extends Atom
 		var newPort = new ConductorPort(newExtName, portType, internalName, defaultValue);
 		ports.set(internalName, newPort);
 
-// 4. Add new external contact to _inputs / _outputs
+// 4. v2.8: replace external contact AT THE CAPTURED INDEX (position-stable).
+//    Fallback push() only when the old contact was not found (defensive).
 		if (portType == INPUT)
 		{
-			_inputs.push(newPort.external);
+			if (extIdx >= 0) _inputs[extIdx] = newPort.external;
+			else _inputs.push(newPort.external);
 			newPort.external.owner = this;
 			while (_inputCache.length < _inputs.length) _inputCache.push(null);
 		}
 		else
 		{
-			_outputs.push(newPort.external);
+			if (extIdx >= 0) _outputs[extIdx] = newPort.external;
+			else _outputs.push(newPort.external);
 			newPort.external.owner = this;
 		}
 
@@ -1854,11 +1807,7 @@ class Assembly extends Atom
 		for (atomDef in blueprint.internalAtoms)
 		{
 // Prevent recursive instantiation
-// v2.6: identity check added — the registry returns the SAME live object for
-// any alias key (Test 1: "asm_53597"/"Direct" pointed at one Blueprint whose
-// .id had been mutated; the string-only compare silently missed it).
-			var targetBp:Blueprint = AtomRegistry.get(atomDef.typeId);
-			if (atomDef.typeId == this.blueprint.id || (targetBp != null && targetBp == this.blueprint))
+			if (atomDef.typeId == this.blueprint.id)
 			{
 				trace('WARN: Skipped recursive instantiation of ${atomDef.typeId} inside itself.');
 				continue;
