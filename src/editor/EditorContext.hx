@@ -15,7 +15,7 @@ import core.base.AssemblyFactory;
 import core.logic.TickGenerator;
 
 /**
-* EDITOR CONTEXT v2.12 (Parent-Wire Auto-Heal + Progressive Suffix Matching)
+* EDITOR CONTEXT v2.13 (Stable Port Naming v3.0 bridge: legacy alias resolution + heal)
 * Manages the stack of open editors (NodeEditor instances) and their camera states.
 *
 * ═══════════════════════════════════════════════════════════════════════════
@@ -974,6 +974,13 @@ class EditorContext
                 }
                 // 2. internalName (the common stale-name case)
                 if (byInternal.exists(contactName)) return byInternal.get(contactName);
+                // 2.5 v2.13: LEGACY ALIAS — pre-stable-naming port names
+                // ("Button_out", "incoming_1") resolve to the migrated
+                // stable port. remapParentConnectionsToPortNames() then
+                // rewrites the connection in place, so the alias heals
+                // itself out of the blueprint after first resolution.
+                var aliasPort = childAsm.getPortByAnyName(contactName);
+                if (aliasPort != null) return aliasPort;
                 // 3. Suffix "_name"
                 var suffix = "_" + contactName;
                 for (port in childAsm.ports)
@@ -1386,6 +1393,11 @@ class EditorContext
                                                 {
                                                         fallbackPort = findPortByProgressiveSuffix(toAsm, requestedName, INPUT);
                                                 }
+                                                // v2.13: LEGACY ALIAS — pre-stable-naming name
+                                                if (fallbackPort == null)
+                                                {
+                                                        fallbackPort = toAsm.getPortByAnyName(requestedName);
+                                                }
                                                 if (fallbackPort != null)
                                                 {
                                                         // Update connection in-place
@@ -1420,6 +1432,11 @@ class EditorContext
                                                 if (fallbackPort == null)
                                                 {
                                                         fallbackPort = findPortByProgressiveSuffix(fromAsm, requestedName, OUTPUT);
+                                                }
+                                                // v2.13: LEGACY ALIAS — pre-stable-naming name
+                                                if (fallbackPort == null)
+                                                {
+                                                        fallbackPort = fromAsm.getPortByAnyName(requestedName);
                                                 }
                                                 if (fallbackPort != null)
                                                 {

@@ -28,7 +28,20 @@ import core.data.Blueprint.ParameterPriority;
 import ui.NodeVisualMode;
 
 /**
-* NODE VIEW v3.9 (Zoom Cache Hard Reset [v4.4 Stage 2] + Atom Reattach + Synchronous Layout + Touch Long-Press)
+* NODE VIEW v4.0 (Stable Wall-Port Naming v3.0 + Canonical Order + Port Beneficiary Tooltips)
+*
+* v4.0 Changes:
+* - ASSEMBLY PORT ORDER now follows blueprint.pins (canonical)
+*   instead of the runtime contact-array order. Position-integrity
+*   is preserved regardless of array mutations after migration.
+* - PORT TOOLTIPS: hovering an Inlet_N/Outlet_N port shows the
+*   beneficiary ("Inlet_3 -> Button.set") derived LIVE from
+*   Assembly.getPortBeneficiaryByExternalName. The semantic info
+*   that used to be baked into the drifting port name now lives
+*   in a stable, hover-only label.
+* - ASCII arrows ("->", "<-") only — field-proven font safety.
+*
+* v3.9: Zoom Cache Hard Reset [v4.4 Stage 2] + Atom Reattach + Synchronous Layout + Touch Long-Press
 *
 * Visual representation of an Atom (node) on the schematic canvas.
 *
@@ -724,8 +737,37 @@ private function centerPreviewContainer():Void
                 }
                 inputPorts.clear();
                 outputPorts.clear();
-                var inputs = atom.getInputs();
-                var outputs = atom.getOutputs();
+                // ══════════════════════════════════════════════════════════════════════
+                // v4.0: CANONICAL PORT ORDER for Assembly atoms =
+                // blueprint.pins order. The runtime _inputs/_outputs
+                // array order can drift on ConductorPort recreation
+                // (v2.8 keeps position-stable, but a fresh canonical
+                // read here is the stronger guarantee). Plain atoms
+                // keep the runtime contact array order.
+                var inputs:Array<Contact> = null;
+                var outputs:Array<Contact> = null;
+                if (Std.isOfType(atom, Assembly))
+                {
+                        var asm:Assembly = cast(atom, Assembly);
+                        inputs = [];
+                        outputs = [];
+                        if (asm.blueprint != null && asm.blueprint.pins != null)
+                        {
+                                for (pin in asm.blueprint.pins)
+                                {
+                                        if (pin == null || pin.name == null) continue;
+                                        var port = asm.ports.get(pin.name);
+                                        if (port == null || port.external == null) continue;
+                                        if (pin.type == INPUT) inputs.push(port.external);
+                                        else if (pin.type == OUTPUT) outputs.push(port.external);
+                                }
+                        }
+                }
+                else
+                {
+                        inputs = atom.getInputs();
+                        outputs = atom.getOutputs();
+                }
                 var portsHeight:Float = MIN_BODY_HEIGHT;
                 var inputCount = (inputs != null) ? inputs.length : 0;
                 var outputCount = (outputs != null) ? outputs.length : 0;
@@ -835,6 +877,21 @@ private function centerPreviewContainer():Void
                 {
                         e.stopPropagation();
                         onPortRightClick(name, isInput, e);
+                });
+                // v4.0: hover tooltip — beneficiary of the wall port
+                // (stable name + semantic target, derived live from
+                // blueprint connections via Assembly.getPortBeneficiary*).
+                port.addEventListener(MouseEvent.ROLL_OVER, function(e:MouseEvent)
+                {
+                        var tip = portTooltipText(name, isInput);
+                        if (tip != null)
+                        {
+                                editor.EditorTooltip.show(port.stage, e.stageX, e.stageY, tip);
+                        }
+                });
+                port.addEventListener(MouseEvent.ROLL_OUT, function(e:MouseEvent)
+                {
+                        editor.EditorTooltip.hide();
                 });
                 return port;
         }
@@ -1952,8 +2009,25 @@ private function centerPreviewContainer():Void
 // =========================================================================
 // PORT INTERACTION
 // =========================================================================
+        /**
+        * v4.0: Beneficiary tooltip text for an Assembly wall port.
+        * Plain atoms get no tooltip — their port names are already
+        * semantic ("out", "set"). Assembly ports ("Inlet_3") need
+        * the hover label to carry the semantic meaning that the
+        * name itself no longer holds.
+        */
+        private function portTooltipText(contactName:String, isInput:Bool):String
+        {
+                if (!Std.isOfType(atom, Assembly)) return null;
+                var asm:Assembly = cast(atom, Assembly);
+                var b = asm.getPortBeneficiaryByExternalName(contactName);
+                if (b == null) return contactName;
+                return isInput ? (contactName + " -> " + b) : (contactName + " <- " + b);
+        }
+
         private function onPortMouseDown(contactName:String, isInput:Bool, e:MouseEvent):Void
         {
+                editor.EditorTooltip.hide();
                 var port = isInput ? inputPorts.get(contactName) : outputPorts.get(contactName);
                 if (port == null) return;
                 var globalPos = port.localToGlobal(new Point(0, 0));
@@ -2075,7 +2149,8 @@ private function centerPreviewContainer():Void
 // =========================================================================
         public function dispose():Void
         {
-                utils.Trap.log("NV-DISPOSE", "nodeView down: " + nodeId + " cacheAsBitmap=" + this.cacheAsBitmap);
+                editor.EditorTooltip.hide();
+utils.Trap.log("NV-DISPOSE", "nodeView down: " + nodeId + " cacheAsBitmap=" + this.cacheAsBitmap);
                 Impulsys.removeImpulse(EventType.ASSEMBLY_PORTS_CHANGED, onAssemblyPortsChanged);
                 Impulsys.removeImpulse(EventType.REDRAW_WIRES, onWiresRedrawn);
                 ECS.unregister(nodeId);

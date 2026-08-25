@@ -17,10 +17,10 @@ using StringTools;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     ASSEMBLY v2.8                                         ║
+* ║                     ASSEMBLY v2.9                                         ║
 * ║  (Full Integrity + Template ID Serialization + Clean Gateway Topology     ║
 * ║   + Load-Symmetric Blueprint Sync + Atom Mapping Registration             ║
-* ║   + Inline Value Persistence + Crash Traps + Conn Traps)                                             ║
+* ║   + Inline Value Persistence + Crash Traps + Conn Traps)                  ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  Universal base class for ALL nodes in the system.                        ║
@@ -47,10 +47,16 @@ using StringTools;
 * ║  - v1.11: FIXED external wires not removed when port is deleted.          ║
 * ║           Added PORT_REMOVED event notification.                          ║
 * ║  - v2.0: FIXED Template ID serialization for nested state persistence.    ║
-* ║  - v2.8: FIXED position scramble in _recreatePortWithNewExternalName()   ║
-* ║         (renamed ports jumped to END of _inputs/_outputs via remove+push;║
-* ║          now replaced IN-PLACE at the captured index so external contact ║
+* ║  - v2.8: FIXED position scramble in _recreatePortWithNewExternalName()    ║
+* ║         (renamed ports jumped to END of _inputs/_outputs via remove+push; ║
+* ║          now replaced IN-PLACE at the captured index so external contact  ║
 * ║          order stays locked to the internal wall order)                   ║
+* ║  - v2.9: STABLE WALL-PORT NAMING v3.0 (Inlet/Arrival/Departure/           ║
+* ║         Outlet): legacy pins migrate in place (PortNaming); stable        ║
+* ║         ports NEVER rename; beneficiary tooltips (getPortBeneficiary);    ║
+* ║         legacy aliases bridge pre-migration parent references and         ║
+* ║         heal them in place (resolveContact / getPortByAnyName)            ║
+* ║                                                                           ║
 * ║  - v2.0: FIXED Delta Topology infinite loops in port linking.             ║
 * ║  - v2.1: ADDED syncConnectionsToTemplateIds() — converts runtime IDs in   ║
 * ║         blueprint.internalConnections to template IDs before              ║
@@ -230,8 +236,8 @@ using StringTools;
 * ║                                                                           ║
 * ║  ┌──────────────────────────────────────────────────────────────────┐     ║
 * ║  │  Button.out ──link──► port.internal ──subscribe──► callback      │     ║
-* ║  │                                     │                            │     ║
-* ║  │                                     ▼                            │     ║
+* ║  │                                         │                        │     ║
+* ║  │                                         ▼                        │     ║
 * ║  │                               port.external ──link──► LED.in     │     ║
 * ║  └──────────────────────────────────────────────────────────────────┘     ║
 * ║                                                                           ║
@@ -255,6 +261,15 @@ class Assembly extends Atom
 
 	/** Map of port name to ConductorPort instance. */
 	public var ports(default, null):Map<String, ConductorPort>;
+	/**
+	* v2.9: Legacy port-name aliases (pre-stable-naming name -> port).
+	* Built from the PortNaming session cache after ports are created;
+	* lets parents that still reference old names ("Button_out",
+	* "incoming_1") resolve the migrated stable ports until their own
+	* blueprints heal (in place) on first resolution.
+	*/
+	private var _legacyPortNames:Map<String, ConductorPort> = new Map<String, ConductorPort>();
+
 
 	/** Map of runtime ID to internal atom instance. */
 	public var internalAtoms(default, null):Map<String, Dynamic>;
@@ -1066,6 +1081,10 @@ class Assembly extends Atom
 		if (newBp.id != this.blueprint.id) return;
 		this.name = newBp.name;
 
+		// v2.9: a hot-reloaded blueprint may arrive pre-migration —
+		// convert pin names to the stable scheme before ports are diffed.
+		core.logic.PortNaming.migrateBlueprintInPlace(newBp);
+
 // Find ports to remove
 		var currentPortNames = [for (name in ports.keys()) name];
 		var targetPinNames = new Map<String, Bool>();
@@ -1162,6 +1181,9 @@ class Assembly extends Atom
 		//_initializeLogicState();   // Устанавливает значения по умолчанию
 		//_processPendingSignals();  // Запускает активные драйверы (MiniAudioAtom)
 		reconnectExternalLinks();
+
+		// v2.9: aliases must point at the FRESH port objects
+		_rebuildLegacyPortAliases();
 
 		Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
 	}
@@ -1512,6 +1534,15 @@ class Assembly extends Atom
 			var port = ports.get(portName);
 			if (port == null) continue;
 
+			// ═════════════════════════════════════════════════════════════════════════
+			// v2.9: STABLE PORTS NEVER RENAME. Inlet_N/Outlet_N keep their
+			// name for life — the semantic info lives in the hover tooltip
+			// (getPortBeneficiary*), not in the name. This kills the whole
+			// name-drift bug family (suffix chains, PORT-HEAL storms,
+			// frozen-name weirdness) at the root.
+			// ═════════════════════════════════════════════════════════════════════════
+			if (core.logic.PortNaming.isStableExternalName(port.externalName)) continue;
+
 			var baseExtName = StringTools.replace(info.atomName, " ", "_") + "_" + info.contactName;
 			var newExtName = baseExtName;
 
@@ -1767,6 +1798,20 @@ class Assembly extends Atom
 	private function _createInterface():Void
 	{
 		if (blueprint == null || blueprint.pins == null) return;
+		// ══════════════════════════════════════════════════════════════════════════
+		// v2.9: STABLE NAMING MIGRATION (Inlet/Arrival/Departure/Outlet).
+		// One-shot in-place conversion of legacy pin names (incoming_N /
+		// outgoing_N internals + semantic externals like "Button_out") to
+		// the stable positional scheme. Idempotent; legacy names are kept
+		// as session aliases (PortNaming) so parents still referencing
+		// them resolve and heal in place.
+		// ══════════════════════════════════════════════════════════════════════════
+		var migratedStable:Bool = core.logic.PortNaming.migrateBlueprintInPlace(blueprint);
+		if (migratedStable)
+		{
+			utils.Trap.log("MIG", "blueprint migrated to stable naming: " + (blueprint.id != null ? blueprint.id : "?"));
+		}
+
 		for (pinDef in blueprint.pins)
 		{
 			if (pinDef == null || pinDef.name == null) continue;
@@ -1788,6 +1833,8 @@ class Assembly extends Atom
 			var port = new ConductorPort(externalName, portType, pinDef.name, pinDef.defaultValue);
 			ports.set(pinDef.name, port); // key = internalName
 		}
+		// v2.9: rebuild legacy aliases AFTER ports exist (map holds ports)
+		_rebuildLegacyPortAliases();
 		_updatePortLinks();
 	}
 
@@ -2133,6 +2180,22 @@ class Assembly extends Atom
 				{
 					port = asm.ports.get(point.contactName);
 				}
+				// ══════════════════════════════════════════════════════════
+				// v2.9: LEGACY ALIAS — pre-stable-naming port name
+				// ("Button_out" / "incoming_1") resolving to the migrated
+				// stable port. On hit we HEAL the connection definition in
+				// place: the stale name disappears from this blueprint and
+				// from the next disk save.
+				// ══════════════════════════════════════════════════════════
+				if (port == null)
+				{
+					port = asm.getPortByAnyName(point.contactName);
+					if (port != null)
+					{
+						utils.Trap.log("MIG-HEAL", "parent ref \"" + point.contactName + "\" -> \"" + port.externalName + "\" on " + asm.id);
+						point.contactName = port.externalName;
+					}
+				}
 
 				if (port == null)
 				{
@@ -2185,6 +2248,103 @@ class Assembly extends Atom
 	{
 		if (blueprint == null || blueprint.pins == null) return [];
 		return blueprint.pins.copy();
+	}
+
+	// ========================================================================
+	// STABLE NAMING v2.9 (Inlet/Arrival/Departure/Outlet)
+	// ========================================================================
+	/**
+	* v2.9: Rebuild the legacy port-name alias map from the session cache
+	* (PortNaming). Called after ports are (re)created — every instance of
+	* the same blueprint derives the same aliases, so parents referencing
+	* pre-migration names resolve regardless of construction order.
+	*/
+	private function _rebuildLegacyPortAliases():Void
+	{
+		_legacyPortNames = new Map<String, ConductorPort>();
+		if (blueprint == null || blueprint.id == null) return;
+		var aliases = core.logic.PortNaming.getLegacyAliases(blueprint.id);
+		if (aliases == null) return;
+		for (oldName in aliases.keys())
+		{
+			var p = ports.get(aliases.get(oldName));
+			if (p != null) _legacyPortNames.set(oldName, p);
+		}
+	}
+
+	/**
+	* v2.9: Resolve a port by ANY known name — internal name, external
+	* name, or a legacy (pre-stable-naming) name. Used by parent-side
+	* resolution paths to bridge references that predate migration.
+	*/
+	public function getPortByAnyName(name:String):ConductorPort
+	{
+		if (name == null) return null;
+		var p = ports.get(name);
+		if (p != null) return p;
+		for (port in ports)
+		{
+			if (port != null && port.externalName == name) return port;
+		}
+		if (_legacyPortNames != null)
+		{
+			return _legacyPortNames.get(name);
+		}
+		return null;
+	}
+
+	/**
+	* v2.9: Human-readable beneficiary of a wall port — the internal atom
+	* contact it serves. Derived LIVE from blueprint connections (nothing
+	* to persist). Powers the port/wire hover tooltips that replaced the
+	* old semantic port names.
+	*
+	* @param internalName Port key ("Arrival_3" / "Departure_1")
+	* @return "Button.set"-style label, or null if the port feeds nothing
+	*/
+	public function getPortBeneficiary(internalName:String):String
+	{
+		if (blueprint == null || blueprint.internalConnections == null) return null;
+		if (!ports.exists(internalName)) return null;
+		for (conn in blueprint.internalConnections)
+		{
+			if (conn == null) continue;
+			if (conn.from != null && conn.from.atomId == "SELF" && conn.from.contactName == internalName)
+			{
+				var atom = _resolveInternalAtom(conn.to.atomId);
+				if (atom != null) return _beneficiaryLabel(atom, conn.to.contactName);
+			}
+			else if (conn.to != null && conn.to.atomId == "SELF" && conn.to.contactName == internalName)
+			{
+				var atom = _resolveInternalAtom(conn.from.atomId);
+				if (atom != null) return _beneficiaryLabel(atom, conn.from.contactName);
+			}
+		}
+		return null;
+	}
+
+	/**
+	* v2.9: Beneficiary lookup by EXTERNAL port name ("Inlet_3"/"Outlet_1")
+	* — the parent-side view used by NodeView port tooltips.
+	*/
+	public function getPortBeneficiaryByExternalName(externalName:String):String
+	{
+		for (port in ports)
+		{
+			if (port != null && port.externalName == externalName)
+			{
+				return getPortBeneficiary(port.internalName);
+			}
+		}
+		return null;
+	}
+
+	/** v2.9: "DisplayName.contactName" label for tooltip text. */
+	private function _beneficiaryLabel(atom:Atom, contactName:String):String
+	{
+		if (atom == null || contactName == null) return null;
+		var dn = (atom.displayName != null && atom.displayName != "") ? atom.displayName : atom.type;
+		return dn + "." + contactName;
 	}
 
 	public function getOrderedPorts(type:ContactType):Array<ConductorPort>
@@ -2574,4 +2734,4 @@ utils.Trap.log("ASM-DISPOSE", "dispose enter: id=" + this.id);
 			throw e;
 		}
 	}
-}
+}

@@ -36,7 +36,7 @@ import ui.NodeVisualMode;
 using StringTools;
 
 /**
-* NODE EDITOR v4.10 (Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
+* NODE EDITOR v4.11 (Wall Port Labels + Beneficiary Tooltips + Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
 * Visual schematic editing coordinator.
 *
 * ═══════════════════════════════════════════════════════════════════════════
@@ -599,7 +599,7 @@ class NodeEditor extends Sprite
                 for (p in leftPorts)
                 {
                         var c:Contact = p.internal;
-                        var portView = createEdgePort(c, false, p.name);
+                        var portView = createEdgePort(c, false, p.name, true);
                         portView.x = 0;
                         portView.y = leftStep * (leftIdx + 1);
                         _edgePortsContainer.addChild(portView);
@@ -611,7 +611,7 @@ class NodeEditor extends Sprite
                 for (p in rightPorts)
                 {
                         var c:Contact = p.internal;
-                        var portView = createEdgePort(c, true, p.name);
+                        var portView = createEdgePort(c, true, p.name, false);
                         portView.x = w;
                         portView.y = rightStep * (rightIdx + 1);
                         _edgePortsContainer.addChild(portView);
@@ -622,7 +622,7 @@ class NodeEditor extends Sprite
                 _wireRenderer.updateEdgeWires();
         }
 
-        private function createEdgePort(contact:Contact, isInput:Bool, portName:String):Sprite
+        private function createEdgePort(contact:Contact, isInput:Bool, portName:String, isLeftWall:Bool):Sprite
         {
                 var s = new Sprite();
                 s.graphics.beginFill(_theme.PORT_COLOR_DEFAULT);
@@ -632,9 +632,50 @@ class NodeEditor extends Sprite
                 s.useHandCursor = true;
                 s.name = portName;
 
+                // v4.11: WALL PORT LABEL — the STABLE internal name
+                // ("Arrival_3" / "Departure_1") so the user can pair
+                // it with the parent-side Inlet_N / Outlet_N through
+                // the wall. Plain circles carried no pairing info.
+                var label = new openfl.text.TextField();
+                label.width = 90;
+                label.height = 14;
+                label.selectable = false;
+                label.mouseEnabled = false;
+                label.defaultTextFormat = new openfl.text.TextFormat("_sans", 10, 0xAAAAAA);
+                label.text = portName;
+                label.y = -7;
+                if (isLeftWall)
+                {
+                        label.x = 10;
+                }
+                else
+                {
+                        label.x = -10 - label.width;
+                }
+                s.addChild(label);
+
+                // v4.11: beneficiary tooltip — derived live from
+                // _assembly.getPortBeneficiary, same data source the
+                // parent-side node uses.
+                s.addEventListener(MouseEvent.ROLL_OVER, function(e:MouseEvent)
+                {
+                        var b = _assembly.getPortBeneficiary(portName);
+                        var tip = (b != null)
+                                ? (portName + (isLeftWall ? " -> " : " <- ") + b)
+                                : portName;
+                        if (s.stage != null)
+                        {
+                                editor.EditorTooltip.show(s.stage, e.stageX, e.stageY, tip);
+                        }
+                });
+                s.addEventListener(MouseEvent.ROLL_OUT, function(e:MouseEvent)
+                {
+                        editor.EditorTooltip.hide();
+                });
                 s.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent)
                 {
                         e.stopPropagation();
+                        editor.EditorTooltip.hide();
                         var globalPos = s.localToGlobal(new Point(0, 0));
                         Impulsys.quickEmit(EventType.PORT_DRAG_START,
                         {

@@ -18,7 +18,7 @@ import ui.WireType;
 import ui.WireType.WireType as WireTypeEnum;
 
 /**
-* WIRE RENDERER v1.8 (Crash Traps + Stage-Aware Endpoint Resolution + Hit Sprite Selection + Wire Long-Press)
+* WIRE RENDERER v1.9 (Hover Tooltip + Crash Traps + Stage-Aware Endpoint Resolution + Hit Sprite Selection + Wire Long-Press)
 * Responsible for visualizing all wires (connections) in NodeEditor.
 *
 * ═══════════════════════════════════════════════════════════════════════════
@@ -435,6 +435,12 @@ class WireRenderer {
                                 if (entry.rightClickHandler != null) {
                                         entry.hitSprite.removeEventListener(MouseEvent.RIGHT_CLICK, entry.rightClickHandler);
                                 }
+                                if (entry.rollOverHandler != null) {
+                                        entry.hitSprite.removeEventListener(MouseEvent.ROLL_OVER, entry.rollOverHandler);
+                                }
+                                if (entry.rollOutHandler != null) {
+                                        entry.hitSprite.removeEventListener(MouseEvent.ROLL_OUT, entry.rollOutHandler);
+                                }
                                 // v1.7: Remove touch listeners
                                 _cancelWireLongPress(entry.hitSprite);
                                 if (entry.touchBeginHandler != null) {
@@ -549,6 +555,12 @@ class WireRenderer {
                         if (entry.rightClickHandler != null) {
                                 entry.hitSprite.removeEventListener(MouseEvent.RIGHT_CLICK, entry.rightClickHandler);
                         }
+                        if (entry.rollOverHandler != null) {
+                                entry.hitSprite.removeEventListener(MouseEvent.ROLL_OVER, entry.rollOverHandler);
+                        }
+                        if (entry.rollOutHandler != null) {
+                                entry.hitSprite.removeEventListener(MouseEvent.ROLL_OUT, entry.rollOutHandler);
+                        }
                         entry.hitSprite.graphics.clear();
                         if (entry.hitSprite.parent != null) {
                                 entry.hitSprite.parent.removeChild(entry.hitSprite);
@@ -649,6 +661,20 @@ class WireRenderer {
                 hitSpr.addEventListener(TouchEvent.TOUCH_MOVE, touchMoveHandler);
                 hitSpr.addEventListener(TouchEvent.TOUCH_END, touchEndHandler);
                 
+                // === v1.9: Hover tooltip — endpoint display names ===
+                var rollOverHandler = function(e:MouseEvent) {
+                        var tip = wireTooltipText(link);
+                        if (tip != null && hitSpr.stage != null)
+                        {
+                                editor.EditorTooltip.show(hitSpr.stage, e.stageX, e.stageY, tip);
+                        }
+                };
+                var rollOutHandler = function(e:MouseEvent) {
+                        editor.EditorTooltip.hide();
+                };
+                hitSpr.addEventListener(MouseEvent.ROLL_OVER, rollOverHandler);
+                hitSpr.addEventListener(MouseEvent.ROLL_OUT, rollOutHandler);
+                
                 // === Visible sprite (thin, non-interactive) ===
                 var spr = new Sprite();
                 spr.mouseEnabled = false;  // v1.6: events fall through to hitSpr
@@ -668,6 +694,8 @@ class WireRenderer {
                         touchBeginHandler: touchBeginHandler,
                         touchMoveHandler: touchMoveHandler,
                         touchEndHandler: touchEndHandler,
+                        rollOverHandler: rollOverHandler,
+                        rollOutHandler: rollOutHandler,
                         longPressTimer: null,
                         longPressStartX: 0.0,
                         longPressStartY: 0.0
@@ -890,6 +918,42 @@ class WireRenderer {
         }
         
         // ========================================================================
+        // HOVER TOOLTIP (v1.9)
+        // ========================================================================
+        /**
+        * v1.9: Tooltip text for a wire: "Source -> Target" with node
+        * display names and contact names. SELF endpoints expand to
+        * the assembly's own wall port (Arrival_N / Departure_N).
+        */
+        private function wireTooltipText(link:ConnectionDef):String
+        {
+                if (_assembly == null) return null;
+                var from = endpointLabel(link.from);
+                var to = endpointLabel(link.to);
+                if (from == null || to == null) return null;
+                return from + " -> " + to;
+        }
+
+        private function endpointLabel(point:ConnectionPoint):String
+        {
+                if (point == null) return null;
+                if (point.atomId == "SELF")
+                {
+                        var dn = (_assembly.displayName != null && _assembly.displayName != "")
+                                ? _assembly.displayName : "Assembly";
+                        return dn + "." + point.contactName;
+                }
+                var runtimeId = _assembly.idMap.get(point.atomId);
+                if (runtimeId == null) runtimeId = point.atomId;
+                var obj = _assembly.internalAtoms.get(runtimeId);
+                if (obj == null) return point.atomId + "." + point.contactName;
+                var atom:Atom = cast obj;
+                var dn = (atom.displayName != null && atom.displayName != "")
+                        ? atom.displayName : atom.type;
+                return dn + "." + point.contactName;
+        }
+
+        // ========================================================================
         // INTERNAL: UTILITIES
         // ========================================================================
         /**
@@ -1046,6 +1110,8 @@ typedef WireEntry = {
         @:optional var touchBeginHandler:TouchEvent -> Void;
         @:optional var touchMoveHandler:TouchEvent -> Void;
         @:optional var touchEndHandler:TouchEvent -> Void;
+        @:optional var rollOverHandler:MouseEvent -> Void;
+        @:optional var rollOutHandler:MouseEvent -> Void;
         @:optional var longPressTimer:haxe.Timer;
         @:optional var longPressStartX:Float;
         @:optional var longPressStartY:Float;

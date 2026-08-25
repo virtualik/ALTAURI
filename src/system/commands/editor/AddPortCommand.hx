@@ -8,11 +8,16 @@ import core.logic.EventType;
 
 /**
  * ╔═══════════════════════════════════════════════════════════════════════════╗
- * ║                     ADD PORT COMMAND v2.0                                 ║
- * ║                (Semantic Naming: incoming_N / outgoing_N)                  ║
+ * ║                     ADD PORT COMMAND v2.1                                 ║
+ * ║            (Stable Naming: Inlet/Arrival & Outlet/Departure)           ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Adds a new gateway port to an Assembly with semantic naming.             ║
+ * ║                                                                           ║
+ * ║  v2.1 Changes:                                                            ║
+ * ║  - STABLE NAMING: internal "Arrival_N"/"Departure_N" paired            ║
+ * ║    with external "Inlet_N"/"Outlet_N" (same N through the wall)        ║
+ * ║  - Names never drift; semantic info lives in hover tooltips            ║
  * ║                                                                           ║
  * ║  v2.0 Changes:                                                            ║
  * ║  - INPUT ports:  internal = "incoming_N", external = "incoming_N"         ║
@@ -47,28 +52,35 @@ class AddPortCommand extends Command {
 
     override private function executeInternal():Void {
         // v2.0: Generate semantic name if not provided
+        // v2.1: STABLE NAMING — manual ports use the same scheme as
+        // grouped assemblies: internal "Arrival_N"/"Departure_N" pairs
+        // with external "Inlet_N"/"Outlet_N" (same N through the wall).
+        var pairedExternalName:String = null;
         if (_name == null) {
-            var prefix = (_type == INPUT) ? "incoming_" : "outgoing_";
+            var internalPrefix = (_type == OUTPUT) ? "Departure_" : "Arrival_";
+            var externalPrefix = (_type == OUTPUT) ? "Outlet_" : "Inlet_";
             var count = 0;
             
             // Count existing ports of this type
             for (p in _assembly.ports) {
-                if (p.type == _type) count++;
+                if (p != null && p.type == _type) count++;
+            }
+            var n = count + 1;
+            
+            // Ensure uniqueness of the INTERNAL name (ports map + pins).
+            // Gaps left by removed ports are respected — stability
+            // of existing names wins over compact numbering.
+            while (_assembly.ports.exists(internalPrefix + n) || isPinInBlueprint(internalPrefix + n)) {
+                n++;
             }
             
-            var candidate = prefix + Std.string(count + 1);
-            
-            // Ensure uniqueness in both ports map and blueprint pins
-            while (_assembly.ports.exists(candidate) || isPinInBlueprint(candidate)) {
-                count++;
-                candidate = prefix + Std.string(count + 1);
-            }
-            
-            _name = candidate;
+            _name = internalPrefix + n;
+            pairedExternalName = externalPrefix + n;
         }
 
-        // v2.0: For manually added ports, external = internal name
-        var port = _assembly.addPort(_name, _type, _defaultValue);
+        // v2.1: paired external name (falls back to _name when the
+        // caller supplied an explicit port name)
+        var port = _assembly.addPort(_name, _type, _defaultValue, pairedExternalName);
         if (port != null) {
             Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });
         } else {

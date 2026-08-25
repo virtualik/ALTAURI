@@ -12,7 +12,7 @@ import core.data.Blueprint.PinDef;
 import core.types.ContactType;
 
 /**
- * PANEL WIDGET
+ * PANEL WIDGET v1.1 (Stable Wall-Port Naming: external labels)
  * Container widget for Assembly showing internal elements.
  *
  * Architecture:
@@ -101,8 +101,17 @@ class PanelWidget extends DeviceView
         _titleLabel.mouseEnabled = false;
         var fmt = new TextFormat("_sans", 12, 0xFFFFFF, true);
         _titleLabel.defaultTextFormat = fmt;
-		// Widget title name
-        _titleLabel.text = (assembly != null && assembly.blueprint != null) ? assembly.displayName : "Panel";
+        // v1.1: title = displayName with blueprint.name fallback
+        // (consistent with the v2.8 Main/AssemblyFactory title fix).
+        var panelTitle:String = "Panel";
+        if (assembly != null)
+        {
+                panelTitle = (assembly.displayName != null && assembly.displayName != "")
+                        ? assembly.displayName
+                        : ((assembly.blueprint != null && assembly.blueprint.name != null)
+                                ? assembly.blueprint.name : "Panel");
+        }
+        _titleLabel.text = panelTitle;
         _header.addChild(_titleLabel);
 
         // Content area
@@ -112,12 +121,6 @@ class PanelWidget extends DeviceView
 
         // Create ports
         createPorts();
-		trace('PanelWidget: assembly=${assembly != null}, blueprint=${assembly != null ? assembly.blueprint : null}');
-		
-		if (assembly != null && assembly.blueprint != null) {
-			trace('PanelWidget: blueprint.name="${assembly.blueprint.name}"');
-		}
-		_titleLabel.text = (assembly != null && assembly.blueprint != null) ? assembly.blueprint.name : "Panel";
     }
 
     // =========================================================================
@@ -154,7 +157,10 @@ class PanelWidget extends DeviceView
         {
             var pin = inputs[i];
             if (pin == null || pin.name == null) continue;
-            var port = createPortSprite(pin.name, true);
+            // v1.1: label = stable EXTERNAL name (Inlet_N) pairs
+            // with the parent-side node; map key stays internal name.
+            var inputLabel = (pin.externalName != null && pin.externalName != "") ? pin.externalName : pin.name;
+            var port = createPortSprite(inputLabel, true);
             port.x = -portRadius;
             port.y = headerHeight + inputStep * (i + 1);
             addChild(port);
@@ -166,7 +172,8 @@ class PanelWidget extends DeviceView
         {
             var pin = outputs[i];
             if (pin == null || pin.name == null) continue;
-            var port = createPortSprite(pin.name, false);
+            var outputLabel = (pin.externalName != null && pin.externalName != "") ? pin.externalName : pin.name;
+            var port = createPortSprite(outputLabel, false);
             port.x = panelWidth + portRadius;
             port.y = headerHeight + outputStep * (i + 1);
             addChild(port);

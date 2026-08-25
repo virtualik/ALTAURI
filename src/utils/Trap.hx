@@ -2,7 +2,7 @@ package utils;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                        TRAP v1.2                                          ║
+* ║                        TRAP v1.3                                          ║
 * ║          (Crash-Proof Trace Logger — BUG-A Hunt)                          ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
@@ -29,6 +29,12 @@ package utils;
 * ║  nameMatches() gates per-contact traps (set_value probe) so the log       ║
 * ║  is not flooded at 60 Hz. The default list targets the ComPort            ║
 * ║  grouping test; EDIT IT for the next scenario.                            ║
+* ║                                                                           ║
+* ║  v1.3 CHANGES (Stable Port Naming v3.0, 2026-08-25):
+* ║  - NAMES extended with Inlet/Outlet/Arrival/Departure 1-4 so
+* ║    wall-port hops stay visible after the naming migration.
+* ║  - New tags in the wild: MIG (blueprint migrated), MIG-HEAL
+* ║    (parent reference healed to a stable port name).
 * ║                                                                           ║
 * ║  v1.2 CHANGES (Deafness hunt part 2, 2026-08-25):                         ║
 * ║  - nameMatches(): SUFFIX match added — chain port names ending with       ║
@@ -66,6 +72,10 @@ class Trap
                 "open", "close", "send", "txData", "isOpen", "rxData",
                 "incoming_1", "incoming_2", "incoming_3", "incoming_4",
                 "outgoing_1", "outgoing_2", "outgoing_3", "outgoing_4",
+                "Inlet_1", "Inlet_2", "Inlet_3", "Inlet_4",
+                "Outlet_1", "Outlet_2", "Outlet_3", "Outlet_4",
+                "Arrival_1", "Arrival_2", "Arrival_3", "Arrival_4",
+                "Departure_1", "Departure_2", "Departure_3", "Departure_4",
                 "out", "in", "set", "rst"
         ];
 

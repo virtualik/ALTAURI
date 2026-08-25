@@ -19,7 +19,7 @@ import library.AtomRegistry;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                      GROUP ATOMS COMMAND v3.15                            ║
+* ║                      GROUP ATOMS COMMAND v3.16                            ║
 * ║         (BP-SSOT Consistency + Parent Port Collision Fix + DeviceView     ║
 * ║          Lifecycle Cleanup + Template ID as instanceId + Unique Names)    ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
@@ -30,6 +30,16 @@ import library.AtomRegistry;
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ╠═════════════════════════════════════════════════════════════════════════════╣
 * ╠═════════════════════════════════════════════════════════════════════════════╣
+* ║                     v3.16 CHANGES (Stable Port Naming v3.0)              ║
+* ══════════════════════════════════════════════════════════════════════════║
+* ║                                                                           ║
+* ║  PHASE 3 now creates wall ports with the stable positional scheme:       ║
+* ║    INPUT:  internal "Arrival_N"  / external "Inlet_N"   (same N)         ║
+* ║    OUTPUT: internal "Departure_N"/ external "Outlet_N"  (same N)         ║
+* ║  Names never drift on connect — semantic info moved to hover            ║
+* ║  tooltips. The v3.12 collision-counter is obsolete (positional           ║
+* ║  numbers are unique by construction) and has been removed.               ║
+* ║                                                                           ║
 * ║                     v3.14 CHANGES (PHASE 2 Restored — undo fix)           ║
 * ╠═════════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
@@ -419,40 +429,20 @@ class GroupAtomsCommand extends Command
 		var outgoingCount = 0;
 
 // ═══════════════════════════════════════════════════════════════════
-// v3.12 FIX: REMOVED pre-populate with parent's port externalNames.
+// v3.16: STABLE PORT NAMING (v3.0) — Inlet/Arrival/Departure/Outlet.
 // ═══════════════════════════════════════════════════════════════════
-// PREVIOUS BUG (v3.6 "FIX"):
-//   Pre-populated usedExternalNames with externalNames from
-//   _assembly.ports (parent assembly's ports). The reasoning was
-//   "avoid collisions with parent's existing ports".
-//
-//   But this is WRONG for two reasons:
-//
-//   (a) PARENT'S PORTS ARE BEING ABSORBED.
-//       When we group selected atoms, the external connections that
-//       went through parent's ports (e.g., parent.incoming_1 → atom.in)
-//       become INTERNAL to the new sub-assembly. The parent's ports
-//       that pointed at selected atoms will be REPLACED by new ports
-//       pointing at the new sub-assembly. So we shouldn't worry about
-//       "colliding" with parent's ports — they're not staying.
-//
-//   (b) PARENT'S PORT externalName MIRRORS ATOM NAMES.
-//       Parent's port externalName is typically "AtomName_ContactName"
-//       (e.g., "Pass_in"). When we create a NEW port for the same atom
-//       Pass in the new sub-assembly, we naturally want the SAME name
-//       "Pass_in". Pre-populate makes this look like a "collision" and
-//       appends "_2" → "Pass_in_2". This breaks parent.bp.internalConnections
-//       which references the OLD name "Pass_in".
-//
-//   WITHOUT pre-populate:
-//   - The collision-counter in the loop below still handles TRUE
-//     collisions (e.g., two atoms both named "Pass" both with contact
-//     "in" → second becomes "Pass_in_2"). This is the only case that
-//     actually needs collision handling.
-//   - Parent's port names are irrelevant because they'll be replaced.
+// Wall ports get POSITIONAL names that pair through the wall by number:
+//   INPUT:  internal "Arrival_N"  / external "Inlet_N"
+//   OUTPUT: internal "Departure_N"/ external "Outlet_N"
+// Names are assigned once at grouping and NEVER change when wires
+// connect — the entire name-drift bug family (suffix chains,
+// PORT-HEAL storms, wire death on rename) dies at the root.
+// The semantic hint ("which atom does this port serve?") is NOT baked
+// into the name anymore — NodeView/NodeEditor show it as a hover
+// tooltip derived from these very internalConnections.
+// The v3.12 collision-counter is obsolete: positional numbers are
+// unique by construction, so usedExternalNames is gone.
 // ═══════════════════════════════════════════════════════════════════
-		var usedExternalNames:Map<String, Int> = new Map();
-		// Intentionally NOT pre-populated — see comment above.
 
 // v3.3 FIX: Spatial sorting
 		externalConnMeta.sort(sortByAtomPosition);
@@ -473,40 +463,22 @@ class GroupAtomsCommand extends Command
 				portType = OUTPUT;
 				atomDisplayName = getAtomDisplayName(conn.from.atomId);
 				contactName = conn.from.contactName;
-				externalName = atomDisplayName + "_" + contactName;
 
-				if (usedExternalNames.exists(externalName))
-				{
-					var count = usedExternalNames.get(externalName);
-					usedExternalNames.set(externalName, count + 1);
-					externalName = externalName + "_" + (count + 1);
-				}
-				else
-				{
-					usedExternalNames.set(externalName, 1);
-				}
+				// v3.16: stable naming — Outlet_N outside, Departure_N inside
 				outgoingCount++;
-				internalName = "outgoing_" + outgoingCount;
+				internalName = "Departure_" + outgoingCount;
+				externalName = "Outlet_" + outgoingCount;
 			}
 			else
 			{
 				portType = INPUT;
 				atomDisplayName = getAtomDisplayName(conn.to.atomId);
 				contactName = conn.to.contactName;
-				externalName = atomDisplayName + "_" + contactName;
 
-				if (usedExternalNames.exists(externalName))
-				{
-					var count = usedExternalNames.get(externalName);
-					usedExternalNames.set(externalName, count + 1);
-					externalName = externalName + "_" + (count + 1);
-				}
-				else
-				{
-					usedExternalNames.set(externalName, 1);
-				}
+				// v3.16: stable naming — Inlet_N outside, Arrival_N inside
 				incomingCount++;
-				internalName = "incoming_" + incomingCount;
+				internalName = "Arrival_" + incomingCount;
+				externalName = "Inlet_" + incomingCount;
 			}
 
 			_snapshot.addPortMapping(conn, internalName, portType == INPUT);
