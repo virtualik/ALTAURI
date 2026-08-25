@@ -11,7 +11,7 @@ import core.logic.Impulsys;
 import core.logic.EventType;
 
 /**
- * CONNECT COMMAND v1.1 (Live External Name Refresh)
+ * CONNECT COMMAND v1.2 (Multi-Strategy SELF Resolve + Dead-Link Heal)
  * Command to connect two contacts.
  *
  * ═══════════════════════════════════════════════════════════════════════════
@@ -61,6 +61,15 @@ import core.logic.EventType;
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
+// v1.2 CHANGES (Naming & Integrity pack, 2026-08-24):
+//  - MULTI-STRATEGY SELF RESOLVE: ports.get() alone aborted valid wire
+//    drags ("SELF:OUT -> Contacts not found") because the two drag ends
+//    deliver names from different sources. Resolution now tries map key
+//    -> externalName -> unique port of the requested type.
+//  - DEAD-LINK HEAL: the "already exists" skip silently left wires dead
+//    forever when a reconstruction had destroyed the physical link while
+//    the blueprint definition survived. The link is now verified and
+//    silently re-established (values realigned on the next tick).
 class ConnectCommand extends Command {
     private var _blueprint:Blueprint;
     private var _assembly:Assembly;
@@ -113,11 +122,27 @@ class ConnectCommand extends Command {
                 _assembly.rebuildInternalConnections();
 
                 // === v1.1: Live external name refresh ===
+                // (Assembly v2.6 freezes already-semantic names, so a
+                // rename — and the parent-wire heal it triggers — happens
+                // at most once per port: EditorContext.onAssemblyPortsChanged)
                 // If this connection involves a SELF port, the port's externalName
                 // may now have a meaningful value based on the connected atom.
                 // Update it immediately so the parent schema shows a proper label
                 // (e.g., "Button_out" instead of "incoming_1").
                 _assembly.refreshExternalPortNames();
+            }
+        } else {
+            // ═══ v1.2: HEAL a dead link (definition exists, physical link
+            // missing). Reconstructions (pop, grouping, port renames) can
+            // destroy the physical Contact link while the blueprint
+            // definition survives. Previously this branch skipped silently
+            // — the wire stayed dead FOREVER even when the user redrew it.
+            if (cOut != null && cIn != null && !cOut.hasLink(cIn)) {
+                cOut.link(cIn, true);
+                trace('ConnectCommand: HEALED dead link ${_fromId}:${_fromContact} -> ${_toId}:${_toContact} (definition existed, physical link was missing)');
+                core.logic.TickGenerator.getInstance().scheduleNextTick(function() {
+                    if (cOut != null && !cOut.isDisposed) cOut.propagateCurrentValue();
+                });
             }
         }
         Impulsys.quickEmit(EventType.REDRAW_WIRES);
@@ -148,6 +173,33 @@ class ConnectCommand extends Command {
     private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact {
         if (atomId == "SELF") {
             var port:ConductorPort = _assembly.ports.get(contactName);
+            // ═══ v1.2: multi-strategy SELF port resolution. ═══
+            // Field evidence: wire drags deliver contact names from
+            // DIFFERENT sources (map key, wall label, pin name) and a
+            // single ports.get() lookup aborted valid connects
+            // ("SELF:OUT -> Contacts not found").
+            // Strategy 2 — match by externalName (type-filtered).
+            if (port == null) {
+                for (p in _assembly.ports) {
+                    if (p != null && p.externalName == contactName && p.type == type) {
+                        port = p;
+                        break;
+                    }
+                }
+            }
+            // Strategy 3 — last resort: the ONLY port of the requested
+            // type. Unambiguous by construction; refuses on ambiguity.
+            if (port == null) {
+                var match:ConductorPort = null;
+                var count:Int = 0;
+                for (p in _assembly.ports) {
+                    if (p != null && p.type == type) {
+                        match = p;
+                        count++;
+                    }
+                }
+                if (count == 1) port = match;
+            }
             if (port == null) return null;
             return port.internal;
         } else {

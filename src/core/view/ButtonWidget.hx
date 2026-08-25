@@ -9,7 +9,7 @@ import core.base.Atom;
 import core.base.Contact;
 
 /**
- * BUTTON WIDGET
+ * BUTTON WIDGET v1.1 (Trap Probes — button press timeline forensics)
  * Push button widget for sending impulses.
  *
  * Architecture:
@@ -128,6 +128,7 @@ class ButtonWidget extends DeviceView
         e.stopPropagation();
         _isPressed = true;
         drawPressed();
+        utils.Trap.log("BTN", "press");
         if (_contact != null) 
         {
             _contact.value = true;
@@ -141,6 +142,7 @@ class ButtonWidget extends DeviceView
         {
             _isPressed = false;
             drawNormal();
+            utils.Trap.log("BTN", "release");
             if (_contact != null) 
             {
                 _contact.value = false;
@@ -162,6 +164,7 @@ class ButtonWidget extends DeviceView
         {
             _isPressed = false;
             drawNormal();
+            utils.Trap.log("BTN", "release(out)");
             if (_contact != null) 
             {
                 _contact.value = false;

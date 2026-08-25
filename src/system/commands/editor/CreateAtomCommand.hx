@@ -10,7 +10,7 @@ import core.logic.Impulsys;
 import core.logic.EventType;
 
 /**
- * CREATE ATOM COMMAND v1.3 (Paste-Aware + Global Naming)
+ * CREATE ATOM COMMAND v1.4 (Self-Containment Guard + Paste-Aware Naming)
  *
  * v1.3 CHANGES:
  *  - Constructor extended to 9 args to support paste-aware naming:
@@ -58,6 +58,10 @@ import core.logic.EventType;
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
+// v1.4: SELF-CONTAINMENT GUARD — placing a blueprint inside itself (via a
+// stale registry alias key) drove the Assembly constructor into infinite
+// recursion (Test 1 stack overflow, 2026-08-24). Identity compare catches
+// every alias of the same live Blueprint object.
 class CreateAtomCommand extends Command {
     private var _blueprint:Blueprint;
     private var _assembly:Assembly;
@@ -114,6 +118,14 @@ class CreateAtomCommand extends Command {
 
         override private function executeInternal():Void
         {
+                // ═══ v1.4: SELF-CONTAINMENT GUARD (alias-proof). ═══
+                var registryBp = library.AtomRegistry.get(_typeId);
+                if (registryBp != null && registryBp == _blueprint)
+                {
+                        trace('CreateAtomCommand: ABORTED — "${_typeId}" cannot be placed inside itself (blueprint identity match).');
+                        return;
+                }
+
                 if (_instanceId == null) {
                         _instanceId = utils.UID.generate();
                 }

@@ -4,7 +4,7 @@ import haxe.Timer;
 import system.managers.DriverManager;
 
 /**
-* TICK GENERATOR v1.2 (Topology Transaction Guard + Unified Clock)
+* TICK GENERATOR v1.3 (Deaf Graph Fix + Depth-Safe Suspend + Traps)
 *
 * The central hub for simulation control.
 *
@@ -72,6 +72,41 @@ import system.managers.DriverManager;
 *   This eliminates Data Race when calling scheduleNextTick() from
 *   external threads (e.g., Audio Thread in MiniAudioAtom).
 */
+// ═══════════════════════════════════════════════════════════════════════════
+// v1.3 CHANGES (Deaf Graph fix — field evidence 2026-08-25 01:29:16→01:30:07)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+//  EVIDENCE: after a 3-level pop() reconstruction the whole reactive graph
+//  went deaf for 51 seconds — button presses wrote values (set_value probes
+//  in crash_trap.log) but NOTHING propagated: no deliveries, no COND-OUT,
+//  LED frozen on its last received state. The graph revived the moment the
+//  NEXT reconstruction ran a constructor → resume().
+//
+//  ROOT CAUSE — task loss poisons Contact._isScheduled:
+//  Contact.set_value latches _isScheduled=true and hands _propagate to
+//  schedule(). The latch resets ONLY when _propagate actually RUNS.
+//  TickGenerator had TWO silent task-loss paths:
+//    (a) process() iteration-guard trip → clearQueues() destroyed all
+//        queued tasks;
+//    (b) schedule() early-returned on _blockedUntilNextFrame — the task
+//        was dropped BEFORE queueing.
+//  Either way the latch stayed true forever → the contact never scheduled
+//  again → permanently deaf (values go in, nothing comes out).
+//
+//  FIXES:
+//   1. schedule() NEVER drops tasks — queues unconditionally.
+//   2. Iteration-guard trip no longer clearQueues() — tasks are deferred
+//      to the next frame via the block flag; the guard restarts at zero.
+//   3. suspend()/resume() boolean → DEPTH COUNTER: nested Assembly
+//      construction/dispose cascades used to cancel each other's suspend
+//      state (child resume un-suspended the generator mid-parent-build;
+//      an unbalanced interleaving could leave it stuck suspended forever).
+//   4. TG-* trap markers: TG-LOCK/TG-UNLOCK, TG-SUSPEND/TG-RESUME (with
+//      depth), TG-TRIP, TG-BLOCK, TG-CLEAR — the next hunt sees the shot.
+//
+//  INVARIANT (do not break): every task passed to schedule() must
+//  EVENTUALLY EXECUTE — Contact._isScheduled correctness depends on it.
+//
 class TickGenerator
 {
 	private static var _instance: TickGenerator;
@@ -123,7 +158,8 @@ class TickGenerator
 	private var _queuesWrite: Map<Priority, Array<Void -> Void>>;
 	private var _queuesRead: Map<Priority, Array<Void -> Void>>;
 	private var _isProcessing: Bool = false;
-	private var _suspended: Bool = false;
+	// v1.3: DEPTH COUNTER (was boolean _suspended — see class changelog).
+	private var _suspendDepth: Int = 0;
 	#if html5
 	private var _html5FallbackTimer:Dynamic = null;
 	private static inline var HTML5_FALLBACK_INTERVAL:Int = 16; // ~60 FPS
@@ -177,6 +213,7 @@ class TickGenerator
 	public function lockTopology(): Void
 	{
 		_topologyLockDepth++;
+		utils.Trap.log("TG-LOCK", "depth=" + _topologyLockDepth);
 		if (_topologyLockDepth == 1)
 		{
 // First lock: clear deferred queue to prepare for new transaction
@@ -196,6 +233,7 @@ class TickGenerator
 		if (_topologyLockDepth == 0)
 		{
 // Final unlock: safe to resume graph execution
+			utils.Trap.log("TG-UNLOCK", "depth=0 — flushing deferred tasks");
 			var tasksToFlush = _deferredTopologyTasks.copy();
 			_deferredTopologyTasks.resize(0);
 
@@ -306,6 +344,10 @@ class TickGenerator
 	public function tick(): Void
 	{
 // Reset new frame locks
+		if (_blockedUntilNextFrame)
+		{
+			utils.Trap.log("TG-BLOCK", "block flag reset at tick");
+		}
 		_blockedUntilNextFrame = false;
 
 // Inject pending inputs (buttons, inputs, audio data)
@@ -355,7 +397,11 @@ class TickGenerator
 	*/
 	public function schedule(task: Void -> Void, priority: Priority = NORMAL): Void
 	{
-		if (_blockedUntilNextFrame) return;
+// v1.3: NEVER drop a task. The old early-return on _blockedUntilNextFrame
+// discarded the task while Contact._isScheduled stayed latched true — the
+// contact went permanently deaf (field-proven, 2026-08-25). Queue
+// unconditionally; process() is entry-guarded by the block flag and will
+// run the task on the next frame.
 		var queue = _queuesWrite.get(priority);
 		if (queue != null)
 		{
@@ -364,7 +410,7 @@ class TickGenerator
 
 // If not processing and not suspended, run immediately
 // (usually called from update -> tick -> process)
-		if (!_isProcessing && !_suspended)
+		if (!_isProcessing && _suspendDepth == 0 && !_blockedUntilNextFrame)
 		{
 			process();
 		}
@@ -390,13 +436,18 @@ class TickGenerator
 
 	public function suspend(): Void
 	{
-		_suspended = true;
+		_suspendDepth++;
+		utils.Trap.log("TG-SUSPEND", "depth=" + _suspendDepth);
 	}
 
 	public function resume(): Void
 	{
-		if (!_suspended) return;
-		_suspended = false;
+// v1.3: depth-aware — only the OUTERMOST resume re-enables processing.
+// A spurious resume() at depth 0 (unbalanced pair) is now VISIBLE via
+// the TG-RESUME trap and still safely flushes pending work.
+		if (_suspendDepth > 0) _suspendDepth--;
+		utils.Trap.log("TG-RESUME", "depth=" + _suspendDepth);
+		if (_suspendDepth > 0) return;
 		_blockedUntilNextFrame = false;
 		flushPendingInputs();
 		if (!_isProcessing && hasPendingTasks()) process();
@@ -422,7 +473,7 @@ class TickGenerator
 	}
 	#end
 
-	public function isSuspended(): Bool return _suspended;
+	public function isSuspended(): Bool return _suspendDepth > 0;
 
 	public function hasPendingTasks(): Bool
 	{
@@ -464,7 +515,7 @@ class TickGenerator
 	private function process(): Void
 	{
 // v1.2: TOPOLOGY GUARD - Freeze graph execution during mutations
-		if (_suspended || _blockedUntilNextFrame || _topologyLockDepth > 0) return;
+		if (_suspendDepth > 0 || _blockedUntilNextFrame || _topologyLockDepth > 0) return;
 		if (_isProcessing) return;
 
 		_isProcessing = true;
@@ -494,7 +545,13 @@ class TickGenerator
 						if (_iterationGuard > _maxIterationsPerTick)
 						{
 							_blockedUntilNextFrame = true;
-							clearQueues();
+// v1.3: DO NOT clearQueues() here. Destroying queued tasks left their
+// contacts' Contact._isScheduled one-shot latches stuck true — those
+// contacts went PERMANENTLY deaf (values written, never propagated;
+// field-proven 2026-08-25: 51 s of silence, LED frozen mid-state).
+// Tasks now survive; the block flag defers them to the next frame,
+// where the iteration guard restarts from zero.
+							utils.Trap.log("TG-TRIP", "iteration guard (>5000) — deferring queued tasks to next frame");
 							_isProcessing = false;
 							return;
 						}
@@ -528,7 +585,8 @@ class TickGenerator
 	{
 		clearQueues();
 		_isProcessing = false;
-		_suspended = false;
+		_suspendDepth = 0;
+		utils.Trap.log("TG-CLEAR", "state wiped (project reload boundary)");
 		_blockedUntilNextFrame = false;
 		_topologyLockDepth = 0;
 		_deferredTopologyTasks.resize(0);

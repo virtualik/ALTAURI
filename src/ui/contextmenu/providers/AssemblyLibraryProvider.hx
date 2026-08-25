@@ -3,6 +3,7 @@ package ui.contextmenu.providers;
 import ui.contextmenu.data.MenuEntry;
 import ui.contextmenu.data.MenuEntryProvider;
 import ui.contextmenu.data.MenuCategory;
+import core.data.Blueprint;
 import library.AtomRegistry;
 
 /**
@@ -15,6 +16,8 @@ import library.AtomRegistry;
  * ║  - Custom assemblies saved to library                                     ║
  * ║  - Excludes native atoms                                                  ║
  * ║  - Excludes current blueprint (prevent self-reference)                    ║
+ * ║  - v1.1: excludes by blueprint IDENTITY (alias-proof) +                   ║
+ * ║     dedupes registry aliases of the same object                           ║
  * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
@@ -60,15 +63,25 @@ class AssemblyLibraryProvider implements MenuEntryProvider
         var ids = AtomRegistry.getAllIds();
         ids.sort(function(a, b) return Reflect.compare(a, b));
         
+        // v1.1: resolve the CURRENT blueprint OBJECT once. Registry aliases
+        // (one live Blueprint under several keys — the Test 1 root cause
+        // before the Main v3.2 alias kill) made the old string-only filter
+        // leak the current assembly back into its own "Add" menu.
+        var currentBp:Blueprint = (_currentBpId != null) ? AtomRegistry.get(_currentBpId) : null;
+        // v1.1: dedupe aliases — skip keys pointing at an already-listed
+        // Blueprint object (Map uses reference identity for object keys).
+        var seenBp:Map<Blueprint, Bool> = new Map();
+        
         for (id in ids)
         {
             if (id == _currentBpId) continue;
             var bp = AtomRegistry.get(id);
-            if (bp != null && !bp.isNative)
-            {
-                // All custom assemblies use the default icon for now
-                entries.push(MenuEntry.createAssembly(id, bp.name, "default_assembly"));
-            }
+            if (bp == null || bp.isNative) continue;
+            if (currentBp != null && bp == currentBp) continue; // identity self-filter
+            if (seenBp.exists(bp)) continue;                    // alias duplicate
+            seenBp.set(bp, true);
+            // All custom assemblies use the default icon for now
+            entries.push(MenuEntry.createAssembly(id, bp.name, "default_assembly"));
         }
         return entries;
     }

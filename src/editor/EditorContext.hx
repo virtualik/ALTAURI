@@ -15,8 +15,30 @@ import core.base.AssemblyFactory;
 import core.logic.TickGenerator;
 
 /**
-* EDITOR CONTEXT v2.11 (Progressive Suffix Matching + Value Re-Alignment + Traps)
+* EDITOR CONTEXT v2.12 (Parent-Wire Auto-Heal + Progressive Suffix Matching)
 * Manages the stack of open editors (NodeEditor instances) and their camera states.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.12 CHANGES (Parent-Wire Auto-Heal — fix F, Naming & Integrity pack)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM (field evidence, Test 2, 2026-08-24): when a child assembly's
+*  gateway port is renamed (refreshExternalPortNames via ConnectCommand or
+*  wall-port operations), _recreatePortWithNewExternalName disposes the old
+*  external contact — and every PARENT wire linked to it dies silently. The
+*  blueprint definition survives, the physical link is gone; redrawn wires
+*  hit the ConnectCommand "already exists" skip and stayed dead forever.
+*
+*  FIX: EditorContext subscribes to ASSEMBLY_PORTS_CHANGED (emitted by
+*  Assembly.refreshExternalPortNames v2.6 whenever a port was recreated) and
+*  immediately re-establishes the parent-side physical links through the
+*  same battle-tested reconciliation path as pop()-reconstruction (STEEL
+*  matchers, silent links, REALIGN value wave). Two cases:
+*    1. the changed assembly is a child of currentAssembly;
+*    2. the changed assembly IS currentAssembly (being edited right now) —
+*       the affected parent sits one level down the editor stack.
+*  reconnectExternalLinksToAssembly() gained an optional parentCtx parameter
+*  for case 2 (default keeps prior behaviour for all existing call sites).
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v2.11 CHANGES (Progressive Suffix Matching — wire disappearance fix)
@@ -439,6 +461,9 @@ class EditorContext
          */
         private var _cameraStates:Map<String, {x:Float, y:Float, zoom:Float}>;
 
+        /** v2.12: ASSEMBLY_PORTS_CHANGED handler (parent-wire auto-heal, fix F). */
+        private var _onAssemblyPortsChanged:Impulse -> Void;
+
         // =========================================================================
         // CONSTRUCTOR
         // =========================================================================
@@ -448,6 +473,9 @@ class EditorContext
                 _stack = [];
                 _theme = EditorTheme.getInstance();
                 _cameraStates = new Map();
+                // v2.12: parent-wire auto-heal — see onAssemblyPortsChanged().
+                _onAssemblyPortsChanged = onAssemblyPortsChanged;
+                Impulsys.subscribeToImpulse(core.logic.EventType.ASSEMBLY_PORTS_CHANGED, _onAssemblyPortsChanged);
         }
 
         // =========================================================================
@@ -1184,6 +1212,64 @@ class EditorContext
                 library.AtomRegistry.registerBlueprint(
                         currentAssembly.blueprint.id, currentAssembly.blueprint);
         }
+        // =========================================================================
+        // v2.12: PARENT-WIRE AUTO-HEAL (fix F — Naming & Integrity pack)
+        // =========================================================================
+        /**
+         * ASSEMBLY_PORTS_CHANGED listener.
+         *
+         * Assembly.refreshExternalPortNames() v2.6 emits this event whenever
+         * a gateway port was recreated (renamed). The recreation disposes the
+         * old external contact, killing every parent wire linked to it. This
+         * listener immediately re-establishes those physical links through
+         * reconnectExternalLinksToAssembly (STEEL reconciliation + silent
+         * links + REALIGN wave) — the same path pop()-reconstruction uses.
+         *
+         * Case 1: the changed assembly is a CHILD of currentAssembly
+         *         (e.g. pop() refreshing the assembly being exited).
+         * Case 2: the changed assembly IS currentAssembly — the user is
+         *         editing it right now; the affected parent sits one level
+         *         down the stack (e.g. ConnectCommand renaming a wall port
+         *         from inside the assembly).
+         */
+        private function onAssemblyPortsChanged(impulse:Impulse):Void
+        {
+                if (impulse == null || impulse.data == null) return;
+                var changedId:String = impulse.data.assemblyId;
+                if (changedId == null || currentAssembly == null) return;
+
+                if (currentAssembly.id == changedId)
+                {
+                        // Case 2: heal the wires in the PARENT context.
+                        if (_stack.length >= 2)
+                        {
+                                var parentAsm:Assembly = _stack[_stack.length - 2].assembly;
+                                if (parentAsm != null && parentAsm.blueprint != null)
+                                {
+                                        utils.Trap.log("PORT-HEAL", "current " + changedId + " ports changed -> healing wires in parent " + parentAsm.blueprint.id);
+                                        reconnectExternalLinksToAssembly(currentAssembly, parentAsm);
+                                }
+                        }
+                        return;
+                }
+
+                // Case 1: the changed assembly is a child of currentAssembly.
+                for (id in currentAssembly.internalAtoms.keys())
+                {
+                        var atom = currentAssembly.internalAtoms.get(id);
+                        if (Std.isOfType(atom, Assembly))
+                        {
+                                var child = cast(atom, Assembly);
+                                if (child.id == changedId)
+                                {
+                                        utils.Trap.log("PORT-HEAL", "child " + changedId + " ports changed -> healing wires in " + currentAssembly.blueprint.id);
+                                        reconnectExternalLinksToAssembly(child);
+                                        return;
+                                }
+                        }
+                }
+        }
+
         /**
          * Reconnects wires from the parent assembly to the updated child assembly.
          *
@@ -1201,10 +1287,14 @@ class EditorContext
          * after the topology transaction is complete and every view is
          * reattached.
          */
-        private function reconnectExternalLinksToAssembly(targetAsm:Assembly):Void
+        private function reconnectExternalLinksToAssembly(targetAsm:Assembly, ?parentCtx:Assembly):Void
         {
+                // v2.12: optional parent context — when the changed assembly
+                // IS the one being edited, the wires to heal live one level
+                // down the editor stack (onAssemblyPortsChanged, case 2).
+                var ctx:Assembly = (parentCtx != null) ? parentCtx : currentAssembly;
                 trace('🔗 reconnectExternalLinksToAssembly: targetAsm.id="${targetAsm.id}", targetAsm.blueprint.id="${targetAsm.blueprint.id}"');
-                var bp = currentAssembly.blueprint;
+                var bp = ctx.blueprint;
                 if (bp.internalConnections == null)
                 {
                         trace('❌ reconnectExternalLinksToAssembly: parent blueprint has NO connections!');
@@ -1222,7 +1312,7 @@ class EditorContext
                         // Check 'to' side
                         if (conn.to.atomId != "SELF")
                         {
-                                var realAtomId = currentAssembly.idMap.get(conn.to.atomId);
+                                var realAtomId = ctx.idMap.get(conn.to.atomId);
                                 if (realAtomId == null) realAtomId = conn.to.atomId; // fallback if already runtime ID
 
                                 if (realAtomId == targetAsm.id || conn.to.atomId == targetAsm.id)
@@ -1234,7 +1324,7 @@ class EditorContext
                         // Check 'from' side (for completeness)
                         if (!isTarget && conn.from.atomId != "SELF")
                         {
-                                var realAtomId = currentAssembly.idMap.get(conn.from.atomId);
+                                var realAtomId = ctx.idMap.get(conn.from.atomId);
                                 if (realAtomId == null) realAtomId = conn.from.atomId;
 
                                 if (realAtomId == targetAsm.id || conn.from.atomId == targetAsm.id)
@@ -1264,14 +1354,14 @@ class EditorContext
                                 // rewrite conn.contactName in-place so future calls (and
                                 // save-to-disk) use the correct externalName.
                                 // ═══════════════════════════════════════════════════════════════════
-                                var cOut = resolveContactInParent(conn.from);
-                                var cIn = resolveContactInParent(conn.to);
+                                var cOut = resolveContactInParent(conn.from, ctx);
+                                var cIn = resolveContactInParent(conn.to, ctx);
 
                                 // If cIn is null and conn.to references an Assembly,
                                 // try to reconcile the contactName with actual port externalNames.
                                 if (cIn == null && conn.to.atomId != "SELF")
                                 {
-                                        var toAsm = resolveAssemblyInParent(conn.to.atomId);
+                                        var toAsm = resolveAssemblyInParent(conn.to.atomId, ctx);
                                         if (toAsm != null)
                                         {
                                                 // v2.7 STEEL RECONCILIATION (in priority order):
@@ -1301,7 +1391,7 @@ class EditorContext
                                                         // Update connection in-place
                                                         conn.to.contactName = fallbackPort.externalName;
                                                         // Re-resolve cIn
-                                                        cIn = resolveContactInParent(conn.to);
+                                                        cIn = resolveContactInParent(conn.to, ctx);
                                                         trace('   🔄 Reconciled cIn: "${requestedName}" → "${conn.to.contactName}"');
                                                 }
                                         }
@@ -1310,7 +1400,7 @@ class EditorContext
                                 // Same for cOut (if conn.from references an Assembly)
                                 if (cOut == null && conn.from.atomId != "SELF")
                                 {
-                                        var fromAsm = resolveAssemblyInParent(conn.from.atomId);
+                                        var fromAsm = resolveAssemblyInParent(conn.from.atomId, ctx);
                                         if (fromAsm != null)
                                         {
                                                 // v2.7 STEEL RECONCILIATION: suffix, then internalName
@@ -1334,7 +1424,7 @@ class EditorContext
                                                 if (fallbackPort != null)
                                                 {
                                                         conn.from.contactName = fallbackPort.externalName;
-                                                        cOut = resolveContactInParent(conn.from);
+                                                        cOut = resolveContactInParent(conn.from, ctx);
                                                         trace('   🔄 Reconciled cOut: "${requestedName}" → "${conn.from.contactName}"');
                                                 }
                                         }
@@ -1384,12 +1474,14 @@ class EditorContext
      * v2.7: Resolve an atomId (template or runtime) to an Assembly instance
      * in the parent's internalAtoms. Returns null if the atom is not an Assembly.
      */
-    private function resolveAssemblyInParent(atomId:String):core.base.Assembly
+    private function resolveAssemblyInParent(atomId:String, ?ctx:core.base.Assembly):core.base.Assembly
     {
         if (atomId == null || atomId == "SELF") return null;
-        var realAtomId = currentAssembly.idMap.get(atomId);
+        // v2.12: optional context override (parent-wire auto-heal, fix F)
+        var ctxAsm:core.base.Assembly = (ctx != null) ? ctx : currentAssembly;
+        var realAtomId = ctxAsm.idMap.get(atomId);
         if (realAtomId == null) realAtomId = atomId;
-        var obj = currentAssembly.internalAtoms.get(realAtomId);
+        var obj = ctxAsm.internalAtoms.get(realAtomId);
         if (obj == null) return null;
         if (Std.isOfType(obj, core.base.Assembly)) {
             return cast(obj, core.base.Assembly);
@@ -1512,20 +1604,22 @@ class EditorContext
          * This brilliantly leverages the existing Atom.getInput/getOutput methods,
          * which already know how to find Assembly ports by their externalName!
          */
-        private function resolveContactInParent(point:core.data.Blueprint.ConnectionPoint):core.base.Contact
+        private function resolveContactInParent(point:core.data.Blueprint.ConnectionPoint, ?ctx:core.base.Assembly):core.base.Contact
         {
+                // v2.12: optional context override (parent-wire auto-heal, fix F)
+                var ctxAsm:core.base.Assembly = (ctx != null) ? ctx : currentAssembly;
                 if (point.atomId == "SELF")
                 {
-                        var port = currentAssembly.ports.get(point.contactName);
+                        var port = ctxAsm.ports.get(point.contactName);
                         return port != null ? port.internal : null;
                 }
                 else
                 {
                         // Resolve Template ID to Runtime ID
-                        var realAtomId = currentAssembly.idMap.get(point.atomId);
+                        var realAtomId = ctxAsm.idMap.get(point.atomId);
                         if (realAtomId == null) realAtomId = point.atomId;
 
-                        var obj = currentAssembly.internalAtoms.get(realAtomId);
+                        var obj = ctxAsm.internalAtoms.get(realAtomId);
                         if (obj == null) return null;
 
                         var atom:core.base.Atom = cast obj;

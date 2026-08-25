@@ -5,7 +5,7 @@ import core.types.ContactType.*;
 import utils.UID;
 
 /**
-* CONTACT v5.12 (Gateway Repeat Forwarding + Link Lifecycle Traps)
+* CONTACT v5.13 (Propagation Depth Leak Fix + Depth-Guard Canary)
 *
 * A connection point that can be linked to other contacts.
 * When value changes, it propagates to linked targets.
@@ -19,6 +19,15 @@ import utils.UID;
 * - v5.11: LINK/UNLINK lifecycle traps + _receiveValue probe
 *   (gateway-link death forensics)
 *   forensics — see utils.Trap.NAMES)
+* - v5.12: forwardRepeats — gateway contacts forward repeated values
+* - v5.13: PROPAGATION DEPTH LEAK FIX — the topology-locked branch of
+*   set_value returned from inside try, skipping _propagationDepth--
+*   (no finally in Haxe). The counter is STATIC app-wide: every value
+*   set under a topology lock leaked +1 forever. After ~100 locked
+*   sets (one heavy nested-grouping + pop campaign) the depth guard
+*   silently killed EVERY set_value in the app — probes kept logging,
+*   values stopped flowing, restores died, wires looked fine.
+*   + DEPTH-GUARD canary trap for direct observability.
 *
 * Comparison of Write Methods:
 * ┌────────────────────┬───────────────────────────────────────────────────────┐
@@ -357,7 +366,18 @@ if (!ignoreOscillation && _changeCount > CHANGES_PER_SECOND_LIMIT) {
 }
 
 // Recursion protection
-if (_propagationDepth >= MAX_PROPAGATION_DEPTH) return newValue;
+// v5.13: DEPTH-GUARD canary. _propagationDepth is STATIC (shared by
+// every Contact in the app). If this guard fires, either the counter
+// leaked (pre-v5.13 bug: the deferred branch skipped the decrement)
+// or there is true runaway recursion. Both MUST be visible — a silent
+// kill here freezes the whole app conduction while probes keep
+// logging (field-proven failure mode: dead buttons after nested
+// grouping + pops, healed only by process restart).
+if (_propagationDepth >= MAX_PROPAGATION_DEPTH)
+{
+utils.Trap.log("DEPTH-GUARD", "depth=" + _propagationDepth + " killed set_value on " + (owner != null ? owner.id : "?") + "." + name);
+return newValue;
+}
 
 _propagationDepth++;
 try
@@ -371,6 +391,16 @@ if (tg.isTopologyLocked())
 tg.deferTopologyTask(function() {
 if (!isDisposed) _propagate();
 });
+// v5.13 FIX (THE LEAK): this early return used to jump over the
+// _propagationDepth-- at the end of set_value (Haxe try/catch has
+// no finally). The counter is STATIC and shared by every Contact,
+// so each value set during a topology lock leaked +1 FOREVER.
+// Field proof: after one nested-grouping + pop campaign (~100+
+// locked sets) the depth guard silently killed every set_value
+// app-wide — buttons dead at root, restores dead, saved states
+// stale — while probes kept logging and wires looked healthy.
+// Restart healed (fresh process, counter back to 0).
+_propagationDepth--;
 return newValue;
 }
 

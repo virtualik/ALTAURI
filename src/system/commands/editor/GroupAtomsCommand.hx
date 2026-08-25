@@ -19,7 +19,7 @@ import library.AtomRegistry;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                      GROUP ATOMS COMMAND v3.14                            ║
+* ║                      GROUP ATOMS COMMAND v3.15                            ║
 * ║         (BP-SSOT Consistency + Parent Port Collision Fix + DeviceView     ║
 * ║          Lifecycle Cleanup + Template ID as instanceId + Unique Names)    ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
@@ -238,6 +238,16 @@ import library.AtomRegistry;
 * ║                                                                           ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
 */
+// ═══════════════════════════════════════════════════════════════════════════
+// v3.15 CHANGES (Naming & Integrity pack, 2026-08-24)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+//  CIRCULAR REFERENCE GUARD resurrected: validateNoCircularReference()
+//  existed since v3.x but was never called (dead code — grep = 0 call
+//  sites). Now invoked at the top of executeGrouping(); also upgraded
+//  with a blueprint IDENTITY check (alias-proof, same idea as the
+//  Assembly v2.6 / CreateAtomCommand v1.4 guards).
+//
 class GroupAtomsCommand extends Command
 {
 // ========================================================================
@@ -308,6 +318,16 @@ class GroupAtomsCommand extends Command
 	private function executeGrouping():Void
 	{
 		trace('GroupAtomsCommand v3.12: Grouping ${_selectedNodeIds.length} atoms...');
+
+// ═══ v3.15: CIRCULAR REFERENCE GUARD (resurrected). ═══
+// validateNoCircularReference() existed since v3.x but was NEVER called.
+// Grouping that would nest the current blueprint inside the selection
+// is aborted cleanly BEFORE any mutation.
+		if (!validateNoCircularReference())
+		{
+			trace('GroupAtomsCommand: ABORTED — circular reference detected (would nest "${_blueprint.id}" inside the selection).');
+			return;
+		}
 
 // =====================================================================
 // PHASE 0: ID RESOLUTION (Runtime → Template)
@@ -1097,7 +1117,9 @@ class GroupAtomsCommand extends Command
 			if (atomInst != null && Std.isOfType(atomInst, Assembly))
 			{
 				var asm = cast(atomInst, Assembly);
-				if (asm.blueprint != null && asm.blueprint.id == currentBpId) return false;
+				// v3.15: identity check first — catches registry aliases of the same
+				// live Blueprint object even when its .id has been mutated.
+				if (asm.blueprint != null && (asm.blueprint == _blueprint || asm.blueprint.id == currentBpId)) return false;
 				if (hasCircularReference(asm, currentBpId, 0)) return false;
 			}
 		}

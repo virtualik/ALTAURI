@@ -162,7 +162,7 @@ class MenuItem extends Sprite
 		catch (e:Dynamic)
 		{
 // Asset not found
-			trace("Asset not found");
+			// trace("Asset not found");
 		}
 		if (bmpData != null)
 		{
