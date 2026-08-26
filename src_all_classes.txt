@@ -1,7 +1,7 @@
 
 ================================================================================
 // FILE: core\base\Assembly.hx
-// Lines: 2562 | Chars: 93051
+// Lines: 2737 | Chars: 100712
 ================================================================================
 
 package core.base;
@@ -23,10 +23,10 @@ using StringTools;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     ASSEMBLY v2.5                                         ║
+* ║                     ASSEMBLY v2.9                                         ║
 * ║  (Full Integrity + Template ID Serialization + Clean Gateway Topology     ║
 * ║   + Load-Symmetric Blueprint Sync + Atom Mapping Registration             ║
-* ║   + Inline Value Persistence + Crash Traps + Conn Traps)                                             ║
+* ║   + Inline Value Persistence + Crash Traps + Conn Traps)                  ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  Universal base class for ALL nodes in the system.                        ║
@@ -53,6 +53,16 @@ using StringTools;
 * ║  - v1.11: FIXED external wires not removed when port is deleted.          ║
 * ║           Added PORT_REMOVED event notification.                          ║
 * ║  - v2.0: FIXED Template ID serialization for nested state persistence.    ║
+* ║  - v2.8: FIXED position scramble in _recreatePortWithNewExternalName()    ║
+* ║         (renamed ports jumped to END of _inputs/_outputs via remove+push; ║
+* ║          now replaced IN-PLACE at the captured index so external contact  ║
+* ║          order stays locked to the internal wall order)                   ║
+* ║  - v2.9: STABLE WALL-PORT NAMING v3.0 (Inlet/Arrival/Departure/           ║
+* ║         Outlet): legacy pins migrate in place (PortNaming); stable        ║
+* ║         ports NEVER rename; beneficiary tooltips (getPortBeneficiary);    ║
+* ║         legacy aliases bridge pre-migration parent references and         ║
+* ║         heal them in place (resolveContact / getPortByAnyName)            ║
+* ║                                                                           ║
 * ║  - v2.0: FIXED Delta Topology infinite loops in port linking.             ║
 * ║  - v2.1: ADDED syncConnectionsToTemplateIds() — converts runtime IDs in   ║
 * ║         blueprint.internalConnections to template IDs before              ║
@@ -232,8 +242,8 @@ using StringTools;
 * ║                                                                           ║
 * ║  ┌──────────────────────────────────────────────────────────────────┐     ║
 * ║  │  Button.out ──link──► port.internal ──subscribe──► callback      │     ║
-* ║  │                                     │                            │     ║
-* ║  │                                     ▼                            │     ║
+* ║  │                                         │                        │     ║
+* ║  │                                         ▼                        │     ║
 * ║  │                               port.external ──link──► LED.in     │     ║
 * ║  └──────────────────────────────────────────────────────────────────┘     ║
 * ║                                                                           ║
@@ -257,6 +267,15 @@ class Assembly extends Atom
 
 	/** Map of port name to ConductorPort instance. */
 	public var ports(default, null):Map<String, ConductorPort>;
+	/**
+	* v2.9: Legacy port-name aliases (pre-stable-naming name -> port).
+	* Built from the PortNaming session cache after ports are created;
+	* lets parents that still reference old names ("Button_out",
+	* "incoming_1") resolve the migrated stable ports until their own
+	* blueprints heal (in place) on first resolution.
+	*/
+	private var _legacyPortNames:Map<String, ConductorPort> = new Map<String, ConductorPort>();
+
 
 	/** Map of runtime ID to internal atom instance. */
 	public var internalAtoms(default, null):Map<String, Dynamic>;
@@ -1068,6 +1087,10 @@ class Assembly extends Atom
 		if (newBp.id != this.blueprint.id) return;
 		this.name = newBp.name;
 
+		// v2.9: a hot-reloaded blueprint may arrive pre-migration —
+		// convert pin names to the stable scheme before ports are diffed.
+		core.logic.PortNaming.migrateBlueprintInPlace(newBp);
+
 // Find ports to remove
 		var currentPortNames = [for (name in ports.keys()) name];
 		var targetPinNames = new Map<String, Bool>();
@@ -1164,6 +1187,9 @@ class Assembly extends Atom
 		//_initializeLogicState();   // Устанавливает значения по умолчанию
 		//_processPendingSignals();  // Запускает активные драйверы (MiniAudioAtom)
 		reconnectExternalLinks();
+
+		// v2.9: aliases must point at the FRESH port objects
+		_rebuildLegacyPortAliases();
 
 		Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: this.id });
 	}
@@ -1514,6 +1540,15 @@ class Assembly extends Atom
 			var port = ports.get(portName);
 			if (port == null) continue;
 
+			// ═════════════════════════════════════════════════════════════════════════
+			// v2.9: STABLE PORTS NEVER RENAME. Inlet_N/Outlet_N keep their
+			// name for life — the semantic info lives in the hover tooltip
+			// (getPortBeneficiary*), not in the name. This kills the whole
+			// name-drift bug family (suffix chains, PORT-HEAL storms,
+			// frozen-name weirdness) at the root.
+			// ═════════════════════════════════════════════════════════════════════════
+			if (core.logic.PortNaming.isStableExternalName(port.externalName)) continue;
+
 			var baseExtName = StringTools.replace(info.atomName, " ", "_") + "_" + info.contactName;
 			var newExtName = baseExtName;
 
@@ -1570,15 +1605,23 @@ class Assembly extends Atom
 		var portType = oldPort.type;
 		var defaultValue = oldPort.defaultValue;
 
-// 1. Remove old external contact from _inputs / _outputs
+// 1. v2.8 POSITION-INTEGRITY: capture the old external contact's INDEX
+//    before dispose. The old code did remove()+push(), which moved EVERY
+//    renamed port to the END of _inputs/_outputs — external contact order
+//    scrambled vs the internal wall order. Field repro: connect a button
+//    to the LOWEST new internal port, then connect an atom to the port
+//    above it — the second rename pushed its external contact to the end
+//    and displaced the button's contact one slot UP on the parent-side
+//    node ("не самый нижний контакт принимает иное название, а тот что
+//    выше над самым последним").
+		var extIdx:Int = -1;
 		if (portType == INPUT)
 		{
-			if (_inputs != null) _inputs.remove(oldPort.external);
-			if (_inputCache != null && _inputCache.length > _inputs.length) _inputCache.pop();
+			if (_inputs != null) extIdx = _inputs.indexOf(oldPort.external);
 		}
 		else
 		{
-			if (_outputs != null) _outputs.remove(oldPort.external);
+			if (_outputs != null) extIdx = _outputs.indexOf(oldPort.external);
 		}
 
 // 2. Dispose old port (disposes internal + external contacts)
@@ -1590,16 +1633,19 @@ class Assembly extends Atom
 		var newPort = new ConductorPort(newExtName, portType, internalName, defaultValue);
 		ports.set(internalName, newPort);
 
-// 4. Add new external contact to _inputs / _outputs
+// 4. v2.8: replace external contact AT THE CAPTURED INDEX (position-stable).
+//    Fallback push() only when the old contact was not found (defensive).
 		if (portType == INPUT)
 		{
-			_inputs.push(newPort.external);
+			if (extIdx >= 0) _inputs[extIdx] = newPort.external;
+			else _inputs.push(newPort.external);
 			newPort.external.owner = this;
 			while (_inputCache.length < _inputs.length) _inputCache.push(null);
 		}
 		else
 		{
-			_outputs.push(newPort.external);
+			if (extIdx >= 0) _outputs[extIdx] = newPort.external;
+			else _outputs.push(newPort.external);
 			newPort.external.owner = this;
 		}
 
@@ -1758,6 +1804,20 @@ class Assembly extends Atom
 	private function _createInterface():Void
 	{
 		if (blueprint == null || blueprint.pins == null) return;
+		// ══════════════════════════════════════════════════════════════════════════
+		// v2.9: STABLE NAMING MIGRATION (Inlet/Arrival/Departure/Outlet).
+		// One-shot in-place conversion of legacy pin names (incoming_N /
+		// outgoing_N internals + semantic externals like "Button_out") to
+		// the stable positional scheme. Idempotent; legacy names are kept
+		// as session aliases (PortNaming) so parents still referencing
+		// them resolve and heal in place.
+		// ══════════════════════════════════════════════════════════════════════════
+		var migratedStable:Bool = core.logic.PortNaming.migrateBlueprintInPlace(blueprint);
+		if (migratedStable)
+		{
+			utils.Trap.log("MIG", "blueprint migrated to stable naming: " + (blueprint.id != null ? blueprint.id : "?"));
+		}
+
 		for (pinDef in blueprint.pins)
 		{
 			if (pinDef == null || pinDef.name == null) continue;
@@ -1779,6 +1839,8 @@ class Assembly extends Atom
 			var port = new ConductorPort(externalName, portType, pinDef.name, pinDef.defaultValue);
 			ports.set(pinDef.name, port); // key = internalName
 		}
+		// v2.9: rebuild legacy aliases AFTER ports exist (map holds ports)
+		_rebuildLegacyPortAliases();
 		_updatePortLinks();
 	}
 
@@ -2124,6 +2186,22 @@ class Assembly extends Atom
 				{
 					port = asm.ports.get(point.contactName);
 				}
+				// ══════════════════════════════════════════════════════════
+				// v2.9: LEGACY ALIAS — pre-stable-naming port name
+				// ("Button_out" / "incoming_1") resolving to the migrated
+				// stable port. On hit we HEAL the connection definition in
+				// place: the stale name disappears from this blueprint and
+				// from the next disk save.
+				// ══════════════════════════════════════════════════════════
+				if (port == null)
+				{
+					port = asm.getPortByAnyName(point.contactName);
+					if (port != null)
+					{
+						utils.Trap.log("MIG-HEAL", "parent ref \"" + point.contactName + "\" -> \"" + port.externalName + "\" on " + asm.id);
+						point.contactName = port.externalName;
+					}
+				}
 
 				if (port == null)
 				{
@@ -2176,6 +2254,103 @@ class Assembly extends Atom
 	{
 		if (blueprint == null || blueprint.pins == null) return [];
 		return blueprint.pins.copy();
+	}
+
+	// ========================================================================
+	// STABLE NAMING v2.9 (Inlet/Arrival/Departure/Outlet)
+	// ========================================================================
+	/**
+	* v2.9: Rebuild the legacy port-name alias map from the session cache
+	* (PortNaming). Called after ports are (re)created — every instance of
+	* the same blueprint derives the same aliases, so parents referencing
+	* pre-migration names resolve regardless of construction order.
+	*/
+	private function _rebuildLegacyPortAliases():Void
+	{
+		_legacyPortNames = new Map<String, ConductorPort>();
+		if (blueprint == null || blueprint.id == null) return;
+		var aliases = core.logic.PortNaming.getLegacyAliases(blueprint.id);
+		if (aliases == null) return;
+		for (oldName in aliases.keys())
+		{
+			var p = ports.get(aliases.get(oldName));
+			if (p != null) _legacyPortNames.set(oldName, p);
+		}
+	}
+
+	/**
+	* v2.9: Resolve a port by ANY known name — internal name, external
+	* name, or a legacy (pre-stable-naming) name. Used by parent-side
+	* resolution paths to bridge references that predate migration.
+	*/
+	public function getPortByAnyName(name:String):ConductorPort
+	{
+		if (name == null) return null;
+		var p = ports.get(name);
+		if (p != null) return p;
+		for (port in ports)
+		{
+			if (port != null && port.externalName == name) return port;
+		}
+		if (_legacyPortNames != null)
+		{
+			return _legacyPortNames.get(name);
+		}
+		return null;
+	}
+
+	/**
+	* v2.9: Human-readable beneficiary of a wall port — the internal atom
+	* contact it serves. Derived LIVE from blueprint connections (nothing
+	* to persist). Powers the port/wire hover tooltips that replaced the
+	* old semantic port names.
+	*
+	* @param internalName Port key ("Arrival_3" / "Departure_1")
+	* @return "Button.set"-style label, or null if the port feeds nothing
+	*/
+	public function getPortBeneficiary(internalName:String):String
+	{
+		if (blueprint == null || blueprint.internalConnections == null) return null;
+		if (!ports.exists(internalName)) return null;
+		for (conn in blueprint.internalConnections)
+		{
+			if (conn == null) continue;
+			if (conn.from != null && conn.from.atomId == "SELF" && conn.from.contactName == internalName)
+			{
+				var atom = _resolveInternalAtom(conn.to.atomId);
+				if (atom != null) return _beneficiaryLabel(atom, conn.to.contactName);
+			}
+			else if (conn.to != null && conn.to.atomId == "SELF" && conn.to.contactName == internalName)
+			{
+				var atom = _resolveInternalAtom(conn.from.atomId);
+				if (atom != null) return _beneficiaryLabel(atom, conn.from.contactName);
+			}
+		}
+		return null;
+	}
+
+	/**
+	* v2.9: Beneficiary lookup by EXTERNAL port name ("Inlet_3"/"Outlet_1")
+	* — the parent-side view used by NodeView port tooltips.
+	*/
+	public function getPortBeneficiaryByExternalName(externalName:String):String
+	{
+		for (port in ports)
+		{
+			if (port != null && port.externalName == externalName)
+			{
+				return getPortBeneficiary(port.internalName);
+			}
+		}
+		return null;
+	}
+
+	/** v2.9: "DisplayName.contactName" label for tooltip text. */
+	private function _beneficiaryLabel(atom:Atom, contactName:String):String
+	{
+		if (atom == null || contactName == null) return null;
+		var dn = (atom.displayName != null && atom.displayName != "") ? atom.displayName : atom.type;
+		return dn + "." + contactName;
 	}
 
 	public function getOrderedPorts(type:ContactType):Array<ConductorPort>
@@ -2565,11 +2740,11 @@ utils.Trap.log("ASM-DISPOSE", "dispose enter: id=" + this.id);
 			throw e;
 		}
 	}
-}
+}
 
 ================================================================================
 // FILE: core\base\AssemblyFactory.hx
-// Lines: 463 | Chars: 22959
+// Lines: 471 | Chars: 23539
 ================================================================================
 
 package core.base;
@@ -2595,7 +2770,7 @@ import library.drivers.WebSocketAtom;
 using StringTools;
 
 /**
-* ASSEMBLY FACTORY v1.3 (Global Naming & Paste Logic)
+* ASSEMBLY FACTORY v1.4 (Global Naming & Paste Logic)
 *
 * Central factory that creates every Atom in the system.
 * It decides whether to instantiate a native C++ driver (SignalGenerator, MiniAudioAtom, etc.)
@@ -2968,8 +3143,16 @@ class AssemblyFactory
                 }
                 else
                 {
-// Create: use base name as-is if free (and no forced suffix)
-                        if (parsedNum == null && !isNameTaken(baseName))
+// v1.4 FIX: use base name as-is whenever it is FREE — even when it already
+// carries a "_N" suffix. The old condition (parsedNum == null && ...) forced
+// a bump for every numbered base: GroupAtomsCommand resolved blueprint name
+// "Custom Assembly_2" (unique among blueprints), then the instance got
+// "Custom Assembly_3" (bumped from parsed num 2). Result: node label in the
+// parent said "Custom Assembly_3" while the editor title (blueprint.name)
+// said "Custom Assembly_2" — "мы внутри Custom Assembly_3, но индицируется
+// Custom Assembly_2". The paste flow (isPaste=true) still forces a bump in
+// the branch above and is NOT affected by this change.
+                        if (!isNameTaken(baseName))
                         {
                                 return baseName;
                         }
@@ -3652,7 +3835,7 @@ class ConductorPort
 
 ================================================================================
 // FILE: core\base\Contact.hx
-// Lines: 569 | Chars: 16338
+// Lines: 599 | Chars: 18130
 ================================================================================
 
 package core.base;
@@ -3662,7 +3845,7 @@ import core.types.ContactType.*;
 import utils.UID;
 
 /**
-* CONTACT v5.12 (Gateway Repeat Forwarding + Link Lifecycle Traps)
+* CONTACT v5.13 (Propagation Depth Leak Fix + Depth-Guard Canary)
 *
 * A connection point that can be linked to other contacts.
 * When value changes, it propagates to linked targets.
@@ -3676,6 +3859,15 @@ import utils.UID;
 * - v5.11: LINK/UNLINK lifecycle traps + _receiveValue probe
 *   (gateway-link death forensics)
 *   forensics — see utils.Trap.NAMES)
+* - v5.12: forwardRepeats — gateway contacts forward repeated values
+* - v5.13: PROPAGATION DEPTH LEAK FIX — the topology-locked branch of
+*   set_value returned from inside try, skipping _propagationDepth--
+*   (no finally in Haxe). The counter is STATIC app-wide: every value
+*   set under a topology lock leaked +1 forever. After ~100 locked
+*   sets (one heavy nested-grouping + pop campaign) the depth guard
+*   silently killed EVERY set_value in the app — probes kept logging,
+*   values stopped flowing, restores died, wires looked fine.
+*   + DEPTH-GUARD canary trap for direct observability.
 *
 * Comparison of Write Methods:
 * ┌────────────────────┬───────────────────────────────────────────────────────┐
@@ -4014,7 +4206,18 @@ if (!ignoreOscillation && _changeCount > CHANGES_PER_SECOND_LIMIT) {
 }
 
 // Recursion protection
-if (_propagationDepth >= MAX_PROPAGATION_DEPTH) return newValue;
+// v5.13: DEPTH-GUARD canary. _propagationDepth is STATIC (shared by
+// every Contact in the app). If this guard fires, either the counter
+// leaked (pre-v5.13 bug: the deferred branch skipped the decrement)
+// or there is true runaway recursion. Both MUST be visible — a silent
+// kill here freezes the whole app conduction while probes keep
+// logging (field-proven failure mode: dead buttons after nested
+// grouping + pops, healed only by process restart).
+if (_propagationDepth >= MAX_PROPAGATION_DEPTH)
+{
+utils.Trap.log("DEPTH-GUARD", "depth=" + _propagationDepth + " killed set_value on " + (owner != null ? owner.id : "?") + "." + name);
+return newValue;
+}
 
 _propagationDepth++;
 try
@@ -4028,6 +4231,16 @@ if (tg.isTopologyLocked())
 tg.deferTopologyTask(function() {
 if (!isDisposed) _propagate();
 });
+// v5.13 FIX (THE LEAK): this early return used to jump over the
+// _propagationDepth-- at the end of set_value (Haxe try/catch has
+// no finally). The counter is STATIC and shared by every Contact,
+// so each value set during a topology lock leaked +1 FOREVER.
+// Field proof: after one nested-grouping + pop campaign (~100+
+// locked sets) the depth guard silently killed every set_value
+// app-wide — buttons dead at root, restores dead, saved states
+// stale — while probes kept logging and wires looked healthy.
+// Restart healed (fresh process, counter back to 0).
+_propagationDepth--;
 return newValue;
 }
 
@@ -5271,7 +5484,7 @@ class LockFreeQueue<T>
 
 ================================================================================
 // FILE: core\logic\NamingService.hx
-// Lines: 311 | Chars: 16892
+// Lines: 345 | Chars: 18854
 ================================================================================
 
 package core.logic;
@@ -5281,7 +5494,7 @@ import core.data.Blueprint;
 
 /**
 * ═══════════════════════════════════════════════════════════════════════════╗
-* ║                     NAMING SERVICE v1.0                                  ║
+* ║                     NAMING SERVICE v1.1                                  ║
 * ║          Global Unique Name Resolution for Atoms & Assemblies            ║
 * ╠══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                          ║
@@ -5372,15 +5585,16 @@ import core.data.Blueprint;
 * ║                     SUFFIX ALGORITHM                                     ║
 * ╠══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                          ║
-* ║   Input: "Button" (taken)                                                ║
-* ║   Try:  "Button_1"  → taken? try next                                    ║
-* ║   Try:  "Button_2"  → free → return                                      ║
+* ║   v1.1 PARSE-BUMP: a trailing "_N" is PARSED and INCREMENTED,            ║
+* ║   never appended a second time (old bug: "Button_1" → "Button_1_1").     ║
 * ║                                                                          ║
-* ║   Input: "My Button" (taken)                                             ║
-* ║   Try:  "My Button_1" → free → return                                    ║
+* ║   Input: "Button" (taken)           → "Button_1", "Button_2", ...        ║
+* ║   Input: "Button_1" (taken)         → "Button_2"  (bumped, NOT _1_1)     ║
+* ║   Input: "Custom Assembly_2" (tkn)  → "Custom Assembly_3"                ║
+* ║   Input: "My Button" (taken)        → "My Button_1"                      ║
 * ║                                                                          ║
-* ║   Note: If candidate already ends with "_N" and that slot is free,       ║
-* ║   the candidate is used as-is. The suffix is only appended on conflict.  ║
+* ║   Note: a FREE candidate is always returned as-is.                       ║
+* ║                                                                          ║
 * ║                                                                          ║
 * ╚══════════════════════════════════════════════════════════════════════════╝
 */
@@ -5478,14 +5692,16 @@ class NamingService
         * Resolve a candidate name to a globally unique variant.
         *
         * If candidate is free → returned as-is.
-        * If candidate is taken → append "_N" where N is the smallest positive
-        * integer making the name free.
+        * If candidate is taken → parse the trailing "_N" (if any) and bump it:
+        * the smallest "{base}_{N+1}" that is free (v1.1 parse-bump — a taken
+        * "Button_1" yields "Button_2", never "Button_1_1").
         *
         * Examples:
         *   resolveUniqueInstanceName("Button")         → "Button"     (first one)
         *   resolveUniqueInstanceName("Button")         → "Button_1"   (second)
         *   resolveUniqueInstanceName("Button")         → "Button_2"   (third)
         *   resolveUniqueInstanceName("Button_5")       → "Button_5"   (if free)
+        *   resolveUniqueInstanceName("Button_1")       → "Button_2"   (parse-bump)
         *   resolveUniqueInstanceName("MyBtn", "atom_1")→ "MyBtn"      (excludes self)
         *
         * @param candidate         Desired name
@@ -5499,12 +5715,17 @@ class NamingService
                 {
                         return candidate;
                 }
-                var counter:Int = 1;
-                var c:String = candidate + "_" + counter;
+// v1.1: PARSE-BUMP. The old algorithm appended "_N" to the whole candidate,
+// so a taken "Button_1" became "Button_1_1" (and "Button_1_1_1" on the next
+// cycle) — field-reported 2026-08-25. The trailing number is now parsed
+// and incremented: "Button_1" (taken) → "Button_2".
+                var parsed = parseTrailingNumber(candidate);
+                var counter:Int = (parsed.number != null) ? parsed.number + 1 : 1;
+                var c:String = parsed.base + "_" + counter;
                 while (isInstanceNameTaken(c, excludeInstanceId))
                 {
                         counter++;
-                        c = candidate + "_" + counter;
+                        c = parsed.base + "_" + counter;
                 }
                 return c;
         }
@@ -5562,7 +5783,8 @@ class NamingService
         /**
         * Resolve a candidate blueprint name to a unique variant.
         *
-        * Same algorithm as resolveUniqueInstanceName but for blueprint.name.
+        * Same algorithm as resolveUniqueInstanceName but for blueprint.name
+        * (v1.1 parse-bump — "Custom Assembly_2" taken → "Custom Assembly_3").
         *
         * @param candidate   Desired blueprint name
         * @param excludeBpId Optional blueprint.id to exclude (for rename)
@@ -5575,20 +5797,299 @@ class NamingService
                 {
                         return candidate;
                 }
-                var counter:Int = 1;
-                var c:String = candidate + "_" + counter;
+// v1.1: PARSE-BUMP (see resolveUniqueInstanceName).
+                var parsed = parseTrailingNumber(candidate);
+                var counter:Int = (parsed.number != null) ? parsed.number + 1 : 1;
+                var c:String = parsed.base + "_" + counter;
                 while (isBlueprintNameTaken(c, excludeBpId))
                 {
                         counter++;
-                        c = candidate + "_" + counter;
+                        c = parsed.base + "_" + counter;
                 }
                 return c;
         }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v1.1: TRAILING NUMBER PARSER (parse-bump support)
+// ═══════════════════════════════════════════════════════════════════════════
+
+        /**
+        * Parse a name into its base part and optional trailing number.
+        *   "Button"     -> { base: "Button",     number: null }
+        *   "Button_1"   -> { base: "Button",     number: 1 }
+        *   "My_Thing"   -> { base: "My_Thing",   number: null } ("Thing" not digits)
+        *   "A_12"       -> { base: "A",          number: 12 }
+        */
+        private static function parseTrailingNumber(name:String):{base:String, number:Null<Int>}
+        {
+                if (name == null || name.length == 0) return { base: "Atom", number: null };
+                var regex = ~/(.*)_(\d+)$/;
+                if (regex.match(name))
+                {
+                        return { base: regex.matched(1), number: Std.parseInt(regex.matched(2)) };
+                }
+                return { base: name, number: null };
+        }
 }
+
+
+================================================================================
+// FILE: core\logic\PortNaming.hx
+// Lines: 248 | Chars: 12693
+================================================================================
+
+package core.logic;
+
+import core.data.Blueprint;
+import core.types.ContactType;
+
+/**
+* ╔═══════════════════════════════════════════════════════════════════════════╗
+* ║                        PORT NAMING v1.0                                    ║
+* ║        Stable Wall-Port Naming: Inlet / Arrival / Departure / Outlet       ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  Central authority for the v3.0 stable naming scheme of Assembly          ║
+* ║  wall ports. Names are POSITIONAL and IMMUTABLE — they never drift        ║
+* ║  when wires connect, atoms rename, or assemblies nest.                    ║
+* ║                                                                           ║
+* ║  THE FOUR FAMILIES:                                                       ║
+* ║                                                                           ║
+* ║    Inlet_N       external INPUT port (visible on the parent schema)       ║
+* ║    Arrival_N     internal wall contact paired with Inlet_N (same N)       ║
+* ║    Outlet_N      external OUTPUT port (visible on the parent schema)      ║
+* ║    Departure_N   internal wall contact paired with Outlet_N (same N)      ║
+* ║                                                                           ║
+* ║    ┌───────── PARENT ─────────┐       ┌──────── INSIDE ──────────────┐    ║
+* ║    │   [Assembly node]        │       │  (wall)                      │    ║
+* ║    │   Inlet_3   ●──────┐     │  wall │    ┌────● Arrival_3          │    ║
+* ║    │                    │─────┼───────┼────┘   (feeds Button.set)    │    ║
+* ║    │   Outlet_1  ●◄─────┼─────┼───────┼────┐   Departure_1 ●         │    ║
+* ║    │                    │     │       │    └───► (fed by Toggle.out) │    ║
+* ║    └──────────────────────────┘       └──────────────────────────────┘    ║
+* ║                                                                           ║
+* ║  WHY: semantic port names ("Button_out") mutated on every connect         ║
+* ║  cycle and drove a whole family of wire-death bugs (suffix-chain          ║
+* ║  matching, PORT-HEAL storms, frozen-name weirdness). Positional           ║
+* ║  stable names kill that entire class at the root. The semantic            ║
+* ║  meaning ("what does this port serve?") moved to the hover TOOLTIP        ║
+* ║  (Assembly.getPortBeneficiary).                                           ║
+* ║                                                                           ║
+* ║  MIGRATION: migrateBlueprintInPlace() converts legacy blueprints          ║
+* ║  (incoming_/outgoing_ internals + semantic externals) to the stable       ║
+* ║  scheme. Idempotent. Stable pins are NEVER renumbered. Legacy names       ║
+* ║  are kept as session aliases so parent blueprints that still              ║
+* ║  reference them resolve — and heal themselves in place — until the        ║
+* ║  next save writes clean names.                                            ║
+* ╚═══════════════════════════════════════════════════════════════════════════╝
+*/
+class PortNaming
+{
+        // ====================================================================
+        // PREFIXES
+        // ====================================================================
+
+        public static inline var INLET_PREFIX:String = "Inlet_";
+        public static inline var OUTLET_PREFIX:String = "Outlet_";
+        public static inline var ARRIVAL_PREFIX:String = "Arrival_";
+        public static inline var DEPARTURE_PREFIX:String = "Departure_";
+
+        // ====================================================================
+        // SESSION ALIAS CACHE
+        // ====================================================================
+
+        /**
+        * blueprint.id -> (legacy name -> new INTERNAL port name).
+        *
+        * Populated once per blueprint at first migration. Lets every
+        * instance constructed later in the session resolve parents that
+        * still reference pre-migration names (multi-instance safety:
+        * after the first instance mutates the shared blueprint, later
+        * instances would otherwise see no legacy data at all).
+        */
+        private static var _legacyAliases:Map<String, Map<String, String>> = new Map<String, Map<String, String>>();
+
+        // ====================================================================
+        // NAME BUILDERS / MATCHERS
+        // ====================================================================
+
+        /** Stable EXTERNAL name for a port type + number ("Inlet_3"/"Outlet_1"). */
+        public static function stableExternalName(type:ContactType, n:Int):String
+        {
+                return (type == OUTPUT) ? (OUTLET_PREFIX + n) : (INLET_PREFIX + n);
+        }
+
+        /** Stable INTERNAL name for a port type + number ("Arrival_3"/"Departure_1"). */
+        public static function stableInternalName(type:ContactType, n:Int):String
+        {
+                return (type == OUTPUT) ? (DEPARTURE_PREFIX + n) : (ARRIVAL_PREFIX + n);
+        }
+
+        /** True for stable external names ("Inlet_N" / "Outlet_N"). */
+        public static function isStableExternalName(name:String):Bool
+        {
+                if (name == null) return false;
+                return StringTools.startsWith(name, INLET_PREFIX) || StringTools.startsWith(name, OUTLET_PREFIX);
+        }
+
+        /** True for stable internal names ("Arrival_N" / "Departure_N"). */
+        public static function isStableInternalName(name:String):Bool
+        {
+                if (name == null) return false;
+                return StringTools.startsWith(name, ARRIVAL_PREFIX) || StringTools.startsWith(name, DEPARTURE_PREFIX);
+        }
+
+        /** Parse the trailing number after a prefix; -1 if not numeric/absent. */
+        private static function trailingNumber(name:String, prefix:String):Int
+        {
+                if (name == null || !StringTools.startsWith(name, prefix)) return -1;
+                var tail = name.substring(prefix.length);
+                if (tail.length == 0) return -1;
+                for (i in 0...tail.length)
+                {
+                        var c = tail.charCodeAt(i);
+                        if (c < 48 || c > 57) return -1;
+                }
+                return Std.parseInt(tail);
+        }
+
+        // ====================================================================
+        // MIGRATION
+        // ====================================================================
+
+        /**
+        * Convert a blueprint's wall ports to the stable naming scheme,
+        * IN PLACE. Idempotent — a second call is a no-op.
+        *
+        * RULES:
+        *   - Pins that are ALREADY stable (internal + external match the
+        *     scheme) are never touched — stability is forever, even when
+        *     number gaps exist (e.g. after removePort).
+        *   - Legacy pins (incoming_/outgoing_ internals, semantic
+        *     externals like "Button_out", or anything non-stable) are
+        *     renumbered to the lowest FREE number of their type in
+        *     blueprint.pins order.
+        *   - SELF references inside blueprint.internalConnections are
+        *     rewritten to the new internal names.
+        *   - Old internal AND external names are recorded as session
+        *     aliases (see getLegacyAliases).
+        *
+        * @return true if the blueprint was modified by THIS call.
+        */
+        public static function migrateBlueprintInPlace(bp:Blueprint):Bool
+        {
+                if (bp == null || bp.pins == null || bp.pins.length == 0) return false;
+
+                // 1. Fast exit: any legacy pin at all?
+                var hasLegacy:Bool = false;
+                for (pin in bp.pins)
+                {
+                        if (pin == null || pin.name == null) continue;
+                        var ext = pin.externalName;
+                        if (!isStableInternalName(pin.name) || ext == null || !isStableExternalName(ext))
+                        {
+                                hasLegacy = true;
+                                break;
+                        }
+                }
+                if (!hasLegacy) return false;
+
+                // 2. Numbers already occupied by stable pins (never renumbered)
+                var usedInput:Array<Int> = [];
+                var usedOutput:Array<Int> = [];
+                for (pin in bp.pins)
+                {
+                        if (pin == null || pin.name == null) continue;
+                        if (isStableInternalName(pin.name) && pin.externalName != null && isStableExternalName(pin.externalName))
+                        {
+                                var n:Int = (pin.type == OUTPUT)
+                                        ? trailingNumber(pin.name, DEPARTURE_PREFIX)
+                                        : trailingNumber(pin.name, ARRIVAL_PREFIX);
+                                if (n > 0)
+                                {
+                                        if (pin.type == OUTPUT) usedOutput.push(n); else usedInput.push(n);
+                                }
+                        }
+                }
+
+                // 3. Renumber legacy pins to the lowest free number of their type
+                var renames:Map<String, String> = new Map<String, String>(); // old internal -> new internal
+                var aliases:Map<String, String> = new Map<String, String>(); // any old name -> new internal
+                for (pin in bp.pins)
+                {
+                        if (pin == null || pin.name == null) continue;
+
+                        var alreadyStable:Bool = isStableInternalName(pin.name)
+                                && pin.externalName != null && isStableExternalName(pin.externalName);
+                        if (alreadyStable) continue;
+
+                        var oldInternal:String = pin.name;
+                        var oldExternal:String = (pin.externalName != null && pin.externalName != "") ? pin.externalName : pin.name;
+
+                        var used:Array<Int> = (pin.type == OUTPUT) ? usedOutput : usedInput;
+                        var n:Int = 1;
+                        while (used.indexOf(n) != -1) n++;
+                        used.push(n);
+
+                        var newInternal:String = stableInternalName(pin.type, n);
+                        var newExternal:String = stableExternalName(pin.type, n);
+
+                        pin.name = newInternal;
+                        pin.externalName = newExternal;
+
+                        if (oldInternal != newInternal)
+                        {
+                                renames.set(oldInternal, newInternal);
+                                aliases.set(oldInternal, newInternal);
+                        }
+                        if (oldExternal != newExternal && oldExternal != newInternal)
+                        {
+                                aliases.set(oldExternal, newInternal);
+                        }
+                }
+
+                // 4. Rewrite SELF references in internal connections
+                if (bp.internalConnections != null)
+                {
+                        for (conn in bp.internalConnections)
+                        {
+                                if (conn == null) continue;
+                                if (conn.from != null && conn.from.atomId == "SELF")
+                                {
+                                        var nn:String = renames.get(conn.from.contactName);
+                                        if (nn != null) conn.from.contactName = nn;
+                                }
+                                if (conn.to != null && conn.to.atomId == "SELF")
+                                {
+                                        var nn:String = renames.get(conn.to.contactName);
+                                        if (nn != null) conn.to.contactName = nn;
+                                }
+                        }
+                }
+
+                // 5. Session alias cache (multi-instance safety)
+                if (bp.id != null && Lambda.count(aliases) > 0)
+                {
+                        _legacyAliases.set(bp.id, aliases);
+                }
+                return true;
+        }
+
+        /**
+        * Legacy aliases for a blueprint: (old name -> new INTERNAL name).
+        * Returns null when the blueprint never needed migration.
+        */
+        public static function getLegacyAliases(blueprintId:String):Map<String, String>
+        {
+                if (blueprintId == null) return null;
+                return _legacyAliases.get(blueprintId);
+        }
+}
+
 
 ================================================================================
 // FILE: core\logic\TickGenerator.hx
-// Lines: 564 | Chars: 17157
+// Lines: 622 | Chars: 20681
 ================================================================================
 
 package core.logic;
@@ -5597,7 +6098,7 @@ import haxe.Timer;
 import system.managers.DriverManager;
 
 /**
-* TICK GENERATOR v1.2 (Topology Transaction Guard + Unified Clock)
+* TICK GENERATOR v1.3 (Deaf Graph Fix + Depth-Safe Suspend + Traps)
 *
 * The central hub for simulation control.
 *
@@ -5665,6 +6166,41 @@ import system.managers.DriverManager;
 *   This eliminates Data Race when calling scheduleNextTick() from
 *   external threads (e.g., Audio Thread in MiniAudioAtom).
 */
+// ═══════════════════════════════════════════════════════════════════════════
+// v1.3 CHANGES (Deaf Graph fix — field evidence 2026-08-25 01:29:16→01:30:07)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+//  EVIDENCE: after a 3-level pop() reconstruction the whole reactive graph
+//  went deaf for 51 seconds — button presses wrote values (set_value probes
+//  in crash_trap.log) but NOTHING propagated: no deliveries, no COND-OUT,
+//  LED frozen on its last received state. The graph revived the moment the
+//  NEXT reconstruction ran a constructor → resume().
+//
+//  ROOT CAUSE — task loss poisons Contact._isScheduled:
+//  Contact.set_value latches _isScheduled=true and hands _propagate to
+//  schedule(). The latch resets ONLY when _propagate actually RUNS.
+//  TickGenerator had TWO silent task-loss paths:
+//    (a) process() iteration-guard trip → clearQueues() destroyed all
+//        queued tasks;
+//    (b) schedule() early-returned on _blockedUntilNextFrame — the task
+//        was dropped BEFORE queueing.
+//  Either way the latch stayed true forever → the contact never scheduled
+//  again → permanently deaf (values go in, nothing comes out).
+//
+//  FIXES:
+//   1. schedule() NEVER drops tasks — queues unconditionally.
+//   2. Iteration-guard trip no longer clearQueues() — tasks are deferred
+//      to the next frame via the block flag; the guard restarts at zero.
+//   3. suspend()/resume() boolean → DEPTH COUNTER: nested Assembly
+//      construction/dispose cascades used to cancel each other's suspend
+//      state (child resume un-suspended the generator mid-parent-build;
+//      an unbalanced interleaving could leave it stuck suspended forever).
+//   4. TG-* trap markers: TG-LOCK/TG-UNLOCK, TG-SUSPEND/TG-RESUME (with
+//      depth), TG-TRIP, TG-BLOCK, TG-CLEAR — the next hunt sees the shot.
+//
+//  INVARIANT (do not break): every task passed to schedule() must
+//  EVENTUALLY EXECUTE — Contact._isScheduled correctness depends on it.
+//
 class TickGenerator
 {
 	private static var _instance: TickGenerator;
@@ -5716,7 +6252,8 @@ class TickGenerator
 	private var _queuesWrite: Map<Priority, Array<Void -> Void>>;
 	private var _queuesRead: Map<Priority, Array<Void -> Void>>;
 	private var _isProcessing: Bool = false;
-	private var _suspended: Bool = false;
+	// v1.3: DEPTH COUNTER (was boolean _suspended — see class changelog).
+	private var _suspendDepth: Int = 0;
 	#if html5
 	private var _html5FallbackTimer:Dynamic = null;
 	private static inline var HTML5_FALLBACK_INTERVAL:Int = 16; // ~60 FPS
@@ -5770,6 +6307,7 @@ class TickGenerator
 	public function lockTopology(): Void
 	{
 		_topologyLockDepth++;
+		utils.Trap.log("TG-LOCK", "depth=" + _topologyLockDepth);
 		if (_topologyLockDepth == 1)
 		{
 // First lock: clear deferred queue to prepare for new transaction
@@ -5789,6 +6327,7 @@ class TickGenerator
 		if (_topologyLockDepth == 0)
 		{
 // Final unlock: safe to resume graph execution
+			utils.Trap.log("TG-UNLOCK", "depth=0 — flushing deferred tasks");
 			var tasksToFlush = _deferredTopologyTasks.copy();
 			_deferredTopologyTasks.resize(0);
 
@@ -5899,6 +6438,10 @@ class TickGenerator
 	public function tick(): Void
 	{
 // Reset new frame locks
+		if (_blockedUntilNextFrame)
+		{
+			utils.Trap.log("TG-BLOCK", "block flag reset at tick");
+		}
 		_blockedUntilNextFrame = false;
 
 // Inject pending inputs (buttons, inputs, audio data)
@@ -5948,7 +6491,11 @@ class TickGenerator
 	*/
 	public function schedule(task: Void -> Void, priority: Priority = NORMAL): Void
 	{
-		if (_blockedUntilNextFrame) return;
+// v1.3: NEVER drop a task. The old early-return on _blockedUntilNextFrame
+// discarded the task while Contact._isScheduled stayed latched true — the
+// contact went permanently deaf (field-proven, 2026-08-25). Queue
+// unconditionally; process() is entry-guarded by the block flag and will
+// run the task on the next frame.
 		var queue = _queuesWrite.get(priority);
 		if (queue != null)
 		{
@@ -5957,7 +6504,7 @@ class TickGenerator
 
 // If not processing and not suspended, run immediately
 // (usually called from update -> tick -> process)
-		if (!_isProcessing && !_suspended)
+		if (!_isProcessing && _suspendDepth == 0 && !_blockedUntilNextFrame)
 		{
 			process();
 		}
@@ -5983,13 +6530,18 @@ class TickGenerator
 
 	public function suspend(): Void
 	{
-		_suspended = true;
+		_suspendDepth++;
+		utils.Trap.log("TG-SUSPEND", "depth=" + _suspendDepth);
 	}
 
 	public function resume(): Void
 	{
-		if (!_suspended) return;
-		_suspended = false;
+// v1.3: depth-aware — only the OUTERMOST resume re-enables processing.
+// A spurious resume() at depth 0 (unbalanced pair) is now VISIBLE via
+// the TG-RESUME trap and still safely flushes pending work.
+		if (_suspendDepth > 0) _suspendDepth--;
+		utils.Trap.log("TG-RESUME", "depth=" + _suspendDepth);
+		if (_suspendDepth > 0) return;
 		_blockedUntilNextFrame = false;
 		flushPendingInputs();
 		if (!_isProcessing && hasPendingTasks()) process();
@@ -6015,7 +6567,7 @@ class TickGenerator
 	}
 	#end
 
-	public function isSuspended(): Bool return _suspended;
+	public function isSuspended(): Bool return _suspendDepth > 0;
 
 	public function hasPendingTasks(): Bool
 	{
@@ -6057,7 +6609,7 @@ class TickGenerator
 	private function process(): Void
 	{
 // v1.2: TOPOLOGY GUARD - Freeze graph execution during mutations
-		if (_suspended || _blockedUntilNextFrame || _topologyLockDepth > 0) return;
+		if (_suspendDepth > 0 || _blockedUntilNextFrame || _topologyLockDepth > 0) return;
 		if (_isProcessing) return;
 
 		_isProcessing = true;
@@ -6087,7 +6639,13 @@ class TickGenerator
 						if (_iterationGuard > _maxIterationsPerTick)
 						{
 							_blockedUntilNextFrame = true;
-							clearQueues();
+// v1.3: DO NOT clearQueues() here. Destroying queued tasks left their
+// contacts' Contact._isScheduled one-shot latches stuck true — those
+// contacts went PERMANENTLY deaf (values written, never propagated;
+// field-proven 2026-08-25: 51 s of silence, LED frozen mid-state).
+// Tasks now survive; the block flag defers them to the next frame,
+// where the iteration guard restarts from zero.
+							utils.Trap.log("TG-TRIP", "iteration guard (>5000) — deferring queued tasks to next frame");
 							_isProcessing = false;
 							return;
 						}
@@ -6121,7 +6679,8 @@ class TickGenerator
 	{
 		clearQueues();
 		_isProcessing = false;
-		_suspended = false;
+		_suspendDepth = 0;
+		utils.Trap.log("TG-CLEAR", "state wiped (project reload boundary)");
 		_blockedUntilNextFrame = false;
 		_topologyLockDepth = 0;
 		_deferredTopologyTasks.resize(0);
@@ -6231,7 +6790,7 @@ enum Priority
 
 ================================================================================
 // FILE: core\view\ButtonWidget.hx
-// Lines: 232 | Chars: 7882
+// Lines: 235 | Chars: 8072
 ================================================================================
 
 package core.view;
@@ -6245,7 +6804,7 @@ import core.base.Atom;
 import core.base.Contact;
 
 /**
- * BUTTON WIDGET
+ * BUTTON WIDGET v1.1 (Trap Probes — button press timeline forensics)
  * Push button widget for sending impulses.
  *
  * Architecture:
@@ -6364,6 +6923,7 @@ class ButtonWidget extends DeviceView
         e.stopPropagation();
         _isPressed = true;
         drawPressed();
+        utils.Trap.log("BTN", "press");
         if (_contact != null) 
         {
             _contact.value = true;
@@ -6377,6 +6937,7 @@ class ButtonWidget extends DeviceView
         {
             _isPressed = false;
             drawNormal();
+            utils.Trap.log("BTN", "release");
             if (_contact != null) 
             {
                 _contact.value = false;
@@ -6398,6 +6959,7 @@ class ButtonWidget extends DeviceView
         {
             _isPressed = false;
             drawNormal();
+            utils.Trap.log("BTN", "release(out)");
             if (_contact != null) 
             {
                 _contact.value = false;
@@ -12247,7 +12809,7 @@ class OscilloscopeWidget extends DeviceView
 
 ================================================================================
 // FILE: core\view\PanelWidget.hx
-// Lines: 265 | Chars: 9394
+// Lines: 272 | Chars: 9889
 ================================================================================
 
 package core.view;
@@ -12264,7 +12826,7 @@ import core.data.Blueprint.PinDef;
 import core.types.ContactType;
 
 /**
- * PANEL WIDGET
+ * PANEL WIDGET v1.1 (Stable Wall-Port Naming: external labels)
  * Container widget for Assembly showing internal elements.
  *
  * Architecture:
@@ -12353,8 +12915,17 @@ class PanelWidget extends DeviceView
         _titleLabel.mouseEnabled = false;
         var fmt = new TextFormat("_sans", 12, 0xFFFFFF, true);
         _titleLabel.defaultTextFormat = fmt;
-		// Widget title name
-        _titleLabel.text = (assembly != null && assembly.blueprint != null) ? assembly.displayName : "Panel";
+        // v1.1: title = displayName with blueprint.name fallback
+        // (consistent with the v2.8 Main/AssemblyFactory title fix).
+        var panelTitle:String = "Panel";
+        if (assembly != null)
+        {
+                panelTitle = (assembly.displayName != null && assembly.displayName != "")
+                        ? assembly.displayName
+                        : ((assembly.blueprint != null && assembly.blueprint.name != null)
+                                ? assembly.blueprint.name : "Panel");
+        }
+        _titleLabel.text = panelTitle;
         _header.addChild(_titleLabel);
 
         // Content area
@@ -12364,12 +12935,6 @@ class PanelWidget extends DeviceView
 
         // Create ports
         createPorts();
-		trace('PanelWidget: assembly=${assembly != null}, blueprint=${assembly != null ? assembly.blueprint : null}');
-		
-		if (assembly != null && assembly.blueprint != null) {
-			trace('PanelWidget: blueprint.name="${assembly.blueprint.name}"');
-		}
-		_titleLabel.text = (assembly != null && assembly.blueprint != null) ? assembly.blueprint.name : "Panel";
     }
 
     // =========================================================================
@@ -12406,7 +12971,10 @@ class PanelWidget extends DeviceView
         {
             var pin = inputs[i];
             if (pin == null || pin.name == null) continue;
-            var port = createPortSprite(pin.name, true);
+            // v1.1: label = stable EXTERNAL name (Inlet_N) pairs
+            // with the parent-side node; map key stays internal name.
+            var inputLabel = (pin.externalName != null && pin.externalName != "") ? pin.externalName : pin.name;
+            var port = createPortSprite(inputLabel, true);
             port.x = -portRadius;
             port.y = headerHeight + inputStep * (i + 1);
             addChild(port);
@@ -12418,7 +12986,8 @@ class PanelWidget extends DeviceView
         {
             var pin = outputs[i];
             if (pin == null || pin.name == null) continue;
-            var port = createPortSprite(pin.name, false);
+            var outputLabel = (pin.externalName != null && pin.externalName != "") ? pin.externalName : pin.name;
+            var port = createPortSprite(outputLabel, false);
             port.x = panelWidth + portRadius;
             port.y = headerHeight + outputStep * (i + 1);
             addChild(port);
@@ -19752,7 +20321,7 @@ typedef ClipboardAtomData = {
 
 ================================================================================
 // FILE: editor\EditorContext.hx
-// Lines: 1644 | Chars: 91379
+// Lines: 1755 | Chars: 98258
 ================================================================================
 
 package editor;
@@ -19772,8 +20341,30 @@ import core.base.AssemblyFactory;
 import core.logic.TickGenerator;
 
 /**
-* EDITOR CONTEXT v2.11 (Progressive Suffix Matching + Value Re-Alignment + Traps)
+* EDITOR CONTEXT v2.13 (Stable Port Naming v3.0 bridge: legacy alias resolution + heal)
 * Manages the stack of open editors (NodeEditor instances) and their camera states.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.12 CHANGES (Parent-Wire Auto-Heal — fix F, Naming & Integrity pack)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM (field evidence, Test 2, 2026-08-24): when a child assembly's
+*  gateway port is renamed (refreshExternalPortNames via ConnectCommand or
+*  wall-port operations), _recreatePortWithNewExternalName disposes the old
+*  external contact — and every PARENT wire linked to it dies silently. The
+*  blueprint definition survives, the physical link is gone; redrawn wires
+*  hit the ConnectCommand "already exists" skip and stayed dead forever.
+*
+*  FIX: EditorContext subscribes to ASSEMBLY_PORTS_CHANGED (emitted by
+*  Assembly.refreshExternalPortNames v2.6 whenever a port was recreated) and
+*  immediately re-establishes the parent-side physical links through the
+*  same battle-tested reconciliation path as pop()-reconstruction (STEEL
+*  matchers, silent links, REALIGN value wave). Two cases:
+*    1. the changed assembly is a child of currentAssembly;
+*    2. the changed assembly IS currentAssembly (being edited right now) —
+*       the affected parent sits one level down the editor stack.
+*  reconnectExternalLinksToAssembly() gained an optional parentCtx parameter
+*  for case 2 (default keeps prior behaviour for all existing call sites).
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v2.11 CHANGES (Progressive Suffix Matching — wire disappearance fix)
@@ -20196,6 +20787,9 @@ class EditorContext
          */
         private var _cameraStates:Map<String, {x:Float, y:Float, zoom:Float}>;
 
+        /** v2.12: ASSEMBLY_PORTS_CHANGED handler (parent-wire auto-heal, fix F). */
+        private var _onAssemblyPortsChanged:Impulse -> Void;
+
         // =========================================================================
         // CONSTRUCTOR
         // =========================================================================
@@ -20205,6 +20799,9 @@ class EditorContext
                 _stack = [];
                 _theme = EditorTheme.getInstance();
                 _cameraStates = new Map();
+                // v2.12: parent-wire auto-heal — see onAssemblyPortsChanged().
+                _onAssemblyPortsChanged = onAssemblyPortsChanged;
+                Impulsys.subscribeToImpulse(core.logic.EventType.ASSEMBLY_PORTS_CHANGED, _onAssemblyPortsChanged);
         }
 
         // =========================================================================
@@ -20703,6 +21300,13 @@ class EditorContext
                 }
                 // 2. internalName (the common stale-name case)
                 if (byInternal.exists(contactName)) return byInternal.get(contactName);
+                // 2.5 v2.13: LEGACY ALIAS — pre-stable-naming port names
+                // ("Button_out", "incoming_1") resolve to the migrated
+                // stable port. remapParentConnectionsToPortNames() then
+                // rewrites the connection in place, so the alias heals
+                // itself out of the blueprint after first resolution.
+                var aliasPort = childAsm.getPortByAnyName(contactName);
+                if (aliasPort != null) return aliasPort;
                 // 3. Suffix "_name"
                 var suffix = "_" + contactName;
                 for (port in childAsm.ports)
@@ -20941,6 +21545,64 @@ class EditorContext
                 library.AtomRegistry.registerBlueprint(
                         currentAssembly.blueprint.id, currentAssembly.blueprint);
         }
+        // =========================================================================
+        // v2.12: PARENT-WIRE AUTO-HEAL (fix F — Naming & Integrity pack)
+        // =========================================================================
+        /**
+         * ASSEMBLY_PORTS_CHANGED listener.
+         *
+         * Assembly.refreshExternalPortNames() v2.6 emits this event whenever
+         * a gateway port was recreated (renamed). The recreation disposes the
+         * old external contact, killing every parent wire linked to it. This
+         * listener immediately re-establishes those physical links through
+         * reconnectExternalLinksToAssembly (STEEL reconciliation + silent
+         * links + REALIGN wave) — the same path pop()-reconstruction uses.
+         *
+         * Case 1: the changed assembly is a CHILD of currentAssembly
+         *         (e.g. pop() refreshing the assembly being exited).
+         * Case 2: the changed assembly IS currentAssembly — the user is
+         *         editing it right now; the affected parent sits one level
+         *         down the stack (e.g. ConnectCommand renaming a wall port
+         *         from inside the assembly).
+         */
+        private function onAssemblyPortsChanged(impulse:Impulse):Void
+        {
+                if (impulse == null || impulse.data == null) return;
+                var changedId:String = impulse.data.assemblyId;
+                if (changedId == null || currentAssembly == null) return;
+
+                if (currentAssembly.id == changedId)
+                {
+                        // Case 2: heal the wires in the PARENT context.
+                        if (_stack.length >= 2)
+                        {
+                                var parentAsm:Assembly = _stack[_stack.length - 2].assembly;
+                                if (parentAsm != null && parentAsm.blueprint != null)
+                                {
+                                        utils.Trap.log("PORT-HEAL", "current " + changedId + " ports changed -> healing wires in parent " + parentAsm.blueprint.id);
+                                        reconnectExternalLinksToAssembly(currentAssembly, parentAsm);
+                                }
+                        }
+                        return;
+                }
+
+                // Case 1: the changed assembly is a child of currentAssembly.
+                for (id in currentAssembly.internalAtoms.keys())
+                {
+                        var atom = currentAssembly.internalAtoms.get(id);
+                        if (Std.isOfType(atom, Assembly))
+                        {
+                                var child = cast(atom, Assembly);
+                                if (child.id == changedId)
+                                {
+                                        utils.Trap.log("PORT-HEAL", "child " + changedId + " ports changed -> healing wires in " + currentAssembly.blueprint.id);
+                                        reconnectExternalLinksToAssembly(child);
+                                        return;
+                                }
+                        }
+                }
+        }
+
         /**
          * Reconnects wires from the parent assembly to the updated child assembly.
          *
@@ -20958,10 +21620,14 @@ class EditorContext
          * after the topology transaction is complete and every view is
          * reattached.
          */
-        private function reconnectExternalLinksToAssembly(targetAsm:Assembly):Void
+        private function reconnectExternalLinksToAssembly(targetAsm:Assembly, ?parentCtx:Assembly):Void
         {
+                // v2.12: optional parent context — when the changed assembly
+                // IS the one being edited, the wires to heal live one level
+                // down the editor stack (onAssemblyPortsChanged, case 2).
+                var ctx:Assembly = (parentCtx != null) ? parentCtx : currentAssembly;
                 trace('🔗 reconnectExternalLinksToAssembly: targetAsm.id="${targetAsm.id}", targetAsm.blueprint.id="${targetAsm.blueprint.id}"');
-                var bp = currentAssembly.blueprint;
+                var bp = ctx.blueprint;
                 if (bp.internalConnections == null)
                 {
                         trace('❌ reconnectExternalLinksToAssembly: parent blueprint has NO connections!');
@@ -20979,7 +21645,7 @@ class EditorContext
                         // Check 'to' side
                         if (conn.to.atomId != "SELF")
                         {
-                                var realAtomId = currentAssembly.idMap.get(conn.to.atomId);
+                                var realAtomId = ctx.idMap.get(conn.to.atomId);
                                 if (realAtomId == null) realAtomId = conn.to.atomId; // fallback if already runtime ID
 
                                 if (realAtomId == targetAsm.id || conn.to.atomId == targetAsm.id)
@@ -20991,7 +21657,7 @@ class EditorContext
                         // Check 'from' side (for completeness)
                         if (!isTarget && conn.from.atomId != "SELF")
                         {
-                                var realAtomId = currentAssembly.idMap.get(conn.from.atomId);
+                                var realAtomId = ctx.idMap.get(conn.from.atomId);
                                 if (realAtomId == null) realAtomId = conn.from.atomId;
 
                                 if (realAtomId == targetAsm.id || conn.from.atomId == targetAsm.id)
@@ -21021,14 +21687,14 @@ class EditorContext
                                 // rewrite conn.contactName in-place so future calls (and
                                 // save-to-disk) use the correct externalName.
                                 // ═══════════════════════════════════════════════════════════════════
-                                var cOut = resolveContactInParent(conn.from);
-                                var cIn = resolveContactInParent(conn.to);
+                                var cOut = resolveContactInParent(conn.from, ctx);
+                                var cIn = resolveContactInParent(conn.to, ctx);
 
                                 // If cIn is null and conn.to references an Assembly,
                                 // try to reconcile the contactName with actual port externalNames.
                                 if (cIn == null && conn.to.atomId != "SELF")
                                 {
-                                        var toAsm = resolveAssemblyInParent(conn.to.atomId);
+                                        var toAsm = resolveAssemblyInParent(conn.to.atomId, ctx);
                                         if (toAsm != null)
                                         {
                                                 // v2.7 STEEL RECONCILIATION (in priority order):
@@ -21053,12 +21719,17 @@ class EditorContext
                                                 {
                                                         fallbackPort = findPortByProgressiveSuffix(toAsm, requestedName, INPUT);
                                                 }
+                                                // v2.13: LEGACY ALIAS — pre-stable-naming name
+                                                if (fallbackPort == null)
+                                                {
+                                                        fallbackPort = toAsm.getPortByAnyName(requestedName);
+                                                }
                                                 if (fallbackPort != null)
                                                 {
                                                         // Update connection in-place
                                                         conn.to.contactName = fallbackPort.externalName;
                                                         // Re-resolve cIn
-                                                        cIn = resolveContactInParent(conn.to);
+                                                        cIn = resolveContactInParent(conn.to, ctx);
                                                         trace('   🔄 Reconciled cIn: "${requestedName}" → "${conn.to.contactName}"');
                                                 }
                                         }
@@ -21067,7 +21738,7 @@ class EditorContext
                                 // Same for cOut (if conn.from references an Assembly)
                                 if (cOut == null && conn.from.atomId != "SELF")
                                 {
-                                        var fromAsm = resolveAssemblyInParent(conn.from.atomId);
+                                        var fromAsm = resolveAssemblyInParent(conn.from.atomId, ctx);
                                         if (fromAsm != null)
                                         {
                                                 // v2.7 STEEL RECONCILIATION: suffix, then internalName
@@ -21088,10 +21759,15 @@ class EditorContext
                                                 {
                                                         fallbackPort = findPortByProgressiveSuffix(fromAsm, requestedName, OUTPUT);
                                                 }
+                                                // v2.13: LEGACY ALIAS — pre-stable-naming name
+                                                if (fallbackPort == null)
+                                                {
+                                                        fallbackPort = fromAsm.getPortByAnyName(requestedName);
+                                                }
                                                 if (fallbackPort != null)
                                                 {
                                                         conn.from.contactName = fallbackPort.externalName;
-                                                        cOut = resolveContactInParent(conn.from);
+                                                        cOut = resolveContactInParent(conn.from, ctx);
                                                         trace('   🔄 Reconciled cOut: "${requestedName}" → "${conn.from.contactName}"');
                                                 }
                                         }
@@ -21141,12 +21817,14 @@ class EditorContext
      * v2.7: Resolve an atomId (template or runtime) to an Assembly instance
      * in the parent's internalAtoms. Returns null if the atom is not an Assembly.
      */
-    private function resolveAssemblyInParent(atomId:String):core.base.Assembly
+    private function resolveAssemblyInParent(atomId:String, ?ctx:core.base.Assembly):core.base.Assembly
     {
         if (atomId == null || atomId == "SELF") return null;
-        var realAtomId = currentAssembly.idMap.get(atomId);
+        // v2.12: optional context override (parent-wire auto-heal, fix F)
+        var ctxAsm:core.base.Assembly = (ctx != null) ? ctx : currentAssembly;
+        var realAtomId = ctxAsm.idMap.get(atomId);
         if (realAtomId == null) realAtomId = atomId;
-        var obj = currentAssembly.internalAtoms.get(realAtomId);
+        var obj = ctxAsm.internalAtoms.get(realAtomId);
         if (obj == null) return null;
         if (Std.isOfType(obj, core.base.Assembly)) {
             return cast(obj, core.base.Assembly);
@@ -21269,20 +21947,22 @@ class EditorContext
          * This brilliantly leverages the existing Atom.getInput/getOutput methods,
          * which already know how to find Assembly ports by their externalName!
          */
-        private function resolveContactInParent(point:core.data.Blueprint.ConnectionPoint):core.base.Contact
+        private function resolveContactInParent(point:core.data.Blueprint.ConnectionPoint, ?ctx:core.base.Assembly):core.base.Contact
         {
+                // v2.12: optional context override (parent-wire auto-heal, fix F)
+                var ctxAsm:core.base.Assembly = (ctx != null) ? ctx : currentAssembly;
                 if (point.atomId == "SELF")
                 {
-                        var port = currentAssembly.ports.get(point.contactName);
+                        var port = ctxAsm.ports.get(point.contactName);
                         return port != null ? port.internal : null;
                 }
                 else
                 {
                         // Resolve Template ID to Runtime ID
-                        var realAtomId = currentAssembly.idMap.get(point.atomId);
+                        var realAtomId = ctxAsm.idMap.get(point.atomId);
                         if (realAtomId == null) realAtomId = point.atomId;
 
-                        var obj = currentAssembly.internalAtoms.get(realAtomId);
+                        var obj = ctxAsm.internalAtoms.get(realAtomId);
                         if (obj == null) return null;
 
                         var atom:core.base.Atom = cast obj;
@@ -21692,6 +22372,99 @@ class EditorTheme
 }
 
 ================================================================================
+// FILE: editor\EditorTooltip.hx
+// Lines: 87 | Chars: 3131
+================================================================================
+
+package editor;
+
+import openfl.display.Sprite;
+import openfl.display.Stage;
+import openfl.text.TextField;
+import openfl.text.TextFieldAutoSize;
+import openfl.text.TextFormat;
+
+/**
+* EDITOR TOOLTIP v1.0 (Stable Port Naming companion)
+*
+* Lightweight hover tooltip used by NodeView ports, NodeEditor wall
+* ports and WireRenderer wires. With the v3.0 stable naming scheme
+* ("Inlet_3") the port name alone carries no semantics — the tooltip
+* shows the BENEFICIARY ("Inlet_3 -> Button.set"), derived live from
+* blueprint connections.
+*
+* Design notes:
+*   - One static overlay sprite, added DIRECTLY to the stage: above all
+*     editor layers, immune to canvas zoom/pan transforms.
+*   - Text labels use ASCII arrows ("->", "<-") only — the project has
+*     a field-proven lesson about glyphs missing from target fonts.
+*   - mouseEnabled=false everywhere: the tooltip never steals events.
+*   - hide() is safe to call from any context (dispose, drag start...).
+*/
+class EditorTooltip
+{
+        private static var _tip:Sprite = null;
+        private static var _label:TextField = null;
+
+        /**
+        * Show (or move) the tooltip near the given stage coordinates.
+        * Clamps to stage bounds; flips side when near the right edge.
+        */
+        public static function show(stage:Stage, stageX:Float, stageY:Float, text:String):Void
+        {
+                if (stage == null || text == null || text.length == 0) return;
+                if (_tip == null) build();
+
+                _label.text = text;
+                var w:Float = _label.textWidth + 12;
+                var h:Float = _label.textHeight + 8;
+
+                var g = _tip.graphics;
+                g.clear();
+                g.beginFill(0x111122, 0.95);
+                g.lineStyle(1, 0x00AAFF);
+                g.drawRoundRect(0, 0, w, h, 4, 4);
+                g.endFill();
+
+                if (_tip.parent != stage) stage.addChild(_tip);
+
+                var px:Float = stageX + 14;
+                var py:Float = stageY + 16;
+                if (px + w > stage.stageWidth - 4) px = stageX - w - 12;
+                if (py + h > stage.stageHeight - 4) py = stageY - h - 12;
+                if (px < 4) px = 4;
+                if (py < 4) py = 4;
+                _tip.x = px;
+                _tip.y = py;
+        }
+
+        /** Hide the tooltip. Always safe; never throws. */
+        public static function hide():Void
+        {
+                if (_tip != null && _tip.parent != null)
+                {
+                        _tip.parent.removeChild(_tip);
+                }
+        }
+
+        private static function build():Void
+        {
+                _tip = new Sprite();
+                _tip.mouseEnabled = false;
+                _tip.mouseChildren = false;
+                _label = new TextField();
+                _label.selectable = false;
+                _label.mouseEnabled = false;
+                _label.x = 6;
+                _label.y = 4;
+                _label.autoSize = TextFieldAutoSize.LEFT;
+                _label.defaultTextFormat = new TextFormat("_sans", 11, 0xFFFFCC);
+                _tip.addChild(_label);
+        }
+}
+
+
+================================================================================
 // FILE: editor\GroupSelectionManager.hx
 // Lines: 238 | Chars: 7796
 ================================================================================
@@ -21937,7 +22710,7 @@ class GroupSelectionManager
 
 ================================================================================
 // FILE: editor\NodeEditor.hx
-// Lines: 1843 | Chars: 83975
+// Lines: 1884 | Chars: 85903
 ================================================================================
 
 package editor;
@@ -21978,7 +22751,7 @@ import ui.NodeVisualMode;
 using StringTools;
 
 /**
-* NODE EDITOR v4.10 (Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
+* NODE EDITOR v4.11 (Wall Port Labels + Beneficiary Tooltips + Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
 * Visual schematic editing coordinator.
 *
 * ═══════════════════════════════════════════════════════════════════════════
@@ -22541,7 +23314,7 @@ class NodeEditor extends Sprite
                 for (p in leftPorts)
                 {
                         var c:Contact = p.internal;
-                        var portView = createEdgePort(c, false, p.name);
+                        var portView = createEdgePort(c, false, p.name, true);
                         portView.x = 0;
                         portView.y = leftStep * (leftIdx + 1);
                         _edgePortsContainer.addChild(portView);
@@ -22553,7 +23326,7 @@ class NodeEditor extends Sprite
                 for (p in rightPorts)
                 {
                         var c:Contact = p.internal;
-                        var portView = createEdgePort(c, true, p.name);
+                        var portView = createEdgePort(c, true, p.name, false);
                         portView.x = w;
                         portView.y = rightStep * (rightIdx + 1);
                         _edgePortsContainer.addChild(portView);
@@ -22564,7 +23337,7 @@ class NodeEditor extends Sprite
                 _wireRenderer.updateEdgeWires();
         }
 
-        private function createEdgePort(contact:Contact, isInput:Bool, portName:String):Sprite
+        private function createEdgePort(contact:Contact, isInput:Bool, portName:String, isLeftWall:Bool):Sprite
         {
                 var s = new Sprite();
                 s.graphics.beginFill(_theme.PORT_COLOR_DEFAULT);
@@ -22574,9 +23347,50 @@ class NodeEditor extends Sprite
                 s.useHandCursor = true;
                 s.name = portName;
 
+                // v4.11: WALL PORT LABEL — the STABLE internal name
+                // ("Arrival_3" / "Departure_1") so the user can pair
+                // it with the parent-side Inlet_N / Outlet_N through
+                // the wall. Plain circles carried no pairing info.
+                var label = new openfl.text.TextField();
+                label.width = 90;
+                label.height = 14;
+                label.selectable = false;
+                label.mouseEnabled = false;
+                label.defaultTextFormat = new openfl.text.TextFormat("_sans", 10, 0xAAAAAA);
+                label.text = portName;
+                label.y = -7;
+                if (isLeftWall)
+                {
+                        label.x = 10;
+                }
+                else
+                {
+                        label.x = -10 - label.width;
+                }
+                s.addChild(label);
+
+                // v4.11: beneficiary tooltip — derived live from
+                // _assembly.getPortBeneficiary, same data source the
+                // parent-side node uses.
+                s.addEventListener(MouseEvent.ROLL_OVER, function(e:MouseEvent)
+                {
+                        var b = _assembly.getPortBeneficiary(portName);
+                        var tip = (b != null)
+                                ? (portName + (isLeftWall ? " -> " : " <- ") + b)
+                                : portName;
+                        if (s.stage != null)
+                        {
+                                editor.EditorTooltip.show(s.stage, e.stageX, e.stageY, tip);
+                        }
+                });
+                s.addEventListener(MouseEvent.ROLL_OUT, function(e:MouseEvent)
+                {
+                        editor.EditorTooltip.hide();
+                });
                 s.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent)
                 {
                         e.stopPropagation();
+                        editor.EditorTooltip.hide();
                         var globalPos = s.localToGlobal(new Point(0, 0));
                         Impulsys.quickEmit(EventType.PORT_DRAG_START,
                         {
@@ -23786,7 +24600,7 @@ class NodeEditor extends Sprite
 
 ================================================================================
 // FILE: editor\NodeView.hx
-// Lines: 2130 | Chars: 97006
+// Lines: 2205 | Chars: 100855
 ================================================================================
 
 package editor;
@@ -23819,7 +24633,20 @@ import core.data.Blueprint.ParameterPriority;
 import ui.NodeVisualMode;
 
 /**
-* NODE VIEW v3.9 (Zoom Cache Hard Reset [v4.4 Stage 2] + Atom Reattach + Synchronous Layout + Touch Long-Press)
+* NODE VIEW v4.0 (Stable Wall-Port Naming v3.0 + Canonical Order + Port Beneficiary Tooltips)
+*
+* v4.0 Changes:
+* - ASSEMBLY PORT ORDER now follows blueprint.pins (canonical)
+*   instead of the runtime contact-array order. Position-integrity
+*   is preserved regardless of array mutations after migration.
+* - PORT TOOLTIPS: hovering an Inlet_N/Outlet_N port shows the
+*   beneficiary ("Inlet_3 -> Button.set") derived LIVE from
+*   Assembly.getPortBeneficiaryByExternalName. The semantic info
+*   that used to be baked into the drifting port name now lives
+*   in a stable, hover-only label.
+* - ASCII arrows ("->", "<-") only — field-proven font safety.
+*
+* v3.9: Zoom Cache Hard Reset [v4.4 Stage 2] + Atom Reattach + Synchronous Layout + Touch Long-Press
 *
 * Visual representation of an Atom (node) on the schematic canvas.
 *
@@ -24515,8 +25342,37 @@ private function centerPreviewContainer():Void
                 }
                 inputPorts.clear();
                 outputPorts.clear();
-                var inputs = atom.getInputs();
-                var outputs = atom.getOutputs();
+                // ══════════════════════════════════════════════════════════════════════
+                // v4.0: CANONICAL PORT ORDER for Assembly atoms =
+                // blueprint.pins order. The runtime _inputs/_outputs
+                // array order can drift on ConductorPort recreation
+                // (v2.8 keeps position-stable, but a fresh canonical
+                // read here is the stronger guarantee). Plain atoms
+                // keep the runtime contact array order.
+                var inputs:Array<Contact> = null;
+                var outputs:Array<Contact> = null;
+                if (Std.isOfType(atom, Assembly))
+                {
+                        var asm:Assembly = cast(atom, Assembly);
+                        inputs = [];
+                        outputs = [];
+                        if (asm.blueprint != null && asm.blueprint.pins != null)
+                        {
+                                for (pin in asm.blueprint.pins)
+                                {
+                                        if (pin == null || pin.name == null) continue;
+                                        var port = asm.ports.get(pin.name);
+                                        if (port == null || port.external == null) continue;
+                                        if (pin.type == INPUT) inputs.push(port.external);
+                                        else if (pin.type == OUTPUT) outputs.push(port.external);
+                                }
+                        }
+                }
+                else
+                {
+                        inputs = atom.getInputs();
+                        outputs = atom.getOutputs();
+                }
                 var portsHeight:Float = MIN_BODY_HEIGHT;
                 var inputCount = (inputs != null) ? inputs.length : 0;
                 var outputCount = (outputs != null) ? outputs.length : 0;
@@ -24626,6 +25482,21 @@ private function centerPreviewContainer():Void
                 {
                         e.stopPropagation();
                         onPortRightClick(name, isInput, e);
+                });
+                // v4.0: hover tooltip — beneficiary of the wall port
+                // (stable name + semantic target, derived live from
+                // blueprint connections via Assembly.getPortBeneficiary*).
+                port.addEventListener(MouseEvent.ROLL_OVER, function(e:MouseEvent)
+                {
+                        var tip = portTooltipText(name, isInput);
+                        if (tip != null)
+                        {
+                                editor.EditorTooltip.show(port.stage, e.stageX, e.stageY, tip);
+                        }
+                });
+                port.addEventListener(MouseEvent.ROLL_OUT, function(e:MouseEvent)
+                {
+                        editor.EditorTooltip.hide();
                 });
                 return port;
         }
@@ -25743,8 +26614,25 @@ private function centerPreviewContainer():Void
 // =========================================================================
 // PORT INTERACTION
 // =========================================================================
+        /**
+        * v4.0: Beneficiary tooltip text for an Assembly wall port.
+        * Plain atoms get no tooltip — their port names are already
+        * semantic ("out", "set"). Assembly ports ("Inlet_3") need
+        * the hover label to carry the semantic meaning that the
+        * name itself no longer holds.
+        */
+        private function portTooltipText(contactName:String, isInput:Bool):String
+        {
+                if (!Std.isOfType(atom, Assembly)) return null;
+                var asm:Assembly = cast(atom, Assembly);
+                var b = asm.getPortBeneficiaryByExternalName(contactName);
+                if (b == null) return contactName;
+                return isInput ? (contactName + " -> " + b) : (contactName + " <- " + b);
+        }
+
         private function onPortMouseDown(contactName:String, isInput:Bool, e:MouseEvent):Void
         {
+                editor.EditorTooltip.hide();
                 var port = isInput ? inputPorts.get(contactName) : outputPorts.get(contactName);
                 if (port == null) return;
                 var globalPos = port.localToGlobal(new Point(0, 0));
@@ -25866,7 +26754,8 @@ private function centerPreviewContainer():Void
 // =========================================================================
         public function dispose():Void
         {
-                utils.Trap.log("NV-DISPOSE", "nodeView down: " + nodeId + " cacheAsBitmap=" + this.cacheAsBitmap);
+                editor.EditorTooltip.hide();
+utils.Trap.log("NV-DISPOSE", "nodeView down: " + nodeId + " cacheAsBitmap=" + this.cacheAsBitmap);
                 Impulsys.removeImpulse(EventType.ASSEMBLY_PORTS_CHANGED, onAssemblyPortsChanged);
                 Impulsys.removeImpulse(EventType.REDRAW_WIRES, onWiresRedrawn);
                 ECS.unregister(nodeId);
@@ -26936,7 +27825,7 @@ private typedef TouchData = {
 
 ================================================================================
 // FILE: editor\WireRenderer.hx
-// Lines: 1052 | Chars: 51299
+// Lines: 1118 | Chars: 54853
 ================================================================================
 
 package editor;
@@ -26959,7 +27848,7 @@ import ui.WireType;
 import ui.WireType.WireType as WireTypeEnum;
 
 /**
-* WIRE RENDERER v1.8 (Crash Traps + Stage-Aware Endpoint Resolution + Hit Sprite Selection + Wire Long-Press)
+* WIRE RENDERER v1.9 (Hover Tooltip + Crash Traps + Stage-Aware Endpoint Resolution + Hit Sprite Selection + Wire Long-Press)
 * Responsible for visualizing all wires (connections) in NodeEditor.
 *
 * ═══════════════════════════════════════════════════════════════════════════
@@ -27376,6 +28265,12 @@ class WireRenderer {
                                 if (entry.rightClickHandler != null) {
                                         entry.hitSprite.removeEventListener(MouseEvent.RIGHT_CLICK, entry.rightClickHandler);
                                 }
+                                if (entry.rollOverHandler != null) {
+                                        entry.hitSprite.removeEventListener(MouseEvent.ROLL_OVER, entry.rollOverHandler);
+                                }
+                                if (entry.rollOutHandler != null) {
+                                        entry.hitSprite.removeEventListener(MouseEvent.ROLL_OUT, entry.rollOutHandler);
+                                }
                                 // v1.7: Remove touch listeners
                                 _cancelWireLongPress(entry.hitSprite);
                                 if (entry.touchBeginHandler != null) {
@@ -27490,6 +28385,12 @@ class WireRenderer {
                         if (entry.rightClickHandler != null) {
                                 entry.hitSprite.removeEventListener(MouseEvent.RIGHT_CLICK, entry.rightClickHandler);
                         }
+                        if (entry.rollOverHandler != null) {
+                                entry.hitSprite.removeEventListener(MouseEvent.ROLL_OVER, entry.rollOverHandler);
+                        }
+                        if (entry.rollOutHandler != null) {
+                                entry.hitSprite.removeEventListener(MouseEvent.ROLL_OUT, entry.rollOutHandler);
+                        }
                         entry.hitSprite.graphics.clear();
                         if (entry.hitSprite.parent != null) {
                                 entry.hitSprite.parent.removeChild(entry.hitSprite);
@@ -27590,6 +28491,20 @@ class WireRenderer {
                 hitSpr.addEventListener(TouchEvent.TOUCH_MOVE, touchMoveHandler);
                 hitSpr.addEventListener(TouchEvent.TOUCH_END, touchEndHandler);
                 
+                // === v1.9: Hover tooltip — endpoint display names ===
+                var rollOverHandler = function(e:MouseEvent) {
+                        var tip = wireTooltipText(link);
+                        if (tip != null && hitSpr.stage != null)
+                        {
+                                editor.EditorTooltip.show(hitSpr.stage, e.stageX, e.stageY, tip);
+                        }
+                };
+                var rollOutHandler = function(e:MouseEvent) {
+                        editor.EditorTooltip.hide();
+                };
+                hitSpr.addEventListener(MouseEvent.ROLL_OVER, rollOverHandler);
+                hitSpr.addEventListener(MouseEvent.ROLL_OUT, rollOutHandler);
+                
                 // === Visible sprite (thin, non-interactive) ===
                 var spr = new Sprite();
                 spr.mouseEnabled = false;  // v1.6: events fall through to hitSpr
@@ -27609,6 +28524,8 @@ class WireRenderer {
                         touchBeginHandler: touchBeginHandler,
                         touchMoveHandler: touchMoveHandler,
                         touchEndHandler: touchEndHandler,
+                        rollOverHandler: rollOverHandler,
+                        rollOutHandler: rollOutHandler,
                         longPressTimer: null,
                         longPressStartX: 0.0,
                         longPressStartY: 0.0
@@ -27831,6 +28748,42 @@ class WireRenderer {
         }
         
         // ========================================================================
+        // HOVER TOOLTIP (v1.9)
+        // ========================================================================
+        /**
+        * v1.9: Tooltip text for a wire: "Source -> Target" with node
+        * display names and contact names. SELF endpoints expand to
+        * the assembly's own wall port (Arrival_N / Departure_N).
+        */
+        private function wireTooltipText(link:ConnectionDef):String
+        {
+                if (_assembly == null) return null;
+                var from = endpointLabel(link.from);
+                var to = endpointLabel(link.to);
+                if (from == null || to == null) return null;
+                return from + " -> " + to;
+        }
+
+        private function endpointLabel(point:ConnectionPoint):String
+        {
+                if (point == null) return null;
+                if (point.atomId == "SELF")
+                {
+                        var dn = (_assembly.displayName != null && _assembly.displayName != "")
+                                ? _assembly.displayName : "Assembly";
+                        return dn + "." + point.contactName;
+                }
+                var runtimeId = _assembly.idMap.get(point.atomId);
+                if (runtimeId == null) runtimeId = point.atomId;
+                var obj = _assembly.internalAtoms.get(runtimeId);
+                if (obj == null) return point.atomId + "." + point.contactName;
+                var atom:Atom = cast obj;
+                var dn = (atom.displayName != null && atom.displayName != "")
+                        ? atom.displayName : atom.type;
+                return dn + "." + point.contactName;
+        }
+
+        // ========================================================================
         // INTERNAL: UTILITIES
         // ========================================================================
         /**
@@ -27987,6 +28940,8 @@ typedef WireEntry = {
         @:optional var touchBeginHandler:TouchEvent -> Void;
         @:optional var touchMoveHandler:TouchEvent -> Void;
         @:optional var touchEndHandler:TouchEvent -> Void;
+        @:optional var rollOverHandler:MouseEvent -> Void;
+        @:optional var rollOutHandler:MouseEvent -> Void;
         @:optional var longPressTimer:haxe.Timer;
         @:optional var longPressStartX:Float;
         @:optional var longPressStartY:Float;
@@ -41757,7 +42712,7 @@ class ToggleAtom extends Atom
 
 ================================================================================
 // FILE: Main.hx
-// Lines: 2725 | Chars: 88935
+// Lines: 2734 | Chars: 89457
 ================================================================================
 
 package;
@@ -43849,7 +44804,16 @@ Impulsys.subscribeToImpulse(EventType.FULLSCREEN_TOGGLED, _onFullscreenToggled);
 	{
 		if (_editorContext.currentAssembly != null)
 		{
-			_nameField.text = _editorContext.currentAssembly.blueprint.name;
+			// FIX (title identity): show the instance displayName — the name the
+			// user sees on the assembly node in the parent schema. blueprint.name
+			// is the library-level identity and only syncs to displayName inside
+			// prepareCurrentAssemblyForSave() (on pop/exit), so it lags behind
+			// while the user is INSIDE the assembly ("внутри Custom Assembly_3,
+			// заголовок Custom Assembly_2").
+			var titleAsm = _editorContext.currentAssembly;
+			_nameField.text = (titleAsm.displayName != null && titleAsm.displayName != "")
+				? titleAsm.displayName
+				: titleAsm.blueprint.name;
 			_pathField.text = "Depth: " + _editorContext.getStackLength();
 		}
 
@@ -44733,7 +45697,7 @@ class MacroCommand extends Command {
 
 ================================================================================
 // FILE: system\commands\editor\AddPortCommand.hx
-// Lines: 110 | Chars: 4772
+// Lines: 122 | Chars: 5699
 ================================================================================
 
 package system.commands.editor;
@@ -44746,11 +45710,16 @@ import core.logic.EventType;
 
 /**
  * ╔═══════════════════════════════════════════════════════════════════════════╗
- * ║                     ADD PORT COMMAND v2.0                                 ║
- * ║                (Semantic Naming: incoming_N / outgoing_N)                  ║
+ * ║                     ADD PORT COMMAND v2.1                                 ║
+ * ║            (Stable Naming: Inlet/Arrival & Outlet/Departure)           ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
  * ║  Adds a new gateway port to an Assembly with semantic naming.             ║
+ * ║                                                                           ║
+ * ║  v2.1 Changes:                                                            ║
+ * ║  - STABLE NAMING: internal "Arrival_N"/"Departure_N" paired            ║
+ * ║    with external "Inlet_N"/"Outlet_N" (same N through the wall)        ║
+ * ║  - Names never drift; semantic info lives in hover tooltips            ║
  * ║                                                                           ║
  * ║  v2.0 Changes:                                                            ║
  * ║  - INPUT ports:  internal = "incoming_N", external = "incoming_N"         ║
@@ -44785,28 +45754,35 @@ class AddPortCommand extends Command {
 
     override private function executeInternal():Void {
         // v2.0: Generate semantic name if not provided
+        // v2.1: STABLE NAMING — manual ports use the same scheme as
+        // grouped assemblies: internal "Arrival_N"/"Departure_N" pairs
+        // with external "Inlet_N"/"Outlet_N" (same N through the wall).
+        var pairedExternalName:String = null;
         if (_name == null) {
-            var prefix = (_type == INPUT) ? "incoming_" : "outgoing_";
+            var internalPrefix = (_type == OUTPUT) ? "Departure_" : "Arrival_";
+            var externalPrefix = (_type == OUTPUT) ? "Outlet_" : "Inlet_";
             var count = 0;
             
             // Count existing ports of this type
             for (p in _assembly.ports) {
-                if (p.type == _type) count++;
+                if (p != null && p.type == _type) count++;
+            }
+            var n = count + 1;
+            
+            // Ensure uniqueness of the INTERNAL name (ports map + pins).
+            // Gaps left by removed ports are respected — stability
+            // of existing names wins over compact numbering.
+            while (_assembly.ports.exists(internalPrefix + n) || isPinInBlueprint(internalPrefix + n)) {
+                n++;
             }
             
-            var candidate = prefix + Std.string(count + 1);
-            
-            // Ensure uniqueness in both ports map and blueprint pins
-            while (_assembly.ports.exists(candidate) || isPinInBlueprint(candidate)) {
-                count++;
-                candidate = prefix + Std.string(count + 1);
-            }
-            
-            _name = candidate;
+            _name = internalPrefix + n;
+            pairedExternalName = externalPrefix + n;
         }
 
-        // v2.0: For manually added ports, external = internal name
-        var port = _assembly.addPort(_name, _type, _defaultValue);
+        // v2.1: paired external name (falls back to _name when the
+        // caller supplied an explicit port name)
+        var port = _assembly.addPort(_name, _type, _defaultValue, pairedExternalName);
         if (port != null) {
             Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });
         } else {
@@ -44849,7 +45825,7 @@ class AddPortCommand extends Command {
 
 ================================================================================
 // FILE: system\commands\editor\ConnectCommand.hx
-// Lines: 169 | Chars: 7659
+// Lines: 221 | Chars: 10582
 ================================================================================
 
 package system.commands.editor;
@@ -44865,7 +45841,7 @@ import core.logic.Impulsys;
 import core.logic.EventType;
 
 /**
- * CONNECT COMMAND v1.1 (Live External Name Refresh)
+ * CONNECT COMMAND v1.2 (Multi-Strategy SELF Resolve + Dead-Link Heal)
  * Command to connect two contacts.
  *
  * ═══════════════════════════════════════════════════════════════════════════
@@ -44915,6 +45891,15 @@ import core.logic.EventType;
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
+// v1.2 CHANGES (Naming & Integrity pack, 2026-08-24):
+//  - MULTI-STRATEGY SELF RESOLVE: ports.get() alone aborted valid wire
+//    drags ("SELF:OUT -> Contacts not found") because the two drag ends
+//    deliver names from different sources. Resolution now tries map key
+//    -> externalName -> unique port of the requested type.
+//  - DEAD-LINK HEAL: the "already exists" skip silently left wires dead
+//    forever when a reconstruction had destroyed the physical link while
+//    the blueprint definition survived. The link is now verified and
+//    silently re-established (values realigned on the next tick).
 class ConnectCommand extends Command {
     private var _blueprint:Blueprint;
     private var _assembly:Assembly;
@@ -44967,11 +45952,27 @@ class ConnectCommand extends Command {
                 _assembly.rebuildInternalConnections();
 
                 // === v1.1: Live external name refresh ===
+                // (Assembly v2.6 freezes already-semantic names, so a
+                // rename — and the parent-wire heal it triggers — happens
+                // at most once per port: EditorContext.onAssemblyPortsChanged)
                 // If this connection involves a SELF port, the port's externalName
                 // may now have a meaningful value based on the connected atom.
                 // Update it immediately so the parent schema shows a proper label
                 // (e.g., "Button_out" instead of "incoming_1").
                 _assembly.refreshExternalPortNames();
+            }
+        } else {
+            // ═══ v1.2: HEAL a dead link (definition exists, physical link
+            // missing). Reconstructions (pop, grouping, port renames) can
+            // destroy the physical Contact link while the blueprint
+            // definition survives. Previously this branch skipped silently
+            // — the wire stayed dead FOREVER even when the user redrew it.
+            if (cOut != null && cIn != null && !cOut.hasLink(cIn)) {
+                cOut.link(cIn, true);
+                trace('ConnectCommand: HEALED dead link ${_fromId}:${_fromContact} -> ${_toId}:${_toContact} (definition existed, physical link was missing)');
+                core.logic.TickGenerator.getInstance().scheduleNextTick(function() {
+                    if (cOut != null && !cOut.isDisposed) cOut.propagateCurrentValue();
+                });
             }
         }
         Impulsys.quickEmit(EventType.REDRAW_WIRES);
@@ -45002,6 +46003,33 @@ class ConnectCommand extends Command {
     private function resolveContact(atomId:String, contactName:String, type:ContactType):Contact {
         if (atomId == "SELF") {
             var port:ConductorPort = _assembly.ports.get(contactName);
+            // ═══ v1.2: multi-strategy SELF port resolution. ═══
+            // Field evidence: wire drags deliver contact names from
+            // DIFFERENT sources (map key, wall label, pin name) and a
+            // single ports.get() lookup aborted valid connects
+            // ("SELF:OUT -> Contacts not found").
+            // Strategy 2 — match by externalName (type-filtered).
+            if (port == null) {
+                for (p in _assembly.ports) {
+                    if (p != null && p.externalName == contactName && p.type == type) {
+                        port = p;
+                        break;
+                    }
+                }
+            }
+            // Strategy 3 — last resort: the ONLY port of the requested
+            // type. Unambiguous by construction; refuses on ambiguity.
+            if (port == null) {
+                var match:ConductorPort = null;
+                var count:Int = 0;
+                for (p in _assembly.ports) {
+                    if (p != null && p.type == type) {
+                        match = p;
+                        count++;
+                    }
+                }
+                if (count == 1) port = match;
+            }
             if (port == null) return null;
             return port.internal;
         } else {
@@ -45024,7 +46052,7 @@ class ConnectCommand extends Command {
 
 ================================================================================
 // FILE: system\commands\editor\CreateAtomCommand.hx
-// Lines: 196 | Chars: 9819
+// Lines: 208 | Chars: 10520
 ================================================================================
 
 package system.commands.editor;
@@ -45039,7 +46067,7 @@ import core.logic.Impulsys;
 import core.logic.EventType;
 
 /**
- * CREATE ATOM COMMAND v1.3 (Paste-Aware + Global Naming)
+ * CREATE ATOM COMMAND v1.4 (Self-Containment Guard + Paste-Aware Naming)
  *
  * v1.3 CHANGES:
  *  - Constructor extended to 9 args to support paste-aware naming:
@@ -45087,6 +46115,10 @@ import core.logic.EventType;
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
+// v1.4: SELF-CONTAINMENT GUARD — placing a blueprint inside itself (via a
+// stale registry alias key) drove the Assembly constructor into infinite
+// recursion (Test 1 stack overflow, 2026-08-24). Identity compare catches
+// every alias of the same live Blueprint object.
 class CreateAtomCommand extends Command {
     private var _blueprint:Blueprint;
     private var _assembly:Assembly;
@@ -45143,6 +46175,14 @@ class CreateAtomCommand extends Command {
 
         override private function executeInternal():Void
         {
+                // ═══ v1.4: SELF-CONTAINMENT GUARD (alias-proof). ═══
+                var registryBp = library.AtomRegistry.get(_typeId);
+                if (registryBp != null && registryBp == _blueprint)
+                {
+                        trace('CreateAtomCommand: ABORTED — "${_typeId}" cannot be placed inside itself (blueprint identity match).');
+                        return;
+                }
+
                 if (_instanceId == null) {
                         _instanceId = utils.UID.generate();
                 }
@@ -45746,7 +46786,7 @@ class DeleteWiresCommand extends Command {
 
 ================================================================================
 // FILE: system\commands\editor\GroupAtomsCommand.hx
-// Lines: 1284 | Chars: 55424
+// Lines: 1278 | Chars: 55942
 ================================================================================
 
 package system.commands.editor;
@@ -45770,7 +46810,7 @@ import library.AtomRegistry;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                      GROUP ATOMS COMMAND v3.14                            ║
+* ║                      GROUP ATOMS COMMAND v3.16                            ║
 * ║         (BP-SSOT Consistency + Parent Port Collision Fix + DeviceView     ║
 * ║          Lifecycle Cleanup + Template ID as instanceId + Unique Names)    ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
@@ -45781,6 +46821,16 @@ import library.AtomRegistry;
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ╠═════════════════════════════════════════════════════════════════════════════╣
 * ╠═════════════════════════════════════════════════════════════════════════════╣
+* ║                     v3.16 CHANGES (Stable Port Naming v3.0)              ║
+* ══════════════════════════════════════════════════════════════════════════║
+* ║                                                                           ║
+* ║  PHASE 3 now creates wall ports with the stable positional scheme:       ║
+* ║    INPUT:  internal "Arrival_N"  / external "Inlet_N"   (same N)         ║
+* ║    OUTPUT: internal "Departure_N"/ external "Outlet_N"  (same N)         ║
+* ║  Names never drift on connect — semantic info moved to hover            ║
+* ║  tooltips. The v3.12 collision-counter is obsolete (positional           ║
+* ║  numbers are unique by construction) and has been removed.               ║
+* ║                                                                           ║
 * ║                     v3.14 CHANGES (PHASE 2 Restored — undo fix)           ║
 * ╠═════════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
@@ -45989,6 +47039,16 @@ import library.AtomRegistry;
 * ║                                                                           ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
 */
+// ═══════════════════════════════════════════════════════════════════════════
+// v3.15 CHANGES (Naming & Integrity pack, 2026-08-24)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+//  CIRCULAR REFERENCE GUARD resurrected: validateNoCircularReference()
+//  existed since v3.x but was never called (dead code — grep = 0 call
+//  sites). Now invoked at the top of executeGrouping(); also upgraded
+//  with a blueprint IDENTITY check (alias-proof, same idea as the
+//  Assembly v2.6 / CreateAtomCommand v1.4 guards).
+//
 class GroupAtomsCommand extends Command
 {
 // ========================================================================
@@ -46059,6 +47119,16 @@ class GroupAtomsCommand extends Command
 	private function executeGrouping():Void
 	{
 		trace('GroupAtomsCommand v3.12: Grouping ${_selectedNodeIds.length} atoms...');
+
+// ═══ v3.15: CIRCULAR REFERENCE GUARD (resurrected). ═══
+// validateNoCircularReference() existed since v3.x but was NEVER called.
+// Grouping that would nest the current blueprint inside the selection
+// is aborted cleanly BEFORE any mutation.
+		if (!validateNoCircularReference())
+		{
+			trace('GroupAtomsCommand: ABORTED — circular reference detected (would nest "${_blueprint.id}" inside the selection).');
+			return;
+		}
 
 // =====================================================================
 // PHASE 0: ID RESOLUTION (Runtime → Template)
@@ -46150,40 +47220,20 @@ class GroupAtomsCommand extends Command
 		var outgoingCount = 0;
 
 // ═══════════════════════════════════════════════════════════════════
-// v3.12 FIX: REMOVED pre-populate with parent's port externalNames.
+// v3.16: STABLE PORT NAMING (v3.0) — Inlet/Arrival/Departure/Outlet.
 // ═══════════════════════════════════════════════════════════════════
-// PREVIOUS BUG (v3.6 "FIX"):
-//   Pre-populated usedExternalNames with externalNames from
-//   _assembly.ports (parent assembly's ports). The reasoning was
-//   "avoid collisions with parent's existing ports".
-//
-//   But this is WRONG for two reasons:
-//
-//   (a) PARENT'S PORTS ARE BEING ABSORBED.
-//       When we group selected atoms, the external connections that
-//       went through parent's ports (e.g., parent.incoming_1 → atom.in)
-//       become INTERNAL to the new sub-assembly. The parent's ports
-//       that pointed at selected atoms will be REPLACED by new ports
-//       pointing at the new sub-assembly. So we shouldn't worry about
-//       "colliding" with parent's ports — they're not staying.
-//
-//   (b) PARENT'S PORT externalName MIRRORS ATOM NAMES.
-//       Parent's port externalName is typically "AtomName_ContactName"
-//       (e.g., "Pass_in"). When we create a NEW port for the same atom
-//       Pass in the new sub-assembly, we naturally want the SAME name
-//       "Pass_in". Pre-populate makes this look like a "collision" and
-//       appends "_2" → "Pass_in_2". This breaks parent.bp.internalConnections
-//       which references the OLD name "Pass_in".
-//
-//   WITHOUT pre-populate:
-//   - The collision-counter in the loop below still handles TRUE
-//     collisions (e.g., two atoms both named "Pass" both with contact
-//     "in" → second becomes "Pass_in_2"). This is the only case that
-//     actually needs collision handling.
-//   - Parent's port names are irrelevant because they'll be replaced.
+// Wall ports get POSITIONAL names that pair through the wall by number:
+//   INPUT:  internal "Arrival_N"  / external "Inlet_N"
+//   OUTPUT: internal "Departure_N"/ external "Outlet_N"
+// Names are assigned once at grouping and NEVER change when wires
+// connect — the entire name-drift bug family (suffix chains,
+// PORT-HEAL storms, wire death on rename) dies at the root.
+// The semantic hint ("which atom does this port serve?") is NOT baked
+// into the name anymore — NodeView/NodeEditor show it as a hover
+// tooltip derived from these very internalConnections.
+// The v3.12 collision-counter is obsolete: positional numbers are
+// unique by construction, so usedExternalNames is gone.
 // ═══════════════════════════════════════════════════════════════════
-		var usedExternalNames:Map<String, Int> = new Map();
-		// Intentionally NOT pre-populated — see comment above.
 
 // v3.3 FIX: Spatial sorting
 		externalConnMeta.sort(sortByAtomPosition);
@@ -46204,40 +47254,22 @@ class GroupAtomsCommand extends Command
 				portType = OUTPUT;
 				atomDisplayName = getAtomDisplayName(conn.from.atomId);
 				contactName = conn.from.contactName;
-				externalName = atomDisplayName + "_" + contactName;
 
-				if (usedExternalNames.exists(externalName))
-				{
-					var count = usedExternalNames.get(externalName);
-					usedExternalNames.set(externalName, count + 1);
-					externalName = externalName + "_" + (count + 1);
-				}
-				else
-				{
-					usedExternalNames.set(externalName, 1);
-				}
+				// v3.16: stable naming — Outlet_N outside, Departure_N inside
 				outgoingCount++;
-				internalName = "outgoing_" + outgoingCount;
+				internalName = "Departure_" + outgoingCount;
+				externalName = "Outlet_" + outgoingCount;
 			}
 			else
 			{
 				portType = INPUT;
 				atomDisplayName = getAtomDisplayName(conn.to.atomId);
 				contactName = conn.to.contactName;
-				externalName = atomDisplayName + "_" + contactName;
 
-				if (usedExternalNames.exists(externalName))
-				{
-					var count = usedExternalNames.get(externalName);
-					usedExternalNames.set(externalName, count + 1);
-					externalName = externalName + "_" + (count + 1);
-				}
-				else
-				{
-					usedExternalNames.set(externalName, 1);
-				}
+				// v3.16: stable naming — Inlet_N outside, Arrival_N inside
 				incomingCount++;
-				internalName = "incoming_" + incomingCount;
+				internalName = "Arrival_" + incomingCount;
+				externalName = "Inlet_" + incomingCount;
 			}
 
 			_snapshot.addPortMapping(conn, internalName, portType == INPUT);
@@ -46848,7 +47880,9 @@ class GroupAtomsCommand extends Command
 			if (atomInst != null && Std.isOfType(atomInst, Assembly))
 			{
 				var asm = cast(atomInst, Assembly);
-				if (asm.blueprint != null && asm.blueprint.id == currentBpId) return false;
+				// v3.15: identity check first — catches registry aliases of the same
+				// live Blueprint object even when its .id has been mutated.
+				if (asm.blueprint != null && (asm.blueprint == _blueprint || asm.blueprint.id == currentBpId)) return false;
 				if (hasCircularReference(asm, currentBpId, 0)) return false;
 			}
 		}
@@ -51533,7 +52567,7 @@ class MenuBoundsCalculator
 
 ================================================================================
 // FILE: ui\contextmenu\MenuItem.hx
-// Lines: 297 | Chars: 11092
+// Lines: 297 | Chars: 11095
 ================================================================================
 
 package ui.contextmenu;
@@ -51700,7 +52734,7 @@ class MenuItem extends Sprite
 		catch (e:Dynamic)
 		{
 // Asset not found
-			trace("Asset not found");
+			// trace("Asset not found");
 		}
 		if (bmpData != null)
 		{
@@ -51994,7 +53028,7 @@ class MenuItemGrid extends Sprite
 
 ================================================================================
 // FILE: ui\contextmenu\providers\AssemblyLibraryProvider.hx
-// Lines: 117 | Chars: 4529
+// Lines: 130 | Chars: 5500
 ================================================================================
 
 package ui.contextmenu.providers;
@@ -52002,6 +53036,7 @@ package ui.contextmenu.providers;
 import ui.contextmenu.data.MenuEntry;
 import ui.contextmenu.data.MenuEntryProvider;
 import ui.contextmenu.data.MenuCategory;
+import core.data.Blueprint;
 import library.AtomRegistry;
 
 /**
@@ -52014,6 +53049,8 @@ import library.AtomRegistry;
  * ║  - Custom assemblies saved to library                                     ║
  * ║  - Excludes native atoms                                                  ║
  * ║  - Excludes current blueprint (prevent self-reference)                    ║
+ * ║  - v1.1: excludes by blueprint IDENTITY (alias-proof) +                   ║
+ * ║     dedupes registry aliases of the same object                           ║
  * ║                                                                           ║
  * ║  Architecture:                                                            ║
  * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
@@ -52059,15 +53096,25 @@ class AssemblyLibraryProvider implements MenuEntryProvider
         var ids = AtomRegistry.getAllIds();
         ids.sort(function(a, b) return Reflect.compare(a, b));
         
+        // v1.1: resolve the CURRENT blueprint OBJECT once. Registry aliases
+        // (one live Blueprint under several keys — the Test 1 root cause
+        // before the Main v3.2 alias kill) made the old string-only filter
+        // leak the current assembly back into its own "Add" menu.
+        var currentBp:Blueprint = (_currentBpId != null) ? AtomRegistry.get(_currentBpId) : null;
+        // v1.1: dedupe aliases — skip keys pointing at an already-listed
+        // Blueprint object (Map uses reference identity for object keys).
+        var seenBp:Map<Blueprint, Bool> = new Map();
+        
         for (id in ids)
         {
             if (id == _currentBpId) continue;
             var bp = AtomRegistry.get(id);
-            if (bp != null && !bp.isNative)
-            {
-                // All custom assemblies use the default icon for now
-                entries.push(MenuEntry.createAssembly(id, bp.name, "default_assembly"));
-            }
+            if (bp == null || bp.isNative) continue;
+            if (currentBp != null && bp == currentBp) continue; // identity self-filter
+            if (seenBp.exists(bp)) continue;                    // alias duplicate
+            seenBp.set(bp, true);
+            // All custom assemblies use the default icon for now
+            entries.push(MenuEntry.createAssembly(id, bp.name, "default_assembly"));
         }
         return entries;
     }
@@ -59691,14 +60738,14 @@ enum WireType {
 
 ================================================================================
 // FILE: utils\Trap.hx
-// Lines: 110 | Chars: 5013
+// Lines: 147 | Chars: 7494
 ================================================================================
 
 package utils;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                        TRAP v1.0                                          ║
+* ║                        TRAP v1.3                                          ║
 * ║          (Crash-Proof Trace Logger — BUG-A Hunt)                          ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
@@ -59711,7 +60758,7 @@ package utils;
 * ║  the death location is currently invisible.                               ║
 * ║                                                                           ║
 * ║  TRAP writes every line to crash_trap.log with IMMEDIATE FLUSH.           ║
-* ║  Data that was flushed before the crash survives it.                      ║
+* ║  Data that was flushed before the crash survives it.                       ║
 * ║                                                                           ║
 * ║  USAGE:                                                                   ║
 * ║    utils.Trap.log("TAG", "message");                                      ║
@@ -59726,6 +60773,24 @@ package utils;
 * ║  is not flooded at 60 Hz. The default list targets the ComPort            ║
 * ║  grouping test; EDIT IT for the next scenario.                            ║
 * ║                                                                           ║
+* ║  v1.3 CHANGES (Stable Port Naming v3.0, 2026-08-25):
+* ║  - NAMES extended with Inlet/Outlet/Arrival/Departure 1-4 so
+* ║    wall-port hops stay visible after the naming migration.
+* ║  - New tags in the wild: MIG (blueprint migrated), MIG-HEAL
+* ║    (parent reference healed to a stable port name).
+* ║                                                                           ║
+* ║  v1.2 CHANGES (Deafness hunt part 2, 2026-08-25):                         ║
+* ║  - nameMatches(): SUFFIX match added — chain port names ending with       ║
+* ║    "_<token>" now pass the filter (gateway hops became visible).         ║
+* ║                                                                           ║
+* ║  v1.1 CHANGES (Naming & Integrity retest, 2026-08-24):                    ║
+* ║  - NAMES extended with the first-hop leaf contacts ("out", "in",          ║
+* ║    "set", "rst"). Field evidence from Test 2: a button press dying        ║
+* ║    at the FIRST hop (Button.out → assembly port) was INVISIBLE in         ║
+* ║    the trap log because those names were not in the filter.               ║
+* ║  - New tags in the wild: BTN (ButtonWidget press/release timeline),       ║
+* ║    PORT-HEAL (EditorContext parent-wire auto-heal).                       ║
+* ║                                                                           ║
 * ║  cpp-only: sys.io.File. On HTML5 Trap.log compiles to a no-op.            ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
 */
@@ -59739,13 +60804,22 @@ class Trap
         * Edit per test scenario. Defaults = ComPort grouping test:
         * assembly gateway ports (Com_Port_*), driver's own contacts,
         * and the generic incoming_N/outgoing_N gateway contacts.
+        *
+        * v1.1: + "out", "in", "set", "rst" — first-hop leaf visibility
+        * (Button.out, LED.in, Toggle.set/rst). Remove them if the log
+        * gets too noisy for a high-frequency scenario.
         */
         public static var NAMES:Array<String> = [
                 "Com_Port_open", "Com_Port_close", "Com_Port_send",
                 "Com_Port_txData", "Com_Port_isOpen", "Com_Port_rxData",
                 "open", "close", "send", "txData", "isOpen", "rxData",
                 "incoming_1", "incoming_2", "incoming_3", "incoming_4",
-                "outgoing_1", "outgoing_2", "outgoing_3", "outgoing_4"
+                "outgoing_1", "outgoing_2", "outgoing_3", "outgoing_4",
+                "Inlet_1", "Inlet_2", "Inlet_3", "Inlet_4",
+                "Outlet_1", "Outlet_2", "Outlet_3", "Outlet_4",
+                "Arrival_1", "Arrival_2", "Arrival_3", "Arrival_4",
+                "Departure_1", "Departure_2", "Departure_3", "Departure_4",
+                "out", "in", "set", "rst"
         ];
 
 #if cpp
@@ -59759,6 +60833,8 @@ class Trap
         */
         public static function log(tag:String, msg:String = ""):Void
         {
+			// Блокиратор ловушки лога
+			//return;
 #if cpp
                 if (!ENABLE) return;
                 try
@@ -59787,6 +60863,14 @@ class Trap
                 for (t in NAMES)
                 {
                         if (t == n) return true;
+// v1.2: SUFFIX match. Gateway port external names are CHAINS that end
+// with the leaf semantic ("Custom_Assembly_Custom_Assembly_2_Toggle_Switch_2_rst").
+// Without the suffix match every gateway hop between the parent wire
+// and the wall contact was INVISIBLE to the probes — the deafness hunt
+// (2026-08-25) could not see where the signal died. Now a name passes
+// if it ends with "_<token>" for any token in NAMES.
+                        if (t.length > 0 && n.length > t.length + 1
+                                && StringTools.endsWith(n, "_" + t)) return true;
                 }
                 return false;
         }
@@ -59865,742 +60949,3 @@ class UID {
         return str;
     }
 }
-
-
-
-
-================================================================================
-// FILE: project.xml
-// Lines: 98 | Chars: 4931
-================================================================================
-<?xml version="1.0" encoding="utf-8"?>
-<project>
-	
-
-	<!-- ========================================================================= -->
-	<!-- META INFORMATION                                                          -->
-	<!-- ========================================================================= -->
-	<meta title="ALTAURI" package="com.virtualik.altauri" version="1.0.0" company="ViRTUALiK" />
-	
-	<!-- ========================================================================= -->
-	<!-- APPLICATION ENTRY POINTS 🐧🤖🪟🌐                                          -->
-	<!-- ========================================================================= -->
-	<!-- Используем единый класс Main для разных платформ -->
-	<app main="Main" file="ALTAURI_Windows"  path="bin" if="windows" />
-	<app main="Main" file="ALTAURI_Android"  path="bin" if="android" />
-	<app main="Main" file="ALTAURI_Linux"    path="bin" if="linux" />
-	<app main="Main" file="ALTAURI_Web"      path="bin" if="html5" />
-	
-	<!-- Для Android явно указываем тип вывода -->
-	<!-- <output type="Application" mainClass="Main" /> -->
-	
-	
-	
-	<!-- ========================================================================= -->
-	<!-- WINDOW SETTINGS                                                           -->
-	<!-- ========================================================================= -->
-	<!-- Общие настройки для всех платформ -->
-	<window hardware="true" vsync="true" allow-shaders="true" antialiasing="0" fps="60" />
-	
-	<!-- Специфичные настройки для Windows / C++ -->
-	<window if="cpp" 
-			visible="false"
-			borderless="true"
-			allow-high-dpi="false"
-			width="1024" 
-			height="600"
-			background="#FF00FF"
-			transparent="true"
-			render="webgl" hardware="true" vsync="true" />
-	
-	<!-- Специфичные настройки для HTML5 -->
-	<!-- СЛУЧАЙ 1 НА ВЕСЬ БРАУЗЕР: Не задаём width и height, чтобы браузер сам подогнал canvas 1:1 -->
-	<!-- window if="html5" background="#FFFFFF"	allow-high-dpi="false" -->
-
-	<!-- СЛУЧАЙ 2 ДЛЯ ОБЛАСТИ DIV:Фиксированный размер для демо-виджета, например 800x400 -->
-	<window if="html5" width="1024" height="600" background="#1E1E1E" />
-	<window if="html5" render="webgl" hardware="true" vsync="true" />
-
-	<config:android sdk="C:\AndroidSDK" ndk="C:\AndroidSDK\ndk\21.4.7075529" />
-
-	<!-- ========================================================================= -->
-	<!-- ENVIRONMENT VARIABLES (C++ Only)                                          -->
-	<!-- ========================================================================= -->
-	
-	<setenv name="OPENFL_DISABLE_DIRTY_REGIONS" value="true" if="cpp" />
-	<setenv name="LIME_RENDER_CONTEXT" value="opengl" if="cpp" />
-	
-	<!-- ========================================================================= -->
-	<!-- SOURCE PATHS                                                              -->
-	<!-- ========================================================================= -->
-	<source path="src" />
-	
-	<haxelib name="openfl" />
-	<haxelib name="hxcpp" if="cpp" />
-	<haxedef name="utf8" />
-	
-	<assets path="assets" />
-	<assets path="assets/icons/atoms" rename="assets/icons/atoms" recursive="true" />
-	<icon path="assets/favicon.ico" />
-	
-    <!-- ========================================================================= -->
-    <!-- ANDROID CONFIGURATION & USB SERIAL & JAVA-WEBSOCKET DEPENDENCIES          -->
-    <!-- ========================================================================= -->
-	<section if="android">
-		<!-- USB Host feature (для ComPort) -->
-		<android feature="android.hardware.usb.host" />
-		
-		<!-- INTERNET permission (для WebSocket) -->
-		<android permission="android.permission.INTERNET" />
-		
-		<!-- Подключаем распакованный classes.jar из .aar файла (для ComPort) -->
-		<java path="libs/android/java/usb-serial-extracted/classes.jar" />
-		
-		<!-- Подключаем Java-WebSocket библиотеку (для WebSocket) -->
-		<java path="libs/Java-WebSocket-1.5.6.jar" />
-		
-	    <!-- ЗАВИСИМОСТИ SLF4J (обязательны для Java-WebSocket) -->
-		<java path="libs/slf4j-api-1.7.36.jar" />
-		<java path="libs/slf4j-nop-1.7.36.jar" />
-		
-		<!-- Указывает Lime, где лежат исходники Java -->
-		<java path="libs/android/java/src/" />
-	</section>
-	
-	<!-- Запускаем синхронизацию только для HTML5 и только локально (на CI скрипт не запустится) -->
-	<postbuild if="html5" unless="CI" command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1"/>
-
-</project>
-
-
-
-================================================================================
-// FILE: sync-to-atelier.ps1 - PowerShell script
-// Lines: 154 | Chars: 8730
-================================================================================
-# sync-to-atelier.ps1
- $rootSource = "$PSScriptRoot"
- $rootTarget = "$PSScriptRoot\..\ATELIER"
-
-Write-Host "Synchronizing ALTAURI -> ATELIER..." -ForegroundColor Green
-
-# 1. Синхронизация project.xml
-Write-Host "  -> Copying project.xml..." -ForegroundColor Cyan
-Copy-Item -Path "$rootSource\project.xml" -Destination "$rootTarget\project.xml" -Force
-
-# 2. Синхронизация папки assets
-Write-Host "  -> Copying Assets folder..." -ForegroundColor Cyan
-if (Test-Path "$rootSource\assets") {
-    robocopy "$rootSource\assets" "$rootTarget\Assets" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
-} else {
-    Write-Host "     Warning: Assets folder not found in ALTAURI root. Creating empty one." -ForegroundColor Yellow
-    if (-Not (Test-Path "$rootTarget\assets")) {
-        New-Item -ItemType Directory -Path "$rootTarget\assets" -Force | Out-Null
-    }
-}
-
-# 2.5. Синхронизация папки libs/usb-serial-extracted (usb-serial драйвера для Android сборки)
-Write-Host "  -> Copying libs/usb-serial-extracted folder..." -ForegroundColor Cyan
-if (Test-Path "$rootSource\libs\usb-serial-extracted") {
-    robocopy "$rootSource\libs\usb-serial-extracted" "$rootTarget\libs\usb-serial-extracted" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
-} else {
-    Write-Host "     Warning: libs/usb-serial-extracted folder not found in ALTAURI root." -ForegroundColor Yellow
-}
-
-# 2.6. Синхронизация папки libs/ (Java-WebSocket (для WebSocket) драйвера для Android сборки)
-Write-Host "  -> Copying libs/ folder..." -ForegroundColor Cyan
-if (Test-Path "$rootSource\libs\") {
-    robocopy "$rootSource\libs\" "$rootTarget\libs\" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
-} else {
-    Write-Host "     Warning: libs/ folder not found in ALTAURI root." -ForegroundColor Yellow
-}
-
-# 2.7. Синхронизация папки templates
-#Write-Host "  -> Copying templates folder..." -ForegroundColor Cyan
-#if (Test-Path "$rootSource\templates") {
-#    robocopy "$rootSource\templates" "$rootTarget\templates" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
-#} else {
-#    Write-Host "     Warning: templates folder not found in ALTAURI root. Creating empty one." -ForegroundColor Yellow
-#    if (-Not (Test-Path "$rootTarget\templates")) {
-#        New-Item -ItemType Directory -Path "$rootTarget\templates" -Force | Out-Null
-#    }
-#}
-
-# =========================================================================
-# Синхронизация папки site (главная страница + стили)
-# =========================================================================
-Write-Host "  -> Copying site folder..." -ForegroundColor Cyan
-if (Test-Path "$rootSource\site") {
-    robocopy "$rootSource\site" "$rootTarget\site" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
-} else {
-    Write-Host "     Warning: site folder not found in ALTAURI root. Creating empty one." -ForegroundColor Yellow
-    if (-Not (Test-Path "$rootTarget\site")) {
-        New-Item -ItemType Directory -Path "$rootTarget\site" -Force | Out-Null
-    }
-}
-
-# 3. Синхронизация папки src
- $sourceSrc = "$rootSource\src"
- $targetSrc = "$rootTarget\src"
-Write-Host "  -> Copying src folder..." -ForegroundColor Cyan
-robocopy $sourceSrc $targetSrc /MIR /XD .git bin obj Export /XF *.cpp *.h /NFL /NDL /NJH /NJS /nc /ns /np
-
-# =========================================================================
-# 4. Копирование главной страницы в локальную папку bin/ (для локальной сборки)
-# =========================================================================
- $html5BinPath = "$rootSource\bin\html5\bin"
- $sitePath = "$rootSource\site"
-
-Write-Host "  -> Copying website landing page to local HTML5 output..." -ForegroundColor Cyan
-
-if (Test-Path $html5BinPath) {
-    # -------------------------------------------------------------------------
-    # этот блок я вставил что бы копировать index.html в build папку 
-    if (Test-Path "$sitePath\index.html") {
-        Copy-Item -Path "$sitePath\index.html" -Destination "$html5BinPath\index.html" -Force
-        Write-Host "     ✓ site/index.html copied to bin/" -ForegroundColor Gray
-    }
-
-    # -------------------------------------------------------------------------
-    # этот блок я вставил что бы копировать index.ru.html в build папку 
-    if (Test-Path "$sitePath\index.ru.html") {
-        Copy-Item -Path "$sitePath\index.ru.html" -Destination "$html5BinPath\index.ru.html" -Force
-        Write-Host "     ✓ site/index.ru.html copied to bin/" -ForegroundColor Gray
-    }
-
-    # -------------------------------------------------------------------------
-    # этот блок я вставил что бы копировать index.zh.html в build папку 
-    if (Test-Path "$sitePath\index.zh.html") {
-        Copy-Item -Path "$sitePath\index.zh.html" -Destination "$html5BinPath\index.zh.html" -Force
-        Write-Host "     ✓ site/index.zh.html copied to bin/" -ForegroundColor Gray
-    }
-
-    # -------------------------------------------------------------------------
-    # этот блок я вставил что бы копировать demo.zh.html в build папку 
-    if (Test-Path "$sitePath\demo.zh.html") {
-        Copy-Item -Path "$sitePath\demo.zh.html" -Destination "$html5BinPath\demo.zh.html" -Force
-        Write-Host "     ✓ site/demo.zh.html copied to bin/" -ForegroundColor Gray
-    }
-    # -------------------------------------------------------------------------
-    # -------------------------------------------------------------------------
-    # этот блок я вставил что бы копировать demo.ru.html в build папку 
-    if (Test-Path "$sitePath\demo.ru.html") {
-        Copy-Item -Path "$sitePath\demo.ru.html" -Destination "$html5BinPath\demo.ru.html" -Force
-        Write-Host "     ✓ site/demo.ru.html copied to bin/" -ForegroundColor Gray
-    }
-    # -------------------------------------------------------------------------
-    # -------------------------------------------------------------------------
-    # этот блок я вставил что бы копировать demo.html в build папку 
-    if (Test-Path "$sitePath\demo.html") {
-        Copy-Item -Path "$sitePath\demo.html" -Destination "$html5BinPath\demo.html" -Force
-        Write-Host "     ✓ site/demo.html copied to bin/" -ForegroundColor Gray
-    }
-    # -------------------------------------------------------------------------
-    # --- Копирование папки css -------------------------------------------
-    if (Test-Path "$sitePath\css") {
-        if (-Not (Test-Path "$html5BinPath\css")) {
-        New-Item -ItemType Directory -Path "$html5BinPath\css" -Force | Out-Null
-        }
-        Copy-Item -Path "$sitePath\css\*" -Destination "$html5BinPath\css\" -Recurse -Force
-        Write-Host "     ✓ site/css/ copied to bin/" -ForegroundColor Gray
-    }
-    # ---------------------------------------------------------------------
-    # --- Копирование папки blueprints ------------------------------------
-    if (Test-Path "$sitePath\blueprints") {
-        if (-Not (Test-Path "$html5BinPath\blueprints")) {
-            New-Item -ItemType Directory -Path "$html5BinPath\blueprints" -Force | Out-Null
-        }
-        Copy-Item -Path "$sitePath\blueprints\*" -Destination "$html5BinPath\blueprints\" -Recurse -Force
-        Write-Host "     ✓ site/blueprints/ copied to bin/" -ForegroundColor Gray
-    }
-    # ---------------------------------------------------------------------
-       # --- Копирование папки js --------------------------------------------
-    if (Test-Path "$sitePath\js") {
-        if (-Not (Test-Path "$html5BinPath\js")) {
-            New-Item -ItemType Directory -Path "$html5BinPath\js" -Force | Out-Null
-        }
-        Copy-Item -Path "$sitePath\js\*" -Destination "$html5BinPath\js\" -Recurse -Force
-        Write-Host "     ✓ site/js/ copied to bin/" -ForegroundColor Gray
-    }
-} else {
-    Write-Host "     Note: HTML5 build folder not found. Skipping local copy." -ForegroundColor Gray
-}
-
-# Проверка результата
-if ($LASTEXITCODE -le 3) {
-    Write-Host "✓ Sync completed successfully" -ForegroundColor Green
-} else {
-    Write-Host "⚠ Warning during sync (code: $LASTEXITCODE). Check if paths are correct." -ForegroundColor Yellow
-}
-
-
-================================================================================
-// FILE: deploy.yml - Actions workflow script
-// Lines: 466 | Chars: 20682
-================================================================================
-# Force redeploy Z ATOMICA 🐧🤖🪟🌐
-name: Build and Deploy Cross-Platform
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch: # Manual Workflow start
-
-permissions:
-  contents: write
-
-env:
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Running JS actions cleanly on Node.24
-
-jobs:
-  # ==========================================
-  # TASK 1: BUILDING AND DEPLOYING HTML5 (Works AUTOMATICALLY when pushed)
-  # ==========================================
-  build-html5:
-  #  if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v5
-
-      - name: Setup Haxe
-        uses: krdlab/setup-haxe@v1
-        with:
-          haxe-version: 4.3.4
-
-      - name: Configure Custom Haxelib Path
-        run: |
-          mkdir -p .haxelib
-          haxelib setup .haxelib
-
-      - name: Cache Haxe libraries
-        uses: actions/cache@v5
-        with:
-          path: .haxelib
-          key: ${{ runner.os }}-haxelib-${{ hashFiles('**/*.hx', '**/*.xml', 'Project.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-haxelib-
-
-      - name: Install Libraries
-        run: |
-          haxelib install lime --always
-          haxelib install openfl --always
-          haxelib run openfl setup
-
-      - name: Build Project
-        run: haxelib run openfl build html5 -final
-
-      - name: Copy Website Files
-        run: |
-          cp site/index.html bin/html5/bin/index.html
-          cp site/index.ru.html bin/html5/bin/index.ru.html
-          cp site/index.zh.html bin/html5/bin/index.zh.html
-          cp site/demo.zh.html bin/html5/bin/demo.zh.html
-          cp site/demo.ru.html bin/html5/bin/demo.ru.html
-          cp site/demo.html bin/html5/bin/demo.html
-          cp -r site/css bin/html5/bin/css
-          cp -r site/blueprints bin/html5/bin/blueprints
-          if [ -d "site/js" ]; then cp -r site/js bin/html5/bin/js; fi
-
-      - name: Deploy to Public Repo
-        uses: JamesIves/github-pages-deploy-action@v4
-        with:
-          token: ${{ secrets.PUBLIC_REPO_TOKEN }}
-          repository-name: virtualik/ATOMICA
-          branch: gh-pages
-          folder: ./bin/html5/bin
-          clean: true
-
-  # ==========================================
-  # TASK 2: ASSEMBLY FOR WINDOWS (Only by button)
-  # ==========================================
-  build-windows:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: windows-latest
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v5
-
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: ${{ runner.os }}-ccache-${{ hashFiles('**/*.hx', 'Project.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-
-
-      - name: Setup Haxe
-        uses: krdlab/setup-haxe@v1
-        with:
-          haxe-version: 4.3.4
-
-      - name: Configure Custom Haxelib Path
-        run: |
-          mkdir .haxelib
-          haxelib setup .haxelib
-
-      - name: Cache Haxe libraries
-        uses: actions/cache@v5
-        with:
-          path: .haxelib
-          key: ${{ runner.os }}-haxelib-${{ hashFiles('**/*.hx', '**/*.xml', 'Project.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-haxelib-
-
-      - name: Install Libraries
-        run: |
-          haxelib install lime --always
-          haxelib install openfl --always
-          haxelib install hxcpp --always
-          haxelib run openfl setup
-
-      - name: Build Windows App
-        run: haxelib run openfl build windows -final
-
-      - name: Upload Windows Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ATOMICA-Windows-Build
-          path: bin/windows/bin/
-          if-no-files-found: error
-
-  # ==========================================
-  # TASK 3: ASSEMBLY FOR ANDROID (Only by button)
-  # ==========================================
-  build-android:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v5
-
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: ${{ runner.os }}-android-ccache-${{ hashFiles('**/*.hx', 'Project.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-android-ccache-
-
-      - name: Setup Java JDK
-        uses: actions/setup-java@v5
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Setup Android NDK
-        uses: nttld/setup-ndk@v1
-        id: setup-ndk
-        with:
-          ndk-version: r21e
-
-      - name: Setup Haxe
-        uses: krdlab/setup-haxe@v1
-        with:
-          haxe-version: 4.3.4
-
-      - name: Configure Custom Haxelib Path
-        run: |
-          mkdir -p .haxelib
-          haxelib setup .haxelib
-
-      - name: Cache Haxe libraries
-        uses: actions/cache@v5
-        with:
-          path: .haxelib
-          key: ${{ runner.os }}-haxelib-${{ hashFiles('**/*.hx', '**/*.xml', 'Project.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-haxelib-
-
-      - name: Install Libraries
-        run: |
-          haxelib install lime --always
-          haxelib install openfl --always
-          haxelib install hxcpp --always
-          echo "a" | haxelib run openfl setup
-
-      - name: Configure Lime Android SDK Global Config
-        run: |
-          printf "%s\n%s\n%s\n" "$ANDROID_HOME" "${{ steps.setup-ndk.outputs.ndk-path }}" "$JAVA_HOME" | haxelib run lime setup android
-
-      - name: Build Android APK
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-          JAVA_HOME: ${{ env.JAVA_HOME }}
-        run: haxelib run openfl build android -final
-
-      - name: Upload Android Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ATOMICA-Android-APK
-          path: bin/android/bin/app/build/outputs/apk/**/*.apk
-          if-no-files-found: error
-
-  # ==========================================
-  # TASK 4: BUILDING UNDER LINUX (Only by button)
-  # ==========================================
-  build-linux:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v5
-
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: ${{ runner.os }}-linux-ccache-${{ hashFiles('**/*.hx', 'Project.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-linux-ccache-
-
-      - name: Setup Haxe
-        uses: krdlab/setup-haxe@v1
-        with:
-          haxe-version: 4.3.4
-
-      - name: Configure Custom Haxelib Path
-        run: |
-          mkdir -p .haxelib
-          haxelib setup .haxelib
-
-      - name: Cache Haxe libraries
-        uses: actions/cache@v5
-        with:
-          path: .haxelib
-          key: ${{ runner.os }}-haxelib-${{ hashFiles('**/*.hx', '**/*.xml', 'Project.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-haxelib-
-
-      - name: Install Libraries
-        run: |
-          haxelib install lime --always
-          haxelib install openfl --always
-          haxelib install hxcpp --always
-          haxelib run openfl setup
-
-      - name: Build Linux App
-        run: haxelib run openfl build linux -final
-
-      - name: Upload Linux Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ATOMICA-Linux-Build
-          path: bin/linux/bin/
-          if-no-files-found: error
-
-  # ==========================================
-  # ЗАДАЧА 5: ПУБЛИКАЦИЯ В GITHUB RELEASES
-  # ==========================================
-  create-release:
-    if: github.event_name == 'workflow_dispatch'
-    needs: [build-windows, build-android, build-linux]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # We explicitly grant permission to write content within this task.
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v5
-
-      - name: Download Windows Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ATOMICA-Windows-Build
-          path: ./windows-build
-
-      - name: Download Android Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ATOMICA-Android-APK
-          path: ./android-build
-
-      - name: Download Linux Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ATOMICA-Linux-Build
-          path: ./linux-build
-
-      - name: Zip Windows Build
-        run: |
-          cd ./windows-build
-          zip -r ../ATOMICA-Windows.zip .
-          cd ..
-
-      - name: Prepare Android APK
-        run: |
-          mkdir -p ./release-files
-          find ./android-build -name "*.apk" -exec cp {} ./release-files/ATOMICA-Android.apk \;
-
-      - name: Tar Linux Build
-        run: |
-          cd ./linux-build
-          tar -czf ../ATOMICA-Linux.tar.gz .
-          cd ..
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: ATOMICA v1.0.${{ github.run_number }}
-          body: |
-            ATOMICA automatic assembly (Build #${{ github.run_number }}).
-
-            **Windows:**
-            Download `ATOMICA-Windows.zip`, unzip it and run `.exe`.
-            *Note: If SmartScreen complains, click "More details" -> "Run anyway".*
-
-            **Android:**
-            Download `ATOMICA-Android.apk` and install it on your device.
-            *Note: If Google Play Protect complains, click "Install anyway."*
-
-            **Linux:**
-            Download `ATOMICA-Linux.tar.gz` and unzip it.
-            Command to run in terminal: `./ATOMICA`
-          files: |
-            ./ATOMICA-Windows.zip
-            ./release-files/ATOMICA-Android.apk
-            ./ATOMICA-Linux.tar.gz
-          draft: false
-
-      # ==========================================
-      # ADDITIONAL STEP: COPY TO A PUBLIC REPO
-      # ==========================================
-      - name: Rename Files for Public Release
-        run: |
-          mv ./ATOMICA-Windows.zip ./ATOMICA-Windows_PUBLIC.zip
-          mv ./release-files/ATOMICA-Android.apk ./release-files/ATOMICA-Android_PUBLIC.apk
-          mv ./ATOMICA-Linux.tar.gz ./ATOMICA-Linux_PUBLIC.tar.gz
-
-      - name: Create Release in Public Repo
-        uses: softprops/action-gh-release@v2
-        with:
-          token: ${{ secrets.PUBLIC_REPO_TOKEN_WITH_WRITE_RIGHTS }} # <--- Strictly token:, not GITHUB_TOKEN: ----> ☕️ Coffee helped... Few people understand its real meaning :)
-          repository: virtualik/ATOMICA
-          tag_name: v1.0.${{ github.run_number }}
-          name: ATOMICA v1.0.${{ github.run_number }}
-          body: |
-            ATOMICA Public Release (Build #${{ github.run_number }}).
-
-            **Windows:** Download `ATOMICA-Windows_PUBLIC.zip`
-            **Android:** Download `ATOMICA-Android_PUBLIC.apk`
-            **Linux:** Download `ATOMICA-Linux_PUBLIC.tar.gz`
-          files: |
-            ./ATOMICA-Windows_PUBLIC.zip
-            ./release-files/ATOMICA-Android_PUBLIC.apk
-            ./ATOMICA-Linux_PUBLIC.tar.gz
-          draft: false
-      # ==========================================
-      # ДОПОЛНИТЕЛЬНЫЙ ШАГ: ГЕНЕРАЦИЯ 9 ПУБЛИЧНЫХ РЕЛИЗОВ
-      # ==========================================
-# Вот классический, очень надежный и «железобетонный» подход,
-# который в веб-разработке и геймдеве называют предварительным рендерингом или предсборкой (pre-build).
-# Поскольку количество схем строго фиксировано (всего 3 штуки), общее число файлов (9 штук) абсолютно не обременит GitHub Releases.
-# Зато для конечного пользователя это идеальный UX:
-# он просто скачивает архив, запускает .exe или устанавливает .apk, и магия работает сразу — приложение запускается с нужной схемой
-# без необходимости что-то настраивать, прописывать аргументы или разворачивать deep-линки.
-# Так как само приложение всегда ищет файл с фиксированным именем selfrun.atom, то вообще не нужно ничего перекомпилировать 9 раз!
-# Сама сборка (Haxe/OpenFL) выполнится по одному разу для каждой платформы,
-# а затем скрипт GitHub Actions просто сделает копии готовых билдов, подкладывая в каждый нужную схему под именем selfrun.atom
-# и упаковывая это в именной архив.
-# Как реализовать это для всех трех платформ.
-#
-# ------------------------------
-# 🪟 Windows и 🐧 Linux (Подмена в папке)
-# С десктопными платформами всё максимально просто. Скрипт в цикле создаст копию скомпилированного билда,
-# положит в корень или в папку ресурсов файл selfrun.atom и запакует.
-# Предположим, что файл selfrun.atom должен лежать в корне рядом с исполняемым файлом.
-# 🤖 Android (Внедрение внутрь APK)
-# С Android есть важный технический нюанс. В OpenFL встроенные ресурсы (assets) после компиляции упаковываются внутрь файла .apk
-# (который технически является обычным ZIP-архивом). Если пользователь установит пустой APK, он не сможет прочитать файл «рядом».
-# Схема должна быть внутри.
-# Буду использовать утилиту zip прямо в Ubuntu-раннере, чтобы внедрить selfrun.atom прямо внутрь готового APK без перекомпиляции!
-# 
-# В OpenFL/Haxe кастомные ресурсы обычно попадают по пути assets/blueprints/ или в корень ресурсов. Допустим, мы будем класть его в assets/selfrun.atom (внутри APK).
-# Важно: После изменения файлов внутри APK, у него нарушается цифровая подпись. Нам нужно будет автоматически переподписать APK дефолтным отладочным ключом (debug key), который есть на каждом Ubuntu-раннере (через apksigner), чтобы телефон разрешил установку.
-# ------------------------------
-#
-# Шаг деплоя:
-# Вот готовый, полностью автоматизированный код для задачи create-release.
-# Он сам переберет файлы в папке site/blueprints/, выполнит подмену, подпишет APK и создаст 9 красивых публичных файлов.
-#
-#     # ==========================================
-#     # ДОПОЛНИТЕЛЬНЫЙ ШАГ: ГЕНЕРАЦИЯ 9 ПУБЛИЧНЫХ РЕЛИЗОВ
-#     # ==========================================
-#      - name: Generate Multi-Blueprint Packages
-#        run: |
-#          # Устанавливаем apksigner для подписи Android APK
-#          sudo apt-get update && sudo apt-get install -y apksigner
-#
-#          # Создаем временную папку для готовых публичных файлов
-#          mkdir -p ./public-releases
-#
-#          # Запускаем цикл по всем .atom файлам в папке blueprints
-#          for blueprint_path in ./site/blueprints/*.atom; do
-#            # Получаем чистое имя схемы (например, ButtonAndLED, SerialTerminal)
-#            bp_name=$(basename "$blueprint_path" .atom)
-#            echo "Processing blueprint: $bp_name"
-#
-#            # -------------------------------------------
-#            # 1. СБОРКА ПОД WINDOWS
-#            # -------------------------------------------
-#            mkdir -p "./tmp-win-${bp_name}"
-#            cp -r ./windows-build/* "./tmp-win-${bp_name}/"
-#            # Копируем схему в корень билда под именем selfrun.atom
-#            cp "$blueprint_path" "./tmp-win-${bp_name}/selfrun.atom"
-#            # Запаковываем
-#            cd "./tmp-win-${bp_name}"
-#            zip -r "../public-releases/${bp_name}-Windows_PUBLIC.zip" .
-#            cd ..
-#
-#            # -------------------------------------------
-#            # 2. СБОРКА ПОД LINUX
-#            # -------------------------------------------
-#            mkdir -p "./tmp-linux-${bp_name}"
-#            cp -r ./linux-build/* "./tmp-linux-${bp_name}/"
-#            # Копируем схему в корень билда под именем selfrun.atom
-#            cp "$blueprint_path" "./tmp-linux-${bp_name}/selfrun.atom"
-#            # Запаковываем в tar.gz
-#            cd "./tmp-linux-${bp_name}"
-#            tar -czf "../public-releases/${bp_name}-Linux_PUBLIC.tar.gz" .
-#            cd ..
-#
-#            # -------------------------------------------
-#            # 3. СБОРКА ПОД ANDROID (Модификация APK)
-#            # -------------------------------------------
-#            # Берем оригинальный APK из задачи сборки
-#            orig_apk=$(find ./android-build -name "*.apk" | head -n 1)
-#            cp "$orig_apk" "./tmp-android.apk"
-#            
-#            # Создаем структуру папок, как внутри APK (assets/)
-#            mkdir -p ./assets
-#            cp "$blueprint_path" ./assets/selfrun.atom
-#            
-#            # Внедряем файл selfrun.atom внутрь APK архива в папку assets
-#            zip -g ./tmp-android.apk ./assets/selfrun.atom
-#            
-#            # Очищаем временную локальную папку assets
-#            rm -rf ./assets
-#            
-#            # Переподписываем измененный APK стандартным отладочным ключом Android (Keystore)
-#            # Раннеры GitHub имеют встроенный debug.keystore по умолчанию
-#            apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --out "./public-releases/${bp_name}-Android_PUBLIC.apk" ./tmp-android.apk
-#            rm -f ./tmp-android.apk
-#
-#          done
-#      - name: Create Release in Public Repo
-#        uses: softprops/action-gh-release@v2
-#        with:
-#          token: ${{ secrets.PUBLIC_REPO_TOKEN_WITH_WRITE_RIGHTS }}
-#          repository: virtualik/ATOMICA
-#          tag_name: v1.0.${{ github.run_number }}
-#          name: ATOMICA v1.0.${{ github.run_number }}
-#          body: |
-#            Автоматический публичный релиз модулей ATOMICA (Build #${{ github.run_number }}).
-#            
-#            Файлы содержат предустановленные схемы `selfrun.atom` для каждого модуля. Скачайте соответствующую версию для вашей платформы ниже.          # Загружаем ВСЕ сгенерированные файлы из папки public-releases
-#          files: ./public-releases/*
-#          draft: false
-#*/

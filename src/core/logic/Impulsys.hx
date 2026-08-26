@@ -1,7 +1,7 @@
 package core.logic;
 
 /**
- * IMPULSYS v1.3 (Memory Optimization)
+ * IMPULSYS v1.4 (Memory Optimization + Reliability Layer)
  *
  * Static event bus for system-wide communication.
  *
@@ -23,6 +23,29 @@ package core.logic;
  * │   └─────────────┘                   └───────────────┘                   │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
+ * DISPOSE CONTRACT (implicit since v3.0):
+ *   Every component that calls subscribeToImpulse() in its constructor MUST
+ *   call removeImpulse() with the SAME function reference in its dispose().
+ *   Clients should keep the exact closure references they subscribed with
+ *   (see NodeEditor.hx:289-290 for the canonical pattern) so removeImpulse()
+ *   can unsubscribe the identical function pointer.
+ *
+ * POST-CLEAR CONTRACT:
+ *   clear() is a blunt instrument — it wipes ALL subscriptions system-wide
+ *   and is invoked only from Main.hx during "soft restart". After clear(),
+ *   every subscriber that should remain live MUST be re-subscribed explicitly
+ *   (see Main.hx:2430-2446). Components whose owners are NOT recreated after
+ *   clear() will silently lose reactivity.
+ *
+ * v1.4 Changes (Episod F-lite):
+ * - Added null guards to subscribeToImpulse() and emit() (rejected silently,
+ *   traced under -debug)
+ * - Added public static onError hook: when set, emit() routes callback
+ *   exceptions to onError(e, impulse) instead of bare trace. Defaults to null
+ *   (legacy trace behavior preserved).
+ * - Simplified clear(): removed redundant list.resize(0) loop and redundant
+ *   _bus = new Map() reassignment. Map.clear() is sufficient.
+ *
  * v1.3 Changes:
  * - removeImpulse now removes empty arrays from the bus
  * - Added getListenerCount() for debugging
@@ -35,12 +58,27 @@ class Impulsys {
     private static var _totalListeners: Int = 0;
 
     /**
+     * v1.4: External error hook for emit() try/catch.
+     * Set in Main once during initialization; emit() calls it on callback
+     * exception instead of bare trace(). null -> legacy trace behavior.
+     * Signature: (error: Dynamic, impulse: Impulse) -> Void
+     */
+    public static var onError: Dynamic -> Impulse -> Void = null;
+
+    /**
      * Subscribe to an event type.
      *
      * @param type     Event type to listen for
      * @param callback Function to call when event is emitted
      */
     public static function subscribeToImpulse(type: EventType, callback: Impulse -> Void): Void {
+        // v1.4: Null guard — reject silently to keep null keys out of the Map.
+        if (type == null || callback == null) {
+            #if debug
+            trace('Impulsys.subscribeToImpulse: rejected null argument (type=$type, callback=$callback)');
+            #end
+            return;
+        }
         if (!_bus.exists(type)) {
             _bus.set(type, []);
         }
@@ -83,6 +121,13 @@ class Impulsys {
      * @param impulse Impulse containing type and data
      */
     public static function emit(impulse: Impulse): Void {
+        // v1.4: Null guard — reject null impulse / null type early.
+        if (impulse == null || impulse.type == null) {
+            #if debug
+            trace('Impulsys.emit: rejected null impulse or impulse.type');
+            #end
+            return;
+        }
         if (!_bus.exists(impulse.type)) return;
 
         // Copy list to protect against modification during iteration
@@ -94,7 +139,12 @@ class Impulsys {
                 try {
                     cb(impulse);
                 } catch (e: Dynamic) {
-                    trace('Impulsys: Error in callback for ${impulse.type}: $e');
+                    // v1.4: route to onError hook if set, else legacy trace.
+                    if (onError != null) {
+                        onError(e, impulse);
+                    } else {
+                        trace('Impulsys: Error in callback for ${impulse.type}: $e');
+                    }
                 }
             }
         }
@@ -113,16 +163,13 @@ class Impulsys {
     /**
      * Full clear of the bus.
      * Use only during full system reload.
+     *
+     * v1.4: Simplified — Map.clear() is sufficient; no need to resize each
+     * array first (they will be GC'd with the Map), and no need to reassign
+     * _bus to a new Map() (clear() already empties the existing Map).
      */
     public static function clear(): Void {
-        for (type in _bus.keys()) {
-            var list = _bus.get(type);
-            if (list != null) {
-                list.resize(0);
-            }
-        }
         _bus.clear();
-        _bus = new Map();
         _totalListeners = 0;
     }
 

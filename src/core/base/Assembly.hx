@@ -2734,4 +2734,4 @@ utils.Trap.log("ASM-DISPOSE", "dispose enter: id=" + this.id);
 			throw e;
 		}
 	}
-}
+}
