@@ -74,6 +74,16 @@ private var _undoStack:Array<ICommand>;
 private var _redoStack:Array<ICommand>;
 private var _maxHistorySize:Int = 50;
 
+/**
+* v1.2 (Episod G-3): the command currently executing (execute/undo/redo).
+*
+* Commands are synchronous, so at most one is in flight at any moment.
+* Lets event handlers that fire DURING a command (e.g. Main.onPortRemoved
+* inside Assembly.removePort inside RemovePortCommand.execute) hand their
+* side-effect snapshots back to that command for undo symmetry.
+*/
+private var _executing:ICommand = null;
+
 // =========================================================================
 // EVENTS
 // =========================================================================
@@ -112,6 +122,7 @@ public static function getInstance():UndoManager {
 public function executeAndStore(cmd:ICommand):Void {
     var tg = TickGenerator.getInstance();
     tg.lockTopology();
+    _executing = cmd; // v1.2 (Episod G-3)
     try {
         cmd.execute(); // Execute
         _undoStack.push(cmd);
@@ -125,11 +136,13 @@ public function executeAndStore(cmd:ICommand):Void {
         dispatchEvent(new Event(UNDO_STACK_CHANGED));
         
         // Unlock on success (Haxe has no `finally`)
+        _executing = null; // v1.2 (Episod G-3)
         tg.unlockTopology();
     } catch (e:Dynamic) {
         trace('[UndoManager] Error executing command: $e');
         
         // Unlock on error (Haxe has no `finally`)
+        _executing = null; // v1.2 (Episod G-3)
         tg.unlockTopology();
     }
 }
@@ -168,6 +181,7 @@ public function undo():Void {
 
     var tg = TickGenerator.getInstance();
     tg.lockTopology();
+    _executing = action; // v1.2 (Episod G-3)
     try {
         action.undo();
         _redoStack.push(action);
@@ -175,11 +189,13 @@ public function undo():Void {
         dispatchEvent(new Event(REDO_STACK_CHANGED));
         
         // Unlock on success (Haxe has no `finally`)
+        _executing = null; // v1.2 (Episod G-3)
         tg.unlockTopology();
     } catch (e:Dynamic) {
         trace('[UndoManager] Error in Undo: $e');
         
         // Unlock on error (Haxe has no `finally`)
+        _executing = null; // v1.2 (Episod G-3)
         tg.unlockTopology();
     }
 }
@@ -198,6 +214,7 @@ public function redo():Void {
 
     var tg = TickGenerator.getInstance();
     tg.lockTopology();
+    _executing = action; // v1.2 (Episod G-3)
     try {
         action.execute();
         _undoStack.push(action);
@@ -205,11 +222,13 @@ public function redo():Void {
         dispatchEvent(new Event(REDO_STACK_CHANGED));
         
         // Unlock on success (Haxe has no `finally`)
+        _executing = null; // v1.2 (Episod G-3)
         tg.unlockTopology();
     } catch (e:Dynamic) {
         trace('[UndoManager] Error in Redo: $e');
         
         // Unlock on error (Haxe has no `finally`)
+        _executing = null; // v1.2 (Episod G-3)
         tg.unlockTopology();
     }
 }
@@ -227,6 +246,11 @@ public function clear():Void {
     dispatchEvent(new Event(UNDO_STACK_CHANGED));
     dispatchEvent(new Event(REDO_STACK_CHANGED));
 }
+
+/**
+* v1.2 (Episod G-3): the command currently executing, or null when none is.
+*/
+public function getExecutingCommand():ICommand return _executing;
 
 /**
 * Enforce maximum history size.

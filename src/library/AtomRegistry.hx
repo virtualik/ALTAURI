@@ -22,7 +22,7 @@ import core.types.ContactType;
 * ║  │   │  Native Atoms (registered in initialize()):                 │   │  ║
 * ║  │   │  - Button, LED, Toggle, TextInput, Relay                    │   │  ║
 * ║  │   │  - SignalGenerator, MiniAudioAtom, SystemVUMeterAtom        │   │  ║
-* ║  │   │  - ComPortAtom, ComEnumeratorAtom, Oscilloscope             │   │  ║
+* ║  │   │  - ComPortAtom, Oscilloscope                                │   │  ║
 * ║  │   └─────────────────────────────────────────────────────────────┘   │  ║
 * ║  │                                                                     │  ║
 * ║  │   Public API:                                                       │  ║
@@ -291,9 +291,6 @@ class AtomRegistry
             {name: "errorTick", type: OUTPUT, dataType: "bool",     priority: INTERNAL}
         ], null, "comport", true, true, "comport", ["cpp", "html5"]);
 
-        reg("ComEnumeratorAtom", "COM Enumerator", [
-            {name: "ports", type: OUTPUT, dataType: "string", priority: CRITICAL}
-        ], null, "comenumerator", true, true, "comenumerator", ["cpp"]);
 
 		// =========================================================================
 		// FILE WRITER — File System Access API

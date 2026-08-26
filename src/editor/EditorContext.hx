@@ -7,8 +7,30 @@ import core.logic.Impulse;
 import core.logic.TickGenerator;
 
 /**
-* EDITOR CONTEXT v2.13 (Stable Port Naming v3.0 bridge: legacy alias resolution + heal)
+* EDITOR CONTEXT v2.14 (Stable Port Naming v3.0 bridge: legacy alias resolution + heal + background wire safety net)
 * Manages the stack of open editors (NodeEditor instances) and their camera states.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.14 CHANGES (Gate-Independent Background Wire Refresh — Episod G-4.2)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM (crash_trap.log, session 2026-08-26): after port operations done
+*  from INSIDE an assembly, the dimmed background editors never rebuilt
+*  their wires — the v4.14 G41-SYNC marker (placed after NodeEditor's
+*  own-child gate) fired only for the active editor, while the background
+*  NodeView for the same assembly demonstrably reacted. Every static link
+*  of the gate chain re-audited clean; the defect is runtime-only and is
+*  being localized by the v4.15 exit-path breadcrumbs (G41-BG-ENTER /
+*  NULLID / FOREIGN / PASS / ERR).
+*
+*  FIX (safety net): EditorContext — the FIRST ASSEMBLY_PORTS_CHANGED
+*  subscriber (resubscriber-protected through Impulsys.clear(), field-proven
+*  by the v2.12 auto-heal) — schedules ONE coalesced 100 ms pass that calls
+*  the now-public NodeEditor.refreshWiresAfterPortsChange() on EVERY
+*  non-top stack editor. The background wires heal regardless of what the
+*  own-child gate does at runtime; the G41-BG-NET Trap tag records every
+*  net-driven refresh, so the field log separates gate-driven and
+*  net-driven heals cleanly.
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v2.12 CHANGES (Parent-Wire Auto-Heal — fix F, Naming & Integrity pack)
@@ -490,6 +512,13 @@ class EditorContext
         /** v2.12: ASSEMBLY_PORTS_CHANGED handler (parent-wire auto-heal, fix F). */
         private var _onAssemblyPortsChanged:Impulse -> Void;
 
+        /**
+        * v2.14 (Episod G-4.2): coalesced timer for the gate-independent
+        * background wire refresh. Non-null while a pass is pending; stopped
+        * in clear() so a torn-down stack is never poked after disposal.
+        */
+        private var _bgRefreshTimer:haxe.Timer = null;
+
         // =========================================================================
         // CONSTRUCTOR
         // =========================================================================
@@ -505,6 +534,37 @@ class EditorContext
                 _recon = new AssemblyReconstructor();
                 // v2.12: parent-wire auto-heal — see onAssemblyPortsChanged().
                 _onAssemblyPortsChanged = onAssemblyPortsChanged;
+                Impulsys.subscribeToImpulse(core.logic.EventType.ASSEMBLY_PORTS_CHANGED, _onAssemblyPortsChanged);
+                // v3.2 (Episod F-bold): register for auto-restore — Impulsys.clear()
+                // invokes resubscribe() by itself; Main no longer needs to know
+                // about this subscription's lifecycle.
+                Impulsys.registerResubscriber(resubscribe);
+        }
+
+        /**
+         * v3.1 (Episod F-fix): Re-subscribe to Impulsys after a system-wide
+         * Impulsys.clear().
+         *
+         * WHY THIS EXISTS:
+         *   EditorContext is created exactly ONCE (Main.hx init) and lives for
+         *   the whole application session. Its constructor subscribes to
+         *   ASSEMBLY_PORTS_CHANGED (v2.12 parent-wire auto-heal, delegated to
+         *   AssemblyReconstructor.onAssemblyPortsChanged). Main.hx hardReset()
+         *   calls Impulsys.clear() which wipes ALL subscriptions — including
+         *   ours — and until v3.1 nothing restored this one. The auto-heal
+         *   silently died after every Reset (visual redraw kept working via
+         *   per-instance NodeEditor subscriptions, so the loss was invisible).
+         *
+         * v3.2 (Episod F-bold): the constructor now registers this method
+         * with Impulsys.registerResubscriber(), so Impulsys.clear() invokes
+         * it automatically. Until v3.2 it was called from a manual recovery
+         * block in Main.hx hardReset() — that block no longer exists.
+         *
+         * Safe to call multiple times: Impulsys.subscribeToImpulse() rejects
+         * duplicate references.
+         */
+        public function resubscribe():Void
+        {
                 Impulsys.subscribeToImpulse(core.logic.EventType.ASSEMBLY_PORTS_CHANGED, _onAssemblyPortsChanged);
         }
 
@@ -542,6 +602,14 @@ class EditorContext
                         // v2.3: Deactivate parent editor's impulse handlers to prevent
                         // broadcast storm at deep nesting levels.
                         top.editor.isActive = false;
+                        // v4.16 (Ghost Wire Leak, Episod G-5): an editor going to the
+                        // background must not keep any gesture state. PORT_DRAG_START
+                        // is a global-bus impulse and now guarded by isActive in
+                        // NodeEditor, but any flag that predates the deactivation
+                        // dies HERE, by construction, instead of surviving until
+                        // the matching pop() reactivates the editor.
+                        top.editor.cancelPendingGestures();
+                        utils.Trap.log("G5-PUSH", "parent deactivated: bp=" + top.assembly.blueprint.id);
                         top.blocker = blocker;
                 }
 
@@ -661,6 +729,13 @@ class EditorContext
                         // forceFullRedraw below will catch up on any missed REDRAW_WIRES
                         // events that were skipped while isActive was false.
                         prev.editor.isActive = true;
+                        // v4.16 (Ghost Wire Leak, Episod G-5): clean gesture slate
+                        // on reactivation. Belt-and-suspenders: even if a future
+                        // code path smuggles a pending flag past the isActive
+                        // guards while this editor was covered, it is dropped HERE
+                        // — never drawn as a stray ghost wire after pop().
+                        prev.editor.cancelPendingGestures();
+                        utils.Trap.log("G5-POP", "parent reactivated: bp=" + prev.assembly.blueprint.id);
 
                         currentEditor = prev.editor;
                         currentAssembly = prev.assembly;
@@ -856,6 +931,50 @@ class EditorContext
                 // See editor/AssemblyReconstructor.hx for the full v2.12
                 // rationale (parent-wire auto-heal after gateway port rename).
                 _recon.onAssemblyPortsChanged(impulse, _stack, currentAssembly, _portResolver);
+                // v2.14 (Episod G-4.2): gate-independent background safety net.
+                // Runs 100 ms AFTER the dispatch settles, so every NodeView
+                // subscriber has already rebuilt its port sprites by then.
+                scheduleBackgroundRefresh();
+        }
+
+        /**
+         * v2.14 (Episod G-4.2): schedule ONE coalesced pass that refreshes
+         * the wires of every BACKGROUND editor (all stack entries except
+         * the top — the active editor refreshes itself through its own
+         * two-stage deferred pipeline, NodeEditor v4.14+).
+         *
+         * WHY A SAFETY NET: the own-child gate inside NodeEditor's own
+         * ASSEMBLY_PORTS_CHANGED handler provably never fires for background
+         * editors in the field (v4.14 G41 log: 27 lines, all active=true),
+         * while every static link of that gate re-audits clean. Until the
+         * runtime defect is localized (v4.15 breadcrumbs), this net keeps
+         * the dimmed background wires correct — and it does NOT reintroduce
+         * the v2.3 broadcast storm: everything is coalesced into a single
+         * 100 ms pass per impulse burst, not a per-impulse O(N) fan-out.
+         */
+        private function scheduleBackgroundRefresh():Void
+        {
+                if (_bgRefreshTimer != null) return; // already scheduled
+                _bgRefreshTimer = haxe.Timer.delay(function():Void
+                {
+                        _bgRefreshTimer = null;
+                        // The TOP editor is skipped: it is the one the user is
+                        // editing in, and NodeEditor's own deferred pipeline
+                        // already refreshes it.
+                        var top:Int = _stack.length - 1;
+                        for (i in 0...top)
+                        {
+                                var entry:EditorEntry = _stack[i];
+                                if (entry == null || entry.editor == null) continue;
+                                if (entry.editor.isDisposed) continue;
+                                utils.Trap.log("G41-BG-NET",
+                                        "asm=" + (entry.assembly != null
+                                                && entry.assembly.blueprint != null
+                                                ? entry.assembly.blueprint.id : "?")
+                                        + " level=" + i);
+                                entry.editor.refreshWiresAfterPortsChange();
+                        }
+                }, 100);
         }
 
         // ═══════════════════════════════════════════════════════════════════
@@ -890,6 +1009,13 @@ class EditorContext
          */
         public function clear():Void
         {
+                // v2.14 (Episod G-4.2): a pending background refresh must never
+                // fire against a torn-down stack.
+                if (_bgRefreshTimer != null)
+                {
+                        _bgRefreshTimer.stop();
+                        _bgRefreshTimer = null;
+                }
                 while (_stack.length > 0)
                 {
                         var item = _stack.pop();

@@ -6,10 +6,11 @@ import core.base.ConductorPort;
 import core.types.ContactType;
 import core.logic.Impulsys;
 import core.logic.EventType;
+import core.data.Blueprint;
 import core.data.Blueprint.ConnectionDef;
 
 /**
- * REMOVE PORT COMMAND v1.2
+ * REMOVE PORT COMMAND v1.3
  * Removes a gateway port and its connections.
  * Supports Undo/Redo.
  *
@@ -32,6 +33,15 @@ import core.data.Blueprint.ConnectionDef;
  * │   │  4. Emit ASSEMBLY_PORTS_CHANGED event                           │   │
  * │   └─────────────────────────────────────────────────────────────────┘   │
  * │                                                                         │
+ * │   v1.3 Fix (Episod G-3):                                               │
+ * │   - Parent-side external wires (stored in the PARENT's blueprint      │
+ * │     as <templateId>.<externalName>) are removed too: Main.onPort-      │
+ * │     Removed cleans them during removePort() and hands the defs back    │
+ * │     via adoptParentWires(), so undo() restores them. Previously they   │
+ * │     survived deletion as permanent "hanging wires" (only the sprite    │
+ * │     was hidden by WireRenderer ghost-detection — the defs stayed and   │
+ * │     were saved to disk).                                              │
+ * │                                                                         │
  * │   v1.2 Fix:                                                             │
  * │   - Fixed reference comparison bug. Now stores the original             │
  * │     ConnectionDef reference instead of creating a copy, ensuring        │
@@ -50,6 +60,13 @@ class RemovePortCommand extends Command {
     // FIX: Store array of original references to connections
     private var _connectedWires:Array<ConnectionDef>;
     private var _portIndex:Int; // To restore visual order
+
+    // v1.3 (Episod G-3): parent-side wires removed together with the port.
+    // Adopted from Main.onPortRemoved DURING execute()/redo() (the command
+    // itself cannot reach the parent assembly — EditorContext lives in
+    // Main), restored in undo().
+    private var _parentBlueprint:Blueprint;
+    private var _parentWires:Array<ConnectionDef>;
     
     public function new(assembly:Assembly, portName:String) {
         super();
@@ -57,6 +74,19 @@ class RemovePortCommand extends Command {
         _portName = portName;
     }
     
+    /**
+     * v1.3 (Episod G-3): called by Main.onPortRemoved DURING execute()/redo().
+     *
+     * Main removes the parent-side wire defs (they reference the port as
+     * <templateId>.<externalName> — see onPortRemoved) and hands them here
+     * so undo() can put them back. Replaces any previous snapshot: redo
+     * re-runs removePort, which re-removes the wires restored by undo.
+     */
+    public function adoptParentWires(parentBp:Blueprint, wires:Array<ConnectionDef>):Void {
+        _parentBlueprint = parentBp;
+        _parentWires = wires.copy();
+    }
+
     override private function executeInternal():Void {
         var port = _assembly.ports.get(_portName);
         if (port == null) {
@@ -126,7 +156,18 @@ class RemovePortCommand extends Command {
         for (conn in _connectedWires) {
             bp.internalConnections.push(conn);
         }
-        
+
+        // 3. Restore parent-side external wires (v1.3, Episod G-3).
+        //    addPort() above already emitted ASSEMBLY_PORTS_CHANGED, which
+        //    makes the (possibly backgrounded) parent editor rebuild —
+        //    so the restored wires reappear without any extra event.
+        if (_parentWires != null && _parentWires.length > 0
+                && _parentBlueprint != null && _parentBlueprint.internalConnections != null) {
+            for (conn in _parentWires) {
+                _parentBlueprint.internalConnections.push(conn);
+            }
+        }
+
         Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: _assembly.id });
     }
     

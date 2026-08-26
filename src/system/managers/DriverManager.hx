@@ -25,7 +25,6 @@ import system.managers.Driver;
  * │   │  - SignalGenerator:      multi-mode signal generator            │   │
  * │   │  - MiniAudioAtom:        captures microphone/loopback data      │   │
  * │   │  - ComPortAtom:          serial port communication              │   │
- * │   │  - ComEnumeratorAtom:    scans registry for COM ports           │   │
  * │   │  - SystemVUMeterAtom:    WASAPI audio level monitoring          │   │
  * │   │  - OscilloscopeAtom:     time-based signal sampling             │   │
  * │   │                                                                 │   │

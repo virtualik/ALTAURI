@@ -72,6 +72,8 @@ class RecentMenuTracker
         _history = [];
         _onMenuAction = onMenuAction;
         Impulsys.subscribeToImpulse(EventType.CONTEXT_MENU_ACTION, _onMenuAction);
+        // v2.0 (Episod F-bold): auto-restore after Impulsys.clear().
+        Impulsys.registerResubscriber(resubscribe);
     }
     
     /**
@@ -125,20 +127,22 @@ class RecentMenuTracker
     {
         _history = [];
     }
-	
+        
     /**
-	* Re-subscribe to Impulsys after a clear() event.
-	* Called by Main.hx after hardReset() to restore tracking.
-	*/
-	public function resubscribe():Void
-	{
-		if (_onMenuAction != null)
-		{
-			Impulsys.removeImpulse(EventType.CONTEXT_MENU_ACTION, _onMenuAction);
-		}
-		_onMenuAction = onMenuAction;
-		Impulsys.subscribeToImpulse(EventType.CONTEXT_MENU_ACTION, _onMenuAction);
-	}
+        * Re-subscribe to Impulsys after a clear() event.
+        * v2.0 (Episod F-bold): registered with Impulsys.registerResubscriber()
+        * in the constructor — Impulsys.clear() invokes this automatically,
+        * so Main.hx no longer calls it manually.
+        */
+        public function resubscribe():Void
+        {
+                if (_onMenuAction != null)
+                {
+                        Impulsys.removeImpulse(EventType.CONTEXT_MENU_ACTION, _onMenuAction);
+                }
+                _onMenuAction = onMenuAction;
+                Impulsys.subscribeToImpulse(EventType.CONTEXT_MENU_ACTION, _onMenuAction);
+        }
 
     /**
      * Impulsys handler for CONTEXT_MENU_ACTION.
@@ -172,6 +176,9 @@ class RecentMenuTracker
      */
     public function dispose():Void
     {
+        // v2.0 (Episod F-bold): also drop the resubscriber registration so a
+        // disposed tracker is not resurrected by a later Impulsys.clear().
+        Impulsys.unregisterResubscriber(resubscribe);
         Impulsys.removeImpulse(EventType.CONTEXT_MENU_ACTION, _onMenuAction);
         _onMenuAction = null;
         _history = [];

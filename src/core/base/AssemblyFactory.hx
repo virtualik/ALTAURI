@@ -16,7 +16,6 @@ import library.electro.PassThroughAtom;
 import library.drivers.MiniAudioAtom;
 import library.drivers.SignalGenerator;
 import library.drivers.ComPortAtom;
-import library.drivers.ComEnumeratorAtom;
 import library.drivers.WebSocketAtom;
 using StringTools;
 
@@ -119,11 +118,7 @@ class AssemblyFactory
                                 case "COM PORT":
                                 case "COMPORT":
                                         normalizedTypeId = "ComPortAtom";
-                                case "COMENUMERATORATOM":
-                                case "COM ENUMERATOR":
-                                case "COMENUMERATOR":
-                                        normalizedTypeId = "ComEnumeratorAtom";
-										
+
 // ─────────────────────────────────────────────────────────────
 // FILE WRITER ATOM — File i/o exchange HTML% version
 // ─────────────────────────────────────────────────────────────
@@ -210,12 +205,6 @@ class AssemblyFactory
 						case "ComPortAtom":
 								atom = new library.drivers.ComPortAtom(id);
 								trace(' AssemblyFactory: Created ComPortAtom...');
-								
-                        case "ComEnumeratorAtom":
-                                #if cpp
-                                atom = new library.drivers.ComEnumeratorAtom(id);
-                                trace('🔍 AssemblyFactory: Created ComEnumeratorAtom...');
-                                #end
 								
 						case "FileWriterAtom":
 								atom = new library.drivers.FileWriterAtom(id);

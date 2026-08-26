@@ -1,7 +1,7 @@
 package core.logic;
 
 /**
- * IMPULSYS v1.4 (Memory Optimization + Reliability Layer)
+ * IMPULSYS v2.0 (Self-Restoring Event Bus)
  *
  * Static event bus for system-wide communication.
  *
@@ -30,12 +30,24 @@ package core.logic;
  *   (see NodeEditor.hx:289-290 for the canonical pattern) so removeImpulse()
  *   can unsubscribe the identical function pointer.
  *
- * POST-CLEAR CONTRACT:
+ * POST-CLEAR CONTRACT (v2.0 — SELF-ENFORCING):
  *   clear() is a blunt instrument — it wipes ALL subscriptions system-wide
- *   and is invoked only from Main.hx during "soft restart". After clear(),
- *   every subscriber that should remain live MUST be re-subscribed explicitly
- *   (see Main.hx:2430-2446). Components whose owners are NOT recreated after
- *   clear() will silently lose reactivity.
+ *   and is invoked only from Main.hx during "soft restart". Since v2.0 the
+ *   contract "every survivor must be re-subscribed" is executed BY THE BUS
+ *   ITSELF: after wiping, clear() invokes every callback registered via
+ *   registerResubscriber(). Long-lived owners (Main, EditorContext,
+ *   RecentMenuTracker) register their restore callback once — typically in
+ *   the constructor, next to the initial subscribeToImpulse() — and can no
+ *   longer be forgotten by a caller. Ephemeral subscribers are expected to
+ *   be disposed before clear() and stay gone.
+ *
+ * v2.0 Changes (Episod F-bold):
+ * - NEW registerResubscriber(fn) / unregisterResubscriber(fn): persistent
+ *   restore callbacks that survive clear() (deduplicated by reference)
+ * - clear() now invokes all registered resubscribers after wiping the bus;
+ *   a failing resubscriber is routed to onError (impulse = null) and never
+ *   blocks the remaining restores
+ * - debugPrint() reports the registered resubscriber count
  *
  * v1.4 Changes (Episod F-lite):
  * - Added null guards to subscribeToImpulse() and emit() (rejected silently,
@@ -56,6 +68,15 @@ class Impulsys {
 
     // Counter for debugging
     private static var _totalListeners: Int = 0;
+
+    /**
+     * v2.0: Persistent resubscribers — zero-arg callbacks that survive clear()
+     * and are invoked BY clear() itself to restore long-lived subscriptions.
+     * This array is the mechanism that makes the POST-CLEAR CONTRACT
+     * self-enforcing: registering a restore callback here means the owner
+     * can never be forgotten after a system-wide wipe.
+     */
+    private static var _resubscribers: Array<Void -> Void> = [];
 
     /**
      * v1.4: External error hook for emit() try/catch.
@@ -116,6 +137,43 @@ class Impulsys {
     }
 
     /**
+     * v2.0: Register a persistent resubscriber — a zero-arg callback that
+     * re-establishes one owner's subscriptions. clear() invokes all
+     * registered resubscribers after wiping the bus.
+     *
+     * Call this ONCE, next to the owner's initial subscribeToImpulse()
+     * (typically in the constructor). The callback must be idempotent:
+     * repeated clear() simply invokes it again on an empty bus, where
+     * subscribeToImpulse()'s duplicate protection keeps listeners unique.
+     *
+     * @param fn Zero-arg restore callback (usually a method reference)
+     */
+    public static function registerResubscriber(fn: Void -> Void): Void {
+        // v2.0: Null guard — symmetric with subscribeToImpulse().
+        if (fn == null) {
+            #if debug
+            trace('Impulsys.registerResubscriber: rejected null callback');
+            #end
+            return;
+        }
+        if (_resubscribers.indexOf(fn) == -1) {
+            _resubscribers.push(fn);
+        }
+    }
+
+    /**
+     * v2.0: Remove a previously registered resubscriber. Call from the
+     * dispose() of a long-lived owner that registered one, so a disposed
+     * owner is not resurrected by a later clear().
+     *
+     * @param fn Callback previously passed to registerResubscriber()
+     */
+    public static function unregisterResubscriber(fn: Void -> Void): Void {
+        if (fn == null) return;
+        _resubscribers.remove(fn);
+    }
+
+    /**
      * Emit an impulse to all subscribers.
      *
      * @param impulse Impulse containing type and data
@@ -164,13 +222,34 @@ class Impulsys {
      * Full clear of the bus.
      * Use only during full system reload.
      *
-     * v1.4: Simplified — Map.clear() is sufficient; no need to resize each
-     * array first (they will be GC'd with the Map), and no need to reassign
-     * _bus to a new Map() (clear() already empties the existing Map).
+     * v1.4: Simplified — Map.clear() is sufficient.
+     *
+     * v2.0: SELF-RESTORING — after wiping the bus, every callback registered
+     * via registerResubscriber() is invoked, so long-lived owners (Main,
+     * EditorContext, RecentMenuTracker, ...) re-subscribe automatically.
+     * Ephemeral subscribers that were properly disposed stay gone. A failing
+     * resubscriber is routed to onError (impulse = null) and does not block
+     * the remaining restores.
      */
     public static function clear(): Void {
         _bus.clear();
         _totalListeners = 0;
+
+        // v2.0: The POST-CLEAR CONTRACT executes itself. Iterate over a copy
+        // so a resubscriber that (de)registers during restore cannot mutate
+        // the array under iteration.
+        for (fn in _resubscribers.copy()) {
+            if (fn == null) continue;
+            try {
+                fn();
+            } catch (e: Dynamic) {
+                if (onError != null) {
+                    onError(e, null);
+                } else {
+                    trace('Impulsys: resubscriber failed after clear(): $e');
+                }
+            }
+        }
     }
 
     /**
@@ -202,6 +281,7 @@ class Impulsys {
     public static function debugPrint(): Void {
         trace('=== Impulsys Debug ===');
         trace('Total listeners: $_totalListeners');
+        trace('Registered resubscribers: ${_resubscribers.length}');
         trace('Active event types: ${Lambda.count(_bus)}');
         for (type in _bus.keys()) {
             var count = _bus.get(type).length;

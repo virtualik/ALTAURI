@@ -171,8 +171,8 @@ import ui.WireType.WireType as WireTypeEnum;
 * │                                                                         │
 * │   Wire Types:                                                           │
 * │   ───────────                                                           │
-* │   BEZIER:   ╭────────╮  (smooth cubic curve)                           │
-* │   STRAIGHT: ╱─────────╱  (horizontal tails + direct line)              │
+* │   BEZIER:   ╭────────╮  (smooth cubic curve)                            │
+* │   STRAIGHT: ╱─────────╱  (horizontal tails + direct line)               │
 * │                                                                         │
 * └─────────────────────────────────────────────────────────────────────────┘
 */

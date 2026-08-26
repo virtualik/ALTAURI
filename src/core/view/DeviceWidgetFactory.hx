@@ -23,7 +23,6 @@ import core.view.PanelWidget;
 #if cpp
 import core.view.MiniAudioWidget;
 import core.view.ComPortWidget;
-import core.view.ComEnumeratorWidget;
 import core.view.NETRadioPlayerWidget;
 import core.view.SystemVUMeterWidget;
 import core.view.URLAudioStreamPlayerWidget;
@@ -149,8 +148,6 @@ class DeviceWidgetFactory
 				new MiniAudioWidget(asm);
 			case "comport", "com port":
 				new ComPortWidget(asm);
-			case "comenumerator", "com enumerator":
-				new ComEnumeratorWidget(asm);
 			case "netradio", "netradioplayer":
 				new NETRadioPlayerWidget(asm);
 			case "urlplayer", "url audio player", "urlaudioplayer":
@@ -211,9 +208,6 @@ class DeviceWidgetFactory
 				new OscilloscopeWidget(atom, "samples");
 			case "systemvumeteratom", "system vu meter", "vumeter":
 				new SystemVUMeterWidget(atom);
-			case "comenumeratoratom", "com enumerator":
-				new ComEnumeratorWidget(atom);
-
 			case "netradioplayeratom", "net radio player":
 				new NETRadioPlayerWidget(atom);
 			case "miniaudioatom", "mini audio capture":

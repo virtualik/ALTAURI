@@ -36,8 +36,149 @@ import ui.NodeVisualMode;
 using StringTools;
 
 /**
-* NODE EDITOR v4.11 (Wall Port Labels + Beneficiary Tooltips + Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention)
+* NODE EDITOR v4.16.1 (G5 Tracer + Ghost Wire Leak Fix + Wall Port Labels + Beneficiary Tooltips + Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention + Background Gesture Freeze + Two-Stage Deferred Wire Refresh + Exit-Path Instrumentation + Public Wire Refresh)
 * Visual schematic editing coordinator.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v4.16 CHANGES (Ghost Wire Leak — Episod G-5)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM (field report after v4.15, screenshot evidence):
+*  After port operations inside a child assembly, exiting to the parent
+*  (pop) left a STRAY BRIGHT-GREEN WIRE running from beyond the LEFT edge
+*  of the viewport to the live mouse cursor, tracking every move. Green is
+*  WIRE_COLOR_GHOST — the port-drag preview — and drawGhostWire() is the
+*  only code that draws toward the cursor, so the parent editor had
+*  _isDraggingPort == true with stale coordinates.
+*
+*  ROOT CAUSE (three-link chain):
+*  1. PORT_DRAG_START is quickEmitted on the GLOBAL Impulsys bus (edge
+*     ports at createEdgePort, node ports at NodeView.onPortMouseDown) —
+*     every stacked editor receives it, and the payload carries no
+*     assemblyId to filter on.
+*  2. onPortDragStart() had NO isActive guard: while the user dragged a
+*     port inside the child, the BACKGROUND parent also entered port-drag
+*     state, recording the child port's stage coordinates as its own
+*     drag start.
+*  3. The parent's stage-level onMouseUp() early-returns while inactive
+*     and finalizes pan/touch but NOT the port drag — the flag stuck
+*     forever. After pop() reactivated the parent, every MOUSE_MOVE drew
+*     the ghost wire: the stale child-port point remapped by the PARENT's
+*     camera transform (globalToLocal) lands off-canvas (behind the left
+*     edge), while the live cursor maps onto itself. Worse: the next click
+*     ran handleWireDragEnd() → findPortAt() → a possible bogus
+*     _actions.connect("SELF", <child port name>, ...) in the parent.
+*
+*  SOLUTION (three layers, defense in depth):
+*  1. GUARD — onPortDragStart() ignores the impulse when inactive: only
+*     the top-of-stack editor (whose port view actually received
+*     MOUSE_DOWN) may begin the gesture.
+*  2. SAFETY NET — onMouseUp() inactive branch now drops a leaked
+*     _isDraggingPort flag and clears the ghost sprite.
+*  3. TRANSITION HYGIENE — new public cancelPendingGestures() resets all
+*     gesture state (port drag, ghost, touch, lasso, pan); EditorContext
+*     calls it on push() deactivation and pop() reactivation, so no flag
+*     can survive an editor-stack transition by construction.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v4.15 CHANGES (Exit-Path Instrumentation + Gate-Independent Background
+*               Refresh — Episod G-4.2)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM (field report after v4.14, crash_trap.log evidence):
+*  The G41-SYNC marker placed AFTER the own-child gate fired ONLY for the
+*  active editor (27 log lines, all "active=true", zero background entries)
+*  — while the background editor's NodeView for the same assembly DID
+*  react (the recreated port appears in the dimmed view). A static re-audit
+*  of every link (emit payload = Assembly.id, NodeView filter = the same
+*  atom.id from the same internalAtoms map the gate scans, subscription
+*  lifecycle, dispose cascading, Impulsys dispatch order) is
+*  self-consistent: the background handler provably never reaches the
+*  marker, yet no code path explains why.
+*
+*  SOLUTION (two layers):
+*  1. DIAGNOSTIC — every exit of the background branch now leaves a Trap
+*     breadcrumb: G41-BG-ENTER (handler invoked for an inactive editor),
+*     G41-BG-NULLID (payload without assemblyId), G41-BG-FOREIGN (gate
+*     rejected — changedId AND the editor's own child ids are dumped, so an
+*     id mismatch becomes readable straight from the field log),
+*     G41-BG-PASS (gate accepted), G41-ERR (exception inside the handler —
+*     Impulsys swallows per-subscriber exceptions silently, and this catch
+*     surfaces them). One port move in the field now localizes the broken
+*     link with certainty; if G41-BG-ENTER is absent while G41-SYNC fires,
+*     the handler is not invoked at all (bus-level problem).
+*  2. SAFETY NET — refreshWiresAfterPortsChange() is now PUBLIC.
+*     EditorContext (the first ASSEMBLY_PORTS_CHANGED subscriber,
+*     resubscriber-protected, provably alive through the v2.12 auto-heal)
+*     schedules ONE coalesced 100 ms pass that calls it on EVERY non-top
+*     stack editor — independent of the own-child gate. The dimmed
+*     background wire heals even while the gate's runtime defect is being
+*     diagnosed; the G41-BG-NET Trap tag records each net-driven refresh.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v4.14 CHANGES (Two-Stage Deferred Wire Refresh — Episod G-4.1)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM (field report after v4.13):
+*  The deferred rebuildAll() at 1 ms still left the dimmed parent-side wire
+*  at its OLD endpoint after a port move performed from inside the
+*  assembly — while the recreated external port sprites themselves were
+*  already in place. Static analysis of the whole chain (emit order,
+*  own-child gate, sprite recreation, endpoint math) checks out link by
+*  link, which points at a runtime-layer detail: every code path that
+*  PROVABLY heals the wire — pan end, wheel zoom, setViewState,
+*  forceFullRedraw — does more than a bare rebuildAll(). Each one also
+*  calls updateVisibility(), whose node.width/height read is a getBounds()
+*  walk that forces OpenFL to validate the transform matrices of every
+*  node subtree BEFORE wire endpoints are re-read; and the zoom path waits
+*  100 ms (several rendered frames) before its final rebuild.
+*
+*  SOLUTION:
+*  The deferred pass is now TWO-STAGE, and each stage refreshes exactly
+*  like the proven gesture paths:
+*    stage 1 (quick, 1 ms) — updateVisibility() FIRST (transform
+*                            validation), then rebuildAll() +
+*                            updateEdgeWires()
+*    stage 2 (confirm, 100 ms) — same refresh again + stage.invalidate(),
+*                            matching the zoom-end healer's delay
+*  Both stages are coalesced independently and stopped in dispose().
+*  G41-SYNC / G41-QUICK / G41-CONFIRM Trap tags record the execution
+*  order in crash_trap.log, so any residual staleness becomes diagnosable
+*  from the field log alone.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v4.13 CHANGES (Background Gesture Freeze + Deferred Wire Rebuild — Episod G-4)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM 1 (stale wire in the dimmed background view):
+*  The port-move command (saga G) emits ASSEMBLY_PORTS_CHANGED. This editor
+*  subscribes to the bus at creation time — BEFORE the child assembly's
+*  NodeView (which subscribes when its atom was placed). So on dispatch, the
+*  parent's _onAssemblyPortsChanged ran rebuildAll() FIRST and read the OLD
+*  external port sprite positions; the NodeView moved the sprites only
+*  afterwards.
+*  The dimmed parent-side wire kept hanging at the pre-move endpoint until
+*  some later gesture happened to trigger another rebuildAll().
+*
+*  SOLUTION 1:
+*  _onAssemblyPortsChanged now also schedules a coalesced deferred
+*  rebuildAll() (haxe.Timer.delay, 1 ms) that fires AFTER the whole impulse
+*  dispatch has settled — wires always re-read the NEW sprite positions,
+*  both in the active and in the background (own-child) branch.
+*
+*  PROBLEM 2 (semi-transparent background copies zoomed/panned with the
+*  foreground):
+*  Every stacked editor attaches its gesture listeners to the STAGE
+*  (MOUSE_MOVE / MOUSE_UP / MIDDLE_MOUSE_DOWN / MIDDLE_MOUSE_UP /
+*  MOUSE_WHEEL). Stage listeners fire for every display list event, so all
+*  background editors tracked the foreground gestures live: the dimmed
+*  parent copies zoomed/panned in sync with the active editor.
+*
+*  SOLUTION 2:
+*  Gesture handlers are now gated by isActive — a background editor never
+*  starts or continues a zoom/pan. onMouseUp / onMiddleMouseUp still END a
+*  pan that was started while the editor was active (mid-gesture coverage
+*  edge), so the ViewportManager pan state can never get stuck.
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v4.9 CHANGES (Zoom Performance Fix — Android Touch Optimization)
@@ -238,6 +379,9 @@ class NodeEditor extends Sprite
         private var _dragStartX:Float = 0;
         private var _dragStartY:Float = 0;
         private var _dragStartIsInput:Bool = false;
+        // v4.16.1 (G5 tracer): one-shot flag so the ghost-draw marker logs
+        // once per drag instead of flooding on every MOUSE_MOVE.
+        private var _g5DrawLogged:Bool = false;
 
         // =========================================================================
         // NODE DRAG
@@ -304,6 +448,23 @@ class NodeEditor extends Sprite
         private var _onNodeClicked:Impulse -> Void;
 
         // =========================================================================
+        // v4.13: DEFERRED WIRE REBUILD TIMER (coalesced)
+        // =========================================================================
+        // Non-null while a deferred rebuildAll() is pending after an
+        // ASSEMBLY_PORTS_CHANGED dispatch. Coalesces event bursts
+        // (multi-step undo, Recent-menu replays) into ONE rebuild.
+        private var _portsChangedRedrawTimer:haxe.Timer = null;
+
+        // =========================================================================
+        // v4.14: DEFERRED WIRE REFRESH — CONFIRMATION STAGE (coalesced)
+        // =========================================================================
+        // Non-null while the trailing 100 ms confirmation pass is pending.
+        // Fired by the quick (1 ms) stage; repeats the same visibility-first
+        // wire refresh after several rendered frames — the delay the zoom-end
+        // healer has always used in the field.
+        private var _portsChangedConfirmTimer:haxe.Timer = null;
+
+        // =========================================================================
         // v4.7: ACTIVE FLAG (Broadcast Storm Prevention)
         // =========================================================================
         /**
@@ -318,6 +479,12 @@ class NodeEditor extends Sprite
         * ATOM_DELETED / ATOM_RESTORED / NODE_CLICKED / PORT_DRAG_START etc.
         * are NOT gated by isActive because they already filter by assemblyId
         * in their handlers. Only the no-payload broadcast events need this.
+        *
+        * v4.13 (Episod G-4): the flag now ALSO gates the stage-level gesture
+        * handlers (onMouseWheel / onMiddleMouseDown / onMouseMove / most of
+        * onMouseUp) — a covered editor no longer zooms/pans in sync with the
+        * foreground. Gesture FINALIZATION (ending an in-flight pan) stays
+        * reachable so no gesture state can get stuck mid-coverage.
         */
         public var isActive:Bool = true;
 
@@ -386,6 +553,9 @@ class NodeEditor extends Sprite
                         getNodeViewById, getEdgePortById,
                         function() return _selection.getSelectedWireIds()
                 );
+                // v4.16.1 (G5 tracer): construction marker — proves this build
+                // contains the Ghost Wire Leak instrumentation + fix.
+                utils.Trap.log("G5-PATCH", "editor up: asm=" + _assembly.id + " bp=" + _blueprint.id);
 
                 /**
                 * Subscribe to ViewportManager zoom callbacks to toggle cacheAsBitmap
@@ -488,11 +658,100 @@ class NodeEditor extends Sprite
                         if (isDisposed || !isActive) return;
                         if (_wireRenderer != null) _wireRenderer.rebuildAll();
                 };
-                _onAssemblyPortsChanged = function(_)
+                _onAssemblyPortsChanged = function(impulse:Impulse)
                 {
-                        if (isDisposed || !isActive) return;
+                        // v4.15 (Episod G-4.2): the whole body is wrapped in a
+                        // try/catch that Trap-logs G41-ERR. Impulsys catches
+                        // per-subscriber exceptions SILENTLY (trace-only on
+                        // cpp), so a background editor whose gate scan threw
+                        // would die before the G41-SYNC marker with no log
+                        // trace at all — exactly the active/background
+                        // asymmetry the v4.14 field report revealed.
+                        try
+                        {
+                        if (isDisposed) return;
+                        if (!isActive)
+                        {
+                                // v4.12 (Episod G-3): a backgrounded editor still
+                                // rebuilds when the change happened inside one of
+                                // its OWN children — e.g. a gateway port deleted
+                                // in the child's editor must immediately vanish
+                                // from the dimmed parent view, wires included.
+                                // Changes in unrelated assemblies are still
+                                // ignored (v2.3 broadcast-storm prevention).
+                                var changedId:String = (impulse != null && impulse.data != null)
+                                        ? impulse.data.assemblyId : null;
+                                // v4.15 (Episod G-4.2): exit-path breadcrumbs —
+                                // each return below leaves a Trap tag, so the
+                                // next field log pinpoints exactly where the
+                                // background reaction stops.
+                                utils.Trap.log("G41-BG-ENTER",
+                                        "asm=" + (_blueprint != null ? _blueprint.id : "?")
+                                        + " changedId=" + changedId);
+                                if (changedId == null)
+                                {
+                                        utils.Trap.log("G41-BG-NULLID",
+                                                "asm=" + (_blueprint != null ? _blueprint.id : "?"));
+                                        return;
+                                }
+                                var isOwnChild:Bool = false;
+                                for (atom in _assembly.internalAtoms)
+                                {
+                                        if (atom != null && atom.id == changedId)
+                                        {
+                                                isOwnChild = true;
+                                                break;
+                                        }
+                                }
+                                if (!isOwnChild)
+                                {
+                                        // v4.15: dump the own children ids next
+                                        // to the rejected changedId — if runtime
+                                        // ids ever diverge from what commands
+                                        // emit, the mismatch is readable here
+                                        // without a debugger.
+                                        var childIds:String = "";
+                                        for (atom in _assembly.internalAtoms)
+                                        {
+                                                if (atom != null)
+                                                {
+                                                        if (childIds.length > 0) childIds += ",";
+                                                        childIds += Std.string(atom.id);
+                                                }
+                                        }
+                                        utils.Trap.log("G41-BG-FOREIGN",
+                                                "asm=" + (_blueprint != null ? _blueprint.id : "?")
+                                                + " changedId=" + changedId
+                                                + " children=[" + childIds + "]");
+                                        return;
+                                }
+                                utils.Trap.log("G41-BG-PASS",
+                                        "asm=" + (_blueprint != null ? _blueprint.id : "?")
+                                        + " changedId=" + changedId);
+                        }
+                        // v4.14 (Episod G-4.1): execution-order instrumentation —
+                        // proves (in crash_trap.log) which editors reacted to
+                        // the dispatch, active AND background.
+                        utils.Trap.log("G41-SYNC",
+                                "asm=" + (_blueprint != null ? _blueprint.id : "?")
+                                + " active=" + isActive);
                         drawFrame();
                         if (_wireRenderer != null) _wireRenderer.rebuildAll();
+                        // v4.13 (Episod G-4): the synchronous rebuild above can
+                        // run BEFORE the child assembly's NodeView subscriber
+                        // (registered later in the bus) rebuilds its external
+                        // port sprites — parent-side wires would keep the OLD
+                        // endpoint until some later gesture rebuilt them again.
+                        // Schedule one more pass AFTER the whole dispatch has
+                        // settled (coalesced, next event-loop tick).
+                        scheduleDeferredWireRebuild();
+                        }
+                        catch (e:Dynamic)
+                        {
+                                utils.Trap.log("G41-ERR",
+                                        "asm=" + (_blueprint != null ? _blueprint.id : "?")
+                                        + " active=" + isActive + " ex=" + Std.string(e));
+                        }
                 };
 
                 _onAtomDeleted = onAtomDeleted;
@@ -508,7 +767,91 @@ class NodeEditor extends Sprite
                 Impulsys.subscribeToImpulse(EventType.ATOM_DELETED, _onAtomDeleted);
                 Impulsys.subscribeToImpulse(EventType.ATOM_RESTORED, _onAtomRestored);
                 Impulsys.subscribeToImpulse(EventType.NODE_CLICKED, _onNodeClicked);
-				Impulsys.subscribeToImpulse(EventType.NODE_VISUAL_MODE_CHANGED, onVisualModeChanged);
+                                Impulsys.subscribeToImpulse(EventType.NODE_VISUAL_MODE_CHANGED, onVisualModeChanged);
+        }
+
+        /**
+        * v4.13 (Episod G-4): schedule a wire rebuild on the next event-loop
+        * tick — AFTER the current synchronous impulse dispatch completes.
+        *
+        * Why: this editor subscribes to ASSEMBLY_PORTS_CHANGED at creation
+        * time, typically BEFORE the affected child assembly's NodeView
+        * subscribed (it subscribed when its atom was placed). A synchronous
+        * rebuildAll() inside _onAssemblyPortsChanged therefore reads the OLD
+        * port sprite positions, leaving parent-side wires hanging at the
+        * pre-move location. The deferred pass re-reads every endpoint after
+        * ALL subscribers (including that NodeView) have settled.
+        *
+        * v4.14 (Episod G-4.1): the deferred pass is TWO-STAGE. The quick
+        * stage (1 ms) refreshes wires exactly the way every gesture path
+        * does — updateVisibility() first (its getBounds walk forces
+        * transform validation across the node subtrees), then rebuildAll()
+        * + updateEdgeWires(). The confirm stage (100 ms, the delay the
+        * zoom-end healer uses in the field) repeats the refresh after
+        * several rendered frames and pokes stage.invalidate() — covering
+        * the case where the 1 ms pass still read pre-validation geometry
+        * on the cpp target.
+        *
+        * Both stages are coalesced independently (a burst of events within
+        * the same tick results in exactly ONE rebuild per stage) and
+        * cleared in dispose().
+        */
+        private function scheduleDeferredWireRebuild():Void
+        {
+                if (isDisposed) return;
+                if (_portsChangedRedrawTimer != null) return; // already scheduled
+                _portsChangedRedrawTimer = haxe.Timer.delay(function():Void
+                {
+                        _portsChangedRedrawTimer = null;
+                        if (isDisposed) return;
+                        utils.Trap.log("G41-QUICK",
+                                "asm=" + (_blueprint != null ? _blueprint.id : "?"));
+                        refreshWiresAfterPortsChange();
+                        if (_portsChangedConfirmTimer == null) // already scheduled
+                        {
+                                _portsChangedConfirmTimer = haxe.Timer.delay(function():Void
+                                {
+                                        _portsChangedConfirmTimer = null;
+                                        if (isDisposed) return;
+                                        utils.Trap.log("G41-CONFIRM",
+                                                "asm=" + (_blueprint != null ? _blueprint.id : "?"));
+                                        refreshWiresAfterPortsChange();
+                                        if (stage != null) stage.invalidate();
+                                }, 100);
+                        }
+                }, 1);
+        }
+
+        /**
+        * v4.14 (Episod G-4.1): the refresh recipe shared by both deferred
+        * stages. Mirrors the rebuildAll() + updateVisibility() pairing that
+        * every gesture path (pan end / wheel zoom / setViewState /
+        * forceFullRedraw) already uses:
+        *
+        *  1. updateVisibility() FIRST — its node.width/height read is a
+        *     getBounds() walk over every NodeView, which forces OpenFL to
+        *     validate the transform matrices of the whole node subtree.
+        *     Freshly recreated port sprites then resolve localToGlobal()
+        *     through CURRENT geometry instead of stale cached matrices.
+        *  2. rebuildAll() — re-reads every wire endpoint through the
+        *     freshly validated transform chain.
+        *  3. updateEdgeWires() — refreshes the SELF (wall) wire segments
+        *     in the same pass, as drawFrame() recreates wall sprites.
+        *
+        *  v4.15 (Episod G-4.2): PUBLIC. EditorContext's gate-independent
+        *  background safety net calls this on every non-top stack editor
+        *  100 ms after an ASSEMBLY_PORTS_CHANGED dispatch (G41-BG-NET),
+        *  so the dimmed background wires heal even while the own-child
+        *  gate's runtime defect is being diagnosed from the field log.
+        */
+        public function refreshWiresAfterPortsChange():Void
+        {
+                updateVisibility();
+                if (_wireRenderer != null)
+                {
+                        _wireRenderer.rebuildAll();
+                        _wireRenderer.updateEdgeWires();
+                }
         }
 
         // =========================================================================
@@ -704,55 +1047,55 @@ class NodeEditor extends Sprite
         // =========================================================================
         // NODE MANAGEMENT
         // =========================================================================
-		private function restoreExistingAtoms():Void
-		{
-			if (_blueprint.internalAtoms == null) return;
-			for (atomDef in _blueprint.internalAtoms)
-			{
-				var runtimeId = _assembly.idMap.get(atomDef.instanceId);
-				if (runtimeId == null) runtimeId = atomDef.instanceId;
-				var atomInstance = _assembly.internalAtoms.get(runtimeId);
-				if (atomInstance != null)
-				{
-					// v3.9: Pass saved visual mode
-					createViewForAtom(cast atomInstance, runtimeId, atomDef.x, atomDef.y, atomDef.visualMode);
-				}
-			}
-		}
+                private function restoreExistingAtoms():Void
+                {
+                        if (_blueprint.internalAtoms == null) return;
+                        for (atomDef in _blueprint.internalAtoms)
+                        {
+                                var runtimeId = _assembly.idMap.get(atomDef.instanceId);
+                                if (runtimeId == null) runtimeId = atomDef.instanceId;
+                                var atomInstance = _assembly.internalAtoms.get(runtimeId);
+                                if (atomInstance != null)
+                                {
+                                        // v3.9: Pass saved visual mode
+                                        createViewForAtom(cast atomInstance, runtimeId, atomDef.x, atomDef.y, atomDef.visualMode);
+                                }
+                        }
+                }
 
-		private function createViewForAtom(atom:Atom, id:String, x:Float, y:Float, ?visualModeStr:String):Void
-		{
-			if (_nodes.exists(id)) return;
-			var view:NodeView = new NodeView(atom, id);
-			view.setPosition(x, y);
-			view.setParentAssembly(_assembly);
-			view.isNameTakenGlobally = _isNameTakenGlobally;
-			
-			var modeToRestore:String = null;
-			
-			if (visualModeStr != null && visualModeStr != "")
-			{
-				modeToRestore = visualModeStr;
-				trace('createViewForAtom: using visualModeStr from AtomDef = "$modeToRestore"');
-			}
-			
-			// ═══════════════════════════════════════════════════════════════
-			// v3.9 FIX: Apply visualMode after creating view
-			// ═══════════════════════════════════════════════════════════════
-			if (modeToRestore != null && modeToRestore != "MEDIUM")
-			{
-				trace('createViewForAtom: applying visualMode "$modeToRestore" to view');
-				view.setVisualModeFromString(modeToRestore);
-			}
-			else
-			{
-				trace('createViewForAtom: using default MEDIUM mode');
-				view.setVisualMode(NodeVisualMode.MEDIUM);
-			}
-			
-			_canvas.addChild(view);
-			_nodes.set(id, view);
-		}
+                private function createViewForAtom(atom:Atom, id:String, x:Float, y:Float, ?visualModeStr:String):Void
+                {
+                        if (_nodes.exists(id)) return;
+                        var view:NodeView = new NodeView(atom, id);
+                        view.setPosition(x, y);
+                        view.setParentAssembly(_assembly);
+                        view.isNameTakenGlobally = _isNameTakenGlobally;
+                        
+                        var modeToRestore:String = null;
+                        
+                        if (visualModeStr != null && visualModeStr != "")
+                        {
+                                modeToRestore = visualModeStr;
+                                trace('createViewForAtom: using visualModeStr from AtomDef = "$modeToRestore"');
+                        }
+                        
+                        // ═══════════════════════════════════════════════════════════════
+                        // v3.9 FIX: Apply visualMode after creating view
+                        // ═══════════════════════════════════════════════════════════════
+                        if (modeToRestore != null && modeToRestore != "MEDIUM")
+                        {
+                                trace('createViewForAtom: applying visualMode "$modeToRestore" to view');
+                                view.setVisualModeFromString(modeToRestore);
+                        }
+                        else
+                        {
+                                trace('createViewForAtom: using default MEDIUM mode');
+                                view.setVisualMode(NodeVisualMode.MEDIUM);
+                        }
+                        
+                        _canvas.addChild(view);
+                        _nodes.set(id, view);
+                }
 
         public function createAtom(typeId:String, posX:Float, posY:Float):Atom
         {
@@ -1002,23 +1345,23 @@ class NodeEditor extends Sprite
                         y: e.stageY
                 });
         }
-		
-		/**
-		 * v2.0: Handle global visual mode change.
-		 * Iterates through all NodeViews and updates their visualization mode.
-		 */
-		private function onVisualModeChanged(impulse:Impulse):Void {
-			if (impulse == null || impulse.data == null || impulse.data.mode == null) return;
-			var mode:NodeVisualMode = impulse.data.mode;
-			
-			for (view in _nodes) {
-				if (view != null) {
-					view.setVisualMode(mode);
-				}
-			}
-			// Force wire redraw to adapt to new port positions
-			_wireRenderer.rebuildAll();
-		}
+                
+                /**
+                 * v2.0: Handle global visual mode change.
+                 * Iterates through all NodeViews and updates their visualization mode.
+                 */
+                private function onVisualModeChanged(impulse:Impulse):Void {
+                        if (impulse == null || impulse.data == null || impulse.data.mode == null) return;
+                        var mode:NodeVisualMode = impulse.data.mode;
+                        
+                        for (view in _nodes) {
+                                if (view != null) {
+                                        view.setVisualMode(mode);
+                                }
+                        }
+                        // Force wire redraw to adapt to new port positions
+                        _wireRenderer.rebuildAll();
+                }
 
 // =========================================================================
 // HIT LAYER HANDLERS (v5.0 — Desktop mouse + Android touch)
@@ -1212,6 +1555,12 @@ class NodeEditor extends Sprite
 // =========================================================================
         private function onMouseMove(e:MouseEvent):Void
         {
+                // v4.13 (Episod G-4): a background editor ignores free mouse
+                // roaming on the stage. Pan continuation freezes in place; the
+                // in-flight pan is ended by onMouseUp / onMiddleMouseUp (which
+                // stay reachable for gesture finalization — see below).
+                if (isDisposed || !isActive) return;
+
                 // Android: synthetic mouse from touch — drive lasso as fallback
                 // (TOUCH_MOVE on _hitLayer may not fire on some Android WebGL configs;
                 //  synthetic MOUSE_MOVE on stage always fires, so use it as belt-and-suspenders)
@@ -1249,6 +1598,13 @@ class NodeEditor extends Sprite
 
                 if (_isDraggingPort)
                 {
+                        // v4.16.1 (G5 tracer): WHO draws the ghost, with WHICH
+                        // start coords and for WHICH node — logged once per drag.
+                        if (!_g5DrawLogged)
+                        {
+                                utils.Trap.log("G5-DRAW", "asm=" + _assembly.id + " node=" + _dragNodeId + "." + _dragContactName + " start=(" + _dragStartX + "," + _dragStartY + ")");
+                                _g5DrawLogged = true;
+                        }
                         _wireRenderer.drawGhostWire(_dragStartX, _dragStartY, e.stageX, e.stageY, _dragStartIsInput);
                         return;
                 }
@@ -1265,6 +1621,37 @@ class NodeEditor extends Sprite
 // =========================================================================
         private function onMouseUp(e:MouseEvent):Void
         {
+                if (isDisposed) return;
+
+                // v4.13 (Episod G-4): a background editor only FINALIZES a
+                // gesture that was started while it was still active (the
+                // editor can become covered mid-pan by entering a child).
+                // Ending the pan here keeps the ViewportManager pan state
+                // from sticking after reactivation; the touch fallback state
+                // is cancelled the same way. Nothing else may run while
+                // covered.
+                if (!isActive)
+                {
+                        if (_viewport.isPanning())
+                        {
+                                _viewport.handlePanEnd();
+                                _wireRenderer.rebuildAll();
+                                updateVisibility();
+                        }
+                        if (_singleTouchActive) _cancelTouchGesture();
+                        // v4.16 (Ghost Wire Leak): a background editor can
+                        // never legally own a port drag. If the flag leaked
+                        // in via the global PORT_DRAG_START broadcast, drop
+                        // it here instead of letting it survive until pop().
+                        if (_isDraggingPort)
+                        {
+                                utils.Trap.log("G5-UP-LEAK", "asm=" + _assembly.id + " node=" + _dragNodeId + "." + _dragContactName);
+                                _isDraggingPort = false;
+                                _wireRenderer.clearGhostWire();
+                        }
+                        return;
+                }
+
                 // Android: touch is driving — finalize lasso as fallback
                 if (_singleTouchActive) {
                         if (_selection.isLassoing()) {
@@ -1303,6 +1690,7 @@ class NodeEditor extends Sprite
         private function handleWireDragEnd(e:MouseEvent):Void
         {
                 var target = findPortAt(e.stageX, e.stageY);
+                utils.Trap.log("G5-END", "asm=" + _assembly.id + " node=" + _dragNodeId + "." + _dragContactName + " target=" + (target == null ? "null" : target.nodeId + "." + target.contactName));
                 if (target != null)
                 {
                         var isSameContact = (_dragNodeId == target.nodeId && _dragContactName == target.contactName);
@@ -1332,6 +1720,46 @@ class NodeEditor extends Sprite
 
                 _isDraggingPort = false;
                 _wireRenderer.clearGhostWire();
+        }
+
+// =========================================================================
+// GESTURE STATE RESET (v4.16)
+// =========================================================================
+        /**
+        * v4.16 (Ghost Wire Leak): reset ALL pending mouse-gesture state.
+        *
+        * Called by EditorContext at stack transitions — push() deactivating
+        * the parent, pop() reactivating it — so no gesture flag can survive
+        * an editor-stack transition. The primary leak was PORT_DRAG_START:
+        * a global-bus impulse from a child editor's port MOUSE_DOWN that
+        * set _isDraggingPort on the background parent; with the matching
+        * MOUSE_UP unreachable, the flag lived until pop() and then drew a
+        * stray green ghost wire from off-screen to the cursor. Pan and
+        * touch were already finalized on the inactive path; port drag and
+        * lasso are reset here for completeness.
+        */
+        public function cancelPendingGestures():Void
+        {
+                if (isDisposed) return;
+
+                utils.Trap.log("G5-CANCEL", "asm=" + _assembly.id + " hadDrag=" + _isDraggingPort + (_isDraggingPort ? " node=" + _dragNodeId + "." + _dragContactName : ""));
+
+                _isDraggingPort = false;
+                if (_wireRenderer != null) _wireRenderer.clearGhostWire();
+
+                if (_singleTouchActive) _cancelTouchGesture();
+
+                if (_selection != null && _selection.isLassoing())
+                {
+                        _selection.handleMouseUp();
+                }
+
+                if (_viewport != null && _viewport.isPanning())
+                {
+                        _viewport.handlePanEnd();
+                        if (_wireRenderer != null) _wireRenderer.rebuildAll();
+                        updateVisibility();
+                }
         }
 
 // =========================================================================
@@ -1450,7 +1878,13 @@ class NodeEditor extends Sprite
                 updateVisibility();
         }
 
-        private function onMiddleMouseDown(e:MouseEvent):Void _viewport.handlePanStart(e.stageX, e.stageY);
+        private function onMiddleMouseDown(e:MouseEvent):Void
+        {
+                // v4.13 (Episod G-4): background editors never START a pan —
+                // the gesture belongs to the active editor only.
+                if (isDisposed || !isActive) return;
+                _viewport.handlePanStart(e.stageX, e.stageY);
+        }
 
         private function onMiddleMouseUp(e:MouseEvent):Void
         {
@@ -1464,6 +1898,11 @@ class NodeEditor extends Sprite
 
         private function onMouseWheel(e:MouseEvent):Void
         {
+                // v4.13 (Episod G-4): background (covered) editors must not zoom —
+                // the wheel belongs to the active editor only. Before this gate
+                // every stacked editor zoomed in sync, making the semi-transparent
+                // parent copies drift with the foreground gestures.
+                if (isDisposed || !isActive) return;
                 utils.Trap.log("ZOOM", "wheel: delta=" + e.delta + " canvas.scaleX=" + _canvas.scaleX);
                 _viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
                 // НЕ вызываем _wireRenderer.rebuildAll(); здесь — провода масштабируются 
@@ -1654,6 +2093,27 @@ class NodeEditor extends Sprite
 // =========================================================================
         private function onPortDragStart(impulse:Impulse):Void
         {
+                // v4.16 (Ghost Wire Leak): PORT_DRAG_START rides the GLOBAL
+                // Impulsys bus — every stacked editor receives it, including
+                // background ones (isActive == false). A background editor
+                // must never enter port-drag state: it cannot receive the
+                // matching MOUSE_UP (onMouseUp early-returns while covered),
+                // so the flag would stick and, once pop() reactivates the
+                // editor, every mouse move would draw a stray green ghost
+                // wire from stale child-port stage coordinates to the cursor.
+                // Only the top-of-stack editor (the one whose port view
+                // actually received MOUSE_DOWN) may start the gesture.
+                if (isDisposed) return;
+
+                if (!isActive)
+                {
+                        utils.Trap.log("G5-BLOCK", "asm=" + _assembly.id + " port=" + impulse.data.nodeId + "." + impulse.data.contactName);
+                        return;
+                }
+
+                utils.Trap.log("G5-START", "asm=" + _assembly.id + " port=" + impulse.data.nodeId + "." + impulse.data.contactName + " start=(" + impulse.data.startX + "," + impulse.data.startY + ")");
+                _g5DrawLogged = false;
+
                 _isDraggingPort = true;
                 _dragNodeId = impulse.data.nodeId;
                 _dragContactName = impulse.data.contactName;
@@ -1846,6 +2306,20 @@ class NodeEditor extends Sprite
                 // v5.0: Cancel any active touch gesture
                 _cancelTouchGesture();
 
+                // v4.13: Stop any pending deferred wire rebuild
+                if (_portsChangedRedrawTimer != null)
+                {
+                        _portsChangedRedrawTimer.stop();
+                        _portsChangedRedrawTimer = null;
+                }
+
+                // v4.14: Stop the trailing confirmation pass as well
+                if (_portsChangedConfirmTimer != null)
+                {
+                        _portsChangedConfirmTimer.stop();
+                        _portsChangedConfirmTimer = null;
+                }
+
                 // v4.5: Unsubscribe the EXACT same references we subscribed with.
                 Impulsys.removeImpulse(EventType.PORT_DRAG_START, _onPortDragStart);
                 Impulsys.removeImpulse(EventType.EDITOR_NODE_MOVED, _onNodeMoved);
@@ -1856,7 +2330,7 @@ class NodeEditor extends Sprite
                 Impulsys.removeImpulse(EventType.ATOM_DELETED, _onAtomDeleted);
                 Impulsys.removeImpulse(EventType.ATOM_RESTORED, _onAtomRestored);
                 Impulsys.removeImpulse(EventType.NODE_CLICKED, _onNodeClicked);
-				Impulsys.removeImpulse(EventType.NODE_VISUAL_MODE_CHANGED, onVisualModeChanged);
+                                Impulsys.removeImpulse(EventType.NODE_VISUAL_MODE_CHANGED, onVisualModeChanged);
 
                 // v4.5: Release closure references
                 _onPortDragStart = null;
