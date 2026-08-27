@@ -46,10 +46,33 @@ import utils.UID;
 using StringTools;
 
 /**
-* MAIN v3.1 (DisplayConfig Integration + Crash Traps)
+* MAIN v3.2 (Device-Path Hygiene + Identity Contract v1.6 + Crash Traps)
 * Application entry point and main coordinator.
 *
 * ═══════════════════════════════════════════════════════════════════════════
+* v3.2 CHANGES (Wide View WP-1a — Device-Path Hygiene)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM (field evidence, Task 86): _cachedDeviceWindowState is only
+*  refreshed on Panel->Editor toggle (syncDevicePanelToCache). Deleting
+*  or re-creating assemblies in Editor mode left deviceWindow paths
+*  pointing at removed atoms; the dead entries were written into
+*  Selfrun.atom and carried forever (restore silently skipped them,
+*  but the cache — and therefore the save — kept them).
+*
+*  FIX — three gates, all resolution-based (no payload trust):
+*  1. ATOMS_GROUPED handler remaps [..., X] -> [..., newAssemblyTypeId, X]
+*     BEFORE the per-node ATOM_DELETED emissions (grouping preserves
+*     internal template ids, so the remapped path resolves immediately).
+*  2. ATOM_DELETED handler prunes entries that stopped resolving —
+*     catches plain deletions, whole-assembly deletions, and ungroup.
+*  3. pruneDeviceWindowCache() also runs at project load and at
+*     extractDeviceWindowData() (save-time final gate).
+*  All resolution is done against the ROOT assembly (stack bottom),
+*  never currentAssembly: paths are root-relative and the user may be
+*  drilled into a sub-assembly when the event fires. Every action is
+*  logged via Trap with DW-PATHS-* tags.
+*
 * ═══════════════════════════════════════════════════════════════════════════
 * v3.1 CHANGES (Crash Traps — BUG-A hunt)
 * ═══════════════════════════════════════════════════════════════════════════
@@ -218,10 +241,10 @@ class Main extends Sprite
         public function new()
         {
                 super();
-				
-				// v1.4 (Episod H-1): black box FIRST — stderr capture + native SEH sentinel
-				utils.Trap.boot();
-				
+                                
+                                // v1.4 (Episod H-1): black box FIRST — stderr capture + native SEH sentinel
+                                utils.Trap.boot();
+                                
                 _theme = EditorTheme.getInstance();
 
                 #if html5
@@ -679,6 +702,9 @@ class Main extends Sprite
                         _cachedWindowY = data.windowY;
 
                         _editorContext.push(rootAssembly, true);
+// v3.2 (WP-1a): prune dead paths from older saves immediately — a stale
+// entry that resolves nowhere must not ride along to the next save.
+                        pruneDeviceWindowCache("LOAD");
                         _editorContext.currentEditor.setViewState(data.view);
 
 // === v4.3: Force full redraw after project load ===
@@ -1379,26 +1405,26 @@ class Main extends Sprite
         * Called every frame via ENTER_FRAME event.
         * Delegates to TickGenerator for unified simulation update.
         */
-		private function onMainLoop(e:Event):Void
-		{
-			var now = Lib.getTimer();
-			var dt = (now - _lastTime) / 1000.0;
-			_lastTime = now;
+                private function onMainLoop(e:Event):Void
+                {
+                        var now = Lib.getTimer();
+                        var dt = (now - _lastTime) / 1000.0;
+                        _lastTime = now;
 
-			// Unified update via TickGenerator
-			// v1.4 (Episod H-1): the whole frame body is guarded — an exception here
-			// killed the process silently (exit code 1, stderr lost in the lime pipe).
-			utils.Trap.ex("LOOP", function() {
-			TickGenerator.getInstance().update(dt);
-			});
+                        // Unified update via TickGenerator
+                        // v1.4 (Episod H-1): the whole frame body is guarded — an exception here
+                        // killed the process silently (exit code 1, stderr lost in the lime pipe).
+                        utils.Trap.ex("LOOP", function() {
+                        TickGenerator.getInstance().update(dt);
+                        });
 
-			// v3.1: 1 Hz heartbeat — last BEAT marks the death second.
-			_trapBeatFrames++;
-			if (_trapBeatFrames >= 60)
-			{
-					_trapBeatFrames = 0;
-					utils.Trap.log("BEAT", "alive");
-			}
+                        // v3.1: 1 Hz heartbeat — last BEAT marks the death second.
+                        _trapBeatFrames++;
+                        if (_trapBeatFrames >= 60)
+                        {
+                                        _trapBeatFrames = 0;
+                                        utils.Trap.log("BEAT", "alive");
+                        }
         }
 
         /**
@@ -2195,7 +2221,7 @@ class Main extends Sprite
         private function onRequestNewContext(impulse:Impulse):Void
         {
                 var bp:Blueprint = impulse.data.blueprint;
-                var id:String = impulse.data.id;
+                var id:String = impulse.data.assemblyId; // v1.6 Identity Contract (was `id`)
 
 // v3.8 FIX: Resolve globally-unique blueprint.name via NamingService.
 // NamingService delegates to AtomRegistry for blueprint-name uniqueness,
@@ -2441,6 +2467,9 @@ class Main extends Sprite
                 Impulsys.subscribeToImpulse(EventType.DISPLAY_MODE_CHANGED, _onDisplayModeChanged);
                 Impulsys.subscribeToImpulse(EventType.SCENE_RESIZED, _onSceneResized);
                 Impulsys.subscribeToImpulse(EventType.FULLSCREEN_TOGGLED, _onFullscreenToggled);
+// v3.2 (Wide View WP-1a): device-path hygiene — see the handlers below.
+                Impulsys.subscribeToImpulse(EventType.ATOM_DELETED, onAtomDeletedPaths);
+                Impulsys.subscribeToImpulse(EventType.ATOMS_GROUPED, onAtomsGroupedPaths);
         }
 
         /**
@@ -2717,6 +2746,8 @@ class Main extends Sprite
         */
         private function extractDeviceWindowData():Array< {path:Array<String>, x:Float, y:Float, ?width:Float, ?height:Float}>
         {
+// v3.2 (WP-1a): save-time final gate — never persist unresolvable paths.
+                pruneDeviceWindowCache("SAVE");
 // v3.0: Use DisplayConfig instead of _isPanelMode
                 if (_devicePanel != null && _devicePanel.visible)
                 {
@@ -2724,6 +2755,127 @@ class Main extends Sprite
                 }
 
                 return _cachedDeviceWindowState != null ? _cachedDeviceWindowState : [];
+        }
+
+// =========================================================================
+// v3.2 (Wide View WP-1a): DEVICE WINDOW PATH HYGIENE
+// =========================================================================
+        /**
+        * Root assembly for device-path resolution (bottom of the editor
+        * stack — the ROOT, never the current drilling level, because
+        * cached paths are root-relative).
+        */
+        private function getRootAssemblyForPaths():Assembly
+        {
+                var stack = _editorContext.getStackEntries();
+                if (stack != null && stack.length > 0 && stack[0] != null)
+                {
+                        return stack[0].assembly;
+                }
+                return _editorContext.currentAssembly;
+        }
+
+        /**
+        * Prune dead entries from _cachedDeviceWindowState.
+        *
+        * Resolution-based: an entry survives only if resolveDevicePath()
+        * can walk it against the ROOT assembly. Payload fields are not
+        * trusted — ANY structural change (delete, ungroup, whole-assembly
+        * removal) is caught by the same check. Dropped entries are logged
+        * via Trap with the DW-PATHS-PRUNE tag.
+        *
+        * Cost: O(entries * path depth * idMap size) — the cache holds a
+        * handful of entries, so this is negligible per call.
+        */
+        private function pruneDeviceWindowCache(reason:String):Void
+        {
+                if (_cachedDeviceWindowState == null) return;
+
+                var root:Assembly = getRootAssemblyForPaths();
+                if (root == null) return;
+
+                var kept:Array< {path:Array<String>, x:Float, y:Float, ?width:Float, ?height:Float} > = [];
+                for (entry in _cachedDeviceWindowState)
+                {
+                        if (entry == null || entry.path == null || entry.path.length == 0) continue;
+                        if (resolveDevicePath(root, entry.path) != null)
+                        {
+                                kept.push(entry);
+                        }
+                        else
+                        {
+                                utils.Trap.log("DW-PATHS-PRUNE", reason + ": dead path dropped: " + entry.path.join("/"));
+                        }
+                }
+
+                if (kept.length != _cachedDeviceWindowState.length)
+                {
+                        utils.Trap.log("DW-PATHS-PRUNE", reason + ": " + _cachedDeviceWindowState.length + " -> " + kept.length + " entries");
+                        _cachedDeviceWindowState = kept;
+                }
+        }
+
+        /**
+        * ATOM_DELETED handler (v1.6 payload: {assemblyId, atomId}).
+        *
+        * Runs for EVERY atom deletion — including GroupAtomsCommand's
+        * per-node emissions and the undo path (assembly instance removal).
+        * The payload itself is not inspected: resolution failure is the
+        * universal detector of a dead path.
+        */
+        private function onAtomDeletedPaths(impulse:Impulse):Void
+        {
+                pruneDeviceWindowCache("ATOM_DELETED");
+        }
+
+        /**
+        * ATOMS_GROUPED handler (v1.6 payload: {assemblyId,
+        * newAssemblyTypeId, movedTemplateIds}).
+        *
+        * Fired by GroupAtomsCommand BEFORE the per-node ATOM_DELETED
+        * emissions. A cached path ending in a moved template id
+        * [..., X] becomes [..., newAssemblyTypeId, X] — grouping preserves
+        * internal template ids inside the new assembly's blueprint, so the
+        * remapped path resolves immediately (the new assembly instance is
+        * already linked into the parent at emission time).
+        *
+        * Every remap is VERIFIED by resolution; a failed verification
+        * leaves the entry untouched, and the following ATOM_DELETED prune
+        * then drops it — the outcome is never worse than the pre-fix
+        * behavior.
+        */
+        private function onAtomsGroupedPaths(impulse:Impulse):Void
+        {
+                if (impulse == null || impulse.data == null) return;
+                if (_cachedDeviceWindowState == null) return;
+
+                var newTypeId:String = impulse.data.newAssemblyTypeId;
+                var moved:Array<String> = impulse.data.movedTemplateIds;
+                if (newTypeId == null || moved == null || moved.length == 0) return;
+
+                var root:Assembly = getRootAssemblyForPaths();
+                if (root == null) return;
+
+                var remapped:Int = 0;
+                for (entry in _cachedDeviceWindowState)
+                {
+                        if (entry == null || entry.path == null || entry.path.length == 0) continue;
+                        var last:String = entry.path[entry.path.length - 1];
+                        if (moved.indexOf(last) == -1) continue;
+
+                        var candidate:Array<String> = entry.path.copy();
+                        candidate.insert(candidate.length - 1, newTypeId);
+                        if (resolveDevicePath(root, candidate) != null)
+                        {
+                                entry.path = candidate;
+                                remapped++;
+                                utils.Trap.log("DW-PATHS-REMAP", "path -> " + candidate.join("/"));
+                        }
+                }
+                if (remapped > 0)
+                {
+                        utils.Trap.log("DW-PATHS-REMAP", remapped + " path(s) remapped through " + newTypeId);
+                }
         }
 
         /**

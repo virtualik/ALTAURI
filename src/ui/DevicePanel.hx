@@ -1321,12 +1321,13 @@ class DevicePanel extends Sprite
     * Called automatically when an atom is deleted from the assembly.
     * Finds and removes all DeviceCards referencing the deleted atom.
     *
-    * @param impulse Impulse containing {id: String} of deleted atom
+    * @param impulse Impulse containing {assemblyId: String, atomId: String} of deleted atom
     */
     private function onAtomDeleted(impulse:Impulse):Void
     {
         if (impulse.data == null) return;
-        var deletedId:String = impulse.data.id;
+        // v1.6 Identity Contract: atomId (was `id`)
+        var deletedId:String = impulse.data.atomId;
 
         var toRemove:Array<DeviceCard> = [];
         for (card in _deviceCards)
@@ -1431,4 +1432,3 @@ class DevicePanel extends Sprite
         Impulsys.removeImpulse(EventType.ATOM_DELETED, onAtomDeleted);
     }
 }
-

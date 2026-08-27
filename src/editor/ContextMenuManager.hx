@@ -180,7 +180,8 @@ class ContextMenuManager
                 if (_isDisposed) return;
                 if (impulse == null || impulse.data == null) return;
                 var view:NodeView = impulse.data.view;
-                _contextTargetId = impulse.data.id;
+                // v1.6 Identity Contract: atomId (was `id`)
+                _contextTargetId = impulse.data.atomId;
 
                 if (!_editor.isSelected(_contextTargetId))
                 {

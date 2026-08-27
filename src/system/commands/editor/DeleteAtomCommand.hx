@@ -121,7 +121,7 @@ class DeleteAtomCommand extends Command {
                         _assembly.rebuildInternalConnections();
                 }
                 
-                Impulsys.quickEmit(EventType.ATOM_DELETED, {assemblyId: _assembly.id, id: _atomId});
+                Impulsys.quickEmit(EventType.ATOM_DELETED, {assemblyId: _assembly.id, atomId: _atomId});
                 complete();
         }
 
@@ -180,7 +180,7 @@ class DeleteAtomCommand extends Command {
 
         Impulsys.quickEmit(EventType.ATOM_RESTORED, {
             assemblyId: _assembly.id,
-            id: _atomId,
+            atomId: _atomId,
             x: _posX,
             y: _posY,
             atom: atom

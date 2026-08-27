@@ -1,7 +1,7 @@
 package core.logic;
 
 /**
-* EVENT TYPE v1.4 (Display & Window State Events)
+* EVENT TYPE v1.6 (Identity Contract)
 *
 * Type-safe enumeration of all system events (Impulse types).
 *
@@ -81,6 +81,74 @@ package core.logic;
 *     Follow Listener Reference Identity pattern (ARHITECTURE_PATTERNS.md §2).
 *
 * ═══════════════════════════════════════════════════════════════════════════
+* v1.6 CHANGES (Wide View WP-3 — Identity Contract)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  1. PAYLOAD IDENTITY CONTRACT codified (block below) — the single
+*     reference for every emitter and subscriber on the Impulsys bus.
+*  2. Atom identity key unified to `atomId` (RUNTIME id) in: ATOM_DELETED,
+*     ATOM_RESTORED, NODE_CLICKED, NODE_RIGHT_CLICKED, NODE_DRAG_FINISHED,
+*     EDITOR_NODE_MOVED, FORCE_UPDATE_NODE_POSITION. Legacy key was `id`;
+*     emitters and subscribers were updated in lockstep (NodeView,
+*     NodeEditor, ContextMenuManager, DevicePanel, DeviceWindow,
+*     CreateAtomCommand, DeleteAtomCommand, GroupAtomsCommand).
+*  3. COMPORT_* docs fixed: since ComPortAtom v3.4 the payload is
+*     { atomId, text } (identity-scoped), NOT a bare String. A bare String
+*     payload on a COMPORT_* event is an owner-less GLOBAL signal
+*     (e.g. "USB_DEVICES_CHANGED" from the Android JNI side).
+*  4. NEW: ATOMS_GROUPED — emitted by GroupAtomsCommand.execute() BEFORE
+*     the per-node ATOM_DELETED loop, so long-lived resource owners
+*     (Main's device-window path cache) can remap paths through the newly
+*     created assembly while resolution is still possible.
+*  5. FORCE_UPDATE_NODE_POSITION documented as RESERVED (no emitter exists
+*     in the current codebase; the NodeEditor subscriber is kept for
+*     future use and aligned to the contract shape).
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* PAYLOAD IDENTITY CONTRACT (v1.6 — READ BEFORE EMITTING)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  Every impulse payload belongs to exactly ONE of four classes:
+*
+*  ┌──────────────────┬─────────────────────────────────────────────────────┐
+*  │ Class            │ Rule                                                │
+*  ├──────────────────┼─────────────────────────────────────────────────────┤
+*  │ ATOM-SCOPED      │ Payload MUST carry `atomId: String` = the atom's    │
+*  │                  │ RUNTIME id (internalAtoms key). Drivers emit        │
+*  │                  │ { atomId: this.id, ... }; widgets filter by         │
+*  │                  │ atom.id. Examples: COMPORT_* {atomId, text},        │
+*  │                  │ FFT_SPECTRUM_READY {atomId}, OSCILLOSCOPE_*,        │
+*  │                  │ NODE_CLICKED {atomId, view, ctrlKey}.               │
+*  ├──────────────────┼─────────────────────────────────────────────────────┤
+*  │ ASSEMBLY-SCOPED  │ Payload MUST carry `assemblyId: String` = the        │
+*  │                  │ assembly's runtime id. Atom lifecycle events carry  │
+*  │                  │ BOTH keys: ATOM_DELETED / ATOM_RESTORED             │
+*  │                  │ {assemblyId, atomId, ...}; ATOMS_GROUPED carries    │
+*  │                  │ {assemblyId, newAssemblyTypeId,                    │
+*  │                  │ movedTemplateIds}. ASSEMBLY_PORTS_CHANGED and       │
+*  │                  │ PORT_REMOVED carry {assemblyId, ...}.               │
+*  ├──────────────────┼─────────────────────────────────────────────────────┤
+*  │ PORT-SCOPED      │ Payload carries `nodeId: String` (the port owner's  │
+*  │                  │ runtime atom id, or the sentinel "SELF" for the     │
+*  │                  │ assembly's own wall ports) + `contactName` and      │
+*  │                  │ geometry fields. PORT_DRAG_START,                   │
+*  │                  │ PORT_RIGHT_CLICKED.                                │
+*  ├──────────────────┼─────────────────────────────────────────────────────┤
+*  │ BROADCAST /      │ No identity key: either everyone cares or nobody    │
+*  │ GLOBAL-SIGNAL    │ can filter. REDRAW_WIRES, VALUE_COMMITTED,          │
+*  │                  │ DEVICE_WINDOW_CHANGED, CLOSE_CONTEXT_MENU,          │
+*  │                  │ DISPLAY_MODE_CHANGED, SCENE_RESIZED, ...            │
+*  │                  │ SPECIAL: a COMPORT_* event with a BARE String       │
+*  │                  │ payload (no {atomId} wrapper) is an owner-less      │
+*  │                  │ global signal ("USB_DEVICES_CHANGED").              │
+*  └──────────────────┴─────────────────────────────────────────────────────┘
+*
+*  ID-SPACE NOTE: `atomId` / `nodeId` are RUNTIME ids (internalAtoms
+*  keys). Persisted deviceWindow paths use TEMPLATE ids. The two spaces
+*  are bridged by Assembly.idMap / Assembly.getTemplateId() — see
+*  Main.resolveDevicePath() and Main.findDevicePath().
+*
+* ═══════════════════════════════════════════════════════════════════════════
 * EVENT TAXONOMY
 * ═══════════════════════════════════════════════════════════════════════════
 *
@@ -141,6 +209,13 @@ package core.logic;
 * VERSION HISTORY
 * ═══════════════════════════════════════════════════════════════════════════
 *
+*  v1.6 — Identity Contract (Wide View WP-3)
+*  ──────────────────────────────────────────────────────────────────────
+*  - ADDED: Payload Identity Contract (four payload classes)
+*  - RENAMED: atom identity key `id` -> `atomId` in 7 events (lockstep)
+*  - ADDED: ATOMS_GROUPED (device-window path remap hook)
+*  - FIXED: COMPORT_* payload docs (String -> {atomId, text})
+*
 *  v1.4 — Display & Window State Events (DisplayConfig Integration)
 *  ──────────────────────────────────────────────────────────────────────
 *  - ADDED: DISPLAY_MODE_CHANGED, SCENE_RESIZED, FULLSCREEN_TOGGLED
@@ -164,11 +239,51 @@ abstract EventType(String) from String to String {
     // SYSTEM & LIFECYCLE
     // =====================================================================
 
-    /** Atom instance was deleted from assembly */
+    /**
+    * Atom instance was deleted from assembly.
+    *
+    * Payload (v1.6 Identity Contract): { assemblyId: String, atomId: String }
+    *   - assemblyId = runtime id of the owning assembly
+    *   - atomId     = RUNTIME id of the deleted atom (was `id` before v1.6)
+    *
+    * Emitters: DeleteAtomCommand.execute(), CreateAtomCommand.undo(),
+    * GroupAtomsCommand (per moved node + undo of the created assembly).
+    * Subscribers: NodeEditor (view disposal), DevicePanel, DeviceWindow
+    * (card removal), Main (device-window path prune).
+    */
     public static var ATOM_DELETED(default, never) = new EventType("ATOM_DELETED");
 
-    /** Atom instance was restored (created or undo) */
+    /**
+    * Atom instance was restored (created or undo).
+    *
+    * Payload (v1.6 Identity Contract): {
+    *   assemblyId: String, atomId: String,
+    *   x: Float, y: Float, atom: Atom
+    * }
+    *
+    * Emitters: CreateAtomCommand.execute(), DeleteAtomCommand.undo(),
+    * GroupAtomsCommand (created assembly instance + undo restores).
+    */
     public static var ATOM_RESTORED(default, never) = new EventType("ATOM_RESTORED");
+
+    /**
+    * v1.6 (Wide View WP-1a): Selected atoms were grouped into a new assembly.
+    *
+    * Payload: {
+    *   assemblyId: String,          // runtime id of the PARENT assembly
+    *   newAssemblyTypeId: String,   // template id of the created assembly
+    *   movedTemplateIds: Array<String> // TEMPLATE ids of the moved atoms
+    * }
+    *
+    * Emitted by GroupAtomsCommand.execute() BEFORE the per-node
+    * ATOM_DELETED loop. Order matters: resource owners remap persisted
+    * paths ([..., X] -> [..., newAssemblyTypeId, X]) while the new
+    * assembly is already linked into the parent (resolution possible),
+    * then the ATOM_DELETED emissions prune whatever did not remap.
+    *
+    * Consumers: Main.onAtomsGroupedPaths() (device-window path cache).
+    */
+    public static var ATOMS_GROUPED(default, never) = new EventType("ATOMS_GROUPED");
 
     /** Request to redraw all wires (topology changed) */
     public static var REDRAW_WIRES(default, never) = new EventType("REDRAW_WIRES");
@@ -285,13 +400,35 @@ abstract EventType(String) from String to String {
     // INTERACTION (Mouse/Click)
     // =====================================================================
 
-    /** Port drag started (wire creation begin) */
+    /**
+    * Port drag started (wire creation begin).
+    *
+    * Payload (PORT-SCOPED class): {
+    *   nodeId: String,       // port owner RUNTIME id, or "SELF" for wall ports
+    *   contactName: String,
+    *   isInput: Bool, startX: Float, startY: Float
+    * }
+    */
     public static var PORT_DRAG_START(default, never) = new EventType("PORT_DRAG_START");
 
-    /** Node clicked (selection) */
+    /**
+    * Node clicked (selection).
+    *
+    * Payload (v1.6): {
+    *   atomId: String,   // RUNTIME id; null = "deselect all" signal
+    *   view: NodeView,   // null for the deselect-all signal
+    *   ctrlKey: Bool
+    * }
+    */
     public static var NODE_CLICKED(default, never) = new EventType("NODE_CLICKED");
 
-    /** Node right-clicked (context menu) */
+    /**
+    * Node right-clicked (context menu).
+    *
+    * Payload (v1.6): {
+    *   atomId: String, view: NodeView, x: Float, y: Float
+    * }
+    */
     public static var NODE_RIGHT_CLICKED(default, never) = new EventType("NODE_RIGHT_CLICKED");
 
     /** Wire right-clicked (context menu) */
@@ -303,22 +440,34 @@ abstract EventType(String) from String to String {
     /** Canvas right-clicked (context menu for adding atoms) */
     public static var CANVAS_RIGHT_CLICKED(default, never) = new EventType("CANVAS_RIGHT_CLICKED");
 
-	// =====================================================================
-	// EDITOR STATE
-	// =====================================================================
-	/** Node moved during drag (continuous updates) */
-	public static var EDITOR_NODE_MOVED(default, never) = new EventType("EDITOR_NODE_MOVED");
-	/** Node drag finished (position commit) */
-	public static var NODE_DRAG_FINISHED(default, never) = new EventType("NODE_DRAG_FINISHED");
-	/** Force update node position (programmatic move) */
-	public static var FORCE_UPDATE_NODE_POSITION(default, never) = new EventType("FORCE_UPDATE_NODE_POSITION");
-	/** Close context menu (click outside or ESC) */
-	public static var CLOSE_CONTEXT_MENU(default, never) = new EventType("CLOSE_CONTEXT_MENU");
-	/** 
-	 * v2.0: Node visual representation mode changed (Light/Medium/Heavy).
-	 * Payload: { mode: ui.NodeVisualMode }
-	 */
-	public static var NODE_VISUAL_MODE_CHANGED(default, never) = new EventType("NODE_VISUAL_MODE_CHANGED");
+        // =====================================================================
+        // EDITOR STATE
+        // =====================================================================
+        /**
+        * Node moved during drag (continuous updates).
+        * Payload (v1.6): { atomId: String, view: NodeView, dx: Float, dy: Float }
+        */
+        public static var EDITOR_NODE_MOVED(default, never) = new EventType("EDITOR_NODE_MOVED");
+        /**
+        * Node drag finished (position commit).
+        * Payload (v1.6): { atomId: String, view: NodeView }
+        */
+        public static var NODE_DRAG_FINISHED(default, never) = new EventType("NODE_DRAG_FINISHED");
+        /**
+        * Force update node position (programmatic move).
+        *
+        * RESERVED (v1.6): no emitter exists in the current codebase; the
+        * NodeEditor subscriber is kept for future use. Contract shape:
+        * { atomId: String, x: Float, y: Float }
+        */
+        public static var FORCE_UPDATE_NODE_POSITION(default, never) = new EventType("FORCE_UPDATE_NODE_POSITION");
+        /** Close context menu (click outside or ESC) */
+        public static var CLOSE_CONTEXT_MENU(default, never) = new EventType("CLOSE_CONTEXT_MENU");
+        /** 
+         * v2.0: Node visual representation mode changed (Light/Medium/Heavy).
+         * Payload: { mode: ui.NodeVisualMode }
+         */
+        public static var NODE_VISUAL_MODE_CHANGED(default, never) = new EventType("NODE_VISUAL_MODE_CHANGED");
 
     // =====================================================================
     // NAVIGATION & COMMANDS
@@ -327,7 +476,12 @@ abstract EventType(String) from String to String {
     /** Request to open nested assembly (double-click) */
     public static var OPEN_ASSEMBLY_REQUEST(default, never) = new EventType("OPEN_ASSEMBLY_REQUEST");
 
-    /** Request to create new assembly context */
+    /**
+    * Request to create new assembly context.
+    *
+    * Payload (v1.6): { blueprint: Blueprint, assemblyId: String }
+    * (key renamed from `id`; single consumer: Main.onRequestNewContext)
+    */
     public static var REQUEST_NEW_ASSEMBLY_CONTEXT(default, never) = new EventType("REQUEST_NEW_ASSEMBLY_CONTEXT");
 
     /** Request to close current editor context */
@@ -352,26 +506,36 @@ abstract EventType(String) from String to String {
 
     /** Menu closed (new context menu system) */
     public static var MENU_CLOSED(default, never) = new EventType("MENU_CLOSED");
-	
+        
     // =====================================================================
     // v1.5: COM PORT EVENTS (Added for ComPortAtom/Widget integration)
     // =====================================================================
 
     /**
-     * ComPort connection status changed.
-     * Payload: String (e.g., "Connected to COM3", "Disconnected", "Requesting USB permission...")
-     */
+    * ComPort connection status changed.
+    *
+    * Payload (v1.6, since ComPortAtom v3.4): { atomId: String, text: String }
+    *   e.g. { atomId: "id_x", text: "Connected to COM3" }
+    *
+    * ComPortWidget filters by atom.id. A BARE String payload (no wrapper)
+    * is an owner-less GLOBAL signal ("USB_DEVICES_CHANGED") — passed
+    * through by every widget.
+    */
     public static var COMPORT_STATUS(default, never) = new EventType("COMPORT_STATUS");
 
     /**
-     * ComPort received new data chunk.
-     * Payload: String (the received data)
-     */
+    * ComPort received new data chunk.
+    *
+    * Payload (v1.6, since ComPortAtom v3.4): { atomId: String, text: String }
+    *   text = the received data.
+    */
     public static var COMPORT_RX_DATA(default, never) = new EventType("COMPORT_RX_DATA");
 
     /**
-     * ComPort encountered an error.
-     * Payload: String (error message, e.g., "Android Rx Err:-1 (check cable/driver)")
-     */
+    * ComPort encountered an error.
+    *
+    * Payload (v1.6, since ComPortAtom v3.4): { atomId: String, text: String }
+    *   text = error message, e.g. "Android Rx Err:-1 (check cable/driver)".
+    */
     public static var COMPORT_ERROR(default, never) = new EventType("COMPORT_ERROR");
 }

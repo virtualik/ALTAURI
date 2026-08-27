@@ -367,7 +367,8 @@ class DeviceWindow {
     // =========================================================================
     private function onAtomDeleted(impulse:Impulse):Void {
         if (_isDisposed || impulse == null || impulse.data == null) return;
-        var deletedId:String = impulse.data.id;
+        // v1.6 Identity Contract: atomId (was `id`)
+        var deletedId:String = impulse.data.atomId;
         var toRemove:Array<DeviceCard> = [];
         for (card in _deviceCards) {
             if (card.atom != null && card.atom.id == deletedId) {

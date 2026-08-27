@@ -28,7 +28,17 @@ import core.data.Blueprint.ParameterPriority;
 import ui.NodeVisualMode;
 
 /**
-* NODE VIEW v5.2 (Port Labels v1.1: rename via double-click on the LABEL text — same affordance as the assembly name + Stable Wall-Port Naming v3.0 + Canonical Order + Port Beneficiary Tooltips)
+* NODE VIEW v5.3 (Identity Contract v1.6: atomId payload key + Port Labels v1.1: rename via double-click on the LABEL text — same affordance as the assembly name + Stable Wall-Port Naming v3.0 + Canonical Order + Port Beneficiary Tooltips)
+*
+* v5.3 CHANGES (Wide View WP-3 — Identity Contract v1.6):
+* - ALL atom-identity emissions renamed `id` -> `atomId` in lockstep with
+*   EventType v1.6 and every subscriber: NODE_CLICKED (6 sites),
+*   NODE_RIGHT_CLICKED (2), NODE_DRAG_FINISHED (2), EDITOR_NODE_MOVED (1).
+*   Values unchanged — RUNTIME node ids, exactly as before; only the
+*   payload key name is now uniform across the whole Impulsys bus.
+* - PORT_DRAG_START / PORT_RIGHT_CLICKED keep the PORT-SCOPED `nodeId`
+*   key (with the "SELF" sentinel for wall ports) — documented in the
+*   v1.6 contract as a distinct payload class.
 *
 * v5.2 (cosmetic): the STATIC port label is hidden while the inline label
 * editor is open — previously both texts were visible side by side and
@@ -1513,7 +1523,7 @@ private function centerPreviewContainer():Void
                 {
                         // Signal "deselect all" by passing null view/id
                         if (onSelect != null) onSelect(null);
-                        Impulsys.quickEmit(EventType.NODE_CLICKED, { view: null, id: null, ctrlKey: e.ctrlKey });
+                        Impulsys.quickEmit(EventType.NODE_CLICKED, { view: null, atomId: null, ctrlKey: e.ctrlKey });
                         e.stopPropagation();
                         return;
                 }
@@ -1522,7 +1532,7 @@ private function centerPreviewContainer():Void
                 if (isPortTarget(cast e.target))
                 {
                         if (onSelect != null) onSelect(null);
-                        Impulsys.quickEmit(EventType.NODE_CLICKED, { view: null, id: null, ctrlKey: e.ctrlKey });
+                        Impulsys.quickEmit(EventType.NODE_CLICKED, { view: null, atomId: null, ctrlKey: e.ctrlKey });
                         e.stopPropagation();
                         return;
                 }
@@ -1536,7 +1546,7 @@ private function centerPreviewContainer():Void
 
                 // === All guards passed → Select node ===
                 if (onSelect != null) onSelect(this);
-                Impulsys.quickEmit(EventType.NODE_CLICKED, { view: this, id: nodeId, ctrlKey: e.ctrlKey });
+                Impulsys.quickEmit(EventType.NODE_CLICKED, { view: this, atomId: nodeId, ctrlKey: e.ctrlKey });
                 e.stopPropagation();
         }
 
@@ -1554,7 +1564,7 @@ private function centerPreviewContainer():Void
                 if (isInteractiveTarget(cast e.target))
                 {
                         if (onSelect != null) onSelect(null);
-                        Impulsys.quickEmit(EventType.NODE_CLICKED, { view: null, id: null, ctrlKey: false });
+                        Impulsys.quickEmit(EventType.NODE_CLICKED, { view: null, atomId: null, ctrlKey: false });
                         e.stopPropagation();
                         return;
                 }
@@ -1563,7 +1573,7 @@ private function centerPreviewContainer():Void
                 if (isPortTarget(cast e.target))
                 {
                         if (onSelect != null) onSelect(null);
-                        Impulsys.quickEmit(EventType.NODE_CLICKED, { view: null, id: null, ctrlKey: false });
+                        Impulsys.quickEmit(EventType.NODE_CLICKED, { view: null, atomId: null, ctrlKey: false });
 
                         // Find which port was clicked and emit PORT_RIGHT_CLICKED
                         var current:DisplayObject = cast e.target;
@@ -1603,7 +1613,7 @@ private function centerPreviewContainer():Void
                 }
 
                 // === Normal behavior: emit node right-click event ===
-                Impulsys.quickEmit(EventType.NODE_RIGHT_CLICKED, { view: this, id: nodeId, x: e.stageX, y: e.stageY });
+                Impulsys.quickEmit(EventType.NODE_RIGHT_CLICKED, { view: this, atomId: nodeId, x: e.stageX, y: e.stageY });
                 e.stopPropagation();
         }
 
@@ -1713,7 +1723,7 @@ private function centerPreviewContainer():Void
                 if (isPortTarget(cast e.target))
                 {
                         if (onSelect != null) onSelect(null);
-                        Impulsys.quickEmit(EventType.NODE_CLICKED, { view: null, id: null, ctrlKey: e.ctrlKey });
+                        Impulsys.quickEmit(EventType.NODE_CLICKED, { view: null, atomId: null, ctrlKey: e.ctrlKey });
                         e.stopPropagation();
                         return;
                 }
@@ -1761,7 +1771,7 @@ private function centerPreviewContainer():Void
                         this.y = newY;
                         _didDrag = true; // v3.8: remember that a real drag occurred
                         ECS.updatePosition(nodeId, newX, newY);
-                        Impulsys.quickEmit(EventType.EDITOR_NODE_MOVED, { id: this.nodeId, view: this, dx: dx, dy: dy });
+                        Impulsys.quickEmit(EventType.EDITOR_NODE_MOVED, { atomId: this.nodeId, view: this, dx: dx, dy: dy });
                 }
         }
 
@@ -1772,7 +1782,7 @@ private function centerPreviewContainer():Void
                         stage.removeEventListener(MouseEvent.MOUSE_MOVE, onMouseMoveDrag);
                         stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUpDrag);
                 }
-                Impulsys.quickEmit(EventType.NODE_DRAG_FINISHED, { view: this, id: nodeId });
+                Impulsys.quickEmit(EventType.NODE_DRAG_FINISHED, { view: this, atomId: nodeId });
         }
 
         private function onMouseUp(e:MouseEvent):Void
@@ -1781,7 +1791,7 @@ private function centerPreviewContainer():Void
                 _isDragging = false;
                 stopDrag();
                 if (stage != null) stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
-                Impulsys.quickEmit(EventType.NODE_DRAG_FINISHED, { view: this, id: nodeId });
+                Impulsys.quickEmit(EventType.NODE_DRAG_FINISHED, { view: this, atomId: nodeId });
         }
 
 // =========================================================================
@@ -1826,7 +1836,7 @@ private function centerPreviewContainer():Void
                         }
                         // Dismiss any open menu, then show node context menu
                         Impulsys.quickEmit(EventType.CLOSE_CONTEXT_MENU, null);
-                        Impulsys.quickEmit(EventType.NODE_RIGHT_CLICKED, { view: view, id: nid, x: sx, y: sy });
+                        Impulsys.quickEmit(EventType.NODE_RIGHT_CLICKED, { view: view, atomId: nid, x: sx, y: sy });
                 }, 2000);
         }
 
@@ -2255,20 +2265,20 @@ private function centerPreviewContainer():Void
 
         /** Focus-out = apply after a short delay (lets ENTER settle first). */
         private function onLabelInputFocusOut(e:FocusEvent):Void
-		{
-			haxe.Timer.delay(function():Void
-			{
-				// v1.4 (Episod H-1): guarded — the finisher may run after the port
-				// sprites were rebuilt by PORT-HEAL; an exception here was fatal.
-				utils.Trap.ex("LABEL-FOCUSOUT", function() {
-					if (_isEditingPortLabel)
-					{
-						var f = _labelEditFinish;
-						if (f != null) f(true);
-					}
-				});
-			}, 50);
-		}
+                {
+                        haxe.Timer.delay(function():Void
+                        {
+                                // v1.4 (Episod H-1): guarded — the finisher may run after the port
+                                // sprites were rebuilt by PORT-HEAL; an exception here was fatal.
+                                utils.Trap.ex("LABEL-FOCUSOUT", function() {
+                                        if (_isEditingPortLabel)
+                                        {
+                                                var f = _labelEditFinish;
+                                                if (f != null) f(true);
+                                        }
+                                });
+                        }, 50);
+                }
 
 // =========================================================================
 // POSITION

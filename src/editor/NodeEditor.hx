@@ -36,8 +36,19 @@ import ui.NodeVisualMode;
 using StringTools;
 
 /**
-* NODE EDITOR v4.18 (Wall Ports Bare + G5 Tracer + Ghost Wire Leak Fix + Beneficiary Tooltips + Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention + Background Gesture Freeze + Two-Stage Deferred Wire Refresh + Exit-Path Instrumentation + Public Wire Refresh)
+* NODE EDITOR v4.19 (Identity Contract v1.6: atomId reads + Wall Ports Bare + G5 Tracer + Ghost Wire Leak Fix + Beneficiary Tooltips + Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention + Background Gesture Freeze + Two-Stage Deferred Wire Refresh + Exit-Path Instrumentation + Public Wire Refresh)
 * Visual schematic editing coordinator.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v4.19 CHANGES (Wide View WP-3 — Identity Contract v1.6)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  All atom-identity payload reads renamed `data.id` -> `data.atomId`
+*  in lockstep with the emitters (NodeView v5.3, commands) and the
+*  EventType v1.6 contract: onNodeClicked (deselect-signal check +
+*  handleNodeClick), onAtomDeleted, onAtomRestored,
+*  onForceUpdatePosition (reserved event, aligned for future use).
+*  PORT_DRAG_START reads keep the PORT-SCOPED `nodeId` key.
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v4.18 CHANGES (Port Labels v1.1 — field feedback)
@@ -815,31 +826,31 @@ class NodeEditor extends Sprite
         {
                 if (isDisposed) return;
                 if (_portsChangedRedrawTimer != null) return; // already scheduled
-					_portsChangedRedrawTimer = haxe.Timer.delay(function():Void
-					{
-						_portsChangedRedrawTimer = null;
-						if (isDisposed) return;
-						utils.Trap.log("G41-QUICK",
-						"asm=" + (_blueprint != null ? _blueprint.id : "?"));
-						// v1.4 (Episod H-1): timer callbacks have no try/catch on their path
-						utils.Trap.ex("G41-QUICK-BODY", function() {
-							refreshWiresAfterPortsChange();
-						});
-						if (_portsChangedConfirmTimer == null) // already scheduled
-						{
-							_portsChangedConfirmTimer = haxe.Timer.delay(function():Void
-							{
-								_portsChangedConfirmTimer = null;
-								if (isDisposed) return;
-								utils.Trap.log("G41-CONFIRM",
-								"asm=" + (_blueprint != null ? _blueprint.id : "?"));
-								utils.Trap.ex("G41-CONFIRM-BODY", function() {
-									refreshWiresAfterPortsChange();
-									if (stage != null) stage.invalidate();
-								});
-							}, 100);
-						}
-					}, 1);
+                                        _portsChangedRedrawTimer = haxe.Timer.delay(function():Void
+                                        {
+                                                _portsChangedRedrawTimer = null;
+                                                if (isDisposed) return;
+                                                utils.Trap.log("G41-QUICK",
+                                                "asm=" + (_blueprint != null ? _blueprint.id : "?"));
+                                                // v1.4 (Episod H-1): timer callbacks have no try/catch on their path
+                                                utils.Trap.ex("G41-QUICK-BODY", function() {
+                                                        refreshWiresAfterPortsChange();
+                                                });
+                                                if (_portsChangedConfirmTimer == null) // already scheduled
+                                                {
+                                                        _portsChangedConfirmTimer = haxe.Timer.delay(function():Void
+                                                        {
+                                                                _portsChangedConfirmTimer = null;
+                                                                if (isDisposed) return;
+                                                                utils.Trap.log("G41-CONFIRM",
+                                                                "asm=" + (_blueprint != null ? _blueprint.id : "?"));
+                                                                utils.Trap.ex("G41-CONFIRM-BODY", function() {
+                                                                        refreshWiresAfterPortsChange();
+                                                                        if (stage != null) stage.invalidate();
+                                                                });
+                                                        }, 100);
+                                                }
+                                        }, 1);
         }
 
         /**
@@ -1300,7 +1311,7 @@ class NodeEditor extends Sprite
                 // === v3.4.2: Handle "deselect all" signal ===
                 // When view/id is null, it means: "clear all selection, don't select anything"
                 // This is emitted when user clicks on a widget/inline editor inside a node
-                if (data.view == null || data.id == null)
+                if (data.view == null || data.atomId == null)
                 {
                         _selection.deselectAll();
                         _wireRenderer.rebuildAll();
@@ -1308,7 +1319,7 @@ class NodeEditor extends Sprite
                 }
 
                 // === Normal behavior: handle node selection ===
-                _selection.handleNodeClick(data.id, data.view, data.ctrlKey);
+                _selection.handleNodeClick(data.atomId, data.view, data.ctrlKey);
         }
 
         /**
@@ -2132,7 +2143,7 @@ class NodeEditor extends Sprite
         private function onAtomDeleted(impulse:Impulse):Void
         {
                 if (impulse.data.assemblyId != _assembly.id) return;
-                var id:String = impulse.data.id;
+                var id:String = impulse.data.atomId;
                 var view = _nodes.get(id);
                 if (view != null)
                 {
@@ -2146,7 +2157,7 @@ class NodeEditor extends Sprite
         private function onAtomRestored(impulse:Impulse):Void
         {
                 if (impulse.data.assemblyId != _assembly.id) return;
-                var id:String = impulse.data.id;
+                var id:String = impulse.data.atomId;
                 var x:Float = impulse.data.x;
                 var y:Float = impulse.data.y;
                 var atom:Atom = impulse.data.atom;
@@ -2161,7 +2172,7 @@ class NodeEditor extends Sprite
         private function onForceUpdatePosition(impulse:Impulse):Void
         {
                 var data = impulse.data;
-                var view = _nodes.get(data.id);
+                var view = _nodes.get(data.atomId);
                 if (view != null)
                 {
                         if (view.x != data.x || view.y != data.y)
