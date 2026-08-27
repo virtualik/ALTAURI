@@ -17,11 +17,23 @@ using StringTools;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     ASSEMBLY v2.9                                         ║
+* ║                     ASSEMBLY v2.10                                        ║
 * ║  (Full Integrity + Template ID Serialization + Clean Gateway Topology     ║
 * ║   + Load-Symmetric Blueprint Sync + Atom Mapping Registration             ║
-* ║   + Inline Value Persistence + Crash Traps + Conn Traps)                  ║
+* ║   + Inline Value Persistence + Crash Traps + Conn Traps                    ║
+* ║   + Ghost AtomDef Self-Heal on Load)                                       ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  v2.10 CHANGES (Ghost AtomDef Self-Heal — Wide View v1.1):                ║
+* ║   _createInternalInstances(): an AtomDef whose typeId cannot be            ║
+* ║   resolved (blueprint absent from AtomRegistry — e.g. an assembly          ║
+* ║   deleted by an undone grouping in a pre-v3.18 build, or a missing         ║
+* ║   library file) is now DROPPED from the blueprint at load time,           ║
+* ║   together with its dangling _idMap entry. Before, the dead entry          ║
+* ║   produced "ERROR: Blueprint not found" on every load and was             ║
+* ║   re-serialized by every save, polluting the project file forever.        ║
+* ║   Self-heals saves already carrying such ghosts (field case: the           ║
+* ║   CustomAssembly_e5a3 entry left in Selfrun.atom by final test T5).       ║
 * ║                                                                           ║
 * ║  Universal base class for ALL nodes in the system.                        ║
 * ║                                                                           ║
@@ -1869,6 +1881,10 @@ class Assembly extends Atom
         private function _createInternalInstances():Void
         {
                 if (blueprint == null || blueprint.internalAtoms == null) return;
+// v2.10 (Ghost AtomDef Self-Heal): dead AtomDefs (unresolvable typeId) are
+// collected here and removed from the blueprint AFTER the iteration loop —
+// never mutate blueprint.internalAtoms while iterating it with for-in.
+                var deadDefs:Array<AtomDef> = null;
                 for (atomDef in blueprint.internalAtoms)
                 {
 // Prevent recursive instantiation
@@ -1928,6 +1944,26 @@ class Assembly extends Atom
                                         DriverManager.getInstance().register(instance);
                                 }
                         }
+                        else
+                        {
+// v2.10 (Ghost AtomDef Self-Heal): AssemblyFactory.createAtom returned
+// null — the typeId is not resolvable (createAtom returns null ONLY for a
+// missing blueprint). Typical origins: an assembly deleted by an undone
+// grouping in a pre-v3.18 build (undo removed the AtomRegistry entry and
+// deleted the .atom file, but the AtomDef leaked into the save), or a
+// missing library file. Drop the dead AtomDef and its dangling _idMap
+// entry so it is NOT re-serialized by the next save. Connections to it
+// (if any) are cleaned by the v1.5 Ghost Connection Safety Net.
+                                trace('WARN: [self-heal] Dropping dead atomDef "${atomDef.instanceId}" — typeId "${atomDef.typeId}" not found in AtomRegistry');
+                                _idMap.remove(atomDef.instanceId);
+                                if (deadDefs == null) deadDefs = [];
+                                deadDefs.push(atomDef);
+                        }
+                }
+                if (deadDefs != null)
+                {
+                        for (d in deadDefs) blueprint.internalAtoms.remove(d);
+                        trace('WARN: [self-heal] Removed ${deadDefs.length} dead AtomDef(s) from "${blueprint.id}"');
                 }
         }
 

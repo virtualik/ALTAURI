@@ -19,7 +19,7 @@ import library.AtomRegistry;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                 GROUP ATOMS COMMAND v3.17                                 ║
+* ║                 GROUP ATOMS COMMAND v3.18                                 ║
 * ║        (Identity Contract v1.6: atomId + ATOMS_GROUPED hook +             ║
 * ║         BP-SSOT Consistency + Parent Port Collision Fix + DeviceView     ║
 * ║          Lifecycle Cleanup + Template ID as instanceId + Unique Names)    ║
@@ -31,6 +31,19 @@ import library.AtomRegistry;
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ╠═════════════════════════════════════════════════════════════════════════════╣
 * ╠═════════════════════════════════════════════════════════════════════════════╣
+* ║  v3.18 CHANGES (Ghost AtomDef Fix — found by final test T5):              ║
+* ║   UNDO removed the created assembly's AtomDef by object equality          ║
+* ║   (_blueprint.internalAtoms.remove(snapshot.getCreatedAtomDef())),       ║
+* ║   but the snapshot stores a STRIPPED COPY {instanceId, typeId, x, y}     ║
+* ║   (GroupAtomsSnapshot.setCreatedData), while the LIVE AtomDef later      ║
+* ║   gains visualMode/values fields — remove(==) NEVER matched, so undo     ║
+* ║   silently left the assembly's AtomDef in the parent blueprint FOREVER.  ║
+* ║   Field evidence 2026-08-27: after group→undo→regroup, Selfrun.atom      ║
+* ║   carried a dead CustomAssembly_e5a3 entry (values:null, zero wires;     ║
+* ║   its registry entry was removed and .atom file deleted by the same     ║
+* ║   undo) — "ERROR: Blueprint not found" on every future load, and         ║
+* ║   re-serialized by every save. Fix: remove by INSTANCE ID predicate.     ║
+* ║                                                                           ║
 * ║  v3.17 CHANGES (Wide View WP-3 + WP-1a):                                  ║
 * ║   1. Identity Contract v1.6 — all ATOM_DELETED / ATOM_RESTORED payloads   ║
 * ║      renamed `id` -> `atomId`, in lockstep with every subscriber.         ║
@@ -930,8 +943,33 @@ class GroupAtomsCommand extends Command
                         _blueprint.internalConnections.remove(conn);
                 }
 
-                var createdAtomDef = _snapshot.getCreatedAtomDef();
-                if (createdAtomDef != null) _blueprint.internalAtoms.remove(createdAtomDef);
+                // v3.18 (Ghost AtomDef Fix): remove the created assembly's AtomDef
+                // by INSTANCE ID predicate — NOT by object equality.
+                // GroupAtomsSnapshot.setCreatedData() stores a STRIPPED COPY
+                // {instanceId, typeId, x, y}; the live AtomDef in the blueprint
+                // later gains visualMode/values fields, so Array.remove(==)
+                // never matched anything and undo silently left the AtomDef in
+                // the parent blueprint FOREVER (re-serialized by every save,
+                // "ERROR: Blueprint not found" on every future load since the
+                // same undo removes the AtomRegistry entry and deletes the
+                // .atom file). Field evidence 2026-08-27 (final test T5): a dead
+                // CustomAssembly_e5a3 entry with values:null survived in
+                // Selfrun.atom after group→undo→regroup.
+                // (instanceId == newTypeId by the Phase 5 "CRITICAL FIX"
+                // invariant, so matching on createdTypeId is exactly right.)
+                var createdTypeId = _snapshot.getCreatedTypeId();
+                if (createdTypeId != null)
+                {
+                        var gi:Int = _blueprint.internalAtoms.length - 1;
+                        while (gi >= 0)
+                        {
+                                if (_blueprint.internalAtoms[gi].instanceId == createdTypeId)
+                                {
+                                        _blueprint.internalAtoms.splice(gi, 1);
+                                }
+                                gi--;
+                        }
+                }
 
                 var createdId = _snapshot.getCreatedInstanceId();
                 var createdInst = _assembly.internalAtoms.get(createdId);
@@ -947,7 +985,8 @@ class GroupAtomsCommand extends Command
 
 // v3.6: Remove the template→runtime mapping we added in execute().
 // Without this, the mapping would linger and point to a disposed atom.
-                var createdTypeId = _snapshot.getCreatedTypeId();
+// (v3.18: createdTypeId is now declared at the top of undo() —
+// see the Ghost AtomDef Fix above.)
                 if (createdTypeId != null)
                 {
                         _assembly.unregisterAtomMapping(createdTypeId);
