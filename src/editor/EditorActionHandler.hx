@@ -24,9 +24,23 @@ import utils.UID;
 import library.AtomRegistry;
 
 /**
- * EDITOR ACTION HANDLER v1.1 (Global Name Uniqueness + Paste Suffix Logic)
+ * EDITOR ACTION HANDLER v1.2 (Paste State Replication)
  * Handles logic for modifying the schematic via Undo/Redo commands.
  * Extracted from NodeEditor for better separation of concerns.
+ *
+ * v1.2 CHANGES (WP-2 Paste Semantics):
+ *  - copySelection() now captures each atom's per-instance state snapshot
+ *    (getPersistentState, sanitized) and its AtomDef.visualMode.
+ *  - pasteSelection() forwards both to CreateAtomCommand, so a pasted atom
+ *    replicates the source: toggle position, assembly internalStates,
+ *    driver configs, node visual mode. The blueprint (structure) remains
+ *    shared — ALTAURI's template semantics are preserved by design; the
+ *    INSTANCE is what gets copied, exactly like a Unity prefab instance
+ *    or an Unreal Blueprint actor.
+ *  - _sanitizeStateForPaste(): strips displayName (owned by the paste
+ *    naming path — source "Foo_2" pastes as "Foo_3") and wasOpen
+ *    (ComPortAtom runtime reopen request — a copy must not race the
+ *    source for the same serial port).
  *
  * Architecture:
  * ┌─────────────────────────────────────────────────────────────────────────┐
@@ -83,9 +97,9 @@ class EditorActionHandler
     // CONSTRUCTOR
     // =========================================================================
     // v1.1: Added isNameTakenGlobally parameter
-	
+        
 
-	public function new(assembly:Assembly, blueprint:Blueprint, ?isNameTakenGlobally:(String, ?String) -> Bool)
+        public function new(assembly:Assembly, blueprint:Blueprint, ?isNameTakenGlobally:(String, ?String) -> Bool)
     {
         _assembly = assembly;
         _blueprint = blueprint;
@@ -118,25 +132,25 @@ class EditorActionHandler
         UndoManager.getInstance().executeAndStore(cmd);
     }
 
-	/**
-	* Создает атом с заранее известным ID.
-	* Это необходимо для программного скриптинга, чтобы мы могли сразу соединить атомы.
-	*/
-	public function createAtomWithId(typeId:String, instanceId:String, x:Float, y:Float):Void
-	{
-		var cmd = new CreateAtomCommand(
-			_blueprint,
-			_assembly,
-			typeId,
-			instanceId, // Передаем наш сгенерированный ID
-			x,
-			y,
-			_isNameTakenGlobally,
-			null,
-			false
-		);
-		UndoManager.getInstance().executeAndStore(cmd);
-	}
+        /**
+        * Создает атом с заранее известным ID.
+        * Это необходимо для программного скриптинга, чтобы мы могли сразу соединить атомы.
+        */
+        public function createAtomWithId(typeId:String, instanceId:String, x:Float, y:Float):Void
+        {
+                var cmd = new CreateAtomCommand(
+                        _blueprint,
+                        _assembly,
+                        typeId,
+                        instanceId, // Передаем наш сгенерированный ID
+                        x,
+                        y,
+                        _isNameTakenGlobally,
+                        null,
+                        false
+                );
+                UndoManager.getInstance().executeAndStore(cmd);
+        }
 
     /**
      * Delete multiple atoms (batch operation).
@@ -247,12 +261,22 @@ class EditorActionHandler
                 }
                 var dName = (atomInst != null) ? atomInst.displayName : null;
 
+                // v1.2: capture the per-instance state snapshot so paste
+                // replicates the source (toggle position, assembly
+                // internalStates, driver configs). Volatile fields are
+                // stripped — see _sanitizeStateForPaste().
+                var values = (atomInst != null)
+                    ? _sanitizeStateForPaste(atomInst.getPersistentState())
+                    : null;
+
                 atomsData.push({
                     id: id,
                     typeId: def.typeId,
                     x: def.x,
                     y: def.y,
-                    displayName: dName // v1.1: Store original display name
+                    displayName: dName, // v1.1: Store original display name
+                    values: values,      // v1.2: sanitized state snapshot
+                    visualMode: def.visualMode // v1.2: node appearance
                 });
             }
         }
@@ -279,6 +303,32 @@ class EditorActionHandler
         
         _clipboard = { atoms: atomsData, connections: connsData };
         trace('Copied ${atomsData.length} atoms');
+    }
+    
+    /**
+     * v1.2: Prepare a per-instance state snapshot for clipboard/paste.
+     *
+     * Shallow-copies the top level of getPersistentState() and strips the
+     * fields a copy must NOT inherit:
+     *  - displayName: owned by the paste naming path (source "Foo_2"
+     *    pastes as "Foo_3" via AssemblyFactory.generateUniqueDisplayName);
+     *  - wasOpen (ComPortAtom): a runtime port-reopen request — a pasted
+     *    copy must not race the source instance for the same serial port.
+     *
+     * Nested state (Assembly.internalStates with per-atom values) is kept
+     * as-is: the pasted instance shares the blueprint, so template-ID keys
+     * resolve on the copy exactly like on the source (same map as load).
+     */
+    private function _sanitizeStateForPaste(state:Dynamic):Dynamic
+    {
+        if (state == null) return null;
+        var copy:Dynamic = {};
+        for (field in Reflect.fields(state))
+        {
+            if (field == "displayName" || field == "wasOpen") continue;
+            Reflect.setField(copy, field, Reflect.field(state, field));
+        }
+        return copy;
     }
     
     /**
@@ -311,6 +361,8 @@ class EditorActionHandler
             idMap.set(data.id, newId);
             
             // v1.1: Pass global name checker, desired name from clipboard, and isPaste = true
+            // v1.2: also pass the sanitized state snapshot + visual mode so
+            // the pasted atom replicates the source instance.
             var cmd = new CreateAtomCommand(
                 _blueprint,
                 _assembly,
@@ -320,7 +372,9 @@ class EditorActionHandler
                 data.y + offset,
                 _isNameTakenGlobally,
                 data.displayName,
-                true // isPaste = true forces suffix increment
+                true, // isPaste = true forces suffix increment
+                data.values,    // v1.2: replicate source state
+                data.visualMode // v1.2: replicate node visual mode
             );
             macrocom.addCommand(cmd);
         }
@@ -415,10 +469,14 @@ class EditorActionHandler
 }
 
 // v1.1: Added optional displayName to preserve original name during copy/paste
+// v1.2: Added optional values (sanitized getPersistentState snapshot) and
+// visualMode so pasted atoms replicate the source instance's state/appearance.
 typedef ClipboardAtomData = {
     var id:String;
     var typeId:String;
     var x:Float;
     var y:Float;
     @:optional var displayName:String;
+    @:optional var values:Dynamic;
+    @:optional var visualMode:String;
 }

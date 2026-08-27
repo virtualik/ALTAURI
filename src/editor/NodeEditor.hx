@@ -36,7 +36,7 @@ import ui.NodeVisualMode;
 using StringTools;
 
 /**
-* NODE EDITOR v4.19 (Identity Contract v1.6: atomId reads + Wall Ports Bare + G5 Tracer + Ghost Wire Leak Fix + Beneficiary Tooltips + Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention + Background Gesture Freeze + Two-Stage Deferred Wire Refresh + Exit-Path Instrumentation + Public Wire Refresh)
+* NODE EDITOR v4.20 (WP-2: ATOM_RESTORED visualMode passthrough for paste replication | prev: Identity Contract v1.6: atomId reads + Wall Ports Bare + G5 Tracer + Ghost Wire Leak Fix + Beneficiary Tooltips + Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention + Background Gesture Freeze + Two-Stage Deferred Wire Refresh + Exit-Path Instrumentation + Public Wire Refresh)
 * Visual schematic editing coordinator.
 *
 * ═══════════════════════════════════════════════════════════════════════════
@@ -2164,7 +2164,11 @@ class NodeEditor extends Sprite
 
                 if (atom != null)
                 {
-                        createViewForAtom(atom, id, x, y);
+                        // v4.20 (WP-2): emitters may carry the AtomDef visualMode
+                        // (paste replication — the pasted node renders like its
+                        // source). Absent/null on other emitters keeps the
+                        // previous default (MEDIUM) exactly as before.
+                        createViewForAtom(atom, id, x, y, impulse.data.visualMode);
                         _wireRenderer.rebuildAll();
                 }
         }

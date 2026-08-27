@@ -261,6 +261,12 @@ abstract EventType(String) from String to String {
     *   x: Float, y: Float, atom: Atom
     * }
     *
+    * v1.6.1 (WP-2): OPTIONAL key `visualMode: Null<String>` — the AtomDef's
+    * NodeVisualMode ("LIGHT"/"MEDIUM"/"HEAVY"). Set by CreateAtomCommand
+    * (paste replication: the pasted node renders like the source). Absent
+    * or null on all other emitters — subscribers must treat it as optional
+    * and fall back to their default view mode.
+    *
     * Emitters: CreateAtomCommand.execute(), DeleteAtomCommand.undo(),
     * GroupAtomsCommand (created assembly instance + undo restores).
     */

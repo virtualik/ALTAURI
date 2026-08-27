@@ -20,7 +20,7 @@ import library.drivers.WebSocketAtom;
 using StringTools;
 
 /**
-* ASSEMBLY FACTORY v1.4 (Global Naming & Paste Logic)
+* ASSEMBLY FACTORY v1.5 (Global Naming & Paste Logic + Cycle Guard)
 *
 * Central factory that creates every Atom in the system.
 * It decides whether to instantiate a native C++ driver (SignalGenerator, MiniAudioAtom, etc.)
@@ -36,6 +36,10 @@ using StringTools;
 * - Restore initial state after creation
 * - v1.1: Generate unique displayName for new atoms
 * - v1.3: Support global uniqueness checks and intelligent _N suffix parsing for Copy/Paste
+* - v1.5: Construction cycle guard — a template cycle (X→Y→X) can no longer
+*   drive the Assembly constructor into infinite recursion; the nested
+*   instance is refused (null) and every caller already handles null
+*   (the load path feeds Assembly v2.10 dead-AtomDef self-heal).
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v1.3 ADDITIONS (Global Naming & Paste Logic):
@@ -67,6 +71,17 @@ using StringTools;
 */
 class AssemblyFactory
 {
+        /**
+        * v1.5 CONSTRUCTION CYCLE GUARD: blueprint ids currently being
+        * constructed down the active Assembly cascade. A legitimate
+        * construction cascade never repeats a blueprint id (recursive
+        * templates are impossible by definition); a repeat means a
+        * template cycle (X→Y→X) — refuse the nested instance instead of
+        * overflowing the stack. push/remove pairs keep the stack balanced;
+        * the catch clause keeps it clean even if a constructor throws.
+        */
+        private static var _constructionStack:Array<String> = [];
+
         /**
         * Creates an Atom or Assembly instance.
         * If forcedId is null, a new UUID is generated automatically.
@@ -122,17 +137,17 @@ class AssemblyFactory
 // ─────────────────────────────────────────────────────────────
 // FILE WRITER ATOM — File i/o exchange HTML% version
 // ─────────────────────────────────────────────────────────────
-								case "FILEWRITERATOM":
-								case "FILEWRITER":
-								case "FILE WRITER":
-									normalizedTypeId = "FileWriterAtom";
+                                                                case "FILEWRITERATOM":
+                                                                case "FILEWRITER":
+                                                                case "FILE WRITER":
+                                                                        normalizedTypeId = "FileWriterAtom";
 // ─────────────────────────────────────────────────────────────
 // WEBSOCKET — WebSocket Client (cross-platform)
 // ─────────────────────────────────────────────────────────────
-								case "WebSocketAtom":
-								case "WEBSOCKETATOM":
-								case "WEBSOCKET":
-									normalizedTypeId = "WebSocketAtom";
+                                                                case "WebSocketAtom":
+                                                                case "WEBSOCKETATOM":
+                                                                case "WEBSOCKET":
+                                                                        normalizedTypeId = "WebSocketAtom";
 // ─────────────────────────────────────────────────────────────
 // NET RADIO PLAYER — Internet radio metadata driver
 // ─────────────────────────────────────────────────────────────
@@ -163,7 +178,7 @@ class AssemblyFactory
                                 case "FFTATOM":
                                 case "FFT": normalizedTypeId = "FFTAtom";
                                 case "TEXTINPUT": normalizedTypeId = "TextInput";
-								case "TEXTAREA": normalizedTypeId = "TextArea";
+                                                                case "TEXTAREA": normalizedTypeId = "TextArea";
 // ─────────────────────────────────────────────────────────────
 // LOGIC
 // ─────────────────────────────────────────────────────────────
@@ -201,20 +216,20 @@ class AssemblyFactory
                                 #else
                                 trace('⚠️ MiniAudioAtom requires C++ target');
                                 #end
-								
-						case "ComPortAtom":
-								atom = new library.drivers.ComPortAtom(id);
-								trace(' AssemblyFactory: Created ComPortAtom...');
-								
-						case "FileWriterAtom":
-								atom = new library.drivers.FileWriterAtom(id);
-								trace('📝 AssemblyFactory: Created FileWriterAtom...');
+                                                                
+                                                case "ComPortAtom":
+                                                                atom = new library.drivers.ComPortAtom(id);
+                                                                trace(' AssemblyFactory: Created ComPortAtom...');
+                                                                
+                                                case "FileWriterAtom":
+                                                                atom = new library.drivers.FileWriterAtom(id);
+                                                                trace('📝 AssemblyFactory: Created FileWriterAtom...');
 // =============================================================
 // WEB SOCKET — Web Socket port
 // =============================================================
-						case "WebSocketAtom":
-								atom = new library.drivers.WebSocketAtom(id);
-								trace('🌐 AssemblyFactory: Created WebSocketAtom...');
+                                                case "WebSocketAtom":
+                                                                atom = new library.drivers.WebSocketAtom(id);
+                                                                trace('🌐 AssemblyFactory: Created WebSocketAtom...');
 // =============================================================
 // NET RADIO PLAYER — internet radio metadata extraction
 // =============================================================
@@ -262,8 +277,8 @@ class AssemblyFactory
                                 atom = new FFTAtom(id);
                         case "TextInput":
                                 atom = new TextInputAtom(id);
-						case "TextArea":
-								atom = new library.electro.TextAreaAtom(id);
+                                                case "TextArea":
+                                                                atom = new library.electro.TextAreaAtom(id);
 // =============================================================
 // LOGIC
 // =============================================================
@@ -276,7 +291,29 @@ class AssemblyFactory
 // =============================================================
                         default:
 // This path is used for all user-made blueprints that contain internalAtoms
-                                atom = new Assembly(id, bp);
+// v1.5 CONSTRUCTION CYCLE GUARD: a template cycle (X→Y→X — from a corrupted
+// save or a pre-guard paste) would recurse here forever. If this blueprint
+// is already under construction higher up the current cascade, skip the
+// nested instance: return null. Every createAtom caller handles null — the
+// load path (Assembly._createInternalInstances) feeds it into the v2.10
+// dead-AtomDef self-heal, which drops the cyclic AtomDef and its dangling
+// _idMap entry; the command path aborts cleanly.
+                                if (_constructionStack.indexOf(bp.id) != -1)
+                                {
+                                        trace('AssemblyFactory: CYCLE — blueprint "${bp.id}" is already under construction; template cycle broken, nested instance skipped.');
+                                        return null;
+                                }
+                                _constructionStack.push(bp.id);
+                                try
+                                {
+                                        atom = new Assembly(id, bp);
+                                }
+                                catch (e:Dynamic)
+                                {
+                                        _constructionStack.remove(bp.id);
+                                        throw e; // preserve the original failure
+                                }
+                                _constructionStack.remove(bp.id);
                 }
 // Restore saved state (frequency, mode, buffer settings, etc.)
                 if (atom != null && initialState != null)
