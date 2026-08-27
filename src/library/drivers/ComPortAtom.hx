@@ -19,6 +19,7 @@ import haxe.io.Bytes;
 #if cpp
 @:headerCode('
 #include <string>
+#include <cstring>
 #include <thread>
 #include <mutex>
 #include <map>
@@ -1000,6 +1001,24 @@ extern "C" const char* scanWindowsCOMPorts() {
 */
 /**
 /**
+* v3.5 CHANGES (Black Box H-1 — hardening after the silent exit-code-1 crash):
+* - update(): the native map lookup now DETECTS "state lost" (the atom
+*   believes the port is open, but _com_states_map has no state at its
+*   heap address) and Trap-logs COMPORT STATE-LOST instead of silently
+*   ignoring rx. The map is keyed by the Haxe object address; if GC ever
+*   reuses the address of an undisposed atom, this is the smoke we will
+*   see in crash_trap.log.
+* - update(): the rx payload is now COPIED under rxMutex and the Haxe
+*   ::String is built AFTER the lock is released — no GC allocation while
+*   holding the reader-thread mutex (defensive hygiene).
+* - openDevice(): stale-state pre-clean. If a ComPortState is already
+*   sitting at this heap address (a leaked thread+port from an atom that
+*   was freed without dispose()), it is closed, joined and deleted BEFORE
+*   the new state is inserted — previously the map.insert would silently
+*   OVERWRITE the entry, leaking the old reader thread and port handle
+*   FOREVER. A COMPORT STALE-CLEAN trap line marks every occurrence.
+* - No wire/contact/save-format changes. Pure hardening + diagnostics.
+*
 * v3.4 CHANGES (Event Identity — "widgets are parallelized"):
 * - ALL COMPORT_* impulses now carry { atomId: this.id, text: <payload> }
 *   instead of a bare String. Every ComPortWidget subscribes to these
@@ -1062,6 +1081,10 @@ class ComPortAtom extends Atom implements system.managers.Driver
     private var _isOpenFlag:Bool = false;
     /** v3.3: reopen once after reconstruction when wasOpen was true. */
     private var _autoReopenRequested:Bool = false;
+    /** v3.5 (H-1): set by the native poll when _isOpenFlag is true but the
+     *  state map has no entry at this address — surfaced to the trap log
+     *  on the next Haxe-side line as COMPORT STATE-LOST. */
+    private var _nativeStateLost:Bool = false;
 
     @:volatile private var _hasPendingRx:Bool = false;
     @:volatile private var _hasPendingErr:Bool = false;
@@ -1251,7 +1274,19 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     auto _cps_it = _com_states_map.find((void*){0}.mPtr);
                     if (_cps_it != _com_states_map.end()) { _cps_stPtr = _cps_it->second; }
                 }
-                if (_cps_stPtr != nullptr) {
+                if (_cps_stPtr == nullptr) {
+                    // v3.5 (H-1): state-lost detector. The atom believes the
+                    // port is open, yet the map has no native state at this
+                    // heap address. Map key = object address; a miss here
+                    // means the entry vanished or the address was reused.
+                    if ({0}->_isOpenFlag) { {0}->_nativeStateLost = true; }
+                } else {
+                    // v3.5 (H-1): copy the rx payload under the lock, build
+                    // the Haxe String AFTER the lock is released (no GC
+                    // allocation while holding the reader-thread mutex).
+                    char _cps_rxBuf[4096];
+                    int _cps_rxLen = 0;
+                    bool _cps_gotRx = false;
                     {
                         std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
                         if (_cps_stPtr->hasRxData) {
@@ -1261,12 +1296,19 @@ class ComPortAtom extends Atom implements system.managers.Driver
                             // Inter-message timeout: 50ms silence -> message complete
                             // Transport delivers bytes, Protocol decides when message ends
                             if (_cps_elapsed >= 50) {
-                                {0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer, _cps_stPtr->rxLen);
-                                {0}->_hasPendingRx = true;
+                                _cps_rxLen = _cps_stPtr->rxLen;
+                                if (_cps_rxLen > (int)sizeof(_cps_rxBuf)) _cps_rxLen = (int)sizeof(_cps_rxBuf);
+                                if (_cps_rxLen < 0) _cps_rxLen = 0;
+                                if (_cps_rxLen > 0) memcpy(_cps_rxBuf, _cps_stPtr->rxBuffer, (size_t)_cps_rxLen);
+                                _cps_gotRx = true;
                                 _cps_stPtr->hasRxData = false;
                                 _cps_stPtr->rxLen = 0;
                             }
                         }
+                    }
+                    if (_cps_gotRx) {
+                        {0}->_pendingRxStr = ::String(_cps_rxBuf, _cps_rxLen);
+                        {0}->_hasPendingRx = true;
                     }
                     {
                         std::lock_guard<std::mutex> _cps_errLock(_cps_stPtr->errMutex);
@@ -1278,6 +1320,11 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     }
                 }
             ', this);
+            if (_nativeStateLost)
+            {
+                _nativeStateLost = false;
+                utils.Trap.log("COMPORT", "STATE-LOST: _isOpenFlag=true but native map has no state (id=" + this.id + ")");
+            }
             #end
         }
 
@@ -1570,7 +1617,33 @@ class ComPortAtom extends Atom implements system.managers.Driver
         var selfPtr:Dynamic = this;
         var success:Bool = false;
         var errMessage:String = "";
+        var staleCleaned:Bool = false;
         untyped __cpp__('
+            // v3.5 (H-1): stale-state pre-clean. _com_states_map is keyed by
+            // the Haxe object address. If a ComPortState is ALREADY sitting
+            // at this address, it belongs to a dead atom that was freed
+            // without dispose() (or to a previous incarnation of this very
+            // address after GC reuse). Without this cleanup the insert below
+            // would silently overwrite the entry — leaking the old reader
+            // thread and port handle forever.
+            {
+                std::lock_guard<std::mutex> _cps_mapLock(_com_map_mutex);
+                auto _cps_old = _com_states_map.find({4}.mPtr);
+                if (_cps_old != _com_states_map.end())
+                {
+                    ComPortState* _cps_stale = _cps_old->second;
+                    _com_states_map.erase(_cps_old);
+                    _cps_stale->isRunning = false;
+                    #ifdef _WIN32
+                        if (_cps_stale->hComm != INVALID_HANDLE_VALUE) { CancelIoEx(_cps_stale->hComm, NULL); CloseHandle(_cps_stale->hComm); _cps_stale->hComm = INVALID_HANDLE_VALUE; }
+                    #else
+                        if (_cps_stale->hComm >= 0) { close(_cps_stale->hComm); _cps_stale->hComm = -1; }
+                    #endif
+                    if (_cps_stale->readThread != nullptr) { if (_cps_stale->readThread->joinable()) _cps_stale->readThread->join(); delete _cps_stale->readThread; }
+                    delete _cps_stale;
+                    {7} = true;
+                }
+            }
             ComPortState* st = new ComPortState();
             #ifdef _WIN32
                 st->hComm = INVALID_HANDLE_VALUE;
@@ -1622,7 +1695,12 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 { std::lock_guard<std::mutex> mapLock(_com_map_mutex); _com_states_map[{4}.mPtr] = st; }
                 st->readThread = new std::thread(_altauri_com_reader_loop, {4}.mPtr);
             } else { delete st; }
-        ', portName, baudRate, success, errMessage, selfPtr, _selectedVid, _selectedPid);
+        ', portName, baudRate, success, errMessage, selfPtr, _selectedVid, _selectedPid, staleCleaned);
+
+        if (staleCleaned)
+        {
+            utils.Trap.log("COMPORT", "STALE-CLEAN: removed a leftover native state at this heap address before opening (id=" + this.id + ")");
+        }
 
         if (success)
         {

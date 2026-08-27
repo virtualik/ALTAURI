@@ -2255,16 +2255,20 @@ private function centerPreviewContainer():Void
 
         /** Focus-out = apply after a short delay (lets ENTER settle first). */
         private function onLabelInputFocusOut(e:FocusEvent):Void
-        {
-                haxe.Timer.delay(function():Void
-                {
-                        if (_isEditingPortLabel)
-                        {
-                                var f = _labelEditFinish;
-                                if (f != null) f(true);
-                        }
-                }, 50);
-        }
+		{
+			haxe.Timer.delay(function():Void
+			{
+				// v1.4 (Episod H-1): guarded — the finisher may run after the port
+				// sprites were rebuilt by PORT-HEAL; an exception here was fatal.
+				utils.Trap.ex("LABEL-FOCUSOUT", function() {
+					if (_isEditingPortLabel)
+					{
+						var f = _labelEditFinish;
+						if (f != null) f(true);
+					}
+				});
+			}, 50);
+		}
 
 // =========================================================================
 // POSITION

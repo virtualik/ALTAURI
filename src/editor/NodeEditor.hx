@@ -815,26 +815,31 @@ class NodeEditor extends Sprite
         {
                 if (isDisposed) return;
                 if (_portsChangedRedrawTimer != null) return; // already scheduled
-                _portsChangedRedrawTimer = haxe.Timer.delay(function():Void
-                {
-                        _portsChangedRedrawTimer = null;
-                        if (isDisposed) return;
-                        utils.Trap.log("G41-QUICK",
-                                "asm=" + (_blueprint != null ? _blueprint.id : "?"));
-                        refreshWiresAfterPortsChange();
-                        if (_portsChangedConfirmTimer == null) // already scheduled
-                        {
-                                _portsChangedConfirmTimer = haxe.Timer.delay(function():Void
-                                {
-                                        _portsChangedConfirmTimer = null;
-                                        if (isDisposed) return;
-                                        utils.Trap.log("G41-CONFIRM",
-                                                "asm=" + (_blueprint != null ? _blueprint.id : "?"));
-                                        refreshWiresAfterPortsChange();
-                                        if (stage != null) stage.invalidate();
-                                }, 100);
-                        }
-                }, 1);
+					_portsChangedRedrawTimer = haxe.Timer.delay(function():Void
+					{
+						_portsChangedRedrawTimer = null;
+						if (isDisposed) return;
+						utils.Trap.log("G41-QUICK",
+						"asm=" + (_blueprint != null ? _blueprint.id : "?"));
+						// v1.4 (Episod H-1): timer callbacks have no try/catch on their path
+						utils.Trap.ex("G41-QUICK-BODY", function() {
+							refreshWiresAfterPortsChange();
+						});
+						if (_portsChangedConfirmTimer == null) // already scheduled
+						{
+							_portsChangedConfirmTimer = haxe.Timer.delay(function():Void
+							{
+								_portsChangedConfirmTimer = null;
+								if (isDisposed) return;
+								utils.Trap.log("G41-CONFIRM",
+								"asm=" + (_blueprint != null ? _blueprint.id : "?"));
+								utils.Trap.ex("G41-CONFIRM-BODY", function() {
+									refreshWiresAfterPortsChange();
+									if (stage != null) stage.invalidate();
+								});
+							}, 100);
+						}
+					}, 1);
         }
 
         /**

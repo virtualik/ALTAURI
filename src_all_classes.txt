@@ -1,7 +1,7 @@
 
 ================================================================================
 // FILE: core\base\Assembly.hx
-// Lines: 2755 | Chars: 138744
+// Lines: 2777 | Chars: 140151
 ================================================================================
 
 package core.base;
@@ -1141,6 +1141,12 @@ class Assembly extends Atom
                                         if (extDyn != null && Std.string(extDyn) != "") extName = Std.string(extDyn);
 
                                         var newPort = new ConductorPort(extName, pin.type, pin.name, pin.defaultValue);
+                                        // v1.2 (Port Labels): mirror the cosmetic label from the pin
+                                        var lblDyn = Reflect.field(pin, "label");
+                                        if (lblDyn != null && Std.string(lblDyn) != "")
+                                        {
+                                                newPort.label = Std.string(lblDyn);
+                                        }
 
                                         ports.set(pin.name, newPort); // Ключ мапы - всегда internalName
                                         if (pin.type == INPUT)
@@ -1604,6 +1610,9 @@ class Assembly extends Atom
                 if (oldPort == null) return;
                 var portType = oldPort.type;
                 var defaultValue = oldPort.defaultValue;
+// v1.2 (Port Labels): the cosmetic label survives the passport rename
+// (captured BEFORE dispose — oldPort.label dies with the old instance).
+                var oldLabel:String = oldPort.label;
 
 // 1. v2.8 POSITION-INTEGRITY: capture the old external contact's INDEX
 //    before dispose. The old code did remove()+push(), which moved EVERY
@@ -1631,6 +1640,8 @@ class Assembly extends Atom
 
 // 3. Create new port with dual naming
                 var newPort = new ConductorPort(newExtName, portType, internalName, defaultValue);
+// v1.2 (Port Labels): re-attach the captured cosmetic label
+                newPort.label = (oldLabel != null && oldLabel != "") ? oldLabel : "port";
                 ports.set(internalName, newPort);
 
 // 4. v2.8: replace external contact AT THE CAPTURED INDEX (position-stable).
@@ -1837,6 +1848,13 @@ class Assembly extends Atom
 // pinDef.name = internalName (for Assembly.ports map lookup)
 // externalName = visible on parent schema
                         var port = new ConductorPort(externalName, portType, pinDef.name, pinDef.defaultValue);
+// v1.2 (Port Labels): mirror the cosmetic label from PinDef (absent on
+// legacy in-memory blueprints → keeps the ConductorPort default "port")
+                        var lblDyn = Reflect.field(pinDef, "label");
+                        if (lblDyn != null && Std.string(lblDyn) != "")
+                        {
+                                port.label = Std.string(lblDyn);
+                        }
                         ports.set(pinDef.name, port); // key = internalName
                 }
                 // v2.9: rebuild legacy aliases AFTER ports exist (map holds ports)
@@ -2414,12 +2432,15 @@ class Assembly extends Atom
                 }
 
 // v2.1: Build PinDef with externalName (dual naming)
+// v1.2 (Port Labels): every NEW port starts with the default cosmetic
+// label "port"; the user renames it inline in either editor.
                 var extName = (externalName != null && externalName != "") ? externalName : name;
-                var pinDef:PinDef = { name: name, type: type, defaultValue: defaultValue, externalName: extName };
+                var pinDef:PinDef = { name: name, type: type, defaultValue: defaultValue, externalName: extName, label: "port" };
                 if (blueprint.pins != null) blueprint.pins.push(pinDef);
 
 // v2.1: Create ConductorPort with dual naming (externalName, type, internalName=name)
                 var port = new ConductorPort(extName, type, name, defaultValue);
+                port.label = pinDef.label; // v1.2: runtime mirror
                 ports.set(name, port);
 
                 if (type == INPUT)
@@ -2759,6 +2780,7 @@ utils.Trap.log("ASM-DISPOSE", "dispose enter: id=" + this.id);
                 }
         }
 }
+
 
 ================================================================================
 // FILE: core\base\AssemblyFactory.hx
@@ -3629,7 +3651,7 @@ class Atom implements IDisposable implements Driver
 
 ================================================================================
 // FILE: core\base\ConductorPort.hx
-// Lines: 208 | Chars: 10103
+// Lines: 220 | Chars: 10972
 ================================================================================
 
 package core.base;
@@ -3730,6 +3752,17 @@ class ConductorPort
     /** v2.0: Internal display name (visible on wall inside assembly). */
     public var internalName(default, null):String;
     
+    /**
+     * v1.2 (Port Labels): cosmetic display label shown INSTEAD of the
+     * passport name in both editors (parent-side node port + wall port
+     * inside the assembly). Pure decoration — blueprint connections,
+     * wires, lookups and tooltips keep referencing internalName /
+     * externalName. Source of truth = PinDef.label in the blueprint;
+     * this field is the runtime mirror, defaulting to "port". Survives
+     * port recreation (see Assembly._recreatePortWithNewExternalName).
+     */
+    public var label:String = "port";
+    
     /** v1.1: Lifecycle flag for safe async operations. */
     public var isDisposed(default, null):Bool = false;
     
@@ -3747,31 +3780,31 @@ class ConductorPort
      * 
      * v2.0: If internalName is null, it defaults to externalName (backward compat).
      */
-	public function new(externalName:String, type:ContactType, ?internalName:String = null, ?defaultValue:Dynamic = null)
-	{
-		this.externalName = externalName;
-		this.internalName = (internalName != null) ? internalName : externalName;
-		this.type = type;
-		this.defaultValue = defaultValue;
-		
-		// port.name = internalName (used for lookup in Assembly.ports map)
-		this.name = this.internalName;
-		
-		// Create internal contact with INTERNAL name (visible on wall)
-		this.internal = new Contact(defaultValue, type, this.internalName);
-		
-		// Create external contact with EXTERNAL name (visible on parent)
-		this.external = new Contact(defaultValue, type, this.externalName);
+        public function new(externalName:String, type:ContactType, ?internalName:String = null, ?defaultValue:Dynamic = null)
+        {
+                this.externalName = externalName;
+                this.internalName = (internalName != null) ? internalName : externalName;
+                this.type = type;
+                this.defaultValue = defaultValue;
+                
+                // port.name = internalName (used for lookup in Assembly.ports map)
+                this.name = this.internalName;
+                
+                // Create internal contact with INTERNAL name (visible on wall)
+                this.internal = new Contact(defaultValue, type, this.internalName);
+                
+                // Create external contact with EXTERNAL name (visible on parent)
+                this.external = new Contact(defaultValue, type, this.externalName);
 
-		// v2.2: GATEWAY REPEAT FORWARDING. Both contacts of a port are
-		// pure conduits — they must deliver every write, including
-		// repeated identical values (a consumer behind the wall may use
-		// the consume-and-reset pattern; a repeat is a real event).
-		// Without this, ComPort rxData -> TextArea.append inside an
-		// assembly delivered only the FIRST response (field-proven).
-		this.internal.forwardRepeats = true;
-		this.external.forwardRepeats = true;
-	}
+                // v2.2: GATEWAY REPEAT FORWARDING. Both contacts of a port are
+                // pure conduits — they must deliver every write, including
+                // repeated identical values (a consumer behind the wall may use
+                // the consume-and-reset pattern; a repeat is a real event).
+                // Without this, ComPort rxData -> TextArea.append inside an
+                // assembly delivered only the FIRST response (field-proven).
+                this.internal.forwardRepeats = true;
+                this.external.forwardRepeats = true;
+        }
 
     // ========================================================================
     // LINKING
@@ -3840,6 +3873,7 @@ class ConductorPort
         internalName = null;
     }
 }
+
 
 ================================================================================
 // FILE: core\base\Contact.hx
@@ -7167,7 +7201,7 @@ class ButtonWidget extends DeviceView
 
 ================================================================================
 // FILE: core\view\ComPortWidget.hx
-// Lines: 1093 | Chars: 49485
+// Lines: 1140 | Chars: 51684
 ================================================================================
 
 package core.view;
@@ -7187,7 +7221,7 @@ import core.logic.Impulse;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     COM PORT WIDGET v3.0                                  ║
+* ║                     COM PORT WIDGET v3.1                                  ║
 * ║     (Unified: Android USB + Windows Registry + HTML5 Web Serial)          ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║  Scanner data format: VID|PID|friendlyName|portIdentifier                 ║
@@ -7234,6 +7268,14 @@ import core.logic.Impulse;
 * │      Widget WRITES to contacts when interacting with the user           │
 * │                                                                         │
 * └─────────────────────────────────────────────────────────────────────────┘
+*
+* v3.1 CHANGES (Event Identity — "widgets are parallelized"):
+* - onComPortStatus / onComPortError / onComPortRx now filter impulses
+*   by atomId: ComPortAtom v3.4 emits { atomId, text }, and this widget
+*   accepts ONLY its own atom's events. Before, every widget displayed
+*   every atom's status — 3 atoms looked like 3 mirrored widgets.
+* - Plain-String payloads remain owner-less GLOBAL signals (e.g.
+*   USB_DEVICES_CHANGED from the Android JNI side) and pass through.
 */
 class ComPortWidget extends DeviceView
 {
@@ -7316,7 +7358,7 @@ class ComPortWidget extends DeviceView
     private var _colorHeader:Int = 0x2a2a3a;
     private var _colorAccent:Int = 0x00AAFF;
     private var _colorActive:Int = 0x00FF88;
-	private var _colorRadioBtAct:Int= 0xFFFFFF;
+        private var _colorRadioBtAct:Int= 0xFFFFFF;
     private var _colorDanger:Int = 0xFF4444;
     private var _colorWarning:Int = 0xFFAA00;
     private var _colorInactive:Int = 0x333344;
@@ -8090,11 +8132,28 @@ class ComPortWidget extends DeviceView
 
     private function onComPortStatus(impulse: Impulse): Void
     {
-        if (impulse.data != null && _statusBar != null)
+        if (impulse.data == null || _statusBar == null) return;
+
+        // v3.1 (identity fix): COMPORT_* impulses carry { atomId, text }
+        // (ComPortAtom v3.4). Accept only OUR atom's events; plain String
+        // payloads are owner-less GLOBAL signals (USB_DEVICES_CHANGED
+        // from the Android JNI side has no owning atom).
+        var statusStr:String;
+        if (Std.isOfType(impulse.data, String))
         {
-            var statusStr = Std.string(impulse.data);
-            
-            #if android
+            statusStr = cast impulse.data;
+        }
+        else
+        {
+            var ownerId:String = Reflect.field(impulse.data, "atomId");
+            if (ownerId == null) return;
+            if (atom == null || ownerId != atom.id) return;
+            var txt:String = Reflect.field(impulse.data, "text");
+            if (txt == null) return;
+            statusStr = txt;
+        }
+
+        #if android
             if (statusStr == "USB_DEVICES_CHANGED") {
                 trace("ComPortWidget: Received USB_DEVICES_CHANGED signal!");
                 if (_isOpenContact != null && _isOpenContact.value != true) {
@@ -8115,21 +8174,43 @@ class ComPortWidget extends DeviceView
             _statusBar.text = statusStr;
             if (statusStr.indexOf("Connected") >= 0) updateConnectionStatus(true);
             else updateConnectionStatus(false);
-        }
     }
 
     private function onComPortRx(impulse: Impulse): Void
     {
-        // RX data received (no display widget)
+        // RX data received (no display widget).
+        // v3.1 (identity fix): payload is { atomId, text } — events from
+        // OTHER atoms are ignored so any future display path starts with
+        // the correct per-atom binding.
+        if (impulse == null || impulse.data == null) return;
+        if (Std.isOfType(impulse.data, String)) return; // owner-less global signal
+        var ownerId:String = Reflect.field(impulse.data, "atomId");
+        if (ownerId == null) return;
+        if (atom == null || ownerId != atom.id) return;
+        // (reserved: per-atom RX display / RX LED trigger)
     }
 
     private function onComPortError(impulse: Impulse): Void
     {
-        if (impulse.data != null && _errorDisplay != null)
+        if (impulse.data == null || _errorDisplay == null) return;
+
+        // v3.1 (identity fix): same filtering as onComPortStatus.
+        var errStr:String;
+        if (Std.isOfType(impulse.data, String))
         {
-            _errorDisplay.text = "Error: " + Std.string(impulse.data);
-            _lastError = Std.string(impulse.data);
+            errStr = cast impulse.data;
         }
+        else
+        {
+            var ownerId:String = Reflect.field(impulse.data, "atomId");
+            if (ownerId == null) return;
+            if (atom == null || ownerId != atom.id) return;
+            var txt:String = Reflect.field(impulse.data, "text");
+            if (txt == null) return;
+            errStr = txt;
+        }
+        _errorDisplay.text = "Error: " + errStr;
+        _lastError = errStr;
     }
 
     // === Lifecycle ===
@@ -20971,7 +21052,7 @@ class EditorCameraStore
 
 ================================================================================
 // FILE: editor\EditorContext.hx
-// Lines: 1010 | Chars: 56504
+// Lines: 1108 | Chars: 61921
 ================================================================================
 
 package editor;
@@ -20983,8 +21064,30 @@ import core.logic.Impulse;
 import core.logic.TickGenerator;
 
 /**
-* EDITOR CONTEXT v2.13 (Stable Port Naming v3.0 bridge: legacy alias resolution + heal)
+* EDITOR CONTEXT v2.14 (Stable Port Naming v3.0 bridge: legacy alias resolution + heal + background wire safety net)
 * Manages the stack of open editors (NodeEditor instances) and their camera states.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.14 CHANGES (Gate-Independent Background Wire Refresh — Episod G-4.2)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM (crash_trap.log, session 2026-08-26): after port operations done
+*  from INSIDE an assembly, the dimmed background editors never rebuilt
+*  their wires — the v4.14 G41-SYNC marker (placed after NodeEditor's
+*  own-child gate) fired only for the active editor, while the background
+*  NodeView for the same assembly demonstrably reacted. Every static link
+*  of the gate chain re-audited clean; the defect is runtime-only and is
+*  being localized by the v4.15 exit-path breadcrumbs (G41-BG-ENTER /
+*  NULLID / FOREIGN / PASS / ERR).
+*
+*  FIX (safety net): EditorContext — the FIRST ASSEMBLY_PORTS_CHANGED
+*  subscriber (resubscriber-protected through Impulsys.clear(), field-proven
+*  by the v2.12 auto-heal) — schedules ONE coalesced 100 ms pass that calls
+*  the now-public NodeEditor.refreshWiresAfterPortsChange() on EVERY
+*  non-top stack editor. The background wires heal regardless of what the
+*  own-child gate does at runtime; the G41-BG-NET Trap tag records every
+*  net-driven refresh, so the field log separates gate-driven and
+*  net-driven heals cleanly.
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v2.12 CHANGES (Parent-Wire Auto-Heal — fix F, Naming & Integrity pack)
@@ -21373,15 +21476,15 @@ import core.logic.TickGenerator;
 * │   │  - push() sets parent editor's isActive = false                 │   │
 * │   │  - pop() sets it back to true + forceFullRedraw                 │   │
 * │   │                                                                 │   │
-* │   │  Camera State Management (Episod C → editor.EditorCameraStore): │   │
-* │   │  - _camStore:EditorCameraStore                                  │   │
+* │   │  Camera State Management (Episod C → editor.EditorCameraStore):  │   │
+* │   │  - _camStore:EditorCameraStore                                   │   │
 * │   │    Stores viewport state for each assembly by blueprint.id.     │   │
 * │   │    across multiple push/pop cycles.                             │   │
-* │   │  - On push: has(bpId)? get → restore : centerOnContent          │   │
+* │   │  - On push: has(bpId)? get → restore : centerOnContent         │   │
 * │   │  - On pop:  save(bpId, currentEditor.getViewState())            │   │
 * │   │  - clear():  wipe store on project reload                       │   │
-* │   │  Visual Chrome (Episod C → editor.EditorVisuals):               │   │
-* │   │  - _visuals.drawContainerFrame(container, stage)                │   │
+* │   │  Visual Chrome (Episod C → editor.EditorVisuals):                │   │
+* │   │  - _visuals.drawContainerFrame(container, stage)                 │   │
 * │   │  - _visuals.createBlocker(stage) on non-root push()             │   │
 * │   │                                                                 │   │
 * │   │  v2.0 Assembly Reconstruction (on pop with updateInstances):    │   │
@@ -21391,9 +21494,9 @@ import core.logic.TickGenerator;
 * │   │    → AssemblyFactory.createAtom(typeId, oldRuntimeId)           │   │
 * │   │    → reconnectExternalLinksToAssembly(newAsm) [v2.6: no push]   │   │
 * │   │    → currentEditor.reattachNodeView(oldRuntimeId, newInstance)  │   │
-* │   │  (Episod D — all 4 steps delegated to editor.AssemblyReconstructor│ │
+* │   │  (Episod D — all 4 steps delegated to editor.AssemblyReconstructor │ │
 * │   │   via _recon.updateInstancesOf(typeId, currentAssembly,         │   │
-* │   │   currentEditor, _portResolver); see                            │   │
+* │   │   currentEditor, _portResolver); see                           │   │
 * │   │   editor/AssemblyReconstructor.hx for the full v2.0/v2.6/v2.7/  │   │
 * │   │   v2.10/v2.12 rationale)                                        │   │
 * │   │                                                                 │   │
@@ -21465,6 +21568,13 @@ class EditorContext
 
         /** v2.12: ASSEMBLY_PORTS_CHANGED handler (parent-wire auto-heal, fix F). */
         private var _onAssemblyPortsChanged:Impulse -> Void;
+
+        /**
+        * v2.14 (Episod G-4.2): coalesced timer for the gate-independent
+        * background wire refresh. Non-null while a pass is pending; stopped
+        * in clear() so a torn-down stack is never poked after disposal.
+        */
+        private var _bgRefreshTimer:haxe.Timer = null;
 
         // =========================================================================
         // CONSTRUCTOR
@@ -21549,6 +21659,14 @@ class EditorContext
                         // v2.3: Deactivate parent editor's impulse handlers to prevent
                         // broadcast storm at deep nesting levels.
                         top.editor.isActive = false;
+                        // v4.16 (Ghost Wire Leak, Episod G-5): an editor going to the
+                        // background must not keep any gesture state. PORT_DRAG_START
+                        // is a global-bus impulse and now guarded by isActive in
+                        // NodeEditor, but any flag that predates the deactivation
+                        // dies HERE, by construction, instead of surviving until
+                        // the matching pop() reactivates the editor.
+                        top.editor.cancelPendingGestures();
+                        utils.Trap.log("G5-PUSH", "parent deactivated: bp=" + top.assembly.blueprint.id);
                         top.blocker = blocker;
                 }
 
@@ -21668,6 +21786,13 @@ class EditorContext
                         // forceFullRedraw below will catch up on any missed REDRAW_WIRES
                         // events that were skipped while isActive was false.
                         prev.editor.isActive = true;
+                        // v4.16 (Ghost Wire Leak, Episod G-5): clean gesture slate
+                        // on reactivation. Belt-and-suspenders: even if a future
+                        // code path smuggles a pending flag past the isActive
+                        // guards while this editor was covered, it is dropped HERE
+                        // — never drawn as a stray ghost wire after pop().
+                        prev.editor.cancelPendingGestures();
+                        utils.Trap.log("G5-POP", "parent reactivated: bp=" + prev.assembly.blueprint.id);
 
                         currentEditor = prev.editor;
                         currentAssembly = prev.assembly;
@@ -21863,6 +21988,53 @@ class EditorContext
                 // See editor/AssemblyReconstructor.hx for the full v2.12
                 // rationale (parent-wire auto-heal after gateway port rename).
                 _recon.onAssemblyPortsChanged(impulse, _stack, currentAssembly, _portResolver);
+                // v2.14 (Episod G-4.2): gate-independent background safety net.
+                // Runs 100 ms AFTER the dispatch settles, so every NodeView
+                // subscriber has already rebuilt its port sprites by then.
+                scheduleBackgroundRefresh();
+        }
+
+        /**
+         * v2.14 (Episod G-4.2): schedule ONE coalesced pass that refreshes
+         * the wires of every BACKGROUND editor (all stack entries except
+         * the top — the active editor refreshes itself through its own
+         * two-stage deferred pipeline, NodeEditor v4.14+).
+         *
+         * WHY A SAFETY NET: the own-child gate inside NodeEditor's own
+         * ASSEMBLY_PORTS_CHANGED handler provably never fires for background
+         * editors in the field (v4.14 G41 log: 27 lines, all active=true),
+         * while every static link of that gate re-audits clean. Until the
+         * runtime defect is localized (v4.15 breadcrumbs), this net keeps
+         * the dimmed background wires correct — and it does NOT reintroduce
+         * the v2.3 broadcast storm: everything is coalesced into a single
+         * 100 ms pass per impulse burst, not a per-impulse O(N) fan-out.
+         */
+        private function scheduleBackgroundRefresh():Void
+        {
+                if (_bgRefreshTimer != null) return; // already scheduled
+                _bgRefreshTimer = haxe.Timer.delay(function():Void
+					{
+						_bgRefreshTimer = null;
+						// The TOP editor is skipped: it is the one the user is
+						// editing in, and NodeEditor's own deferred pipeline
+						// already refreshes it.
+						var top:Int = _stack.length - 1;
+						for (i in 0...top)
+						{
+							var entry:EditorEntry = _stack[i];
+							if (entry == null || entry.editor == null) continue;
+							if (entry.editor.isDisposed) continue;
+							utils.Trap.log("G41-BG-NET",
+							"asm=" + (entry.assembly != null
+							&& entry.assembly.blueprint != null
+							? entry.assembly.blueprint.id : "?")
+							+ " level=" + i);
+							// v1.4 (Episod H-1): one poisoned entry must not kill the whole net
+							utils.Trap.ex("G41-BG-NET-BODY", function() {
+								entry.editor.refreshWiresAfterPortsChange();
+							});
+						}
+					}, 100);
         }
 
         // ═══════════════════════════════════════════════════════════════════
@@ -21897,6 +22069,13 @@ class EditorContext
          */
         public function clear():Void
         {
+                // v2.14 (Episod G-4.2): a pending background refresh must never
+                // fire against a torn-down stack.
+                if (_bgRefreshTimer != null)
+                {
+                        _bgRefreshTimer.stop();
+                        _bgRefreshTimer = null;
+                }
                 while (_stack.length > 0)
                 {
                         var item = _stack.pop();
@@ -22765,7 +22944,7 @@ class GroupSelectionManager
 
 ================================================================================
 // FILE: editor\NodeEditor.hx
-// Lines: 2140 | Chars: 101623
+// Lines: 2363 | Chars: 115041
 ================================================================================
 
 package editor;
@@ -22806,8 +22985,99 @@ import ui.NodeVisualMode;
 using StringTools;
 
 /**
-* NODE EDITOR v4.14 (Wall Port Labels + Beneficiary Tooltips + Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention + Background Gesture Freeze + Two-Stage Deferred Wire Refresh)
+* NODE EDITOR v4.18 (Wall Ports Bare + G5 Tracer + Ghost Wire Leak Fix + Beneficiary Tooltips + Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention + Background Gesture Freeze + Two-Stage Deferred Wire Refresh + Exit-Path Instrumentation + Public Wire Refresh)
 * Visual schematic editing coordinator.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v4.18 CHANGES (Port Labels v1.1 — field feedback)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  Wall ports inside an assembly are BARE contacts again: no label text
+*  and no inline label editor (the v4.17 experiment is reverted here).
+*  Labels are edited ONLY from the parent side — double-click on the
+*  port LABEL next to the assembly node (NodeView v5.1). The stable
+*  passport name of a wall port stays available in the hover tooltip.
+*  Removed: wall label TextField, wall double-click editor, TextField
+*  guard in the wall-port MOUSE_DOWN, _isEditingWallLabel state. The
+*  data layer is untouched: PinDef.label / ConductorPort.label still
+*  exist and are still saved/loaded — they are simply no longer shown
+*  inside the assembly.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v4.16 CHANGES (Ghost Wire Leak — Episod G-5)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM (field report after v4.15, screenshot evidence):
+*  After port operations inside a child assembly, exiting to the parent
+*  (pop) left a STRAY BRIGHT-GREEN WIRE running from beyond the LEFT edge
+*  of the viewport to the live mouse cursor, tracking every move. Green is
+*  WIRE_COLOR_GHOST — the port-drag preview — and drawGhostWire() is the
+*  only code that draws toward the cursor, so the parent editor had
+*  _isDraggingPort == true with stale coordinates.
+*
+*  ROOT CAUSE (three-link chain):
+*  1. PORT_DRAG_START is quickEmitted on the GLOBAL Impulsys bus (edge
+*     ports at createEdgePort, node ports at NodeView.onPortMouseDown) —
+*     every stacked editor receives it, and the payload carries no
+*     assemblyId to filter on.
+*  2. onPortDragStart() had NO isActive guard: while the user dragged a
+*     port inside the child, the BACKGROUND parent also entered port-drag
+*     state, recording the child port's stage coordinates as its own
+*     drag start.
+*  3. The parent's stage-level onMouseUp() early-returns while inactive
+*     and finalizes pan/touch but NOT the port drag — the flag stuck
+*     forever. After pop() reactivated the parent, every MOUSE_MOVE drew
+*     the ghost wire: the stale child-port point remapped by the PARENT's
+*     camera transform (globalToLocal) lands off-canvas (behind the left
+*     edge), while the live cursor maps onto itself. Worse: the next click
+*     ran handleWireDragEnd() → findPortAt() → a possible bogus
+*     _actions.connect("SELF", <child port name>, ...) in the parent.
+*
+*  SOLUTION (three layers, defense in depth):
+*  1. GUARD — onPortDragStart() ignores the impulse when inactive: only
+*     the top-of-stack editor (whose port view actually received
+*     MOUSE_DOWN) may begin the gesture.
+*  2. SAFETY NET — onMouseUp() inactive branch now drops a leaked
+*     _isDraggingPort flag and clears the ghost sprite.
+*  3. TRANSITION HYGIENE — new public cancelPendingGestures() resets all
+*     gesture state (port drag, ghost, touch, lasso, pan); EditorContext
+*     calls it on push() deactivation and pop() reactivation, so no flag
+*     can survive an editor-stack transition by construction.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v4.15 CHANGES (Exit-Path Instrumentation + Gate-Independent Background
+*               Refresh — Episod G-4.2)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM (field report after v4.14, crash_trap.log evidence):
+*  The G41-SYNC marker placed AFTER the own-child gate fired ONLY for the
+*  active editor (27 log lines, all "active=true", zero background entries)
+*  — while the background editor's NodeView for the same assembly DID
+*  react (the recreated port appears in the dimmed view). A static re-audit
+*  of every link (emit payload = Assembly.id, NodeView filter = the same
+*  atom.id from the same internalAtoms map the gate scans, subscription
+*  lifecycle, dispose cascading, Impulsys dispatch order) is
+*  self-consistent: the background handler provably never reaches the
+*  marker, yet no code path explains why.
+*
+*  SOLUTION (two layers):
+*  1. DIAGNOSTIC — every exit of the background branch now leaves a Trap
+*     breadcrumb: G41-BG-ENTER (handler invoked for an inactive editor),
+*     G41-BG-NULLID (payload without assemblyId), G41-BG-FOREIGN (gate
+*     rejected — changedId AND the editor's own child ids are dumped, so an
+*     id mismatch becomes readable straight from the field log),
+*     G41-BG-PASS (gate accepted), G41-ERR (exception inside the handler —
+*     Impulsys swallows per-subscriber exceptions silently, and this catch
+*     surfaces them). One port move in the field now localizes the broken
+*     link with certainty; if G41-BG-ENTER is absent while G41-SYNC fires,
+*     the handler is not invoked at all (bus-level problem).
+*  2. SAFETY NET — refreshWiresAfterPortsChange() is now PUBLIC.
+*     EditorContext (the first ASSEMBLY_PORTS_CHANGED subscriber,
+*     resubscriber-protected, provably alive through the v2.12 auto-heal)
+*     schedules ONE coalesced 100 ms pass that calls it on EVERY non-top
+*     stack editor — independent of the own-child gate. The dimmed
+*     background wire heals even while the gate's runtime defect is being
+*     diagnosed; the G41-BG-NET Trap tag records each net-driven refresh.
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v4.14 CHANGES (Two-Stage Deferred Wire Refresh — Episod G-4.1)
@@ -23073,6 +23343,9 @@ class NodeEditor extends Sprite
         private var _dragStartX:Float = 0;
         private var _dragStartY:Float = 0;
         private var _dragStartIsInput:Bool = false;
+        // v4.16.1 (G5 tracer): one-shot flag so the ghost-draw marker logs
+        // once per drag instead of flooding on every MOUSE_MOVE.
+        private var _g5DrawLogged:Bool = false;
 
         // =========================================================================
         // NODE DRAG
@@ -23244,6 +23517,9 @@ class NodeEditor extends Sprite
                         getNodeViewById, getEdgePortById,
                         function() return _selection.getSelectedWireIds()
                 );
+                // v4.16.1 (G5 tracer): construction marker — proves this build
+                // contains the Ghost Wire Leak instrumentation + fix.
+                utils.Trap.log("G5-PATCH", "editor up: asm=" + _assembly.id + " bp=" + _blueprint.id);
 
                 /**
                 * Subscribe to ViewportManager zoom callbacks to toggle cacheAsBitmap
@@ -23348,6 +23624,15 @@ class NodeEditor extends Sprite
                 };
                 _onAssemblyPortsChanged = function(impulse:Impulse)
                 {
+                        // v4.15 (Episod G-4.2): the whole body is wrapped in a
+                        // try/catch that Trap-logs G41-ERR. Impulsys catches
+                        // per-subscriber exceptions SILENTLY (trace-only on
+                        // cpp), so a background editor whose gate scan threw
+                        // would die before the G41-SYNC marker with no log
+                        // trace at all — exactly the active/background
+                        // asymmetry the v4.14 field report revealed.
+                        try
+                        {
                         if (isDisposed) return;
                         if (!isActive)
                         {
@@ -23360,7 +23645,19 @@ class NodeEditor extends Sprite
                                 // ignored (v2.3 broadcast-storm prevention).
                                 var changedId:String = (impulse != null && impulse.data != null)
                                         ? impulse.data.assemblyId : null;
-                                if (changedId == null) return;
+                                // v4.15 (Episod G-4.2): exit-path breadcrumbs —
+                                // each return below leaves a Trap tag, so the
+                                // next field log pinpoints exactly where the
+                                // background reaction stops.
+                                utils.Trap.log("G41-BG-ENTER",
+                                        "asm=" + (_blueprint != null ? _blueprint.id : "?")
+                                        + " changedId=" + changedId);
+                                if (changedId == null)
+                                {
+                                        utils.Trap.log("G41-BG-NULLID",
+                                                "asm=" + (_blueprint != null ? _blueprint.id : "?"));
+                                        return;
+                                }
                                 var isOwnChild:Bool = false;
                                 for (atom in _assembly.internalAtoms)
                                 {
@@ -23370,7 +23667,31 @@ class NodeEditor extends Sprite
                                                 break;
                                         }
                                 }
-                                if (!isOwnChild) return;
+                                if (!isOwnChild)
+                                {
+                                        // v4.15: dump the own children ids next
+                                        // to the rejected changedId — if runtime
+                                        // ids ever diverge from what commands
+                                        // emit, the mismatch is readable here
+                                        // without a debugger.
+                                        var childIds:String = "";
+                                        for (atom in _assembly.internalAtoms)
+                                        {
+                                                if (atom != null)
+                                                {
+                                                        if (childIds.length > 0) childIds += ",";
+                                                        childIds += Std.string(atom.id);
+                                                }
+                                        }
+                                        utils.Trap.log("G41-BG-FOREIGN",
+                                                "asm=" + (_blueprint != null ? _blueprint.id : "?")
+                                                + " changedId=" + changedId
+                                                + " children=[" + childIds + "]");
+                                        return;
+                                }
+                                utils.Trap.log("G41-BG-PASS",
+                                        "asm=" + (_blueprint != null ? _blueprint.id : "?")
+                                        + " changedId=" + changedId);
                         }
                         // v4.14 (Episod G-4.1): execution-order instrumentation —
                         // proves (in crash_trap.log) which editors reacted to
@@ -23388,6 +23709,13 @@ class NodeEditor extends Sprite
                         // Schedule one more pass AFTER the whole dispatch has
                         // settled (coalesced, next event-loop tick).
                         scheduleDeferredWireRebuild();
+                        }
+                        catch (e:Dynamic)
+                        {
+                                utils.Trap.log("G41-ERR",
+                                        "asm=" + (_blueprint != null ? _blueprint.id : "?")
+                                        + " active=" + isActive + " ex=" + Std.string(e));
+                        }
                 };
 
                 _onAtomDeleted = onAtomDeleted;
@@ -23436,26 +23764,31 @@ class NodeEditor extends Sprite
         {
                 if (isDisposed) return;
                 if (_portsChangedRedrawTimer != null) return; // already scheduled
-                _portsChangedRedrawTimer = haxe.Timer.delay(function():Void
-                {
-                        _portsChangedRedrawTimer = null;
-                        if (isDisposed) return;
-                        utils.Trap.log("G41-QUICK",
-                                "asm=" + (_blueprint != null ? _blueprint.id : "?"));
-                        refreshWiresAfterPortsChange();
-                        if (_portsChangedConfirmTimer == null) // already scheduled
-                        {
-                                _portsChangedConfirmTimer = haxe.Timer.delay(function():Void
-                                {
-                                        _portsChangedConfirmTimer = null;
-                                        if (isDisposed) return;
-                                        utils.Trap.log("G41-CONFIRM",
-                                                "asm=" + (_blueprint != null ? _blueprint.id : "?"));
-                                        refreshWiresAfterPortsChange();
-                                        if (stage != null) stage.invalidate();
-                                }, 100);
-                        }
-                }, 1);
+					_portsChangedRedrawTimer = haxe.Timer.delay(function():Void
+					{
+						_portsChangedRedrawTimer = null;
+						if (isDisposed) return;
+						utils.Trap.log("G41-QUICK",
+						"asm=" + (_blueprint != null ? _blueprint.id : "?"));
+						// v1.4 (Episod H-1): timer callbacks have no try/catch on their path
+						utils.Trap.ex("G41-QUICK-BODY", function() {
+							refreshWiresAfterPortsChange();
+						});
+						if (_portsChangedConfirmTimer == null) // already scheduled
+						{
+							_portsChangedConfirmTimer = haxe.Timer.delay(function():Void
+							{
+								_portsChangedConfirmTimer = null;
+								if (isDisposed) return;
+								utils.Trap.log("G41-CONFIRM",
+								"asm=" + (_blueprint != null ? _blueprint.id : "?"));
+								utils.Trap.ex("G41-CONFIRM-BODY", function() {
+									refreshWiresAfterPortsChange();
+									if (stage != null) stage.invalidate();
+								});
+							}, 100);
+						}
+					}, 1);
         }
 
         /**
@@ -23473,8 +23806,14 @@ class NodeEditor extends Sprite
         *     freshly validated transform chain.
         *  3. updateEdgeWires() — refreshes the SELF (wall) wire segments
         *     in the same pass, as drawFrame() recreates wall sprites.
+        *
+        *  v4.15 (Episod G-4.2): PUBLIC. EditorContext's gate-independent
+        *  background safety net calls this on every non-top stack editor
+        *  100 ms after an ASSEMBLY_PORTS_CHANGED dispatch (G41-BG-NET),
+        *  so the dimmed background wires heal even while the own-child
+        *  gate's runtime defect is being diagnosed from the field log.
         */
-        private function refreshWiresAfterPortsChange():Void
+        public function refreshWiresAfterPortsChange():Void
         {
                 updateVisibility();
                 if (_wireRenderer != null)
@@ -23605,27 +23944,11 @@ class NodeEditor extends Sprite
                 s.useHandCursor = true;
                 s.name = portName;
 
-                // v4.11: WALL PORT LABEL — the STABLE internal name
-                // ("Arrival_3" / "Departure_1") so the user can pair
-                // it with the parent-side Inlet_N / Outlet_N through
-                // the wall. Plain circles carried no pairing info.
-                var label = new openfl.text.TextField();
-                label.width = 90;
-                label.height = 14;
-                label.selectable = false;
-                label.mouseEnabled = false;
-                label.defaultTextFormat = new openfl.text.TextFormat("_sans", 10, 0xAAAAAA);
-                label.text = portName;
-                label.y = -7;
-                if (isLeftWall)
-                {
-                        label.x = 10;
-                }
-                else
-                {
-                        label.x = -10 - label.width;
-                }
-                s.addChild(label);
+                // v4.18 (Port Labels v1.1): wall ports are BARE contacts —
+                // no label text and no inline editor inside the assembly.
+                // Editing lives on the parent side only (double-click the
+                // port LABEL there, NodeView v5.1); the stable passport
+                // name is still available in the hover tooltip.
 
                 // v4.11: beneficiary tooltip — derived live from
                 // _assembly.getPortBeneficiary, same data source the
@@ -24228,6 +24551,13 @@ class NodeEditor extends Sprite
 
                 if (_isDraggingPort)
                 {
+                        // v4.16.1 (G5 tracer): WHO draws the ghost, with WHICH
+                        // start coords and for WHICH node — logged once per drag.
+                        if (!_g5DrawLogged)
+                        {
+                                utils.Trap.log("G5-DRAW", "asm=" + _assembly.id + " node=" + _dragNodeId + "." + _dragContactName + " start=(" + _dragStartX + "," + _dragStartY + ")");
+                                _g5DrawLogged = true;
+                        }
                         _wireRenderer.drawGhostWire(_dragStartX, _dragStartY, e.stageX, e.stageY, _dragStartIsInput);
                         return;
                 }
@@ -24262,6 +24592,16 @@ class NodeEditor extends Sprite
                                 updateVisibility();
                         }
                         if (_singleTouchActive) _cancelTouchGesture();
+                        // v4.16 (Ghost Wire Leak): a background editor can
+                        // never legally own a port drag. If the flag leaked
+                        // in via the global PORT_DRAG_START broadcast, drop
+                        // it here instead of letting it survive until pop().
+                        if (_isDraggingPort)
+                        {
+                                utils.Trap.log("G5-UP-LEAK", "asm=" + _assembly.id + " node=" + _dragNodeId + "." + _dragContactName);
+                                _isDraggingPort = false;
+                                _wireRenderer.clearGhostWire();
+                        }
                         return;
                 }
 
@@ -24303,6 +24643,7 @@ class NodeEditor extends Sprite
         private function handleWireDragEnd(e:MouseEvent):Void
         {
                 var target = findPortAt(e.stageX, e.stageY);
+                utils.Trap.log("G5-END", "asm=" + _assembly.id + " node=" + _dragNodeId + "." + _dragContactName + " target=" + (target == null ? "null" : target.nodeId + "." + target.contactName));
                 if (target != null)
                 {
                         var isSameContact = (_dragNodeId == target.nodeId && _dragContactName == target.contactName);
@@ -24332,6 +24673,46 @@ class NodeEditor extends Sprite
 
                 _isDraggingPort = false;
                 _wireRenderer.clearGhostWire();
+        }
+
+// =========================================================================
+// GESTURE STATE RESET (v4.16)
+// =========================================================================
+        /**
+        * v4.16 (Ghost Wire Leak): reset ALL pending mouse-gesture state.
+        *
+        * Called by EditorContext at stack transitions — push() deactivating
+        * the parent, pop() reactivating it — so no gesture flag can survive
+        * an editor-stack transition. The primary leak was PORT_DRAG_START:
+        * a global-bus impulse from a child editor's port MOUSE_DOWN that
+        * set _isDraggingPort on the background parent; with the matching
+        * MOUSE_UP unreachable, the flag lived until pop() and then drew a
+        * stray green ghost wire from off-screen to the cursor. Pan and
+        * touch were already finalized on the inactive path; port drag and
+        * lasso are reset here for completeness.
+        */
+        public function cancelPendingGestures():Void
+        {
+                if (isDisposed) return;
+
+                utils.Trap.log("G5-CANCEL", "asm=" + _assembly.id + " hadDrag=" + _isDraggingPort + (_isDraggingPort ? " node=" + _dragNodeId + "." + _dragContactName : ""));
+
+                _isDraggingPort = false;
+                if (_wireRenderer != null) _wireRenderer.clearGhostWire();
+
+                if (_singleTouchActive) _cancelTouchGesture();
+
+                if (_selection != null && _selection.isLassoing())
+                {
+                        _selection.handleMouseUp();
+                }
+
+                if (_viewport != null && _viewport.isPanning())
+                {
+                        _viewport.handlePanEnd();
+                        if (_wireRenderer != null) _wireRenderer.rebuildAll();
+                        updateVisibility();
+                }
         }
 
 // =========================================================================
@@ -24665,6 +25046,27 @@ class NodeEditor extends Sprite
 // =========================================================================
         private function onPortDragStart(impulse:Impulse):Void
         {
+                // v4.16 (Ghost Wire Leak): PORT_DRAG_START rides the GLOBAL
+                // Impulsys bus — every stacked editor receives it, including
+                // background ones (isActive == false). A background editor
+                // must never enter port-drag state: it cannot receive the
+                // matching MOUSE_UP (onMouseUp early-returns while covered),
+                // so the flag would stick and, once pop() reactivates the
+                // editor, every mouse move would draw a stray green ghost
+                // wire from stale child-port stage coordinates to the cursor.
+                // Only the top-of-stack editor (the one whose port view
+                // actually received MOUSE_DOWN) may start the gesture.
+                if (isDisposed) return;
+
+                if (!isActive)
+                {
+                        utils.Trap.log("G5-BLOCK", "asm=" + _assembly.id + " port=" + impulse.data.nodeId + "." + impulse.data.contactName);
+                        return;
+                }
+
+                utils.Trap.log("G5-START", "asm=" + _assembly.id + " port=" + impulse.data.nodeId + "." + impulse.data.contactName + " start=(" + impulse.data.startX + "," + impulse.data.startY + ")");
+                _g5DrawLogged = false;
+
                 _isDraggingPort = true;
                 _dragNodeId = impulse.data.nodeId;
                 _dragContactName = impulse.data.contactName;
@@ -24911,7 +25313,7 @@ class NodeEditor extends Sprite
 
 ================================================================================
 // FILE: editor\NodeView.hx
-// Lines: 2205 | Chars: 100855
+// Lines: 2442 | Chars: 116336
 ================================================================================
 
 package editor;
@@ -24944,7 +25346,23 @@ import core.data.Blueprint.ParameterPriority;
 import ui.NodeVisualMode;
 
 /**
-* NODE VIEW v4.0 (Stable Wall-Port Naming v3.0 + Canonical Order + Port Beneficiary Tooltips)
+* NODE VIEW v5.2 (Port Labels v1.1: rename via double-click on the LABEL text — same affordance as the assembly name + Stable Wall-Port Naming v3.0 + Canonical Order + Port Beneficiary Tooltips)
+*
+* v5.2 (cosmetic): the STATIC port label is hidden while the inline label
+* editor is open — previously both texts were visible side by side and
+* the old one shone through around the input field.
+* v5.1 CHANGES (Port Labels v1.1 — field feedback):
+* - The inline label editor now opens on DOUBLE-CLICK on the port LABEL
+*   TEXT (the same affordance as the assembly name), not on the port
+*   contact. The label itself is doubleClickEnabled.
+* - The port LABEL is an inert zone for mouse-down: clicking it never
+*   starts a wire drag (this also removes the v5.0 ghost-line flash
+*   that appeared while double-clicking a contact).
+* - Node-level onDoubleClick port guard now uses the isPortTarget()
+*   hierarchy walk. The old check compared e.target.name (an
+*   auto-generated child name for hit areas) against the port maps and
+*   missed, letting a double-click on a port contact fall through to
+*   OPEN_ASSEMBLY_REQUEST. Now a contact double-click is a no-op.
 *
 * v4.0 Changes:
 * - ASSEMBLY PORT ORDER now follows blueprint.pins (canonical)
@@ -25337,36 +25755,36 @@ class NodeView extends Sprite
 // =========================================================================
 // DYNAMIC SIZING (v3.0)
 // =========================================================================
-		private function recalcSize():Void
-		{
-			var bodyWidth:Float = MIN_WIDTH;
-			var widgetHeight:Float = 0;
-			
-			if (visualMode == NodeVisualMode.HEAVY && deviceView != null)
-			{
-				var ws = deviceView.getWidgetSize();
-				var scaledW = ws.width * PREVIEW_SCALE;
-				var scaledH = ws.height * PREVIEW_SCALE;
-				bodyWidth = Math.max(bodyWidth, scaledW + WIDGET_PADDING * 2);
-				
-				// отступы сверху и снизу:
-				widgetHeight = scaledH + (WIDGET_PADDING * 2);
-			}
-			
-			var portsHeight:Float = MIN_BODY_HEIGHT;
-			var inputCount = (atom != null && atom.getInputs() != null) ? atom.getInputs().length : 0;
-			var outputCount = (atom != null && atom.getOutputs() != null) ? atom.getOutputs().length : 0;
-			var maxPorts = Std.int(Math.max(inputCount, outputCount));
-			
-			if (maxPorts > 0)
-			{
-				portsHeight = (maxPorts + 1) * PORT_SPACING;
-			}
-			
-			var bodyHeight = portsHeight + widgetHeight;
-			_nodeWidth = bodyWidth;
-			_nodeHeight = TITLE_HEIGHT + bodyHeight;
-		}
+                private function recalcSize():Void
+                {
+                        var bodyWidth:Float = MIN_WIDTH;
+                        var widgetHeight:Float = 0;
+                        
+                        if (visualMode == NodeVisualMode.HEAVY && deviceView != null)
+                        {
+                                var ws = deviceView.getWidgetSize();
+                                var scaledW = ws.width * PREVIEW_SCALE;
+                                var scaledH = ws.height * PREVIEW_SCALE;
+                                bodyWidth = Math.max(bodyWidth, scaledW + WIDGET_PADDING * 2);
+                                
+                                // отступы сверху и снизу:
+                                widgetHeight = scaledH + (WIDGET_PADDING * 2);
+                        }
+                        
+                        var portsHeight:Float = MIN_BODY_HEIGHT;
+                        var inputCount = (atom != null && atom.getInputs() != null) ? atom.getInputs().length : 0;
+                        var outputCount = (atom != null && atom.getOutputs() != null) ? atom.getOutputs().length : 0;
+                        var maxPorts = Std.int(Math.max(inputCount, outputCount));
+                        
+                        if (maxPorts > 0)
+                        {
+                                portsHeight = (maxPorts + 1) * PORT_SPACING;
+                        }
+                        
+                        var bodyHeight = portsHeight + widgetHeight;
+                        _nodeWidth = bodyWidth;
+                        _nodeHeight = TITLE_HEIGHT + bodyHeight;
+                }
 
         private function updateLayout():Void
         {
@@ -25508,12 +25926,12 @@ private function centerPreviewContainer():Void
     // Горизонтальное центрирование
     _previewContainer.x = (bodyWidth / 2) - (scaledW / 2) * PREVIEW_SCALE;
     
-	//  + (_nodeHeight - (_nodeHeight - widgetHeight) / 2) + ((widgetHeight / 2) * PREVIEW_SCALE)
-	// Separator Y = (_nodeHeight - widgetHeight)
-	// Widget Y center = (widgetHeight / 2)
+        //  + (_nodeHeight - (_nodeHeight - widgetHeight) / 2) + ((widgetHeight / 2) * PREVIEW_SCALE)
+        // Separator Y = (_nodeHeight - widgetHeight)
+        // Widget Y center = (widgetHeight / 2)
     // Вертикальное центрирование в widget area
-	var separatorYPos = _nodeHeight - widgetHeight;
-	var widgetPlaceHeight = _nodeHeight - separatorYPos;
+        var separatorYPos = _nodeHeight - widgetHeight;
+        var widgetPlaceHeight = _nodeHeight - separatorYPos;
     _previewContainer.y = (separatorYPos + WIDGET_PADDING / 2) + (widgetPlaceHeight / 2) - (widgetHeight / 2); 
 }
 
@@ -25595,10 +26013,10 @@ private function centerPreviewContainer():Void
                         var scaledH = ws.height * PREVIEW_SCALE;
                         //var separatorY = _nodeHeight - scaledH - (WIDGET_PADDING * 2) - 5;
                         // Separator на границе между ports и widget area
-						var widgetHeight = scaledH + (WIDGET_PADDING * 2);
-						var separatorY = _nodeHeight - widgetHeight;
-					
-						var sepG = _background.graphics;
+                                                var widgetHeight = scaledH + (WIDGET_PADDING * 2);
+                                                var separatorY = _nodeHeight - widgetHeight;
+                                        
+                                                var sepG = _background.graphics;
                         sepG.lineStyle(1, 0x444455);
                         sepG.moveTo(0, separatorY);
                         sepG.lineTo(_nodeWidth, separatorY);
@@ -25662,11 +26080,14 @@ private function centerPreviewContainer():Void
                 // keep the runtime contact array order.
                 var inputs:Array<Contact> = null;
                 var outputs:Array<Contact> = null;
+                // v5.0 (Port Labels): externalName → cosmetic display label
+                var labelByExt:Map<String, String> = null;
                 if (Std.isOfType(atom, Assembly))
                 {
                         var asm:Assembly = cast(atom, Assembly);
                         inputs = [];
                         outputs = [];
+                        labelByExt = new Map<String, String>();
                         if (asm.blueprint != null && asm.blueprint.pins != null)
                         {
                                 for (pin in asm.blueprint.pins)
@@ -25674,6 +26095,10 @@ private function centerPreviewContainer():Void
                                         if (pin == null || pin.name == null) continue;
                                         var port = asm.ports.get(pin.name);
                                         if (port == null || port.external == null) continue;
+                                        if (port.label != null && port.label != "")
+                                        {
+                                                labelByExt.set(port.external.name, port.label);
+                                        }
                                         if (pin.type == INPUT) inputs.push(port.external);
                                         else if (pin.type == OUTPUT) outputs.push(port.external);
                                 }
@@ -25701,7 +26126,7 @@ private function centerPreviewContainer():Void
                                 var c = inputs[i];
                                 if (c != null)
                                 {
-                                        var port = createPortSprite(c.name, true);
+                                        var port = createPortSprite(c.name, true, labelByExt != null ? labelByExt.get(c.name) : null);
                                         port.x = 0;
                                         port.y = TITLE_HEIGHT + stepY * (i + 1);
                                         addChild(port);
@@ -25718,7 +26143,7 @@ private function centerPreviewContainer():Void
                                 var c = outputs[i];
                                 if (c != null)
                                 {
-                                        var port = createPortSprite(c.name, false);
+                                        var port = createPortSprite(c.name, false, labelByExt != null ? labelByExt.get(c.name) : null);
                                         port.x = _nodeWidth;
                                         port.y = TITLE_HEIGHT + stepY * (i + 1);
                                         addChild(port);
@@ -25729,7 +26154,7 @@ private function centerPreviewContainer():Void
                 //trace('NodeView: Created ${Lambda.count(inputPorts)} input ports, ${Lambda.count(outputPorts)} output ports');
         }
 
-        private function createPortSprite(name:String, isInput:Bool):Sprite
+        private function createPortSprite(name:String, isInput:Bool, ?displayText:String = null):Sprite
         {
                 var port = new Sprite();
                 var w = PORT_RADIUS * 2;
@@ -25765,15 +26190,18 @@ private function centerPreviewContainer():Void
                 label.mouseEnabled = false;
                 label.defaultTextFormat = new TextFormat("_sans", 11, 0xFFFFCC);
                 label.y = -7;
+                // v5.0 (Port Labels): Assembly ports display the cosmetic
+                // label; plain atoms keep their semantic contact names.
+                var shownText = (displayText != null && displayText != "") ? displayText : name;
                 if (isInput)
                 {
                         label.x = w / 2 + 3;
-                        label.text = name;
+                        label.text = shownText;
                 }
                 else {
                         label.x = -w / 2 - label.width - 3;
                         label.y = -9;
-                        label.text = name;
+                        label.text = shownText;
                         var fmt = new TextFormat("_sans", 11, 0xFFFFCC);
                         fmt.align = "right";
                         label.setTextFormat(fmt);
@@ -25786,6 +26214,15 @@ private function centerPreviewContainer():Void
                 port.useHandCursor = true;
                 port.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent)
                 {
+                        // v5.1 (Port Labels): the LABEL is the rename
+                        // affordance, not a wire-drag target. Clicks on the
+                        // label are fully inert (double-click opens the
+                        // editor) — they must never pull a wire.
+                        if (e.target == label)
+                        {
+                                e.stopPropagation();
+                                return;
+                        }
                         e.stopPropagation();
                         onPortMouseDown(name, isInput, e);
                 });
@@ -25794,6 +26231,23 @@ private function centerPreviewContainer():Void
                         e.stopPropagation();
                         onPortRightClick(name, isInput, e);
                 });
+                // v5.1 (Port Labels): double-click on the port LABEL (the
+                // text beside the contact — same affordance as the assembly
+                // name) opens the inline editor. The label is the ONLY
+                // entry point; the contact keeps its single-purpose
+                // wire-drag semantics and does nothing on double-click.
+                // Plain-atom ports keep semantic names — not editable.
+                if (Std.isOfType(atom, Assembly))
+                {
+                        label.mouseEnabled = true;
+                        label.doubleClickEnabled = true;
+                        label.addEventListener(MouseEvent.DOUBLE_CLICK, function(e:MouseEvent)
+                        {
+                                e.stopPropagation();
+                                editor.EditorTooltip.hide();
+                                startPortLabelEditing(name, isInput, port);
+                        });
+                }
                 // v4.0: hover tooltip — beneficiary of the wall port
                 // (stable name + semantic target, derived live from
                 // blueprint connections via Assembly.getPortBeneficiary*).
@@ -25884,103 +26338,103 @@ private function centerPreviewContainer():Void
                 }
         }
         
-		/**
-		* v2.0: Update the visual mode and trigger layout recalculation.
-		* v3.9: Now also persists the mode to the Blueprint's AtomDef for saving.
-		* 
-		* @param mode The new visualization mode (LIGHT, MEDIUM, HEAVY)
-		*/
-		public function setVisualMode(mode:NodeVisualMode):Void
-		{
-			trace('=== [NodeView] setVisualMode CALLED with: ' + mode + ' ===');
-			
-			// ═══════════════════════════════════════════════════════════════
-			// v3.9 FIX: Always persist to Blueprint, even if mode unchanged
-			// Previously: if (visualMode == mode) return; — skipped Blueprint write
-			// Now: write first, then skip UI update if unchanged
-			// ═══════════════════════════════════════════════════════════════
-			_persistVisualModeToBlueprint(Std.string(mode));
-			
-			if (visualMode == mode)
-			{
-				trace('  ⏭️ Mode already set, skipping UI update');
-				return;
-			}
-			
-			visualMode = mode;
-			trace('  📍 visualMode changed to: ' + visualMode);
-			createInlineEditors();
-			updateLayout();
-			trace('  ✅ setVisualMode completed');
-		}
+                /**
+                * v2.0: Update the visual mode and trigger layout recalculation.
+                * v3.9: Now also persists the mode to the Blueprint's AtomDef for saving.
+                * 
+                * @param mode The new visualization mode (LIGHT, MEDIUM, HEAVY)
+                */
+                public function setVisualMode(mode:NodeVisualMode):Void
+                {
+                        trace('=== [NodeView] setVisualMode CALLED with: ' + mode + ' ===');
+                        
+                        // ═══════════════════════════════════════════════════════════════
+                        // v3.9 FIX: Always persist to Blueprint, even if mode unchanged
+                        // Previously: if (visualMode == mode) return; — skipped Blueprint write
+                        // Now: write first, then skip UI update if unchanged
+                        // ═══════════════════════════════════════════════════════════════
+                        _persistVisualModeToBlueprint(Std.string(mode));
+                        
+                        if (visualMode == mode)
+                        {
+                                trace('  ⏭️ Mode already set, skipping UI update');
+                                return;
+                        }
+                        
+                        visualMode = mode;
+                        trace('  📍 visualMode changed to: ' + visualMode);
+                        createInlineEditors();
+                        updateLayout();
+                        trace('  ✅ setVisualMode completed');
+                }
 
-		// ══════════════════════════════════════════════════════════════
-		// v3.9: Persist visualMode directly to Blueprint.AtomDef
-		// ═════════════════════════════════════════════════════════════
-		// Standard path: write visualMode to the same place
-		// ProjectManager.saveSelfrun() reads it from.
-		// No side effects on atom persistent state (values).
-		private function _persistVisualModeToBlueprint(modeStr:String):Void
-		{
-			if (_parentAssembly == null)
-			{
-				trace('  ️ _parentAssembly is NULL, cannot persist visualMode to Blueprint');
-				return;
-			}
+                // ══════════════════════════════════════════════════════════════
+                // v3.9: Persist visualMode directly to Blueprint.AtomDef
+                // ═════════════════════════════════════════════════════════════
+                // Standard path: write visualMode to the same place
+                // ProjectManager.saveSelfrun() reads it from.
+                // No side effects on atom persistent state (values).
+                private function _persistVisualModeToBlueprint(modeStr:String):Void
+                {
+                        if (_parentAssembly == null)
+                        {
+                                trace('  ️ _parentAssembly is NULL, cannot persist visualMode to Blueprint');
+                                return;
+                        }
 
-			// nodeId — runtime ID. Blueprint stores template IDs.
-			var templateId = _parentAssembly.getTemplateId(nodeId);
-			if (templateId == null)
-			{
-				trace('  ⚠️ templateId not found for nodeId="$nodeId"');
-				return;
-			}
+                        // nodeId — runtime ID. Blueprint stores template IDs.
+                        var templateId = _parentAssembly.getTemplateId(nodeId);
+                        if (templateId == null)
+                        {
+                                trace('  ⚠️ templateId not found for nodeId="$nodeId"');
+                                return;
+                        }
 
-			var bp = _parentAssembly.blueprint;
-			if (bp == null || bp.internalAtoms == null)
-			{
-				trace('  ⚠️ Blueprint or internalAtoms is null');
-				return;
-			}
+                        var bp = _parentAssembly.blueprint;
+                        if (bp == null || bp.internalAtoms == null)
+                        {
+                                trace('  ⚠️ Blueprint or internalAtoms is null');
+                                return;
+                        }
 
-			var found = false;
-			for (atomDef in bp.internalAtoms)
-			{
-				if (atomDef.instanceId == templateId)
-				{
-					atomDef.visualMode = modeStr;
-					found = true;
-					trace('  ✅ visualMode persisted to Blueprint.AtomDef["$templateId"].visualMode = "$modeStr"');
-					break;
-				}
-			}
+                        var found = false;
+                        for (atomDef in bp.internalAtoms)
+                        {
+                                if (atomDef.instanceId == templateId)
+                                {
+                                        atomDef.visualMode = modeStr;
+                                        found = true;
+                                        trace('  ✅ visualMode persisted to Blueprint.AtomDef["$templateId"].visualMode = "$modeStr"');
+                                        break;
+                                }
+                        }
 
-			if (!found)
-			{
-				trace('  ⚠️ AtomDef not found in Blueprint for templateId="$templateId"');
-			}
-		}
+                        if (!found)
+                        {
+                                trace('  ⚠️ AtomDef not found in Blueprint for templateId="$templateId"');
+                        }
+                }
 
-		/**
-		* v3.9: Helper to restore visual mode from a saved string value.
-		* @param str Saved mode string ("LIGHT", "MEDIUM", "HEAVY")
-		*/
-		public function setVisualModeFromString(str:String):Void
-		{
-			trace('=== setVisualModeFromString CALLED with: "' + str + '" ===');
-			switch(str)
-			{
-				case "LIGHT":
-					trace('  → Switching to LIGHT');
-					setVisualMode(NodeVisualMode.LIGHT);
-				case "HEAVY":
-					trace('  → Switching to HEAVY');
-					setVisualMode(NodeVisualMode.HEAVY);
-				default:
-					trace('  → Switching to MEDIUM (default)');
-					setVisualMode(NodeVisualMode.MEDIUM);
-			}
-		}
+                /**
+                * v3.9: Helper to restore visual mode from a saved string value.
+                * @param str Saved mode string ("LIGHT", "MEDIUM", "HEAVY")
+                */
+                public function setVisualModeFromString(str:String):Void
+                {
+                        trace('=== setVisualModeFromString CALLED with: "' + str + '" ===');
+                        switch(str)
+                        {
+                                case "LIGHT":
+                                        trace('  → Switching to LIGHT');
+                                        setVisualMode(NodeVisualMode.LIGHT);
+                                case "HEAVY":
+                                        trace('  → Switching to HEAVY');
+                                        setVisualMode(NodeVisualMode.HEAVY);
+                                default:
+                                        trace('  → Switching to MEDIUM (default)');
+                                        setVisualMode(NodeVisualMode.MEDIUM);
+                        }
+                }
 
         private function getPinDefForContact(contact:Contact):PinDef
         {
@@ -26304,12 +26758,13 @@ private function centerPreviewContainer():Void
                 // on a widget or inline editor.
                 if (isInteractiveTarget(cast e.target)) return;
 
-                // Check if click was on a port
-                if (Std.isOfType(e.target, Sprite))
-                {
-                        var target:Sprite = cast e.target;
-                        if (inputPorts.exists(target.name) || outputPorts.exists(target.name)) return;
-                }
+                // Check if click was on a port — v5.1: hierarchy walk via
+                // isPortTarget() instead of the old name check, which
+                // compared e.target.name (auto-generated for hit areas and
+                // label children) against the port maps and MISSED, letting
+                // a double-click on a port contact fall through to
+                // OPEN_ASSEMBLY_REQUEST.
+                if (isPortTarget(cast e.target)) return;
                 // Check if click was on settings button
                 var targetObj:DisplayObject = cast e.target;
                 while (targetObj != null && targetObj != this)
@@ -26960,6 +27415,180 @@ private function centerPreviewContainer():Void
         }
 
 // =========================================================================
+// PORT LABEL EDITING (v5.0 — Port Labels)
+// =========================================================================
+        /** Inline label editor field (lazy, single instance, persistent listeners). */
+        private var _labelInput:TextField;
+        /** True while the port-label inline editor is open. */
+        private var _isEditingPortLabel:Bool = false;
+        /** Per-session commit callback (captures asm/pin context). */
+        private var _labelEditFinish:Bool -> Void;
+        /** v5.2: static label of the port being edited (hidden while the inline editor is open). */
+        private var _editedStaticLabel:TextField;
+
+        /**
+        * v5.0 (Port Labels): open the inline editor over an Assembly port.
+        *
+        * The label is PURE COSMETICS: PinDef.label (blueprint, persisted) is
+        * the source of truth, ConductorPort.label the runtime mirror. The
+        * passport (internalName/externalName), wires and lookups are never
+        * touched. Commit writes both, then emits ASSEMBLY_PORTS_CHANGED —
+        * this NodeView's own listener runs updateLayout() which recreates
+        * the port sprites with the fresh label; the parent editor refreshes
+        * wires through the proven MovePort event path. ENTER/Focus-out =
+        * apply (empty → default "port"), ESCAPE = cancel.
+        */
+        private function startPortLabelEditing(contactName:String, isInput:Bool, portSprite:Sprite):Void
+        {
+                if (_isEditingPortLabel || _isEditingName) return;
+                if (!Std.isOfType(atom, Assembly)) return;
+                var asm:Assembly = cast(atom, Assembly);
+
+                // Current label + the pin's INTERNAL name (ports map key)
+                var current:String = "port";
+                var internalName:String = null;
+                if (asm.blueprint != null && asm.blueprint.pins != null)
+                {
+                        for (pin in asm.blueprint.pins)
+                        {
+                                if (pin != null && pin.externalName == contactName)
+                                {
+                                        internalName = pin.name;
+                                        if (pin.label != null && pin.label != "") current = pin.label;
+                                        break;
+                                }
+                        }
+                }
+                if (internalName == null) return; // passport integrity first
+
+                _isEditingPortLabel = true;
+
+                if (_labelInput == null)
+                {
+                        _labelInput = new TextField();
+                        _labelInput.type = TextFieldType.INPUT;
+                        _labelInput.width = 90;
+                        _labelInput.height = 16;
+                        _labelInput.border = true;
+                        _labelInput.borderColor = 0x00AAFF;
+                        _labelInput.background = true;
+                        _labelInput.backgroundColor = 0x111122;
+                        _labelInput.textColor = 0xFFFFFF;
+                        _labelInput.selectable = true;
+                        _labelInput.mouseEnabled = true;
+                        _labelInput.defaultTextFormat = new TextFormat("_sans", 11, 0xFFFFFF, true);
+                        _labelInput.addEventListener(KeyboardEvent.KEY_DOWN, onLabelInputKeyDown);
+                        _labelInput.addEventListener(FocusEvent.FOCUS_OUT, onLabelInputFocusOut);
+                        addChild(_labelInput);
+                }
+
+                // v5.2 (cosmetic): hide the STATIC label while the inline
+                // editor is open — previously both texts were visible and
+                // the old one shone through around the input field.
+                // (Defensive restore first: never hide two at once.)
+                if (_editedStaticLabel != null)
+                {
+                        _editedStaticLabel.visible = true;
+                        _editedStaticLabel = null;
+                }
+                for (i in 0...portSprite.numChildren)
+                {
+                        var child = portSprite.getChildAt(i);
+                        if (Std.isOfType(child, TextField) && child != _labelInput)
+                        {
+                                _editedStaticLabel = cast child;
+                                _editedStaticLabel.visible = false;
+                                break;
+                        }
+                }
+
+                // Position over the port's own label (input: right of port,
+                // output: left of port) — same coords the static label uses.
+                var w = PORT_RADIUS * 2;
+                if (isInput) _labelInput.x = portSprite.x + w / 2 + 3;
+                else _labelInput.x = portSprite.x - w / 2 - _labelInput.width - 3;
+                _labelInput.y = portSprite.y - 8;
+                _labelInput.text = current;
+                _labelInput.visible = true;
+                _labelInput.setSelection(0, _labelInput.text.length);
+                if (stage != null) stage.focus = _labelInput;
+
+                var done:Bool = false;
+                _labelEditFinish = function(apply:Bool):Void
+                {
+                        if (done) return;
+                        done = true;
+                        _isEditingPortLabel = false;
+                        _labelEditFinish = null;
+
+                        // v5.2 (cosmetic): bring the static label back. On
+                        // apply the sprites are recreated anyway, but the ESC
+                        // path and the pre-emit frame need it.
+                        if (_editedStaticLabel != null)
+                        {
+                                _editedStaticLabel.visible = true;
+                                _editedStaticLabel = null;
+                        }
+
+                        var typed:String = StringTools.trim(_labelInput.text);
+                        _labelInput.visible = false;
+                        if (stage != null && stage.focus == _labelInput) stage.focus = null;
+                        if (!apply) return;
+                        if (typed.length == 0) typed = "port";
+
+                        // 1. PinDef — source of truth (persists to .atom)
+                        if (asm.blueprint != null && asm.blueprint.pins != null)
+                        {
+                                for (pin in asm.blueprint.pins)
+                                {
+                                        if (pin != null && pin.name == internalName)
+                                        {
+                                                pin.label = typed;
+                                                break;
+                                        }
+                                }
+                        }
+                        // 2. ConductorPort — runtime mirror (survives lookups)
+                        var p = asm.ports.get(internalName);
+                        if (p != null) p.label = typed;
+
+                        utils.Trap.log("PORT-LABEL", "parent: " + contactName + " -> \"" + typed + "\"");
+
+                        // 3. Views: own listener → updateLayout (fresh sprites);
+                        //    parent editor → wire refresh (MovePort event path).
+                        Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: asm.id });
+                        Impulsys.quickEmit(EventType.VALUE_COMMITTED);
+                };
+        }
+
+        /** ENTER → apply, ESCAPE → cancel; block global shortcuts while typing. */
+        private function onLabelInputKeyDown(e:KeyboardEvent):Void
+        {
+                e.stopImmediatePropagation();
+                var f = _labelEditFinish;
+                if (f == null) return;
+                if (e.keyCode == Keyboard.ENTER) f(true);
+                else if (e.keyCode == Keyboard.ESCAPE) f(false);
+        }
+
+        /** Focus-out = apply after a short delay (lets ENTER settle first). */
+        private function onLabelInputFocusOut(e:FocusEvent):Void
+		{
+			haxe.Timer.delay(function():Void
+			{
+				// v1.4 (Episod H-1): guarded — the finisher may run after the port
+				// sprites were rebuilt by PORT-HEAL; an exception here was fatal.
+				utils.Trap.ex("LABEL-FOCUSOUT", function() {
+					if (_isEditingPortLabel)
+					{
+						var f = _labelEditFinish;
+						if (f != null) f(true);
+					}
+				});
+			}, 50);
+		}
+
+// =========================================================================
 // POSITION
 // =========================================================================
         public function setPosition(x:Float, y:Float):Void
@@ -27092,6 +27721,16 @@ utils.Trap.log("NV-DISPOSE", "nodeView down: " + nodeId + " cacheAsBitmap=" + th
                         _nameInput = null;
                 }
                 _isEditingName = false;
+                // === v5.0: Clean up port-label inline editor ===
+                if (_labelInput != null)
+                {
+                        _labelInput.removeEventListener(KeyboardEvent.KEY_DOWN, onLabelInputKeyDown);
+                        _labelInput.removeEventListener(FocusEvent.FOCUS_OUT, onLabelInputFocusOut);
+                        if (_labelInput.parent != null) _labelInput.parent.removeChild(_labelInput);
+                        _labelInput = null;
+                }
+                _isEditingPortLabel = false;
+                _labelEditFinish = null;
                 _parentAssembly = null;
                 for (name in _inlineEditors.keys())
                 {
@@ -29662,7 +30301,7 @@ typedef WireEntry = {
 
 ================================================================================
 // FILE: library\AtomRegistry.hx
-// Lines: 652 | Chars: 34110
+// Lines: 661 | Chars: 35632
 ================================================================================
 
 // FILE: library/AtomRegistry.hx
@@ -29866,7 +30505,7 @@ class AtomRegistry
         // NATIVE ATOMS REGISTRATION
         // =================================================================
         // --- Electro / UI ---
-	
+        
         reg("Button", "Push Button", [
             {name: "out", type: OUTPUT, dataType: "bool"}
         ], null, "button", true, false, "button");
@@ -29959,27 +30598,27 @@ class AtomRegistry
         ], null, "comport", true, true, "comport", ["cpp", "html5"]);
 
 
-		// =========================================================================
-		// FILE WRITER — File System Access API
-		// =========================================================================
-		reg("FileWriterAtom", "File Writer", [
-			{name: "open",      type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Open"},
-			{name: "close",     type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Close"},
-			{name: "write",     type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Write"},
-			{name: "append",    type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Append"},
-			{name: "clear",     type: INPUT,  dataType: "bool",   priority: OPTIONAL,  label: "Clear"},
-			{name: "flush",     type: INPUT,  dataType: "bool",   priority: OPTIONAL,  label: "Flush"},
-			{name: "enabled",   type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL,  label: "Enabled"},
-			{name: "mode",      type: INPUT,  defaultValue: 1,    dataType: "int",    priority: IMPORTANT, label: "Mode"},
-			{name: "fileName",  type: INPUT,  defaultValue: "output.txt", dataType: "string", priority: OPTIONAL, label: "File Name"},
-			{name: "isOpen",    type: OUTPUT, dataType: "bool",   priority: CRITICAL},
-			{name: "written",   type: OUTPUT, dataType: "bool",   priority: IMPORTANT, label: "Written"},
-			{name: "writeCount",type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Writes"},
-			{name: "fileSize",  type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Size"},
-			{name: "error",     type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
-			{name: "errorTick", type: OUTPUT, dataType: "bool",   priority: INTERNAL}
-		], null, "filewriter", true, true, "filewriter");
-		
+                // =========================================================================
+                // FILE WRITER — File System Access API
+                // =========================================================================
+                reg("FileWriterAtom", "File Writer", [
+                        {name: "open",      type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Open"},
+                        {name: "close",     type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Close"},
+                        {name: "write",     type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Write"},
+                        {name: "append",    type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Append"},
+                        {name: "clear",     type: INPUT,  dataType: "bool",   priority: OPTIONAL,  label: "Clear"},
+                        {name: "flush",     type: INPUT,  dataType: "bool",   priority: OPTIONAL,  label: "Flush"},
+                        {name: "enabled",   type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL,  label: "Enabled"},
+                        {name: "mode",      type: INPUT,  defaultValue: 1,    dataType: "int",    priority: IMPORTANT, label: "Mode"},
+                        {name: "fileName",  type: INPUT,  defaultValue: "output.txt", dataType: "string", priority: OPTIONAL, label: "File Name"},
+                        {name: "isOpen",    type: OUTPUT, dataType: "bool",   priority: CRITICAL},
+                        {name: "written",   type: OUTPUT, dataType: "bool",   priority: IMPORTANT, label: "Written"},
+                        {name: "writeCount",type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Writes"},
+                        {name: "fileSize",  type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Size"},
+                        {name: "error",     type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
+                        {name: "errorTick", type: OUTPUT, dataType: "bool",   priority: INTERNAL}
+                ], null, "filewriter", true, true, "filewriter");
+                
         
         reg("MiniAudioAtom", "Mini Audio Capture", [
             {name: "mode",     type: INPUT,  defaultValue: 1,    dataType: "int",     priority: IMPORTANT, label: "Mode"},
@@ -30011,40 +30650,40 @@ class AtomRegistry
             {name: "clipR",    type: OUTPUT, dataType: "bool",   priority: OPTIONAL, label: "Clip R"}
         ], null, "vumeter", true, true, "vumeter", ["cpp"]);
 
-		// ─────────────────────────────────────────────────────────────────
-		// WEBSOCKET — cross-platform (HTML5 + Windows cpp; stubs on (Linux & Android not exist now)
-		// Linux/Android pending libwebsockets integration).
-		// Registered for BOTH platforms — Haxe #if inside the atom class
-		// decides what backend to use. The "cpp" platform here includes
-		// Windows / Linux / Android; Linux/Android will produce a clean
-		// error on connect until libwebsockets is wired up.
-		// ─────────────────────────────────────────────────────────────────
-		reg("WebSocketAtom", "WebSocket", [
-			// ── INPUTS ──
-			{name: "url",                   type: INPUT,  defaultValue: "ws://localhost:8080", dataType: "string", priority: IMPORTANT, label: "URL",      visibleInEditor: true},
-			{name: "subprotocol",           type: INPUT,  defaultValue: "",                    dataType: "string", priority: OPTIONAL,  label: "Subproto", visibleInEditor: false},
-			{name: "binaryMode",            type: INPUT,  defaultValue: false,                 dataType: "bool",   priority: OPTIONAL,  label: "Binary",   visibleInEditor: false},
-			{name: "connect",               type: INPUT,  dataType: "bool",   priority: CRITICAL},
-			{name: "disconnect",            type: INPUT,  dataType: "bool",   priority: CRITICAL},
-			{name: "send",                  type: INPUT,  dataType: "bool",   priority: CRITICAL},
-			{name: "sendData",              type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Data"},
-			// ── AUTO-RECONNECT INPUTS ──
-			{name: "autoReconnect",         type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL, label: "AutoRC",  visibleInEditor: false},
-			{name: "reconnectInterval",     type: INPUT,  defaultValue: 1.0,    dataType: "float",  priority: OPTIONAL, label: "RC Int",  visibleInEditor: false},
-			{name: "maxReconnectAttempts",  type: INPUT,  defaultValue: 0,      dataType: "int",    priority: OPTIONAL, label: "RC Max",  visibleInEditor: false},
-			// ── OUTPUTS ──
-			{name: "isConnected",           type: OUTPUT, dataType: "bool",   priority: CRITICAL,  label: "Connected"},
-			{name: "receivedData",          type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "RX"},
-			{name: "receivedTick",          type: OUTPUT, dataType: "bool",   priority: INTERNAL},
-			{name: "sentTick",              type: OUTPUT, dataType: "bool",   priority: INTERNAL},
-			{name: "error",                 type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
-			{name: "errorTick",             type: OUTPUT, dataType: "bool",   priority: INTERNAL},
-			{name: "closeCode",             type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "CloseCode"},
-			{name: "bytesReceived",         type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "RX bytes"},
-			{name: "bytesSent",             type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "TX bytes"},
-			// ── AUTO-RECONNECT OUTPUT ──
-			{name: "reconnectAttempts",     type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "RC Tries"}
-		], null, "websocket", true, true, "websocket", ["cpp", "html5"]);
+                // ─────────────────────────────────────────────────────────────────
+                // WEBSOCKET — cross-platform (HTML5 + Windows cpp; stubs on (Linux & Android not exist now)
+                // Linux/Android pending libwebsockets integration).
+                // Registered for BOTH platforms — Haxe #if inside the atom class
+                // decides what backend to use. The "cpp" platform here includes
+                // Windows / Linux / Android; Linux/Android will produce a clean
+                // error on connect until libwebsockets is wired up.
+                // ─────────────────────────────────────────────────────────────────
+                reg("WebSocketAtom", "WebSocket", [
+                        // ── INPUTS ──
+                        {name: "url",                   type: INPUT,  defaultValue: "ws://localhost:8080", dataType: "string", priority: IMPORTANT, label: "URL",      visibleInEditor: true},
+                        {name: "subprotocol",           type: INPUT,  defaultValue: "",                    dataType: "string", priority: OPTIONAL,  label: "Subproto", visibleInEditor: false},
+                        {name: "binaryMode",            type: INPUT,  defaultValue: false,                 dataType: "bool",   priority: OPTIONAL,  label: "Binary",   visibleInEditor: false},
+                        {name: "connect",               type: INPUT,  dataType: "bool",   priority: CRITICAL},
+                        {name: "disconnect",            type: INPUT,  dataType: "bool",   priority: CRITICAL},
+                        {name: "send",                  type: INPUT,  dataType: "bool",   priority: CRITICAL},
+                        {name: "sendData",              type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Data"},
+                        // ── AUTO-RECONNECT INPUTS ──
+                        {name: "autoReconnect",         type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL, label: "AutoRC",  visibleInEditor: false},
+                        {name: "reconnectInterval",     type: INPUT,  defaultValue: 1.0,    dataType: "float",  priority: OPTIONAL, label: "RC Int",  visibleInEditor: false},
+                        {name: "maxReconnectAttempts",  type: INPUT,  defaultValue: 0,      dataType: "int",    priority: OPTIONAL, label: "RC Max",  visibleInEditor: false},
+                        // ── OUTPUTS ──
+                        {name: "isConnected",           type: OUTPUT, dataType: "bool",   priority: CRITICAL,  label: "Connected"},
+                        {name: "receivedData",          type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "RX"},
+                        {name: "receivedTick",          type: OUTPUT, dataType: "bool",   priority: INTERNAL},
+                        {name: "sentTick",              type: OUTPUT, dataType: "bool",   priority: INTERNAL},
+                        {name: "error",                 type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
+                        {name: "errorTick",             type: OUTPUT, dataType: "bool",   priority: INTERNAL},
+                        {name: "closeCode",             type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "CloseCode"},
+                        {name: "bytesReceived",         type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "RX bytes"},
+                        {name: "bytesSent",             type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "TX bytes"},
+                        // ── AUTO-RECONNECT OUTPUT ──
+                        {name: "reconnectAttempts",     type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "RC Tries"}
+                ], null, "websocket", true, true, "websocket", ["cpp", "html5"]);
 
 
         reg("NETRadioPlayerAtom", "NET Radio Player", [
@@ -30199,12 +30838,21 @@ class AtomRegistry
                             extName = Std.string(p.externalName);
                             if (extName == "null") extName = null;
                         }
+// v2.0 (Port Labels): parse the cosmetic label; legacy pins saved
+// before this feature default to "port" (user's explicit choice).
+                        var pinLabel:String = "port";
+                        if (p.label != null)
+                        {
+                            var lbl:String = Std.string(p.label);
+                            if (lbl != "" && lbl != "null") pinLabel = lbl;
+                        }
                         pins.push({
                             name: pinName,
                             type: _parseContactType(p.type),
                             defaultValue: p.defaultValue,
                             dataType: Std.string(p.dataType),
-                            externalName: extName
+                            externalName: extName,
+                            label: pinLabel
                         });
                         seenNames.set(pinName, true);
                     }
@@ -30320,7 +30968,7 @@ class AtomRegistry
 
 ================================================================================
 // FILE: library\drivers\ComPortAtom.hx
-// Lines: 2432 | Chars: 120554
+// Lines: 2522 | Chars: 126163
 ================================================================================
 
 package library.drivers;
@@ -30344,6 +30992,7 @@ import haxe.io.Bytes;
 #if cpp
 @:headerCode('
 #include <string>
+#include <cstring>
 #include <thread>
 #include <mutex>
 #include <map>
@@ -30435,7 +31084,7 @@ struct ComPortState {
     int hComm;
 #endif
 #ifdef __ANDROID__
-	JavaVM* g_vm = nullptr;
+        JavaVM* g_vm = nullptr;
     jobject jPort;
     jobject jConnection;
 #endif
@@ -31270,7 +31919,7 @@ extern "C" const char* scanWindowsCOMPorts() {
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     COM PORT ATOM v3.3                                    ║
+* ║                     COM PORT ATOM v3.4                                    ║
 * ║     (Multi-Platform Driver: WinAPI/POSIX/Android JNI + HTML5 Web)         ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
@@ -31325,6 +31974,35 @@ extern "C" const char* scanWindowsCOMPorts() {
 */
 /**
 /**
+* v3.5 CHANGES (Black Box H-1 — hardening after the silent exit-code-1 crash):
+* - update(): the native map lookup now DETECTS "state lost" (the atom
+*   believes the port is open, but _com_states_map has no state at its
+*   heap address) and Trap-logs COMPORT STATE-LOST instead of silently
+*   ignoring rx. The map is keyed by the Haxe object address; if GC ever
+*   reuses the address of an undisposed atom, this is the smoke we will
+*   see in crash_trap.log.
+* - update(): the rx payload is now COPIED under rxMutex and the Haxe
+*   ::String is built AFTER the lock is released — no GC allocation while
+*   holding the reader-thread mutex (defensive hygiene).
+* - openDevice(): stale-state pre-clean. If a ComPortState is already
+*   sitting at this heap address (a leaked thread+port from an atom that
+*   was freed without dispose()), it is closed, joined and deleted BEFORE
+*   the new state is inserted — previously the map.insert would silently
+*   OVERWRITE the entry, leaking the old reader thread and port handle
+*   FOREVER. A COMPORT STALE-CLEAN trap line marks every occurrence.
+* - No wire/contact/save-format changes. Pure hardening + diagnostics.
+*
+* v3.4 CHANGES (Event Identity — "widgets are parallelized"):
+* - ALL COMPORT_* impulses now carry { atomId: this.id, text: <payload> }
+*   instead of a bare String. Every ComPortWidget subscribes to these
+*   GLOBAL events, so with bare strings every widget displayed every
+*   atom's status/error — 3 atoms looked like 3 mirrored widgets.
+* - Same pattern as OscilloscopeAtom/FFTAtom (electro) which already
+*   emit { atomId: ... } and are filtered by their widgets.
+* - Payload shape is backward-compatible: ComPortWidget v3.1 accepts
+*   plain Strings as owner-less GLOBAL signals (e.g. USB_DEVICES_CHANGED
+*   from the Android JNI side, which has no owning atom).
+*
 * v3.3 CHANGES (Auto-Reopen — "port closes after grouping/pop"):
 * - getPersistentState() now persists wasOpen = _isOpenFlag.
 * - restoreState() sets _autoReopenRequested when wasOpen was true.
@@ -31376,6 +32054,10 @@ class ComPortAtom extends Atom implements system.managers.Driver
     private var _isOpenFlag:Bool = false;
     /** v3.3: reopen once after reconstruction when wasOpen was true. */
     private var _autoReopenRequested:Bool = false;
+    /** v3.5 (H-1): set by the native poll when _isOpenFlag is true but the
+     *  state map has no entry at this address — surfaced to the trap log
+     *  on the next Haxe-side line as COMPORT STATE-LOST. */
+    private var _nativeStateLost:Bool = false;
 
     @:volatile private var _hasPendingRx:Bool = false;
     @:volatile private var _hasPendingErr:Bool = false;
@@ -31503,7 +32185,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
         if (rxOut != null) { rxOut.setValueSilent(rxString); rxOut.propagateCurrentValue(); }
         var rxTick = getOutput("rxTick");
         if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
-        Impulsys.quickEmit(EventType.COMPORT_RX_DATA, rxString);
+        Impulsys.quickEmit(EventType.COMPORT_RX_DATA, { atomId: this.id, text: rxString });
     }
 
     override public function update(dt:Float):Void
@@ -31565,7 +32247,19 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     auto _cps_it = _com_states_map.find((void*){0}.mPtr);
                     if (_cps_it != _com_states_map.end()) { _cps_stPtr = _cps_it->second; }
                 }
-                if (_cps_stPtr != nullptr) {
+                if (_cps_stPtr == nullptr) {
+                    // v3.5 (H-1): state-lost detector. The atom believes the
+                    // port is open, yet the map has no native state at this
+                    // heap address. Map key = object address; a miss here
+                    // means the entry vanished or the address was reused.
+                    if ({0}->_isOpenFlag) { {0}->_nativeStateLost = true; }
+                } else {
+                    // v3.5 (H-1): copy the rx payload under the lock, build
+                    // the Haxe String AFTER the lock is released (no GC
+                    // allocation while holding the reader-thread mutex).
+                    char _cps_rxBuf[4096];
+                    int _cps_rxLen = 0;
+                    bool _cps_gotRx = false;
                     {
                         std::lock_guard<std::mutex> _cps_rxLock(_cps_stPtr->rxMutex);
                         if (_cps_stPtr->hasRxData) {
@@ -31575,12 +32269,19 @@ class ComPortAtom extends Atom implements system.managers.Driver
                             // Inter-message timeout: 50ms silence -> message complete
                             // Transport delivers bytes, Protocol decides when message ends
                             if (_cps_elapsed >= 50) {
-                                {0}->_pendingRxStr = ::String(_cps_stPtr->rxBuffer, _cps_stPtr->rxLen);
-                                {0}->_hasPendingRx = true;
+                                _cps_rxLen = _cps_stPtr->rxLen;
+                                if (_cps_rxLen > (int)sizeof(_cps_rxBuf)) _cps_rxLen = (int)sizeof(_cps_rxBuf);
+                                if (_cps_rxLen < 0) _cps_rxLen = 0;
+                                if (_cps_rxLen > 0) memcpy(_cps_rxBuf, _cps_stPtr->rxBuffer, (size_t)_cps_rxLen);
+                                _cps_gotRx = true;
                                 _cps_stPtr->hasRxData = false;
                                 _cps_stPtr->rxLen = 0;
                             }
                         }
+                    }
+                    if (_cps_gotRx) {
+                        {0}->_pendingRxStr = ::String(_cps_rxBuf, _cps_rxLen);
+                        {0}->_hasPendingRx = true;
                     }
                     {
                         std::lock_guard<std::mutex> _cps_errLock(_cps_stPtr->errMutex);
@@ -31592,6 +32293,11 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     }
                 }
             ', this);
+            if (_nativeStateLost)
+            {
+                _nativeStateLost = false;
+                utils.Trap.log("COMPORT", "STATE-LOST: _isOpenFlag=true but native map has no state (id=" + this.id + ")");
+            }
             #end
         }
 
@@ -31603,7 +32309,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
             var rxTick = getOutput("rxTick");
             if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
             utils.Trap.log("COMPORT", "rx: \"" + _pendingRxStr + "\"");
-            Impulsys.quickEmit(EventType.COMPORT_RX_DATA, _pendingRxStr);
+            Impulsys.quickEmit(EventType.COMPORT_RX_DATA, { atomId: this.id, text: _pendingRxStr });
         }
 
         if (_hasPendingErr)
@@ -31617,7 +32323,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     closeDevice();
                     _selectedVid = 0;
                     _selectedPid = 0;
-                    Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
+                    Impulsys.quickEmit(EventType.COMPORT_STATUS, { atomId: this.id, text: "Disconnected" });
                 }
             } else {
                 // Это реальная ошибка (не отключение), выводим её пользователю
@@ -31625,14 +32331,14 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 if (errOut != null) { errOut.setValueSilent(_pendingErrStr); errOut.propagateCurrentValue(); }
                 var errTick = getOutput("errorTick");
                 if (errTick != null) { errTick.value = true; _errTimer = PULSE_DURATION; }
-                Impulsys.quickEmit(EventType.COMPORT_ERROR, _pendingErrStr);
+                Impulsys.quickEmit(EventType.COMPORT_ERROR, { atomId: this.id, text: _pendingErrStr });
                 
                 if (_isOpenFlag) {
                     trace('ComPortAtom: Port error detected. Forcing closeDevice()...');
                     closeDevice();
                     _selectedVid = 0;
                     _selectedPid = 0;
-                    Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
+                    Impulsys.quickEmit(EventType.COMPORT_STATUS, { atomId: this.id, text: "Disconnected" });
                 }
             }
         }
@@ -31654,8 +32360,8 @@ class ComPortAtom extends Atom implements system.managers.Driver
 
     override public function dispose():Void
     {
-		utils.Trap.log("COMPORT", "dispose enter");
-		
+                utils.Trap.log("COMPORT", "dispose enter");
+                
         #if cpp
         closeDevice();
         #elseif html5
@@ -31783,7 +32489,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
         _pendingErrStr = msg;
         _hasPendingErr = true;
         trace('ComPortAtom ERROR: $msg');
-        Impulsys.quickEmit(EventType.COMPORT_ERROR, msg);
+        Impulsys.quickEmit(EventType.COMPORT_ERROR, { atomId: this.id, text: msg });
     }
 
     #if android
@@ -31884,7 +32590,33 @@ class ComPortAtom extends Atom implements system.managers.Driver
         var selfPtr:Dynamic = this;
         var success:Bool = false;
         var errMessage:String = "";
+        var staleCleaned:Bool = false;
         untyped __cpp__('
+            // v3.5 (H-1): stale-state pre-clean. _com_states_map is keyed by
+            // the Haxe object address. If a ComPortState is ALREADY sitting
+            // at this address, it belongs to a dead atom that was freed
+            // without dispose() (or to a previous incarnation of this very
+            // address after GC reuse). Without this cleanup the insert below
+            // would silently overwrite the entry — leaking the old reader
+            // thread and port handle forever.
+            {
+                std::lock_guard<std::mutex> _cps_mapLock(_com_map_mutex);
+                auto _cps_old = _com_states_map.find({4}.mPtr);
+                if (_cps_old != _com_states_map.end())
+                {
+                    ComPortState* _cps_stale = _cps_old->second;
+                    _com_states_map.erase(_cps_old);
+                    _cps_stale->isRunning = false;
+                    #ifdef _WIN32
+                        if (_cps_stale->hComm != INVALID_HANDLE_VALUE) { CancelIoEx(_cps_stale->hComm, NULL); CloseHandle(_cps_stale->hComm); _cps_stale->hComm = INVALID_HANDLE_VALUE; }
+                    #else
+                        if (_cps_stale->hComm >= 0) { close(_cps_stale->hComm); _cps_stale->hComm = -1; }
+                    #endif
+                    if (_cps_stale->readThread != nullptr) { if (_cps_stale->readThread->joinable()) _cps_stale->readThread->join(); delete _cps_stale->readThread; }
+                    delete _cps_stale;
+                    {7} = true;
+                }
+            }
             ComPortState* st = new ComPortState();
             #ifdef _WIN32
                 st->hComm = INVALID_HANDLE_VALUE;
@@ -31936,7 +32668,12 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 { std::lock_guard<std::mutex> mapLock(_com_map_mutex); _com_states_map[{4}.mPtr] = st; }
                 st->readThread = new std::thread(_altauri_com_reader_loop, {4}.mPtr);
             } else { delete st; }
-        ', portName, baudRate, success, errMessage, selfPtr, _selectedVid, _selectedPid);
+        ', portName, baudRate, success, errMessage, selfPtr, _selectedVid, _selectedPid, staleCleaned);
+
+        if (staleCleaned)
+        {
+            utils.Trap.log("COMPORT", "STALE-CLEAN: removed a leftover native state at this heap address before opening (id=" + this.id + ")");
+        }
 
         if (success)
         {
@@ -31954,7 +32691,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
             
             var openOut = getOutput("isOpen");
             if (openOut != null) { openOut.setValueSilent(true); openOut.propagateCurrentValue(); }
-            Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected to " + portName);
+            Impulsys.quickEmit(EventType.COMPORT_STATUS, { atomId: this.id, text: "Connected to " + portName });
             trace('ComPortAtom: Successfully opened $portName at $baudRate baud');
             utils.Trap.log("COMPORT", "opened: " + portName + " @ " + baudRate);
         }
@@ -32078,10 +32815,10 @@ class ComPortAtom extends Atom implements system.managers.Driver
         var openOut = getOutput("isOpen");
         if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
         utils.Trap.log("COMPORT", "pre status-emit Disconnected");
-        Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
+        Impulsys.quickEmit(EventType.COMPORT_STATUS, { atomId: this.id, text: "Disconnected" });
         trace('ComPortAtom: Closed serial device');
-		utils.Trap.log("COMPORT", "native closed");
-		
+                utils.Trap.log("COMPORT", "native closed");
+                
         #elseif html5
                 if (!_isOpenFlag) return;
                 _isOpenFlag = false;
@@ -32755,6 +33492,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
 
         #end
 }
+
 
 ================================================================================
 // FILE: library\drivers\FileWriterAtom.hx
@@ -43099,7 +43837,7 @@ class ToggleAtom extends Atom
 
 ================================================================================
 // FILE: Main.hx
-// Lines: 2792 | Chars: 121375
+// Lines: 2800 | Chars: 121534
 ================================================================================
 
 package;
@@ -43322,6 +44060,10 @@ class Main extends Sprite
         public function new()
         {
                 super();
+				
+				// v1.4 (Episod H-1): black box FIRST — stderr capture + native SEH sentinel
+				utils.Trap.boot();
+				
                 _theme = EditorTheme.getInstance();
 
                 #if html5
@@ -44479,22 +45221,26 @@ class Main extends Sprite
         * Called every frame via ENTER_FRAME event.
         * Delegates to TickGenerator for unified simulation update.
         */
-        private function onMainLoop(e:Event):Void
-        {
-                var now = Lib.getTimer();
-                var dt = (now - _lastTime) / 1000.0;
-                _lastTime = now;
+		private function onMainLoop(e:Event):Void
+		{
+			var now = Lib.getTimer();
+			var dt = (now - _lastTime) / 1000.0;
+			_lastTime = now;
 
-// Unified update via TickGenerator
-                TickGenerator.getInstance().update(dt);
+			// Unified update via TickGenerator
+			// v1.4 (Episod H-1): the whole frame body is guarded — an exception here
+			// killed the process silently (exit code 1, stderr lost in the lime pipe).
+			utils.Trap.ex("LOOP", function() {
+			TickGenerator.getInstance().update(dt);
+			});
 
-        // v3.1: 1 Hz heartbeat — last BEAT marks the death second.
-                _trapBeatFrames++;
-                if (_trapBeatFrames >= 60)
-                {
-                        _trapBeatFrames = 0;
-                        utils.Trap.log("BEAT", "alive");
-                }
+			// v3.1: 1 Hz heartbeat — last BEAT marks the death second.
+			_trapBeatFrames++;
+			if (_trapBeatFrames >= 60)
+			{
+					_trapBeatFrames = 0;
+					utils.Trap.log("BEAT", "alive");
+			}
         }
 
         /**
@@ -49950,7 +50696,7 @@ class DriverManager
 
 ================================================================================
 // FILE: system\managers\ProjectManager.hx
-// Lines: 881 | Chars: 43431
+// Lines: 900 | Chars: 44435
 ================================================================================
 
 package system.managers;
@@ -50195,6 +50941,11 @@ class ProjectManager
                         if (pin.externalName != null && pin.externalName != "")
                         {
                                 pinData.externalName = pin.externalName;
+                        }
+// v2.7 (Port Labels): persist the cosmetic port label
+                        if (pin.label != null && pin.label != "")
+                        {
+                                pinData.label = pin.label;
                         }
                         pinsToSave.push(pinData);
                 }
@@ -50496,6 +51247,11 @@ class ProjectManager
                         {
                                 pinData.externalName = pin.externalName;
                         }
+// v2.7 (Port Labels): persist the cosmetic port label
+                        if (pin.label != null && pin.label != "")
+                        {
+                                pinData.label = pin.label;
+                        }
                         pinsData.push(pinData);
                 }
 // Build save data
@@ -50607,13 +51363,22 @@ class ProjectManager
                                         extName = Std.string(p.externalName);
                                         if (extName == "null") extName = null;
                                 }
+// v2.7 (Port Labels): parse the cosmetic label; legacy pins saved
+// before this feature default to "port" (user's explicit choice).
+                                var pinLabel:String = "port";
+                                if (p.label != null)
+                                {
+                                        var lbl:String = Std.string(p.label);
+                                        if (lbl != "" && lbl != "null") pinLabel = lbl;
+                                }
                                 pins.push(
                                 {
                                         name: Std.string(p.name),
                                         type: _parseContactType(p.type),
                                         defaultValue: p.defaultValue,
                                         dataType: dt,
-                                        externalName: extName
+                                        externalName: extName,
+                                        label: pinLabel
                                 });
                         }
                 }
@@ -61274,33 +62039,164 @@ enum WireType {
 
 ================================================================================
 // FILE: utils\Trap.hx
-// Lines: 147 | Chars: 7494
+// Lines: 374 | Chars: 18302
 ================================================================================
 
 package utils;
 
+// ============================================================================
+// v1.4.1 HOTFIX: @:cppFileCode MUST sit at CLASS level (before "class Trap").
+// In v1.4 it was written inside the class body, so the metadata attached to
+// the boot() FIELD. hxcpp reads :cppFileCode from the CLASS only, so the
+// whole native block (includes + SEH sentinel) never reached Trap.cpp while
+// the __cpp__ code inside boot() did — MSVC: C2065/C3861 x8
+// (_open/_dup2/_close/_O_*/SetUnhandledExceptionFilter/_altauri_trap_seh_filter).
+// Pattern below mirrors the proven one from ComPortAtom / SystemVUMeterAtom:
+// #if cpp -> @:cppFileCode(...) -> #end -> class.
+// ============================================================================
+#if cpp
+@:cppFileCode('
+#if defined(_WIN32) && !defined(ALTAURI_TRAP_SENTINEL_CODE)
+#define ALTAURI_TRAP_SENTINEL_CODE
+
+// Hygiene (same guards as ComPortAtom / SystemVUMeterAtom native blocks):
+// keep aggressive windows.h macros out of the rest of this TU.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
+#include <stdint.h>
+#include <windows.h>
+#include <io.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+
+// ── Native SEH sentinel (Episod H-1) ─────────────────────────────────────
+// Pure WinAPI only: when the filter runs, the CRT (and anything heap-based)
+// may already be corrupt. No printf, no allocations — just CreateFile/Write.
+//
+// ESCAPE RULE: this whole block is a single-quoted HAXE string. Haxe
+// processes escape sequences, so ONE backslash here would silently change
+// the emitted C code (v1.4 carried LF-escapes inside C string literals,
+// Haxe turned them into real newlines, C2001 was waiting to fire).
+// Rule for this block: ZERO backslashes. Newlines are written explicitly
+// as buf[p++] = 10 (ASCII LF). Keep it that way.
+
+static unsigned int _altauri_trap_copy(char* dst, const char* src)
+{
+        unsigned int n = 0;
+        while (src != nullptr && src[n] != 0) { dst[n] = src[n]; n++; }
+        return n;
+}
+
+static void _altauri_trap_hex16(char* out, unsigned long long v)
+{
+        static const char hx[] = "0123456789ABCDEF";
+        for (int i = 0; i < 16; i++) { out[15 - i] = hx[v & 0xFULL]; v >>= 4; }
+}
+
+static void _altauri_trap_append_raw(const char* data, unsigned int len)
+{
+        HANDLE h = CreateFileA("crash_trap.log", FILE_APPEND_DATA,
+                FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (h == INVALID_HANDLE_VALUE) return;
+        DWORD written = 0;
+        WriteFile(h, data, len, &written, NULL);
+        CloseHandle(h);
+}
+
+static LONG WINAPI _altauri_trap_seh_filter(EXCEPTION_POINTERS* ep)
+{
+        char buf[160];
+        unsigned int p = 0;
+        buf[p++] = 10; // leading LF — see ESCAPE RULE above
+        p += _altauri_trap_copy(buf + p, "[TRAP-NATIVE-CRASH] exception code=0x");
+        char hx[16];
+        unsigned long long code = 0;
+        unsigned long long addr = 0;
+        if (ep != nullptr && ep->ExceptionRecord != nullptr)
+        {
+                code = (unsigned long long)(unsigned long)ep->ExceptionRecord->ExceptionCode;
+                addr = (unsigned long long)(uintptr_t)ep->ExceptionRecord->ExceptionAddress;
+        }
+        _altauri_trap_hex16(hx, code);
+        for (int i = 0; i < 8; i++) buf[p++] = hx[i]; // codes fit in 8 hex
+        p += _altauri_trap_copy(buf + p, " addr=0x");
+        _altauri_trap_hex16(hx, addr);
+        for (int i = 0; i < 16; i++) buf[p++] = hx[i];
+        p += _altauri_trap_copy(buf + p, " (see also stderr_capture.log)");
+        buf[p++] = 10; // trailing LF — see ESCAPE RULE above
+        _altauri_trap_append_raw(buf, p);
+        return EXCEPTION_CONTINUE_SEARCH; // let the OS finish the crash
+}
+
+#endif // ALTAURI_TRAP_SENTINEL_CODE
+#if !defined(_WIN32)
+#include <stdint.h>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+')
+#end
+
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                        TRAP v1.3                                          ║
-* ║          (Crash-Proof Trace Logger — BUG-A Hunt)                          ║
+* ║                        TRAP v1.4.1                                        ║
+* ║          (Crash-Proof Trace Logger — Episod H-1 «Black Box»)              ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  PURPOSE:                                                                 ║
 * ║  stdout on Windows is BUFFERED when the app runs through "lime run"       ║
 * ║  (pipe). On a hard crash (c0000005) the buffered tail is LOST —           ║
 * ║  exactly the most valuable part (the last moments before death).          ║
-* ║  Field evidence: the exit-crash log ended with NO pop() traces at         ║
-* ║  all, neither "Saved camera state" nor "Closed serial device", so         ║
-* ║  the death location is currently invisible.                               ║
-* ║                                                                           ║
 * ║  TRAP writes every line to crash_trap.log with IMMEDIATE FLUSH.           ║
 * ║  Data that was flushed before the crash survives it.                       ║
 * ║                                                                           ║
+* ║  v1.4.1 HOTFIX (compile, 2026-08-27):                                    ║
+* ║  - v1.4 DID NOT COMPILE: @:cppFileCode sat INSIDE the class body,        ║
+* ║    so the metadata attached to the boot() FIELD. hxcpp reads             ║
+* ║    :cppFileCode from the CLASS only → the whole native block             ║
+* ║    (io.h/fcntl.h/windows.h + _altauri_trap_seh_filter) never             ║
+* ║    reached Trap.cpp, while the __cpp__ code in boot() did →              ║
+* ║    C2065/C3861 x8 (_open/_dup2/_close/_O_CREAT/_O_WRONLY/_O_APPEND/      ║
+* ║    SetUnhandledExceptionFilter/_altauri_trap_seh_filter).               ║
+* ║    FIX: metadata moved to class level — the exact pattern that          ║
+* ║    already compiles in ComPortAtom / SystemVUMeterAtom.                  ║
+* ║  - Hygiene: NOMINMAX + WIN32_LEAN_AND_MEAN guards before windows.h,      ║
+* ║    #include <stdint.h> for uintptr_t.                                    ║
+* ║                                                                           ║
+* ║  v1.4 (Episod H-1) — THE BLACK BOX. Field report 2026-08-27:              ║
+* ║  app died with lime "Done(1)", crash_trap.log ended on a BEAT             ║
+* ║  ~1 s after entering a ComPort assembly, exit path never started,         ║
+* ║  no exception text anywhere. Two dark channels swallow the evidence:      ║
+* ║    1) hxcpp prints uncaught exceptions to STDERR — "lime run" pipe        ║
+* ║       captures stdout only, stderr is lost;                                ║
+* ║    2) a native crash (SEH) never prints anything at all.                  ║
+* ║  v1.4 closes both channels:                                               ║
+* ║    - boot(): dup2() redirects fd 2 (stderr) into stderr_capture.log —     ║
+* ║      every "Uncaught exception : ..." + stack the runtime prints          ║
+* ║      from now on lands in a file that survives the crash;                 ║
+* ║    - boot(): SetUnhandledExceptionFilter installs a sentinel that         ║
+* ║      appends "[TRAP-NATIVE-CRASH] code=0x... addr=0x..." to              ║
+* ║      crash_trap.log using pure WinAPI (no CRT) before the OS kills        ║
+* ║      the process — one run tells Haxe-exception vs segfault;              ║
+* ║    - ex(tag, fn): guarded-call wrapper for the "dark zone" —              ║
+* ║      openfl display events and haxe.Timer callbacks have NO               ║
+* ║      try/catch anywhere; Trap.ex logs the exception WITH its Haxe         ║
+* ║      stack and swallows it, so the app keeps running AND we get           ║
+* ║      the report.                                                          ║
+* ║                                                                           ║
 * ║  USAGE:                                                                   ║
-* ║    utils.Trap.log("TAG", "message");                                      ║
+* ║    utils.Trap.boot();            // once, first line of Main.new()        ║
+* ║    utils.Trap.log("TAG", "msg"); // as before                             ║
+* ║    utils.Trap.ex("TAG", function() { ...dark-zone callback... });         ║
 * ║    →  [17][2026-08-24 12:34:56][TAG] message                              ║
 * ║                                                                           ║
-* ║  The file is created in the working directory of the process              ║
+* ║  The files are created in the working directory of the process            ║
 * ║  (bin/windows/bin/ when launched via lime run). Search "crash_trap.log"   ║
 * ║  in the project if unsure.                                                ║
 * ║                                                                           ║
@@ -61309,11 +62205,11 @@ package utils;
 * ║  is not flooded at 60 Hz. The default list targets the ComPort            ║
 * ║  grouping test; EDIT IT for the next scenario.                            ║
 * ║                                                                           ║
-* ║  v1.3 CHANGES (Stable Port Naming v3.0, 2026-08-25):
-* ║  - NAMES extended with Inlet/Outlet/Arrival/Departure 1-4 so
-* ║    wall-port hops stay visible after the naming migration.
-* ║  - New tags in the wild: MIG (blueprint migrated), MIG-HEAL
-* ║    (parent reference healed to a stable port name).
+* ║  v1.3 CHANGES (Stable Port Naming v3.0, 2026-08-25):                      ║
+* ║  - NAMES extended with Inlet/Outlet/Arrival/Departure 1-4 so              ║
+* ║    wall-port hops stay visible after the naming migration.                ║
+* ║  - New tags in the wild: MIG (blueprint migrated), MIG-HEAL               ║
+* ║    (parent reference healed to a stable port name).                       ║
 * ║                                                                           ║
 * ║  v1.2 CHANGES (Deafness hunt part 2, 2026-08-25):                         ║
 * ║  - nameMatches(): SUFFIX match added — chain port names ending with       ║
@@ -61360,8 +62256,105 @@ class Trap
 
 #if cpp
         private static var _out:sys.io.FileOutput = null;
+        private static var _booted:Bool = false;
 #end
         private static var _seq:Int = 0;
+
+        /**
+        * v1.4 (Episod H-1): install the black box. Call ONCE, as the very
+        * first statement of Main.new().
+        *
+        *  1. stderr (fd 2) is redirected into stderr_capture.log (append).
+        *     hxcpp prints "Uncaught exception : <msg> + stack" to stderr;
+        *     the "lime run" pipe only captures stdout, so without this the
+        *     most important line of a crash run evaporates.
+        *  2. Windows: a native SEH sentinel is installed. ANY unhandled
+        *     native exception (segfault c0000005, abort, C++ exception
+        *     escaping the runtime) appends one raw line to crash_trap.log
+        *     before the process dies.
+        *
+        * Never throws — trapping must not change program behavior.
+        */
+        public static function boot():Void
+        {
+#if cpp
+                if (_booted) return;
+                _booted = true;
+                try
+                {
+                        untyped __cpp__('
+                                #ifdef _WIN32
+                                {
+                                        int _trap_fd = _open("stderr_capture.log",
+                                                _O_CREAT | _O_WRONLY | _O_APPEND,
+                                                _S_IREAD | _S_IWRITE);
+                                        if (_trap_fd >= 0)
+                                        {
+                                                _dup2(_trap_fd, 2);
+                                                if (_trap_fd != 2) _close(_trap_fd);
+                                        }
+                                        SetUnhandledExceptionFilter(_altauri_trap_seh_filter);
+                                }
+                                #else
+                                {
+                                        int _trap_fd = open("stderr_capture.log",
+                                                O_CREAT | O_WRONLY | O_APPEND, 0644);
+                                        if (_trap_fd >= 0)
+                                        {
+                                                dup2(_trap_fd, 2);
+                                                if (_trap_fd != 2) close(_trap_fd);
+                                        }
+                                }
+                                #endif
+                        ');
+                        log("TRAP", "v1.4.1 boot: stderr -> stderr_capture.log, native SEH sentinel armed (Windows)");
+                }
+                catch (e:Dynamic)
+                {
+                        // Swallow — traps must never break the app.
+                }
+#end
+        }
+
+        /**
+        * v1.4 (Episod H-1): guarded call for the DARK ZONE — openfl
+        * display-list event handlers and haxe.Timer callbacks have no
+        * try/catch anywhere on their path; an exception thrown there
+        * kills the process with exit code 1 and (before v1.4) no trace.
+        *
+        * Trap.ex runs fn() and, if it throws, logs the exception WITH its
+        * Haxe stack and SWALLOWS it — the app keeps running and the report
+        * lands in crash_trap.log. Returns true if fn completed normally.
+        */
+        public static function ex(tag:String, fn:Void -> Void):Bool
+        {
+#if cpp
+                if (!ENABLE) { fn(); return true; }
+                try
+                {
+                        fn();
+                        return true;
+                }
+                catch (e:Dynamic)
+                {
+                        var msg:String;
+                        try
+                        {
+                                msg = Std.string(e) + "\n"
+                                        + haxe.CallStack.toString(haxe.CallStack.exceptionStack());
+                        }
+                        catch (e2:Dynamic)
+                        {
+                                msg = Std.string(e) + " (stack unavailable)";
+                        }
+                        log("EX", tag + " THREW: " + msg);
+                        return false;
+                }
+#else
+                fn();
+                return true;
+#end
+        }
 
         /**
         * Append one line to crash_trap.log and FLUSH immediately.
@@ -61369,8 +62362,8 @@ class Trap
         */
         public static function log(tag:String, msg:String = ""):Void
         {
-			// Блокиратор ловушки лога
-			//return;
+                        // Блокиратор ловушки лога
+                        //return;
 #if cpp
                 if (!ENABLE) return;
                 try
@@ -61423,7 +62416,6 @@ class Trap
 #end
         }
 }
-
 
 ================================================================================
 // FILE: utils\UID.hx

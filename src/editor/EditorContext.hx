@@ -956,25 +956,28 @@ class EditorContext
         {
                 if (_bgRefreshTimer != null) return; // already scheduled
                 _bgRefreshTimer = haxe.Timer.delay(function():Void
-                {
-                        _bgRefreshTimer = null;
-                        // The TOP editor is skipped: it is the one the user is
-                        // editing in, and NodeEditor's own deferred pipeline
-                        // already refreshes it.
-                        var top:Int = _stack.length - 1;
-                        for (i in 0...top)
-                        {
-                                var entry:EditorEntry = _stack[i];
-                                if (entry == null || entry.editor == null) continue;
-                                if (entry.editor.isDisposed) continue;
-                                utils.Trap.log("G41-BG-NET",
-                                        "asm=" + (entry.assembly != null
-                                                && entry.assembly.blueprint != null
-                                                ? entry.assembly.blueprint.id : "?")
-                                        + " level=" + i);
-                                entry.editor.refreshWiresAfterPortsChange();
-                        }
-                }, 100);
+					{
+						_bgRefreshTimer = null;
+						// The TOP editor is skipped: it is the one the user is
+						// editing in, and NodeEditor's own deferred pipeline
+						// already refreshes it.
+						var top:Int = _stack.length - 1;
+						for (i in 0...top)
+						{
+							var entry:EditorEntry = _stack[i];
+							if (entry == null || entry.editor == null) continue;
+							if (entry.editor.isDisposed) continue;
+							utils.Trap.log("G41-BG-NET",
+							"asm=" + (entry.assembly != null
+							&& entry.assembly.blueprint != null
+							? entry.assembly.blueprint.id : "?")
+							+ " level=" + i);
+							// v1.4 (Episod H-1): one poisoned entry must not kill the whole net
+							utils.Trap.ex("G41-BG-NET-BODY", function() {
+								entry.editor.refreshWiresAfterPortsChange();
+							});
+						}
+					}, 100);
         }
 
         // ═══════════════════════════════════════════════════════════════════

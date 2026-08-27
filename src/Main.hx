@@ -218,6 +218,10 @@ class Main extends Sprite
         public function new()
         {
                 super();
+				
+				// v1.4 (Episod H-1): black box FIRST — stderr capture + native SEH sentinel
+				utils.Trap.boot();
+				
                 _theme = EditorTheme.getInstance();
 
                 #if html5
@@ -1375,22 +1379,26 @@ class Main extends Sprite
         * Called every frame via ENTER_FRAME event.
         * Delegates to TickGenerator for unified simulation update.
         */
-        private function onMainLoop(e:Event):Void
-        {
-                var now = Lib.getTimer();
-                var dt = (now - _lastTime) / 1000.0;
-                _lastTime = now;
+		private function onMainLoop(e:Event):Void
+		{
+			var now = Lib.getTimer();
+			var dt = (now - _lastTime) / 1000.0;
+			_lastTime = now;
 
-// Unified update via TickGenerator
-                TickGenerator.getInstance().update(dt);
+			// Unified update via TickGenerator
+			// v1.4 (Episod H-1): the whole frame body is guarded — an exception here
+			// killed the process silently (exit code 1, stderr lost in the lime pipe).
+			utils.Trap.ex("LOOP", function() {
+			TickGenerator.getInstance().update(dt);
+			});
 
-        // v3.1: 1 Hz heartbeat — last BEAT marks the death second.
-                _trapBeatFrames++;
-                if (_trapBeatFrames >= 60)
-                {
-                        _trapBeatFrames = 0;
-                        utils.Trap.log("BEAT", "alive");
-                }
+			// v3.1: 1 Hz heartbeat — last BEAT marks the death second.
+			_trapBeatFrames++;
+			if (_trapBeatFrames >= 60)
+			{
+					_trapBeatFrames = 0;
+					utils.Trap.log("BEAT", "alive");
+			}
         }
 
         /**
