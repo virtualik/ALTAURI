@@ -976,7 +976,7 @@ extern "C" void android_ws_disconnect(void* haxePtr) {
 
 /**
  * ╔═══════════════════════════════════════════════════════════════════════════╗
- * ║                WEBSOCKET CLIENT ATOM v1.0                                 ║
+ * ║                WEBSOCKET CLIENT ATOM v1.1                                 ║
  * ║        (Cross-Platform: HTML5 Browser + Windows WinHTTP)                  ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║                                                                           ║
@@ -1213,11 +1213,33 @@ class WebSocketAtom extends Atom implements system.managers.Driver
      * C++ (Linux/Android): Allocates state, spawns stub worker (returns
      *                "not implemented" error on connect).
      * HTML5: No-op — WebSocket instance is created lazily on connect.
+     *
+     * IDEMPOTENT (v1.1, Task 96): called twice in the constructor flow
+     * (DriverManager.register() + explicit init()); the second call is a
+     * no-op via a map-keyed guard.
      */
     override public function init():Void
     {
         #if cpp
         untyped __cpp__('
+            // FIX C (v1.1, Task 96) — IDEMPOTENCY GUARD.
+            // init() runs TWICE in the constructor flow: once via
+            // DriverManager.register() (the Atom base constructor,
+            // isActive=true, calls driver.init() — a VIRTUAL call that
+            // lands here before the derived constructor body runs) and
+            // once explicitly from the constructor body. The second
+            // call used to allocate a SECOND WebSocketState + worker
+            // thread and OVERWRITE the map entry — orphaning state #1
+            // and its thread for the lifetime of the process (idle
+            // loop on atomics: a silent leak, no crash). Map-keyed
+            // guard: if this atom instance (mPtr) already owns a
+            // state, init() is a no-op.
+            {
+                std::lock_guard<std::mutex> lock(_ws_map_mutex);
+                if (_ws_map.find((void*){0}.mPtr) != _ws_map.end()) {
+                    return; // Already initialized — idempotent no-op.
+                }
+            }
             // Allocate state
             WebSocketState* st = new WebSocketState();
             {

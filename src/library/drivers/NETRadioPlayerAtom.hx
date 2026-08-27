@@ -653,7 +653,7 @@ extern "C" void RP_CancelRequest(void* haxePtr) {
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     NET RADIO PLAYER ATOM v6.0                            ║
+* ║                     NET RADIO PLAYER ATOM v6.1                            ║
 * ║                     (Internet Radio Metadata + Audio Playback)            ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
@@ -880,7 +880,16 @@ extern "C" void RP_CancelRequest(void* haxePtr) {
 * ║                    VERSION HISTORY                                        ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
-* ║  v6.0 (Current) — Multi-Platform Conditional Compilation                  ║
+* ║  v6.1 (Current) — Idempotent init (Task 96, Fix C)                        ║
+* ║    • ADDED: map-keyed idempotency guard in init() — the double            ║
+* ║      init() in the constructor flow (DriverManager.register()             ║
+* ║      callback + explicit call) used to allocate a SECOND                  ║
+* ║      NetRadioState + worker thread and overwrite the map entry,           ║
+* ║      orphaning state #1 and its thread for the process lifetime.          ║
+* ║    • NOTE: RP_Init() was already idempotent (g_mfStarted) — the           ║
+* ║      double WMF init was harmless; the leak was state + thread only.      ║
+* ║                                                                           ║
+* ║  v6.0 — Multi-Platform Conditional Compilation                            ║
 * ║    • ADDED: #if (cpp || js) top-level guard for cross-platform support    ║
 * ║    • ADDED: #if (cpp && windows) guard on @:buildXml (WMF libs)           ║
 * ║    • ADDED: #if cpp guard on @:headerCode and @:cppFileCode               ║
@@ -1047,6 +1056,26 @@ class NETRadioPlayerAtom extends Atom implements system.managers.Driver
             #end
         }
         untyped __cpp__('
+            // FIX C (v6.1, Task 96) — IDEMPOTENCY GUARD.
+            // init() runs TWICE in the constructor flow: once via
+            // DriverManager.register() (the Atom base constructor,
+            // isActive=true, calls driver.init() — a VIRTUAL call that
+            // lands here before the derived constructor body runs) and
+            // once explicitly from the constructor body. The second
+            // call used to allocate a SECOND NetRadioState + worker
+            // thread and OVERWRITE the map entry — orphaning state #1
+            // and its thread for the lifetime of the process (idle
+            // loop on atomics: a silent leak, no crash) while also
+            // re-pointing the global g_currentState. Map-keyed guard:
+            // if this atom instance (mPtr) already owns a state, init()
+            // is a no-op. RP_Init() above is already idempotent
+            // (g_mfStarted), so WMF is unaffected either way.
+            {
+                std::lock_guard<std::mutex> lock(_netradio_map_mutex);
+                if (_netradio_map.find((void*){0}.mPtr) != _netradio_map.end()) {
+                    return; // Already initialized — idempotent no-op.
+                }
+            }
             NetRadioState* st = new NetRadioState();
             st->isRunning.store(true);
             st->shouldPlay.store(false);

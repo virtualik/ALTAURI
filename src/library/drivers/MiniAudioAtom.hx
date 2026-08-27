@@ -233,7 +233,7 @@ import system.managers.DriverManager;
 			  ')
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     MINI AUDIO ATOM v1.0                                  ║
+* ║                     MINI AUDIO ATOM v1.1                                  ║
 * ║                     (Zero-GC Real-Time Audio Capture)                     ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
@@ -325,6 +325,21 @@ import system.managers.DriverManager;
 * ║  │  Result: 0 allocations per processed audio buffer.                   │ ║
 * ║  └──────────────────────────────────────────────────────────────────────┘ ║
 * ║                                                                           ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                    VERSION HISTORY                                        ║
+* ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║  v1.1 (Current) — Idempotent Lifecycle (Fix A, Task 96)                   ║
+* ║    • FIX: openDevice() resource-liveness guard — the double init()        ║
+* ║      opened TWO devices; device #1 leaked with a live audio callback      ║
+* ║      (sample race on the shared DoubleBuffer + UAF after dispose/GC       ║
+* ║      of the atom — the "rebirth crash" on Back [<]).                      ║
+* ║    • FIX: init() memo guard (no double ping-pong buffer allocation).      ║
+* ║    • FIX: closeDevice() total-sweep guard (releases ANY live pointer,     ║
+* ║      not only when the _deviceReady flag is set).                         ║
+* ║    • FIX: OOM path in openDevice() frees the surviving allocation.        ║
+* ║                                                                           ║
+* ║  v1.0 — Initial Zero-GC real-time audio capture                           ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
 */
 class MiniAudioAtom extends Atom implements system.managers.Driver
@@ -476,6 +491,18 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
 	*/
 	override public function init():Void
 	{
+// ═══════════════════════════════════════════════════════════════════
+// IDEMPOTENCY GUARD (v1.1, Fix A — Task 96).
+// init() is invoked TWICE in the constructor flow: once implicitly via
+// DriverManager.register() — the Atom base constructor (isActive=true)
+// registers this driver and register() calls driver.init(), a VIRTUAL
+// call that lands in THIS override before the derived constructor body
+// has run — and once explicitly at the end of the constructor body.
+// Without a guard every MiniAudioAtom allocation built TWO sets of
+// ping-pong buffers (6 wasted arrays per atom per "rebirth") and fed
+// openDevice() twice (see the guard there for the fatal consequences).
+// Memo guard: _bufA != null means the allocation phase already ran.
+		if (_bufA != null) return;
 // 1. Pre-allocation of Zero-GC Ping-Pong Buffers.
 // We create fixed-size arrays once to avoid
 // runtime allocations (which would trigger GC).
@@ -615,6 +642,28 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
 	*/
 	private function openDevice():Void
 	{
+// ═══════════════════════════════════════════════════════════════════
+// RESOURCE-LIVENESS GUARD (v1.1, Fix A — Task 96) — ROOT FIX of the
+// "rebirth crash" (app exit on Back [<] with a reborn MiniAudioAtom).
+//
+// HISTORY: openDevice() had NO guard. The double init() in the
+// constructor flow (DriverManager.register callback + explicit call)
+// therefore opened TWO miniaudio devices: device #1 kept RUNNING while
+// its _context/_device/_doubleBufferRaw pointers were OVERWRITTEN by
+// the second open. Consequences:
+//   1) device #1 leaked and its audio callback kept firing every
+//      ~11.6 ms with pUserData pointing at this Haxe object;
+//   2) BOTH callbacks raced on the same DoubleBuffer (the "sample
+//      data race");
+//   3) after dispose() + GC of the atom, pUserData dangled →
+//      use-after-free → heap corruption (crash exactly at "rebirth").
+//
+// GUARD: refuse to open while ANY native resource of this atom is
+// live. Every failure path of the C++ block below nulls all pointers,
+// so a failed open leaves all four conditions false → retry via
+// restart() remains fully allowed. restart() itself is unaffected:
+// closeDevice() nulls every pointer before openDevice() re-enters.
+		if (_deviceReady || _device != null || _context != null || _doubleBufferRaw != null) return;
 // Determine sample rate and device type.
 		var sampleRate : Int = SAMPLE_RATES[_sampleRateIdx];
 		var deviceType : Int = (_mode == MODE_LOOPBACK) ? 2 : 1; // 2 = loopback, 1 = capture
@@ -632,6 +681,9 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
 		ma_context* ctx = (ma_context*)malloc(sizeof(ma_context));
 		ma_device*  dev = (ma_device*)malloc(sizeof(ma_device));
 		if (!ctx || !dev) {
+		// v1.1 (Task 96): free whichever allocation succeeded (OOM hygiene).
+		if (ctx) free(ctx);
+		if (dev) free(dev);
 		delete db;
 		{0}->_doubleBufferRaw = nullptr;
 		return;
@@ -687,7 +739,15 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
 	*/
 	private function closeDevice():Void
 	{
-		if (!_deviceReady) return;
+// ═══════════════════════════════════════════════════════════════════
+// TOTAL-SWEEP GUARD (v1.1, Fix A — Task 96).
+// Mirror of the openDevice() liveness guard: release if ANY native
+// resource pointer is live — not only when the _deviceReady flag is
+// set. The C++ block below already null-checks dev/ctx/db individually,
+// so sweeping with partially-live state is safe. The old guard trusted
+// a single flag; a stuck flag would have leaked a RUNNING device (the
+// exact bug class Fix A eliminates at the source).
+		if (!_deviceReady && _device == null && _context == null && _doubleBufferRaw == null) return;
 		_deviceReady = false;
 // ═══════════════════════════════════════════════════════════════════
 // C++ CLEANUP BLOCK

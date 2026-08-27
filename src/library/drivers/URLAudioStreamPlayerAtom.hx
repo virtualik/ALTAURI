@@ -93,7 +93,22 @@ static std::mutex _urlaudio_sessions_mutex;
 ')
 
 /**
-* URL AUDIO STREAM PLAYER ATOM v1.3 (Reconnect Loop Resolution)
+* URL AUDIO STREAM PLAYER ATOM v1.5 (Idempotent init + Reconnect Loop Resolution)
+*
+* ┌─────────────────────────────────────────────────────────────────────────┐
+* │  v1.5 CHANGES (Task 96, Fix C — idempotent init):                       │
+* │                                                                         │
+* │  ROOT CAUSE: init() runs TWICE in the constructor flow — once via       │
+* │  DriverManager.register() (Atom base constructor, isActive=true,        │
+* │  calls driver.init() immediately) and once explicitly from the          │
+* │  constructor body. The second call allocated a SECOND                   │
+* │  WMFStreamSession (COM session) and OVERWROTE the map entry —           │
+* │  session #1 was orphaned for the lifetime of the process.               │
+* │                                                                         │
+* │  FIX: map-keyed idempotency guard in init() — if this atom instance     │
+* │  (mPtr) already owns a session, init() is a no-op. dispose() erases     │
+* │  the map entry, so the guard never blocks a legitimate re-init.         │
+* └─────────────────────────────────────────────────────────────────────────┘
 *
 * ┌─────────────────────────────────────────────────────────────────────────┐
 * │  v1.3 CHANGES (resolves infinite reconnect loop):                       │
@@ -187,6 +202,23 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 	override public function init():Void
 	{
 		untyped __cpp__('
+			// FIX C (v1.5, Task 96) — IDEMPOTENCY GUARD.
+			// init() runs TWICE in the constructor flow: once via
+			// DriverManager.register() (the Atom base constructor,
+			// isActive=true, calls driver.init() — a VIRTUAL call
+			// that lands here before the derived constructor body runs)
+			// and once explicitly from the constructor body. The second
+			// call used to allocate a SECOND WMFStreamSession (COM
+			// session) and OVERWRITE the map entry — orphaning session
+			// #1 for the lifetime of the process. Map-keyed guard: if
+			// this atom instance (mPtr) already owns a session, init()
+			// is a no-op. (v1.4 inline reconnect fixes remain intact.)
+			{
+				std::lock_guard<std::mutex> lock(_urlaudio_sessions_mutex);
+				if (_urlaudio_sessions.find((void*){0}.mPtr) != _urlaudio_sessions.end()) {
+					return; // Already initialized — idempotent no-op.
+				}
+			}
 			WMFStreamSession* session = new WMFStreamSession();
 			{
 				std::lock_guard<std::mutex> lock(_urlaudio_sessions_mutex);
