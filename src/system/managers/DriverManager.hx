@@ -3,7 +3,7 @@ package system.managers;
 import system.managers.Driver;
 
 /**
- * DRIVER MANAGER v2.1 (Performance)
+ * DRIVER MANAGER v2.2 (Performance + Fault Isolation)
  * Manages active drivers (update loops).
  * Part of the COMPUTE LAYER in "Atom is Databank & Compute Core" architecture.
  *
@@ -39,6 +39,11 @@ import system.managers.Driver;
  * │   - Added getDriverCount() for debugging                                │
  * │   - Safe iteration with copy on update                                  │
  * │   - Cached _driverList for fast iteration                               │
+ * │                                                                         │
+ * │   v2.2 Changes (FAULT_ISOLATION WP):                                    │
+ * │   - update() catch faults the driver (latch + black box — no more      │
+ * │     bare-trace invisibility)                                            │
+ * │   - unregister() sweeps ResourceRegistry keys (safety net)              │
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
@@ -109,6 +114,10 @@ class DriverManager
             _drivers.remove(id);
             _needsRebuild = true;
             trace('DriverManager: Unregistered $id');
+            // v2.2 RESOURCE CONTRACT: safety sweep — release any exclusive
+            // resource keys still held by this atom (idempotent no-op when
+            // the driver already released them in its own dispose()).
+            ResourceRegistry.releaseAll(id);
         }
     }
     
@@ -141,7 +150,20 @@ class DriverManager
                 }
                 catch (e:Dynamic)
                 {
+                    // v2.2 FAULT ISOLATION: bare trace kept the app alive but
+                    // the failure stayed invisible. Now the driver is
+                    // fault-latched as well (red frame + black box; the
+                    // latch itself deduplicates per-frame refault spam).
                     trace('DriverManager: Error in ${driver.id}: $e');
+                    utils.Trap.log("DM-EX", driver.id + " update threw: " + Std.string(e));
+                    // Type note: `driver` is the Driver INTERFACE — it has
+                    // no markAsFaulted(). Every Driver implementor extends
+                    // Atom, so a guarded downcast is type-safe and keeps
+                    // the interface API untouched.
+                    if (Std.isOfType(driver, core.base.Atom))
+                    {
+                        cast(driver, core.base.Atom).markAsFaulted("DRIVER_UPDATE", Std.string(e));
+                    }
                 }
             }
         }
@@ -197,6 +219,9 @@ class DriverManager
                 catch (e:Dynamic)
                 {
                     trace('DriverManager: Error disposing $id: $e');
+                    // v2.2: black-box mirror — the driver is dying, a fault
+                    // latch is pointless here, but the evidence must survive.
+                    utils.Trap.log("DM-EX", id + " dispose threw: " + Std.string(e));
                 }
             }
         }

@@ -5,7 +5,7 @@ import core.types.ContactType.*;
 import utils.UID;
 
 /**
-* CONTACT v5.13 (Propagation Depth Leak Fix + Depth-Guard Canary)
+* CONTACT v5.14 (Propagation Depth Leak Fix + Depth-Guard Canary + Fault Latch)
 *
 * A connection point that can be linked to other contacts.
 * When value changes, it propagates to linked targets.
@@ -28,6 +28,8 @@ import utils.UID;
 *   silently killed EVERY set_value in the app — probes kept logging,
 *   values stopped flowing, restores died, wires looked fine.
 *   + DEPTH-GUARD canary trap for direct observability.
+* - v5.14: FAULT ISOLATION — the set_value catch faults the owner
+*   atom (was: totally silent swallow of scheduling exceptions).
 *
 * Comparison of Write Methods:
 * ┌────────────────────┬───────────────────────────────────────────────────────┐
@@ -410,7 +412,15 @@ _isScheduled = true;
 tg.schedule(_propagate, NORMAL);
 }
 }
-catch (e:Dynamic) { }
+catch (e:Dynamic)
+{
+// v5.14 FAULT ISOLATION: this catch used to be empty — scheduling
+// exceptions vanished without a trace. The swallow semantics stay
+// (conduction must never break on one contact), but the owner atom
+// is fault-latched now: visible red frame + one black-box line.
+utils.Trap.log("CONTACT-EX", (owner != null ? owner.id : "?") + "." + name + " set_value threw: " + Std.string(e));
+if (owner != null) owner.markAsFaulted("CONTACT_SET", Std.string(e));
+}
 _propagationDepth--;
 
 return newValue;

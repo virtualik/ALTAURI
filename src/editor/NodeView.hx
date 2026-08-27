@@ -28,7 +28,16 @@ import core.data.Blueprint.ParameterPriority;
 import ui.NodeVisualMode;
 
 /**
-* NODE VIEW v5.3 (Identity Contract v1.6: atomId payload key + Port Labels v1.1: rename via double-click on the LABEL text — same affordance as the assembly name + Stable Wall-Port Naming v3.0 + Canonical Order + Port Beneficiary Tooltips)
+* NODE VIEW v5.4 (Identity Contract v1.6: atomId payload key + Port Labels v1.1: rename via double-click on the LABEL text — same affordance as the assembly name + Stable Wall-Port Naming v3.0 + Canonical Order + Port Beneficiary Tooltips)
+*
+* v5.4 CHANGES (FAULT_ISOLATION WP):
+*   - FAULT ISOLATION UI: per-view ATOM_FAULTED/ATOM_FAULT_CLEARED
+*     subscription (atomId-filtered, Listener Reference Identity) —
+*     hard-red 2px frame (wins over normal AND selected border color;
+*     the yellow selection ring still renders via its own sprite),
+*     a red FAULT pill left of the settings button with a hover
+*     tooltip (reason + message + recovery hint). Latch projection
+*     is reset on reattachToAtom() — a reborn atom starts healthy.
 *
 * v5.3 CHANGES (Wide View WP-3 — Identity Contract v1.6):
 * - ALL atom-identity emissions renamed `id` -> `atomId` in lockstep with
@@ -310,6 +319,21 @@ class NodeView extends Sprite
         private static inline var LONG_PRESS_DEAD_ZONE_SQ:Float = 100.0;
 
 // =========================================================================
+// FAULT ISOLATION UI (v5.4 — FAULT_ISOLATION WP)
+// =========================================================================
+        /** Hard-red frame color for a faulted atom (fault latch projection). */
+        private static inline var FAULT_BORDER_COLOR:Int = 0xE53935;
+        /** True while the represented atom holds a fault latch. */
+        private var _isFaulted:Bool = false;
+        /** Tooltip text of the current latch (reason + message + hint). */
+        private var _faultText:String = null;
+        /** Red "FAULT" pill in the title bar (lazy-created, hidden when healthy). */
+        private var _faultBadge:Sprite = null;
+        /** Bus handler references — Listener Reference Identity contract. */
+        private var _onAtomFaulted:Impulse -> Void = null;
+        private var _onAtomFaultCleared:Impulse -> Void = null;
+
+// =========================================================================
 // CALLBACKS
 // =========================================================================
         public var onOpenDeviceWindow:NodeView -> Void;
@@ -347,6 +371,23 @@ class NodeView extends Sprite
                 ECS.register(nodeId, this, this.x, this.y);
                 Impulsys.subscribeToImpulse(EventType.ASSEMBLY_PORTS_CHANGED, onAssemblyPortsChanged);
                 Impulsys.subscribeToImpulse(EventType.REDRAW_WIRES, onWiresRedrawn);
+                // FAULT ISOLATION (v5.4): latch projection — red frame + badge.
+                _onAtomFaulted = function(imp:Impulse):Void
+                {
+                        if (imp == null || imp.data == null) return;
+                        if (imp.data.atomId != nodeId) return;
+                        _applyFault(true, imp.data.reason, imp.data.message);
+                };
+                _onAtomFaultCleared = function(imp:Impulse):Void
+                {
+                        if (imp == null || imp.data == null) return;
+                        if (imp.data.atomId != nodeId) return;
+                        _applyFault(false, null, null);
+                };
+                Impulsys.subscribeToImpulse(EventType.ATOM_FAULTED, _onAtomFaulted);
+                Impulsys.subscribeToImpulse(EventType.ATOM_FAULT_CLEARED, _onAtomFaultCleared);
+                // Atom may already be latched (view created after the fault).
+                if (atom != null && atom.isFaulted) _applyFault(true, atom.faultReason, atom.faultMessage);
                 //trace('NodeView: Created for atom "${atom.displayName}" (id: ${nodeId})');
         }
 
@@ -421,6 +462,10 @@ class NodeView extends Sprite
 
                 // 2. Swap atom reference
                 _atom = newAtom;
+
+                // FAULT ISOLATION (v5.4): the fresh instance starts healthy —
+                // drop any stale latch UI from the previous incarnation.
+                _applyFault(newAtom.isFaulted, newAtom.faultReason, newAtom.faultMessage);
 
                 // 3. Update assembly reference
                 if (Std.isOfType(newAtom, Assembly))
@@ -541,6 +586,81 @@ class NodeView extends Sprite
         }
 
 // =========================================================================
+// FAULT ISOLATION UI (v5.4)
+// =========================================================================
+        /**
+        * Project the atom's fault latch onto this view: red frame, FAULT
+        * pill and tooltip text. Called from the ATOM_FAULTED /
+        * ATOM_FAULT_CLEARED subscriptions and from reattachToAtom().
+        */
+        private function _applyFault(faulted:Bool, reason:String, message:String):Void
+        {
+                if (faulted)
+                {
+                        _isFaulted = true;
+                        _faultText = "FAULT [" + (reason != null ? reason : "?") + "] "
+                                + (message != null ? message : "")
+                                + "  —  change a parameter or press Restart to retry";
+                        utils.Trap.log("NV-FAULT", nodeId + " latched [" + (reason != null ? reason : "?") + "]");
+                }
+                else
+                {
+                        _isFaulted = false;
+                        _faultText = null;
+                }
+                updateFaultBadge();
+                if (_background != null) redraw();
+        }
+
+        /**
+        * Lazy-creates / hides the red FAULT pill (left of the settings
+        * button). Hover shows the fault tooltip; leaving hides it.
+        */
+        private function updateFaultBadge():Void
+        {
+                if (_isFaulted)
+                {
+                        if (_faultBadge == null)
+                        {
+                                _faultBadge = new Sprite();
+                                _faultBadge.mouseChildren = false;
+                                var bg = _faultBadge.graphics;
+                                bg.beginFill(FAULT_BORDER_COLOR, 1.0);
+                                bg.drawRoundRect(0, 0, 38, 14, 4, 4);
+                                bg.endFill();
+                                var tf = new TextField();
+                                tf.width = 38;
+                                tf.height = 14;
+                                tf.selectable = false;
+                                tf.mouseEnabled = false;
+                                tf.defaultTextFormat = new TextFormat("_sans", 9, 0xFFFFFF, true, null, null, null, null, "center");
+                                tf.text = "FAULT";
+                                _faultBadge.addChild(tf);
+                                _faultBadge.addEventListener(MouseEvent.ROLL_OVER, function(e:MouseEvent):Void
+                                {
+                                        if (_faultText != null && _faultBadge != null && _faultBadge.stage != null)
+                                        {
+                                                editor.EditorTooltip.show(_faultBadge.stage, e.stageX, e.stageY, _faultText);
+                                        }
+                                });
+                                _faultBadge.addEventListener(MouseEvent.ROLL_OUT, function(e:MouseEvent):Void
+                                {
+                                        editor.EditorTooltip.hide();
+                                });
+                                addChild(_faultBadge);
+                        }
+                        _faultBadge.visible = true;
+                        _faultBadge.x = _nodeWidth - 65;
+                        _faultBadge.y = (TITLE_HEIGHT - 14) / 2;
+                }
+                else if (_faultBadge != null)
+                {
+                        _faultBadge.visible = false;
+                        editor.EditorTooltip.hide();
+                }
+        }
+
+// =========================================================================
 // UI CONSTRUCTION
 // =========================================================================
         private function buildUI():Void
@@ -635,7 +755,17 @@ private function centerPreviewContainer():Void
                 var g = _background.graphics;
                 g.clear();
                 g.beginFill(0x2a2a3a, 0.95);
-                g.lineStyle(selected ? 2 : 1, selected ? _theme.NODE_SELECTED_COLOR : _theme.NODE_BORDER_COLOR);
+                // FAULT ISOLATION (v5.4): the fault frame wins over the normal
+                // and selected border colors — a faulted node must be spottable
+                // at any zoom; selection keeps its own yellow ring sprite.
+                if (_isFaulted)
+                {
+                        g.lineStyle(2, FAULT_BORDER_COLOR);
+                }
+                else
+                {
+                        g.lineStyle(selected ? 2 : 1, selected ? _theme.NODE_SELECTED_COLOR : _theme.NODE_BORDER_COLOR);
+                }
                 if (atom.isLogic)
                 {
                         var cut = 10.0;
@@ -2390,6 +2520,12 @@ private function centerPreviewContainer():Void
 utils.Trap.log("NV-DISPOSE", "nodeView down: " + nodeId + " cacheAsBitmap=" + this.cacheAsBitmap);
                 Impulsys.removeImpulse(EventType.ASSEMBLY_PORTS_CHANGED, onAssemblyPortsChanged);
                 Impulsys.removeImpulse(EventType.REDRAW_WIRES, onWiresRedrawn);
+                Impulsys.removeImpulse(EventType.ATOM_FAULTED, _onAtomFaulted);
+                Impulsys.removeImpulse(EventType.ATOM_FAULT_CLEARED, _onAtomFaultCleared);
+                _onAtomFaulted = null;
+                _onAtomFaultCleared = null;
+                _faultBadge = null;
+                _faultText = null;
                 ECS.unregister(nodeId);
                 removeEventListener(MouseEvent.DOUBLE_CLICK, onDoubleClick);
                 removeEventListener(MouseEvent.CLICK, onClick);

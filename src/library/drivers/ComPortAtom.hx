@@ -946,7 +946,7 @@ extern "C" const char* scanWindowsCOMPorts() {
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     COM PORT ATOM v3.4                                    ║
+* ║                     COM PORT ATOM v3.6                                    ║
 * ║     (Multi-Platform Driver: WinAPI/POSIX/Android JNI + HTML5 Web)         ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
@@ -1001,6 +1001,19 @@ extern "C" const char* scanWindowsCOMPorts() {
 */
 /**
 /**
+* v3.6 CHANGES (FAULT_ISOLATION WP):
+* - FAULT ISOLATION hooks: openDevice() failure latches COM_OPEN_FAILED
+*   (red frame + black box; gracious-refusal semantics — error output +
+*   COMPORT_ERROR event — are unchanged); success clears the latch
+*   (manual retry = user reopens the port); the update() STATE-LOST
+*   detector latches COM_STATE_LOST.
+* - RESOURCE CONTRACT: serial port key "serial:<PORT>" via the
+*   getResourceKey() override + ResourceRegistry enforcement in
+*   openDevice() — a second ComPort atom aimed at the same port now
+*   refuses EXPLICITLY (RESOURCE_BUSY + holder id) instead of the
+*   cryptic "WinAPI Open Failed (Error 5)". The key is released in
+*   closeDevice(); DriverManager.unregister() sweeps it as a net.
+*
 * v3.5 CHANGES (Black Box H-1 — hardening after the silent exit-code-1 crash):
 * - update(): the native map lookup now DETECTS "state lost" (the atom
 *   believes the port is open, but _com_states_map has no state at its
@@ -1324,6 +1337,9 @@ class ComPortAtom extends Atom implements system.managers.Driver
             {
                 _nativeStateLost = false;
                 utils.Trap.log("COMPORT", "STATE-LOST: _isOpenFlag=true but native map has no state (id=" + this.id + ")");
+                // v3.6 FAULT ISOLATION: red-frame the atom — the port is
+                // effectively dead until the user reopens it (close/open).
+                markAsFaulted("COM_STATE_LOST", "native state lost while isOpen=true");
             }
             #end
         }
@@ -1461,6 +1477,29 @@ class ComPortAtom extends Atom implements system.managers.Driver
         }
         var enabledC = getInput("enabled");
         if (enabledC != null && enabledC.value != null) _enabled = (enabledC.value == true);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // v3.6 FAULT ISOLATION + RESOURCE CONTRACT (FAULT_ISOLATION WP)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /** v3.6: resource key currently HELD by this atom (for release). */
+    private var _heldResourceKey:String = null;
+
+    /**
+    * v3.6 RESOURCE CONTRACT: the serial port is an OS-exclusive resource —
+    * two ComPort atoms aimed at the same portName fight over one handle
+    * (CreateFileA fails with a cryptic "Error 5"). The registry makes the
+    * conflict EXPLICIT: refuse + fault-latch with the holder's id.
+    * Key is normalized to upper case (Windows port names are
+    * case-insensitive).
+    */
+    override public function getResourceKey():String
+    {
+        var portNameC = getInput("portName");
+        var portName:String = (portNameC != null && portNameC.value != null) ? Std.string(portNameC.value) : null;
+        if (portName == null || portName == "") return null;
+        return "serial:" + portName.toUpperCase();
     }
 
     private function readInputs():Void
@@ -1613,6 +1652,19 @@ class ComPortAtom extends Atom implements system.managers.Driver
         var portName:String = (portNameC != null && portNameC.value != null) ? Std.string(portNameC.value) : "COM1";
         var baudRate:Int = (baudRateC != null && baudRateC.value != null) ? cast baudRateC.value : 9600;
 
+        // v3.6 RESOURCE CONTRACT: refuse BEFORE the native open if another
+        // atom of THIS app already holds the port. The OS would refuse us
+        // anyway — with a cryptic Error 5; now the reason is explicit and
+        // the offending node is visibly fault-latched (red frame).
+        var resKey:String = getResourceKey();
+        var resHolder:String = (resKey != null) ? system.managers.ResourceRegistry.getHolder(resKey) : null;
+        if (resHolder != null && resHolder != this.id)
+        {
+            setError('Port $portName is busy: already opened by another ComPort atom ($resHolder)');
+            markAsFaulted("RESOURCE_BUSY", 'serial port $portName held by atom $resHolder');
+            return;
+        }
+
         #if cpp
         var selfPtr:Dynamic = this;
         var success:Bool = false;
@@ -1705,6 +1757,14 @@ class ComPortAtom extends Atom implements system.managers.Driver
         if (success)
         {
             _isOpenFlag = true;
+            // v3.6 RESOURCE CONTRACT + FAULT ISOLATION: grab the port key
+            // and unlatch any previous fault — the manual retry succeeded.
+            if (resKey != null)
+            {
+                system.managers.ResourceRegistry.acquire(resKey, this.id);
+                _heldResourceKey = resKey;
+            }
+            clearFault();
             #if android
             _isWaitingForUsbPermission = false; // Сбрасываем флаг ожидания
             #end
@@ -1737,6 +1797,10 @@ class ComPortAtom extends Atom implements system.managers.Driver
             #else
             setError(errMessage != "" ? errMessage : 'Failed to open serial port: $portName');
             #end
+            // v3.6 FAULT ISOLATION: latch the failure (red frame + black
+            // box). Recovery: user reopens / changes the port — the latch
+            // clears on the next successful open (see success branch).
+            markAsFaulted("COM_OPEN_FAILED", errMessage != "" ? errMessage : 'Failed to open serial port: $portName');
         }
         #elseif html5
                 if (_isOpenFlag) closeDevice();
@@ -1789,6 +1853,15 @@ class ComPortAtom extends Atom implements system.managers.Driver
     public function closeDevice():Void
     {
         utils.Trap.log("COMPORT", "closeDevice enter isOpen=" + _isOpenFlag);
+        // v3.6 RESOURCE CONTRACT + FAULT ISOLATION: give the port key back
+        // to the pool and unlatch — a deliberate close is a user-driven
+        // reset, not a fault state.
+        if (_heldResourceKey != null)
+        {
+            system.managers.ResourceRegistry.release(_heldResourceKey, this.id);
+            _heldResourceKey = null;
+        }
+        clearFault();
         #if cpp
         var selfPtr:Dynamic = this;
         untyped __cpp__('

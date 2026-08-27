@@ -4,7 +4,7 @@ import haxe.Timer;
 import system.managers.DriverManager;
 
 /**
-* TICK GENERATOR v1.3 (Deaf Graph Fix + Depth-Safe Suspend + Traps)
+* TICK GENERATOR v1.4 (Deaf Graph Fix + Depth-Safe Suspend + Traps + Fault Visibility)
 *
 * The central hub for simulation control.
 *
@@ -241,7 +241,15 @@ class TickGenerator
 			for (task in tasksToFlush)
 			{
 				try { task(); }
-				catch (e: Dynamic) { /* Silently ignore disposed targets */ }
+				catch (e: Dynamic)
+				{
+					// v1.4 FAULT ISOLATION: deferred propagation tasks used to die in
+					// TOTAL silence here — the "deaf graph" failure mode (signals
+					// vanished between lock/unlock with zero evidence). One black-box
+					// line per failure now; the swallow itself stays (a dead deferred
+					// target is legal during topology mutations).
+					utils.Trap.log("TG-DEFERRED-EX", "deferred topology task threw: " + Std.string(e));
+				}
 			}
 
 // Notify UI to redraw wires after structural changes
@@ -560,7 +568,15 @@ class TickGenerator
 						if (task != null)
 						{
 							try { task(); }
-							catch (e: Dynamic) { trace('TickGenerator: Error in task: $e'); }
+							catch (e: Dynamic)
+							{
+								// v1.4 FAULT ISOLATION: mirror the task exception into the black
+								// box (the stdout trace is lost in the "lime run" pipe). Bare
+								// task closures carry no owner — owner-scoped faults are latched
+								// in Atom._calculate / Contact.set_value instead.
+								trace('TickGenerator: Error in task: $e');
+								utils.Trap.log("TG-TASK-EX", Std.string(e));
+							}
 						}
 					}
 					q.resize(0);

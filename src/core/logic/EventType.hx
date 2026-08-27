@@ -1,7 +1,7 @@
 package core.logic;
 
 /**
-* EVENT TYPE v1.6 (Identity Contract)
+* EVENT TYPE v1.7 (Identity Contract + Fault Isolation)
 *
 * Type-safe enumeration of all system events (Impulse types).
 *
@@ -181,6 +181,7 @@ package core.logic;
 *  │ CONTEXT MENU            │ CONTEXT_MENU_ACTION                        │
 *  │                         │                                            │
 *  │ CONTEXT MENU v2.0       │ MENU_ENTRY_ACTIVATED, MENU_CLOSED          │
+*  │ FAULT & ISOLATION       │ ATOM_FAULTED, ATOM_FAULT_CLEARED           │
 *  └─────────────────────────┴────────────────────────────────────────────┘
 *
 * ═══════════════════════════════════════════════════════════════════════════
@@ -208,6 +209,11 @@ package core.logic;
 * ═══════════════════════════════════════════════════════════════════════════
 * VERSION HISTORY
 * ═══════════════════════════════════════════════════════════════════════════
+*
+*  v1.7 — Fault Isolation (FAULT_ISOLATION WP)
+*  ──────────────────────────────────────────────────────────────────────
+*  - ADDED: ATOM_FAULTED / ATOM_FAULT_CLEARED (ATOM-SCOPED payloads;
+*    emitted exactly once per latch by Atom.markAsFaulted()/clearFault())
 *
 *  v1.6 — Identity Contract (Wide View WP-3)
 *  ──────────────────────────────────────────────────────────────────────
@@ -544,4 +550,49 @@ abstract EventType(String) from String to String {
     *   text = error message, e.g. "Android Rx Err:-1 (check cable/driver)".
     */
     public static var COMPORT_ERROR(default, never) = new EventType("COMPORT_ERROR");
+
+    // =====================================================================
+    // v1.7: FAULT ISOLATION (FAULT_ISOLATION WP)
+    // =====================================================================
+
+    /**
+    * Atom latched a fault (exception containment or resource refusal).
+    *
+    * Payload (ATOM-SCOPED): {
+    *   atomId: String,   // RUNTIME id of the faulted atom
+    *   reason: String,   // machine-readable code (see emitters below)
+    *   message: String   // human-readable detail
+    * }
+    *
+    * Reason codes in the wild:
+    *   EXCEPTION          — logic fault: _process() threw in _calculate()
+    *   DRIVER_UPDATE      — driver threw in DriverManager.update()
+    *   CONTACT_SET        — Contact.set_value scheduling path threw
+    *   RESOURCE_BUSY      — exclusive resource held by another atom
+    *   COM_OPEN_FAILED    — serial port open refused (native error)
+    *   COM_STATE_LOST     — native state lost under a live _isOpenFlag
+    *   AUDIO_INIT_FAILED  — miniaudio init/start failed
+    *
+    * Emitted by: Atom.markAsFaulted() — EXACTLY ONCE per latch (repeated
+    * faults while latched are silent by design — no per-frame spam).
+    *
+    * Consumers: NodeView (red frame + FAULT badge + hover tooltip).
+    * Fault state is RUNTIME-ONLY — never serialized, never saved.
+    *
+    * Recovery: the first healthy pass clears the latch (successful
+    * _calculate / restart / successful resource activation) and emits
+    * ATOM_FAULT_CLEARED. There is NO automatic retry loop — the user
+    * drives the retry (the "no autopilot" rule, FAULT_ISOLATION design).
+    */
+    public static var ATOM_FAULTED(default, never) = new EventType("ATOM_FAULTED");
+
+    /**
+    * Atom fault latch cleared — manual retry or healthy pass succeeded.
+    *
+    * Payload (ATOM-SCOPED): { atomId: String }
+    *
+    * Emitted by: Atom.clearFault() — exactly once per held latch.
+    * Consumers: NodeView (drop the red frame + FAULT badge).
+    */
+    public static var ATOM_FAULT_CLEARED(default, never) = new EventType("ATOM_FAULT_CLEARED");
 }

@@ -1,4 +1,6 @@
 package core.base;
+import core.logic.EventType;
+import core.logic.Impulsys;
 import core.logic.TickGenerator;
 import core.types.ContactType;
 import core.types.ContactType.*;
@@ -6,7 +8,7 @@ import system.managers.DriverManager;
 import system.managers.Driver;
 
 /**
-* ATOM BASE CLASS v7.1 (DisplayName Support)
+* ATOM BASE CLASS v7.2 (DisplayName Support + Fault Isolation Latch)
 * Fundamental unit of logic. Independent of rendering engine.
 *
 * An Atom is the smallest executable unit in the system.
@@ -18,6 +20,9 @@ import system.managers.Driver;
 * - Supports Logic Mode (digital) and Analog Mode (immediate)
 * - Implements Driver interface for active components
 * - v7.1: Supports user-friendly displayName with uniqueness
+* - v7.2: Fault isolation latch — markAsFaulted()/clearFault() +
+*   ATOM_FAULTED/ATOM_FAULT_CLEARED events; exception containment in
+*   _calculate(); runtime-only fault state (never serialized)
 */
 class Atom implements IDisposable implements Driver
 {
@@ -100,6 +105,83 @@ class Atom implements IDisposable implements Driver
 	*/
 	@:volatile private var _isDisposed:Bool = false;
 	private var _hasCalculatedOnce:Bool = false;
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// v7.2: FAULT ISOLATION LATCH (FAULT_ISOLATION WP).
+	// A latched atom is NOT broken out of the running graph — it is made
+	// VISIBLE: one ATOM_FAULTED event + one ATOM-FAULT black-box line per
+	// fault (no per-frame spam), a red frame on its NodeView, and an
+	// automatic unlatch on the first healthy pass (successful _calculate,
+	// restart, successful resource activation). Fault state is RUNTIME-ONLY
+	// — getPersistentState() never serializes it.
+	// ═══════════════════════════════════════════════════════════════════════
+	private var _isFaulted:Bool = false;
+	private var _faultReason:String = null;
+	private var _faultMessage:String = null;
+
+	/** True while this atom holds a fault latch (red frame in editor). */
+	public var isFaulted(get, never):Bool;
+	private function get_isFaulted():Bool return _isFaulted;
+
+	/** Machine-readable fault code of the current latch (null if healthy). */
+	public var faultReason(get, never):String;
+	private function get_faultReason():String return _faultReason;
+
+	/** Human-readable fault text of the current latch (null if healthy). */
+	public var faultMessage(get, never):String;
+	private function get_faultMessage():String return _faultMessage;
+
+	/**
+	* Latch a fault. Idempotent-quiet: the FIRST fault emits
+	* ATOM_FAULTED {atomId, reason, message} and writes one ATOM-FAULT
+	* line to the black box; repeated faults while latched are silent
+	* (the old failure mode — a fault re-logged every frame/event — is
+	* exactly what this latch removes).
+	* @return true if the latch was set by THIS call.
+	*/
+	public function markAsFaulted(reason:String, message:String):Bool
+	{
+		if (_isDisposed) return false;
+		if (_isFaulted) return false;
+		_isFaulted = true;
+		_faultReason = (reason != null) ? reason : "UNKNOWN";
+		_faultMessage = (message != null) ? Std.string(message) : "";
+		trace('Atom ${id}: FAULT [${_faultReason}] ${_faultMessage}');
+		utils.Trap.log("ATOM-FAULT", id + " [" + _faultReason + "] " + _faultMessage);
+		Impulsys.quickEmit(EventType.ATOM_FAULTED, {
+			atomId: id, reason: _faultReason, message: _faultMessage
+		});
+		return true;
+	}
+
+	/**
+	* Unlatch the fault (manual retry succeeded / resource re-activated /
+	* healthy calculation passed). Emits ATOM_FAULT_CLEARED {atomId}
+	* exactly once per held latch.
+	* @return true if a latch was actually cleared by THIS call.
+	*/
+	public function clearFault():Bool
+	{
+		if (!_isFaulted) return false;
+		_isFaulted = false;
+		_faultReason = null;
+		_faultMessage = null;
+		utils.Trap.log("ATOM-FAULT", id + " cleared");
+		Impulsys.quickEmit(EventType.ATOM_FAULT_CLEARED, { atomId: id });
+		return true;
+	}
+
+	/**
+	* v7.2: RESOURCE CONTRACT — override to declare an exclusive resource
+	* key (e.g. ComPortAtom -> "serial:COM3"). Null (default) = this atom
+	* claims no exclusive resource; the grab is enforced by
+	* system.managers.ResourceRegistry at the atom's REAL activation
+	* point (openDevice/openFile/...), not at registration time.
+	*/
+	public function getResourceKey():String
+	{
+		return null;
+	}
 
 // ========================================================================
 // INITIALIZATION v7.0
@@ -226,8 +308,24 @@ class Atom implements IDisposable implements Driver
 		if (_isDisposed || _process == null || _inputs == null) return;
 		// Cache input values
 		for (i in 0..._inputs.length) _inputCache[i] = _inputs[i].value;
-		// Process
-		var results = _process(_inputCache);
+		// Process — v7.2 FAULT ISOLATION: a throwing _process() latches the
+		// fault (ONE event + ONE black-box line; repeated faults stay silent)
+		// and aborts THIS calculation without writing garbage outputs. The
+		// atom stays in the graph: the next user-driven value change re-runs
+		// _calculate, and a healthy pass clears the latch below —
+		// reconfiguration IS the retry (no autopilot).
+		var results:Array<Dynamic>;
+		try
+		{
+			results = _process(_inputCache);
+		}
+		catch (e:Dynamic)
+		{
+			markAsFaulted("EXCEPTION", Std.string(e));
+			return;
+		}
+		// Healthy pass — unlatch (no-op when not faulted).
+		if (_isFaulted) clearFault();
 		// Write outputs
 		if (results != null && results.length == _outputs.length)
 		{

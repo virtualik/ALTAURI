@@ -233,7 +233,7 @@ import system.managers.DriverManager;
 			  ')
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     MINI AUDIO ATOM v1.1                                  ║
+* ║                     MINI AUDIO ATOM v1.2                                  ║
 * ║                     (Zero-GC Real-Time Audio Capture)                     ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
@@ -730,9 +730,21 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
 		', this, deviceType, _bufferSize, sampleRate);
 // Update output contact with device name.
 		if (_deviceReady)
+		{
 			setDeviceNameOutput((_mode == MODE_LOOPBACK) ? "Loopback @" + sampleRate + "Hz" : "Capture @" + sampleRate + "Hz");
+			// v1.2 FAULT ISOLATION: a healthy (re)activation unlatches any
+			// previous fault — Restart button, rebirth and parameter change
+			// are the manual retry paths by design (no autopilot).
+			clearFault();
+		}
 		else
+		{
 			setDeviceNameOutput("ERROR: device init failed");
+			// v1.2 FAULT ISOLATION: latch the failure — red frame + one
+			// black-box line instead of an error string buried in the
+			// "device" contact output.
+			markAsFaulted("AUDIO_INIT_FAILED", "miniaudio init/start failed (mode=" + _mode + ", rate idx=" + _sampleRateIdx + ")");
+		}
 	}
 	/**
 	* Closes audio device and releases resources.
