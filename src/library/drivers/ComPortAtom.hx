@@ -110,7 +110,7 @@ struct ComPortState {
     int hComm;
 #endif
 #ifdef __ANDROID__
-	JavaVM* g_vm = nullptr;
+        JavaVM* g_vm = nullptr;
     jobject jPort;
     jobject jConnection;
 #endif
@@ -945,7 +945,7 @@ extern "C" const char* scanWindowsCOMPorts() {
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     COM PORT ATOM v3.3                                    ║
+* ║                     COM PORT ATOM v3.4                                    ║
 * ║     (Multi-Platform Driver: WinAPI/POSIX/Android JNI + HTML5 Web)         ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
@@ -1000,6 +1000,17 @@ extern "C" const char* scanWindowsCOMPorts() {
 */
 /**
 /**
+* v3.4 CHANGES (Event Identity — "widgets are parallelized"):
+* - ALL COMPORT_* impulses now carry { atomId: this.id, text: <payload> }
+*   instead of a bare String. Every ComPortWidget subscribes to these
+*   GLOBAL events, so with bare strings every widget displayed every
+*   atom's status/error — 3 atoms looked like 3 mirrored widgets.
+* - Same pattern as OscilloscopeAtom/FFTAtom (electro) which already
+*   emit { atomId: ... } and are filtered by their widgets.
+* - Payload shape is backward-compatible: ComPortWidget v3.1 accepts
+*   plain Strings as owner-less GLOBAL signals (e.g. USB_DEVICES_CHANGED
+*   from the Android JNI side, which has no owning atom).
+*
 * v3.3 CHANGES (Auto-Reopen — "port closes after grouping/pop"):
 * - getPersistentState() now persists wasOpen = _isOpenFlag.
 * - restoreState() sets _autoReopenRequested when wasOpen was true.
@@ -1178,7 +1189,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
         if (rxOut != null) { rxOut.setValueSilent(rxString); rxOut.propagateCurrentValue(); }
         var rxTick = getOutput("rxTick");
         if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
-        Impulsys.quickEmit(EventType.COMPORT_RX_DATA, rxString);
+        Impulsys.quickEmit(EventType.COMPORT_RX_DATA, { atomId: this.id, text: rxString });
     }
 
     override public function update(dt:Float):Void
@@ -1278,7 +1289,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
             var rxTick = getOutput("rxTick");
             if (rxTick != null) { rxTick.value = true; _rxTimer = PULSE_DURATION; }
             utils.Trap.log("COMPORT", "rx: \"" + _pendingRxStr + "\"");
-            Impulsys.quickEmit(EventType.COMPORT_RX_DATA, _pendingRxStr);
+            Impulsys.quickEmit(EventType.COMPORT_RX_DATA, { atomId: this.id, text: _pendingRxStr });
         }
 
         if (_hasPendingErr)
@@ -1292,7 +1303,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
                     closeDevice();
                     _selectedVid = 0;
                     _selectedPid = 0;
-                    Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
+                    Impulsys.quickEmit(EventType.COMPORT_STATUS, { atomId: this.id, text: "Disconnected" });
                 }
             } else {
                 // Это реальная ошибка (не отключение), выводим её пользователю
@@ -1300,14 +1311,14 @@ class ComPortAtom extends Atom implements system.managers.Driver
                 if (errOut != null) { errOut.setValueSilent(_pendingErrStr); errOut.propagateCurrentValue(); }
                 var errTick = getOutput("errorTick");
                 if (errTick != null) { errTick.value = true; _errTimer = PULSE_DURATION; }
-                Impulsys.quickEmit(EventType.COMPORT_ERROR, _pendingErrStr);
+                Impulsys.quickEmit(EventType.COMPORT_ERROR, { atomId: this.id, text: _pendingErrStr });
                 
                 if (_isOpenFlag) {
                     trace('ComPortAtom: Port error detected. Forcing closeDevice()...');
                     closeDevice();
                     _selectedVid = 0;
                     _selectedPid = 0;
-                    Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
+                    Impulsys.quickEmit(EventType.COMPORT_STATUS, { atomId: this.id, text: "Disconnected" });
                 }
             }
         }
@@ -1329,8 +1340,8 @@ class ComPortAtom extends Atom implements system.managers.Driver
 
     override public function dispose():Void
     {
-		utils.Trap.log("COMPORT", "dispose enter");
-		
+                utils.Trap.log("COMPORT", "dispose enter");
+                
         #if cpp
         closeDevice();
         #elseif html5
@@ -1458,7 +1469,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
         _pendingErrStr = msg;
         _hasPendingErr = true;
         trace('ComPortAtom ERROR: $msg');
-        Impulsys.quickEmit(EventType.COMPORT_ERROR, msg);
+        Impulsys.quickEmit(EventType.COMPORT_ERROR, { atomId: this.id, text: msg });
     }
 
     #if android
@@ -1629,7 +1640,7 @@ class ComPortAtom extends Atom implements system.managers.Driver
             
             var openOut = getOutput("isOpen");
             if (openOut != null) { openOut.setValueSilent(true); openOut.propagateCurrentValue(); }
-            Impulsys.quickEmit(EventType.COMPORT_STATUS, "Connected to " + portName);
+            Impulsys.quickEmit(EventType.COMPORT_STATUS, { atomId: this.id, text: "Connected to " + portName });
             trace('ComPortAtom: Successfully opened $portName at $baudRate baud');
             utils.Trap.log("COMPORT", "opened: " + portName + " @ " + baudRate);
         }
@@ -1753,10 +1764,10 @@ class ComPortAtom extends Atom implements system.managers.Driver
         var openOut = getOutput("isOpen");
         if (openOut != null) { openOut.setValueSilent(false); openOut.propagateCurrentValue(); }
         utils.Trap.log("COMPORT", "pre status-emit Disconnected");
-        Impulsys.quickEmit(EventType.COMPORT_STATUS, "Disconnected");
+        Impulsys.quickEmit(EventType.COMPORT_STATUS, { atomId: this.id, text: "Disconnected" });
         trace('ComPortAtom: Closed serial device');
-		utils.Trap.log("COMPORT", "native closed");
-		
+                utils.Trap.log("COMPORT", "native closed");
+                
         #elseif html5
                 if (!_isOpenFlag) return;
                 _isOpenFlag = false;

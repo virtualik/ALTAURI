@@ -241,6 +241,11 @@ class ProjectManager
                         {
                                 pinData.externalName = pin.externalName;
                         }
+// v2.7 (Port Labels): persist the cosmetic port label
+                        if (pin.label != null && pin.label != "")
+                        {
+                                pinData.label = pin.label;
+                        }
                         pinsToSave.push(pinData);
                 }
 // Serialize device window data
@@ -541,6 +546,11 @@ class ProjectManager
                         {
                                 pinData.externalName = pin.externalName;
                         }
+// v2.7 (Port Labels): persist the cosmetic port label
+                        if (pin.label != null && pin.label != "")
+                        {
+                                pinData.label = pin.label;
+                        }
                         pinsData.push(pinData);
                 }
 // Build save data
@@ -652,13 +662,22 @@ class ProjectManager
                                         extName = Std.string(p.externalName);
                                         if (extName == "null") extName = null;
                                 }
+// v2.7 (Port Labels): parse the cosmetic label; legacy pins saved
+// before this feature default to "port" (user's explicit choice).
+                                var pinLabel:String = "port";
+                                if (p.label != null)
+                                {
+                                        var lbl:String = Std.string(p.label);
+                                        if (lbl != "" && lbl != "null") pinLabel = lbl;
+                                }
                                 pins.push(
                                 {
                                         name: Std.string(p.name),
                                         type: _parseContactType(p.type),
                                         defaultValue: p.defaultValue,
                                         dataType: dt,
-                                        externalName: extName
+                                        externalName: extName,
+                                        label: pinLabel
                                 });
                         }
                 }

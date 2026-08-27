@@ -1135,6 +1135,12 @@ class Assembly extends Atom
                                         if (extDyn != null && Std.string(extDyn) != "") extName = Std.string(extDyn);
 
                                         var newPort = new ConductorPort(extName, pin.type, pin.name, pin.defaultValue);
+                                        // v1.2 (Port Labels): mirror the cosmetic label from the pin
+                                        var lblDyn = Reflect.field(pin, "label");
+                                        if (lblDyn != null && Std.string(lblDyn) != "")
+                                        {
+                                                newPort.label = Std.string(lblDyn);
+                                        }
 
                                         ports.set(pin.name, newPort); // Ключ мапы - всегда internalName
                                         if (pin.type == INPUT)
@@ -1598,6 +1604,9 @@ class Assembly extends Atom
                 if (oldPort == null) return;
                 var portType = oldPort.type;
                 var defaultValue = oldPort.defaultValue;
+// v1.2 (Port Labels): the cosmetic label survives the passport rename
+// (captured BEFORE dispose — oldPort.label dies with the old instance).
+                var oldLabel:String = oldPort.label;
 
 // 1. v2.8 POSITION-INTEGRITY: capture the old external contact's INDEX
 //    before dispose. The old code did remove()+push(), which moved EVERY
@@ -1625,6 +1634,8 @@ class Assembly extends Atom
 
 // 3. Create new port with dual naming
                 var newPort = new ConductorPort(newExtName, portType, internalName, defaultValue);
+// v1.2 (Port Labels): re-attach the captured cosmetic label
+                newPort.label = (oldLabel != null && oldLabel != "") ? oldLabel : "port";
                 ports.set(internalName, newPort);
 
 // 4. v2.8: replace external contact AT THE CAPTURED INDEX (position-stable).
@@ -1831,6 +1842,13 @@ class Assembly extends Atom
 // pinDef.name = internalName (for Assembly.ports map lookup)
 // externalName = visible on parent schema
                         var port = new ConductorPort(externalName, portType, pinDef.name, pinDef.defaultValue);
+// v1.2 (Port Labels): mirror the cosmetic label from PinDef (absent on
+// legacy in-memory blueprints → keeps the ConductorPort default "port")
+                        var lblDyn = Reflect.field(pinDef, "label");
+                        if (lblDyn != null && Std.string(lblDyn) != "")
+                        {
+                                port.label = Std.string(lblDyn);
+                        }
                         ports.set(pinDef.name, port); // key = internalName
                 }
                 // v2.9: rebuild legacy aliases AFTER ports exist (map holds ports)
@@ -2408,12 +2426,15 @@ class Assembly extends Atom
                 }
 
 // v2.1: Build PinDef with externalName (dual naming)
+// v1.2 (Port Labels): every NEW port starts with the default cosmetic
+// label "port"; the user renames it inline in either editor.
                 var extName = (externalName != null && externalName != "") ? externalName : name;
-                var pinDef:PinDef = { name: name, type: type, defaultValue: defaultValue, externalName: extName };
+                var pinDef:PinDef = { name: name, type: type, defaultValue: defaultValue, externalName: extName, label: "port" };
                 if (blueprint.pins != null) blueprint.pins.push(pinDef);
 
 // v2.1: Create ConductorPort with dual naming (externalName, type, internalName=name)
                 var port = new ConductorPort(extName, type, name, defaultValue);
+                port.label = pinDef.label; // v1.2: runtime mirror
                 ports.set(name, port);
 
                 if (type == INPUT)

@@ -96,6 +96,17 @@ class ConductorPort
     /** v2.0: Internal display name (visible on wall inside assembly). */
     public var internalName(default, null):String;
     
+    /**
+     * v1.2 (Port Labels): cosmetic display label shown INSTEAD of the
+     * passport name in both editors (parent-side node port + wall port
+     * inside the assembly). Pure decoration — blueprint connections,
+     * wires, lookups and tooltips keep referencing internalName /
+     * externalName. Source of truth = PinDef.label in the blueprint;
+     * this field is the runtime mirror, defaulting to "port". Survives
+     * port recreation (see Assembly._recreatePortWithNewExternalName).
+     */
+    public var label:String = "port";
+    
     /** v1.1: Lifecycle flag for safe async operations. */
     public var isDisposed(default, null):Bool = false;
     
@@ -113,31 +124,31 @@ class ConductorPort
      * 
      * v2.0: If internalName is null, it defaults to externalName (backward compat).
      */
-	public function new(externalName:String, type:ContactType, ?internalName:String = null, ?defaultValue:Dynamic = null)
-	{
-		this.externalName = externalName;
-		this.internalName = (internalName != null) ? internalName : externalName;
-		this.type = type;
-		this.defaultValue = defaultValue;
-		
-		// port.name = internalName (used for lookup in Assembly.ports map)
-		this.name = this.internalName;
-		
-		// Create internal contact with INTERNAL name (visible on wall)
-		this.internal = new Contact(defaultValue, type, this.internalName);
-		
-		// Create external contact with EXTERNAL name (visible on parent)
-		this.external = new Contact(defaultValue, type, this.externalName);
+        public function new(externalName:String, type:ContactType, ?internalName:String = null, ?defaultValue:Dynamic = null)
+        {
+                this.externalName = externalName;
+                this.internalName = (internalName != null) ? internalName : externalName;
+                this.type = type;
+                this.defaultValue = defaultValue;
+                
+                // port.name = internalName (used for lookup in Assembly.ports map)
+                this.name = this.internalName;
+                
+                // Create internal contact with INTERNAL name (visible on wall)
+                this.internal = new Contact(defaultValue, type, this.internalName);
+                
+                // Create external contact with EXTERNAL name (visible on parent)
+                this.external = new Contact(defaultValue, type, this.externalName);
 
-		// v2.2: GATEWAY REPEAT FORWARDING. Both contacts of a port are
-		// pure conduits — they must deliver every write, including
-		// repeated identical values (a consumer behind the wall may use
-		// the consume-and-reset pattern; a repeat is a real event).
-		// Without this, ComPort rxData -> TextArea.append inside an
-		// assembly delivered only the FIRST response (field-proven).
-		this.internal.forwardRepeats = true;
-		this.external.forwardRepeats = true;
-	}
+                // v2.2: GATEWAY REPEAT FORWARDING. Both contacts of a port are
+                // pure conduits — they must deliver every write, including
+                // repeated identical values (a consumer behind the wall may use
+                // the consume-and-reset pattern; a repeat is a real event).
+                // Without this, ComPort rxData -> TextArea.append inside an
+                // assembly delivered only the FIRST response (field-proven).
+                this.internal.forwardRepeats = true;
+                this.external.forwardRepeats = true;
+        }
 
     // ========================================================================
     // LINKING

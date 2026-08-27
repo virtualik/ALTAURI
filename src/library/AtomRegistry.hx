@@ -199,7 +199,7 @@ class AtomRegistry
         // NATIVE ATOMS REGISTRATION
         // =================================================================
         // --- Electro / UI ---
-	
+        
         reg("Button", "Push Button", [
             {name: "out", type: OUTPUT, dataType: "bool"}
         ], null, "button", true, false, "button");
@@ -292,27 +292,27 @@ class AtomRegistry
         ], null, "comport", true, true, "comport", ["cpp", "html5"]);
 
 
-		// =========================================================================
-		// FILE WRITER — File System Access API
-		// =========================================================================
-		reg("FileWriterAtom", "File Writer", [
-			{name: "open",      type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Open"},
-			{name: "close",     type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Close"},
-			{name: "write",     type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Write"},
-			{name: "append",    type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Append"},
-			{name: "clear",     type: INPUT,  dataType: "bool",   priority: OPTIONAL,  label: "Clear"},
-			{name: "flush",     type: INPUT,  dataType: "bool",   priority: OPTIONAL,  label: "Flush"},
-			{name: "enabled",   type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL,  label: "Enabled"},
-			{name: "mode",      type: INPUT,  defaultValue: 1,    dataType: "int",    priority: IMPORTANT, label: "Mode"},
-			{name: "fileName",  type: INPUT,  defaultValue: "output.txt", dataType: "string", priority: OPTIONAL, label: "File Name"},
-			{name: "isOpen",    type: OUTPUT, dataType: "bool",   priority: CRITICAL},
-			{name: "written",   type: OUTPUT, dataType: "bool",   priority: IMPORTANT, label: "Written"},
-			{name: "writeCount",type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Writes"},
-			{name: "fileSize",  type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Size"},
-			{name: "error",     type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
-			{name: "errorTick", type: OUTPUT, dataType: "bool",   priority: INTERNAL}
-		], null, "filewriter", true, true, "filewriter");
-		
+                // =========================================================================
+                // FILE WRITER — File System Access API
+                // =========================================================================
+                reg("FileWriterAtom", "File Writer", [
+                        {name: "open",      type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Open"},
+                        {name: "close",     type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Close"},
+                        {name: "write",     type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Write"},
+                        {name: "append",    type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Append"},
+                        {name: "clear",     type: INPUT,  dataType: "bool",   priority: OPTIONAL,  label: "Clear"},
+                        {name: "flush",     type: INPUT,  dataType: "bool",   priority: OPTIONAL,  label: "Flush"},
+                        {name: "enabled",   type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL,  label: "Enabled"},
+                        {name: "mode",      type: INPUT,  defaultValue: 1,    dataType: "int",    priority: IMPORTANT, label: "Mode"},
+                        {name: "fileName",  type: INPUT,  defaultValue: "output.txt", dataType: "string", priority: OPTIONAL, label: "File Name"},
+                        {name: "isOpen",    type: OUTPUT, dataType: "bool",   priority: CRITICAL},
+                        {name: "written",   type: OUTPUT, dataType: "bool",   priority: IMPORTANT, label: "Written"},
+                        {name: "writeCount",type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Writes"},
+                        {name: "fileSize",  type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Size"},
+                        {name: "error",     type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
+                        {name: "errorTick", type: OUTPUT, dataType: "bool",   priority: INTERNAL}
+                ], null, "filewriter", true, true, "filewriter");
+                
         
         reg("MiniAudioAtom", "Mini Audio Capture", [
             {name: "mode",     type: INPUT,  defaultValue: 1,    dataType: "int",     priority: IMPORTANT, label: "Mode"},
@@ -344,40 +344,40 @@ class AtomRegistry
             {name: "clipR",    type: OUTPUT, dataType: "bool",   priority: OPTIONAL, label: "Clip R"}
         ], null, "vumeter", true, true, "vumeter", ["cpp"]);
 
-		// ─────────────────────────────────────────────────────────────────
-		// WEBSOCKET — cross-platform (HTML5 + Windows cpp; stubs on (Linux & Android not exist now)
-		// Linux/Android pending libwebsockets integration).
-		// Registered for BOTH platforms — Haxe #if inside the atom class
-		// decides what backend to use. The "cpp" platform here includes
-		// Windows / Linux / Android; Linux/Android will produce a clean
-		// error on connect until libwebsockets is wired up.
-		// ─────────────────────────────────────────────────────────────────
-		reg("WebSocketAtom", "WebSocket", [
-			// ── INPUTS ──
-			{name: "url",                   type: INPUT,  defaultValue: "ws://localhost:8080", dataType: "string", priority: IMPORTANT, label: "URL",      visibleInEditor: true},
-			{name: "subprotocol",           type: INPUT,  defaultValue: "",                    dataType: "string", priority: OPTIONAL,  label: "Subproto", visibleInEditor: false},
-			{name: "binaryMode",            type: INPUT,  defaultValue: false,                 dataType: "bool",   priority: OPTIONAL,  label: "Binary",   visibleInEditor: false},
-			{name: "connect",               type: INPUT,  dataType: "bool",   priority: CRITICAL},
-			{name: "disconnect",            type: INPUT,  dataType: "bool",   priority: CRITICAL},
-			{name: "send",                  type: INPUT,  dataType: "bool",   priority: CRITICAL},
-			{name: "sendData",              type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Data"},
-			// ── AUTO-RECONNECT INPUTS ──
-			{name: "autoReconnect",         type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL, label: "AutoRC",  visibleInEditor: false},
-			{name: "reconnectInterval",     type: INPUT,  defaultValue: 1.0,    dataType: "float",  priority: OPTIONAL, label: "RC Int",  visibleInEditor: false},
-			{name: "maxReconnectAttempts",  type: INPUT,  defaultValue: 0,      dataType: "int",    priority: OPTIONAL, label: "RC Max",  visibleInEditor: false},
-			// ── OUTPUTS ──
-			{name: "isConnected",           type: OUTPUT, dataType: "bool",   priority: CRITICAL,  label: "Connected"},
-			{name: "receivedData",          type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "RX"},
-			{name: "receivedTick",          type: OUTPUT, dataType: "bool",   priority: INTERNAL},
-			{name: "sentTick",              type: OUTPUT, dataType: "bool",   priority: INTERNAL},
-			{name: "error",                 type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
-			{name: "errorTick",             type: OUTPUT, dataType: "bool",   priority: INTERNAL},
-			{name: "closeCode",             type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "CloseCode"},
-			{name: "bytesReceived",         type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "RX bytes"},
-			{name: "bytesSent",             type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "TX bytes"},
-			// ── AUTO-RECONNECT OUTPUT ──
-			{name: "reconnectAttempts",     type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "RC Tries"}
-		], null, "websocket", true, true, "websocket", ["cpp", "html5"]);
+                // ─────────────────────────────────────────────────────────────────
+                // WEBSOCKET — cross-platform (HTML5 + Windows cpp; stubs on (Linux & Android not exist now)
+                // Linux/Android pending libwebsockets integration).
+                // Registered for BOTH platforms — Haxe #if inside the atom class
+                // decides what backend to use. The "cpp" platform here includes
+                // Windows / Linux / Android; Linux/Android will produce a clean
+                // error on connect until libwebsockets is wired up.
+                // ─────────────────────────────────────────────────────────────────
+                reg("WebSocketAtom", "WebSocket", [
+                        // ── INPUTS ──
+                        {name: "url",                   type: INPUT,  defaultValue: "ws://localhost:8080", dataType: "string", priority: IMPORTANT, label: "URL",      visibleInEditor: true},
+                        {name: "subprotocol",           type: INPUT,  defaultValue: "",                    dataType: "string", priority: OPTIONAL,  label: "Subproto", visibleInEditor: false},
+                        {name: "binaryMode",            type: INPUT,  defaultValue: false,                 dataType: "bool",   priority: OPTIONAL,  label: "Binary",   visibleInEditor: false},
+                        {name: "connect",               type: INPUT,  dataType: "bool",   priority: CRITICAL},
+                        {name: "disconnect",            type: INPUT,  dataType: "bool",   priority: CRITICAL},
+                        {name: "send",                  type: INPUT,  dataType: "bool",   priority: CRITICAL},
+                        {name: "sendData",              type: INPUT,  dataType: "string", priority: IMPORTANT, label: "Data"},
+                        // ── AUTO-RECONNECT INPUTS ──
+                        {name: "autoReconnect",         type: INPUT,  defaultValue: false,  dataType: "bool",   priority: OPTIONAL, label: "AutoRC",  visibleInEditor: false},
+                        {name: "reconnectInterval",     type: INPUT,  defaultValue: 1.0,    dataType: "float",  priority: OPTIONAL, label: "RC Int",  visibleInEditor: false},
+                        {name: "maxReconnectAttempts",  type: INPUT,  defaultValue: 0,      dataType: "int",    priority: OPTIONAL, label: "RC Max",  visibleInEditor: false},
+                        // ── OUTPUTS ──
+                        {name: "isConnected",           type: OUTPUT, dataType: "bool",   priority: CRITICAL,  label: "Connected"},
+                        {name: "receivedData",          type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "RX"},
+                        {name: "receivedTick",          type: OUTPUT, dataType: "bool",   priority: INTERNAL},
+                        {name: "sentTick",              type: OUTPUT, dataType: "bool",   priority: INTERNAL},
+                        {name: "error",                 type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
+                        {name: "errorTick",             type: OUTPUT, dataType: "bool",   priority: INTERNAL},
+                        {name: "closeCode",             type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "CloseCode"},
+                        {name: "bytesReceived",         type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "RX bytes"},
+                        {name: "bytesSent",             type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "TX bytes"},
+                        // ── AUTO-RECONNECT OUTPUT ──
+                        {name: "reconnectAttempts",     type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "RC Tries"}
+                ], null, "websocket", true, true, "websocket", ["cpp", "html5"]);
 
 
         reg("NETRadioPlayerAtom", "NET Radio Player", [
@@ -532,12 +532,21 @@ class AtomRegistry
                             extName = Std.string(p.externalName);
                             if (extName == "null") extName = null;
                         }
+// v2.0 (Port Labels): parse the cosmetic label; legacy pins saved
+// before this feature default to "port" (user's explicit choice).
+                        var pinLabel:String = "port";
+                        if (p.label != null)
+                        {
+                            var lbl:String = Std.string(p.label);
+                            if (lbl != "" && lbl != "null") pinLabel = lbl;
+                        }
                         pins.push({
                             name: pinName,
                             type: _parseContactType(p.type),
                             defaultValue: p.defaultValue,
                             dataType: Std.string(p.dataType),
-                            externalName: extName
+                            externalName: extName,
+                            label: pinLabel
                         });
                         seenNames.set(pinName, true);
                     }

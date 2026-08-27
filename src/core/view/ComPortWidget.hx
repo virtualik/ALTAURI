@@ -15,7 +15,7 @@ import core.logic.Impulse;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                     COM PORT WIDGET v3.0                                  ║
+* ║                     COM PORT WIDGET v3.1                                  ║
 * ║     (Unified: Android USB + Windows Registry + HTML5 Web Serial)          ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║  Scanner data format: VID|PID|friendlyName|portIdentifier                 ║
@@ -62,6 +62,14 @@ import core.logic.Impulse;
 * │      Widget WRITES to contacts when interacting with the user           │
 * │                                                                         │
 * └─────────────────────────────────────────────────────────────────────────┘
+*
+* v3.1 CHANGES (Event Identity — "widgets are parallelized"):
+* - onComPortStatus / onComPortError / onComPortRx now filter impulses
+*   by atomId: ComPortAtom v3.4 emits { atomId, text }, and this widget
+*   accepts ONLY its own atom's events. Before, every widget displayed
+*   every atom's status — 3 atoms looked like 3 mirrored widgets.
+* - Plain-String payloads remain owner-less GLOBAL signals (e.g.
+*   USB_DEVICES_CHANGED from the Android JNI side) and pass through.
 */
 class ComPortWidget extends DeviceView
 {
@@ -144,7 +152,7 @@ class ComPortWidget extends DeviceView
     private var _colorHeader:Int = 0x2a2a3a;
     private var _colorAccent:Int = 0x00AAFF;
     private var _colorActive:Int = 0x00FF88;
-	private var _colorRadioBtAct:Int= 0xFFFFFF;
+        private var _colorRadioBtAct:Int= 0xFFFFFF;
     private var _colorDanger:Int = 0xFF4444;
     private var _colorWarning:Int = 0xFFAA00;
     private var _colorInactive:Int = 0x333344;
@@ -918,11 +926,28 @@ class ComPortWidget extends DeviceView
 
     private function onComPortStatus(impulse: Impulse): Void
     {
-        if (impulse.data != null && _statusBar != null)
+        if (impulse.data == null || _statusBar == null) return;
+
+        // v3.1 (identity fix): COMPORT_* impulses carry { atomId, text }
+        // (ComPortAtom v3.4). Accept only OUR atom's events; plain String
+        // payloads are owner-less GLOBAL signals (USB_DEVICES_CHANGED
+        // from the Android JNI side has no owning atom).
+        var statusStr:String;
+        if (Std.isOfType(impulse.data, String))
         {
-            var statusStr = Std.string(impulse.data);
-            
-            #if android
+            statusStr = cast impulse.data;
+        }
+        else
+        {
+            var ownerId:String = Reflect.field(impulse.data, "atomId");
+            if (ownerId == null) return;
+            if (atom == null || ownerId != atom.id) return;
+            var txt:String = Reflect.field(impulse.data, "text");
+            if (txt == null) return;
+            statusStr = txt;
+        }
+
+        #if android
             if (statusStr == "USB_DEVICES_CHANGED") {
                 trace("ComPortWidget: Received USB_DEVICES_CHANGED signal!");
                 if (_isOpenContact != null && _isOpenContact.value != true) {
@@ -943,21 +968,43 @@ class ComPortWidget extends DeviceView
             _statusBar.text = statusStr;
             if (statusStr.indexOf("Connected") >= 0) updateConnectionStatus(true);
             else updateConnectionStatus(false);
-        }
     }
 
     private function onComPortRx(impulse: Impulse): Void
     {
-        // RX data received (no display widget)
+        // RX data received (no display widget).
+        // v3.1 (identity fix): payload is { atomId, text } — events from
+        // OTHER atoms are ignored so any future display path starts with
+        // the correct per-atom binding.
+        if (impulse == null || impulse.data == null) return;
+        if (Std.isOfType(impulse.data, String)) return; // owner-less global signal
+        var ownerId:String = Reflect.field(impulse.data, "atomId");
+        if (ownerId == null) return;
+        if (atom == null || ownerId != atom.id) return;
+        // (reserved: per-atom RX display / RX LED trigger)
     }
 
     private function onComPortError(impulse: Impulse): Void
     {
-        if (impulse.data != null && _errorDisplay != null)
+        if (impulse.data == null || _errorDisplay == null) return;
+
+        // v3.1 (identity fix): same filtering as onComPortStatus.
+        var errStr:String;
+        if (Std.isOfType(impulse.data, String))
         {
-            _errorDisplay.text = "Error: " + Std.string(impulse.data);
-            _lastError = Std.string(impulse.data);
+            errStr = cast impulse.data;
         }
+        else
+        {
+            var ownerId:String = Reflect.field(impulse.data, "atomId");
+            if (ownerId == null) return;
+            if (atom == null || ownerId != atom.id) return;
+            var txt:String = Reflect.field(impulse.data, "text");
+            if (txt == null) return;
+            errStr = txt;
+        }
+        _errorDisplay.text = "Error: " + errStr;
+        _lastError = errStr;
     }
 
     // === Lifecycle ===

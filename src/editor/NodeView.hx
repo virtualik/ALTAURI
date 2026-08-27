@@ -28,7 +28,23 @@ import core.data.Blueprint.ParameterPriority;
 import ui.NodeVisualMode;
 
 /**
-* NODE VIEW v4.0 (Stable Wall-Port Naming v3.0 + Canonical Order + Port Beneficiary Tooltips)
+* NODE VIEW v5.2 (Port Labels v1.1: rename via double-click on the LABEL text — same affordance as the assembly name + Stable Wall-Port Naming v3.0 + Canonical Order + Port Beneficiary Tooltips)
+*
+* v5.2 (cosmetic): the STATIC port label is hidden while the inline label
+* editor is open — previously both texts were visible side by side and
+* the old one shone through around the input field.
+* v5.1 CHANGES (Port Labels v1.1 — field feedback):
+* - The inline label editor now opens on DOUBLE-CLICK on the port LABEL
+*   TEXT (the same affordance as the assembly name), not on the port
+*   contact. The label itself is doubleClickEnabled.
+* - The port LABEL is an inert zone for mouse-down: clicking it never
+*   starts a wire drag (this also removes the v5.0 ghost-line flash
+*   that appeared while double-clicking a contact).
+* - Node-level onDoubleClick port guard now uses the isPortTarget()
+*   hierarchy walk. The old check compared e.target.name (an
+*   auto-generated child name for hit areas) against the port maps and
+*   missed, letting a double-click on a port contact fall through to
+*   OPEN_ASSEMBLY_REQUEST. Now a contact double-click is a no-op.
 *
 * v4.0 Changes:
 * - ASSEMBLY PORT ORDER now follows blueprint.pins (canonical)
@@ -421,36 +437,36 @@ class NodeView extends Sprite
 // =========================================================================
 // DYNAMIC SIZING (v3.0)
 // =========================================================================
-		private function recalcSize():Void
-		{
-			var bodyWidth:Float = MIN_WIDTH;
-			var widgetHeight:Float = 0;
-			
-			if (visualMode == NodeVisualMode.HEAVY && deviceView != null)
-			{
-				var ws = deviceView.getWidgetSize();
-				var scaledW = ws.width * PREVIEW_SCALE;
-				var scaledH = ws.height * PREVIEW_SCALE;
-				bodyWidth = Math.max(bodyWidth, scaledW + WIDGET_PADDING * 2);
-				
-				// отступы сверху и снизу:
-				widgetHeight = scaledH + (WIDGET_PADDING * 2);
-			}
-			
-			var portsHeight:Float = MIN_BODY_HEIGHT;
-			var inputCount = (atom != null && atom.getInputs() != null) ? atom.getInputs().length : 0;
-			var outputCount = (atom != null && atom.getOutputs() != null) ? atom.getOutputs().length : 0;
-			var maxPorts = Std.int(Math.max(inputCount, outputCount));
-			
-			if (maxPorts > 0)
-			{
-				portsHeight = (maxPorts + 1) * PORT_SPACING;
-			}
-			
-			var bodyHeight = portsHeight + widgetHeight;
-			_nodeWidth = bodyWidth;
-			_nodeHeight = TITLE_HEIGHT + bodyHeight;
-		}
+                private function recalcSize():Void
+                {
+                        var bodyWidth:Float = MIN_WIDTH;
+                        var widgetHeight:Float = 0;
+                        
+                        if (visualMode == NodeVisualMode.HEAVY && deviceView != null)
+                        {
+                                var ws = deviceView.getWidgetSize();
+                                var scaledW = ws.width * PREVIEW_SCALE;
+                                var scaledH = ws.height * PREVIEW_SCALE;
+                                bodyWidth = Math.max(bodyWidth, scaledW + WIDGET_PADDING * 2);
+                                
+                                // отступы сверху и снизу:
+                                widgetHeight = scaledH + (WIDGET_PADDING * 2);
+                        }
+                        
+                        var portsHeight:Float = MIN_BODY_HEIGHT;
+                        var inputCount = (atom != null && atom.getInputs() != null) ? atom.getInputs().length : 0;
+                        var outputCount = (atom != null && atom.getOutputs() != null) ? atom.getOutputs().length : 0;
+                        var maxPorts = Std.int(Math.max(inputCount, outputCount));
+                        
+                        if (maxPorts > 0)
+                        {
+                                portsHeight = (maxPorts + 1) * PORT_SPACING;
+                        }
+                        
+                        var bodyHeight = portsHeight + widgetHeight;
+                        _nodeWidth = bodyWidth;
+                        _nodeHeight = TITLE_HEIGHT + bodyHeight;
+                }
 
         private function updateLayout():Void
         {
@@ -592,12 +608,12 @@ private function centerPreviewContainer():Void
     // Горизонтальное центрирование
     _previewContainer.x = (bodyWidth / 2) - (scaledW / 2) * PREVIEW_SCALE;
     
-	//  + (_nodeHeight - (_nodeHeight - widgetHeight) / 2) + ((widgetHeight / 2) * PREVIEW_SCALE)
-	// Separator Y = (_nodeHeight - widgetHeight)
-	// Widget Y center = (widgetHeight / 2)
+        //  + (_nodeHeight - (_nodeHeight - widgetHeight) / 2) + ((widgetHeight / 2) * PREVIEW_SCALE)
+        // Separator Y = (_nodeHeight - widgetHeight)
+        // Widget Y center = (widgetHeight / 2)
     // Вертикальное центрирование в widget area
-	var separatorYPos = _nodeHeight - widgetHeight;
-	var widgetPlaceHeight = _nodeHeight - separatorYPos;
+        var separatorYPos = _nodeHeight - widgetHeight;
+        var widgetPlaceHeight = _nodeHeight - separatorYPos;
     _previewContainer.y = (separatorYPos + WIDGET_PADDING / 2) + (widgetPlaceHeight / 2) - (widgetHeight / 2); 
 }
 
@@ -679,10 +695,10 @@ private function centerPreviewContainer():Void
                         var scaledH = ws.height * PREVIEW_SCALE;
                         //var separatorY = _nodeHeight - scaledH - (WIDGET_PADDING * 2) - 5;
                         // Separator на границе между ports и widget area
-						var widgetHeight = scaledH + (WIDGET_PADDING * 2);
-						var separatorY = _nodeHeight - widgetHeight;
-					
-						var sepG = _background.graphics;
+                                                var widgetHeight = scaledH + (WIDGET_PADDING * 2);
+                                                var separatorY = _nodeHeight - widgetHeight;
+                                        
+                                                var sepG = _background.graphics;
                         sepG.lineStyle(1, 0x444455);
                         sepG.moveTo(0, separatorY);
                         sepG.lineTo(_nodeWidth, separatorY);
@@ -746,11 +762,14 @@ private function centerPreviewContainer():Void
                 // keep the runtime contact array order.
                 var inputs:Array<Contact> = null;
                 var outputs:Array<Contact> = null;
+                // v5.0 (Port Labels): externalName → cosmetic display label
+                var labelByExt:Map<String, String> = null;
                 if (Std.isOfType(atom, Assembly))
                 {
                         var asm:Assembly = cast(atom, Assembly);
                         inputs = [];
                         outputs = [];
+                        labelByExt = new Map<String, String>();
                         if (asm.blueprint != null && asm.blueprint.pins != null)
                         {
                                 for (pin in asm.blueprint.pins)
@@ -758,6 +777,10 @@ private function centerPreviewContainer():Void
                                         if (pin == null || pin.name == null) continue;
                                         var port = asm.ports.get(pin.name);
                                         if (port == null || port.external == null) continue;
+                                        if (port.label != null && port.label != "")
+                                        {
+                                                labelByExt.set(port.external.name, port.label);
+                                        }
                                         if (pin.type == INPUT) inputs.push(port.external);
                                         else if (pin.type == OUTPUT) outputs.push(port.external);
                                 }
@@ -785,7 +808,7 @@ private function centerPreviewContainer():Void
                                 var c = inputs[i];
                                 if (c != null)
                                 {
-                                        var port = createPortSprite(c.name, true);
+                                        var port = createPortSprite(c.name, true, labelByExt != null ? labelByExt.get(c.name) : null);
                                         port.x = 0;
                                         port.y = TITLE_HEIGHT + stepY * (i + 1);
                                         addChild(port);
@@ -802,7 +825,7 @@ private function centerPreviewContainer():Void
                                 var c = outputs[i];
                                 if (c != null)
                                 {
-                                        var port = createPortSprite(c.name, false);
+                                        var port = createPortSprite(c.name, false, labelByExt != null ? labelByExt.get(c.name) : null);
                                         port.x = _nodeWidth;
                                         port.y = TITLE_HEIGHT + stepY * (i + 1);
                                         addChild(port);
@@ -813,7 +836,7 @@ private function centerPreviewContainer():Void
                 //trace('NodeView: Created ${Lambda.count(inputPorts)} input ports, ${Lambda.count(outputPorts)} output ports');
         }
 
-        private function createPortSprite(name:String, isInput:Bool):Sprite
+        private function createPortSprite(name:String, isInput:Bool, ?displayText:String = null):Sprite
         {
                 var port = new Sprite();
                 var w = PORT_RADIUS * 2;
@@ -849,15 +872,18 @@ private function centerPreviewContainer():Void
                 label.mouseEnabled = false;
                 label.defaultTextFormat = new TextFormat("_sans", 11, 0xFFFFCC);
                 label.y = -7;
+                // v5.0 (Port Labels): Assembly ports display the cosmetic
+                // label; plain atoms keep their semantic contact names.
+                var shownText = (displayText != null && displayText != "") ? displayText : name;
                 if (isInput)
                 {
                         label.x = w / 2 + 3;
-                        label.text = name;
+                        label.text = shownText;
                 }
                 else {
                         label.x = -w / 2 - label.width - 3;
                         label.y = -9;
-                        label.text = name;
+                        label.text = shownText;
                         var fmt = new TextFormat("_sans", 11, 0xFFFFCC);
                         fmt.align = "right";
                         label.setTextFormat(fmt);
@@ -870,6 +896,15 @@ private function centerPreviewContainer():Void
                 port.useHandCursor = true;
                 port.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent)
                 {
+                        // v5.1 (Port Labels): the LABEL is the rename
+                        // affordance, not a wire-drag target. Clicks on the
+                        // label are fully inert (double-click opens the
+                        // editor) — they must never pull a wire.
+                        if (e.target == label)
+                        {
+                                e.stopPropagation();
+                                return;
+                        }
                         e.stopPropagation();
                         onPortMouseDown(name, isInput, e);
                 });
@@ -878,6 +913,23 @@ private function centerPreviewContainer():Void
                         e.stopPropagation();
                         onPortRightClick(name, isInput, e);
                 });
+                // v5.1 (Port Labels): double-click on the port LABEL (the
+                // text beside the contact — same affordance as the assembly
+                // name) opens the inline editor. The label is the ONLY
+                // entry point; the contact keeps its single-purpose
+                // wire-drag semantics and does nothing on double-click.
+                // Plain-atom ports keep semantic names — not editable.
+                if (Std.isOfType(atom, Assembly))
+                {
+                        label.mouseEnabled = true;
+                        label.doubleClickEnabled = true;
+                        label.addEventListener(MouseEvent.DOUBLE_CLICK, function(e:MouseEvent)
+                        {
+                                e.stopPropagation();
+                                editor.EditorTooltip.hide();
+                                startPortLabelEditing(name, isInput, port);
+                        });
+                }
                 // v4.0: hover tooltip — beneficiary of the wall port
                 // (stable name + semantic target, derived live from
                 // blueprint connections via Assembly.getPortBeneficiary*).
@@ -968,103 +1020,103 @@ private function centerPreviewContainer():Void
                 }
         }
         
-		/**
-		* v2.0: Update the visual mode and trigger layout recalculation.
-		* v3.9: Now also persists the mode to the Blueprint's AtomDef for saving.
-		* 
-		* @param mode The new visualization mode (LIGHT, MEDIUM, HEAVY)
-		*/
-		public function setVisualMode(mode:NodeVisualMode):Void
-		{
-			trace('=== [NodeView] setVisualMode CALLED with: ' + mode + ' ===');
-			
-			// ═══════════════════════════════════════════════════════════════
-			// v3.9 FIX: Always persist to Blueprint, even if mode unchanged
-			// Previously: if (visualMode == mode) return; — skipped Blueprint write
-			// Now: write first, then skip UI update if unchanged
-			// ═══════════════════════════════════════════════════════════════
-			_persistVisualModeToBlueprint(Std.string(mode));
-			
-			if (visualMode == mode)
-			{
-				trace('  ⏭️ Mode already set, skipping UI update');
-				return;
-			}
-			
-			visualMode = mode;
-			trace('  📍 visualMode changed to: ' + visualMode);
-			createInlineEditors();
-			updateLayout();
-			trace('  ✅ setVisualMode completed');
-		}
+                /**
+                * v2.0: Update the visual mode and trigger layout recalculation.
+                * v3.9: Now also persists the mode to the Blueprint's AtomDef for saving.
+                * 
+                * @param mode The new visualization mode (LIGHT, MEDIUM, HEAVY)
+                */
+                public function setVisualMode(mode:NodeVisualMode):Void
+                {
+                        trace('=== [NodeView] setVisualMode CALLED with: ' + mode + ' ===');
+                        
+                        // ═══════════════════════════════════════════════════════════════
+                        // v3.9 FIX: Always persist to Blueprint, even if mode unchanged
+                        // Previously: if (visualMode == mode) return; — skipped Blueprint write
+                        // Now: write first, then skip UI update if unchanged
+                        // ═══════════════════════════════════════════════════════════════
+                        _persistVisualModeToBlueprint(Std.string(mode));
+                        
+                        if (visualMode == mode)
+                        {
+                                trace('  ⏭️ Mode already set, skipping UI update');
+                                return;
+                        }
+                        
+                        visualMode = mode;
+                        trace('  📍 visualMode changed to: ' + visualMode);
+                        createInlineEditors();
+                        updateLayout();
+                        trace('  ✅ setVisualMode completed');
+                }
 
-		// ══════════════════════════════════════════════════════════════
-		// v3.9: Persist visualMode directly to Blueprint.AtomDef
-		// ═════════════════════════════════════════════════════════════
-		// Standard path: write visualMode to the same place
-		// ProjectManager.saveSelfrun() reads it from.
-		// No side effects on atom persistent state (values).
-		private function _persistVisualModeToBlueprint(modeStr:String):Void
-		{
-			if (_parentAssembly == null)
-			{
-				trace('  ️ _parentAssembly is NULL, cannot persist visualMode to Blueprint');
-				return;
-			}
+                // ══════════════════════════════════════════════════════════════
+                // v3.9: Persist visualMode directly to Blueprint.AtomDef
+                // ═════════════════════════════════════════════════════════════
+                // Standard path: write visualMode to the same place
+                // ProjectManager.saveSelfrun() reads it from.
+                // No side effects on atom persistent state (values).
+                private function _persistVisualModeToBlueprint(modeStr:String):Void
+                {
+                        if (_parentAssembly == null)
+                        {
+                                trace('  ️ _parentAssembly is NULL, cannot persist visualMode to Blueprint');
+                                return;
+                        }
 
-			// nodeId — runtime ID. Blueprint stores template IDs.
-			var templateId = _parentAssembly.getTemplateId(nodeId);
-			if (templateId == null)
-			{
-				trace('  ⚠️ templateId not found for nodeId="$nodeId"');
-				return;
-			}
+                        // nodeId — runtime ID. Blueprint stores template IDs.
+                        var templateId = _parentAssembly.getTemplateId(nodeId);
+                        if (templateId == null)
+                        {
+                                trace('  ⚠️ templateId not found for nodeId="$nodeId"');
+                                return;
+                        }
 
-			var bp = _parentAssembly.blueprint;
-			if (bp == null || bp.internalAtoms == null)
-			{
-				trace('  ⚠️ Blueprint or internalAtoms is null');
-				return;
-			}
+                        var bp = _parentAssembly.blueprint;
+                        if (bp == null || bp.internalAtoms == null)
+                        {
+                                trace('  ⚠️ Blueprint or internalAtoms is null');
+                                return;
+                        }
 
-			var found = false;
-			for (atomDef in bp.internalAtoms)
-			{
-				if (atomDef.instanceId == templateId)
-				{
-					atomDef.visualMode = modeStr;
-					found = true;
-					trace('  ✅ visualMode persisted to Blueprint.AtomDef["$templateId"].visualMode = "$modeStr"');
-					break;
-				}
-			}
+                        var found = false;
+                        for (atomDef in bp.internalAtoms)
+                        {
+                                if (atomDef.instanceId == templateId)
+                                {
+                                        atomDef.visualMode = modeStr;
+                                        found = true;
+                                        trace('  ✅ visualMode persisted to Blueprint.AtomDef["$templateId"].visualMode = "$modeStr"');
+                                        break;
+                                }
+                        }
 
-			if (!found)
-			{
-				trace('  ⚠️ AtomDef not found in Blueprint for templateId="$templateId"');
-			}
-		}
+                        if (!found)
+                        {
+                                trace('  ⚠️ AtomDef not found in Blueprint for templateId="$templateId"');
+                        }
+                }
 
-		/**
-		* v3.9: Helper to restore visual mode from a saved string value.
-		* @param str Saved mode string ("LIGHT", "MEDIUM", "HEAVY")
-		*/
-		public function setVisualModeFromString(str:String):Void
-		{
-			trace('=== setVisualModeFromString CALLED with: "' + str + '" ===');
-			switch(str)
-			{
-				case "LIGHT":
-					trace('  → Switching to LIGHT');
-					setVisualMode(NodeVisualMode.LIGHT);
-				case "HEAVY":
-					trace('  → Switching to HEAVY');
-					setVisualMode(NodeVisualMode.HEAVY);
-				default:
-					trace('  → Switching to MEDIUM (default)');
-					setVisualMode(NodeVisualMode.MEDIUM);
-			}
-		}
+                /**
+                * v3.9: Helper to restore visual mode from a saved string value.
+                * @param str Saved mode string ("LIGHT", "MEDIUM", "HEAVY")
+                */
+                public function setVisualModeFromString(str:String):Void
+                {
+                        trace('=== setVisualModeFromString CALLED with: "' + str + '" ===');
+                        switch(str)
+                        {
+                                case "LIGHT":
+                                        trace('  → Switching to LIGHT');
+                                        setVisualMode(NodeVisualMode.LIGHT);
+                                case "HEAVY":
+                                        trace('  → Switching to HEAVY');
+                                        setVisualMode(NodeVisualMode.HEAVY);
+                                default:
+                                        trace('  → Switching to MEDIUM (default)');
+                                        setVisualMode(NodeVisualMode.MEDIUM);
+                        }
+                }
 
         private function getPinDefForContact(contact:Contact):PinDef
         {
@@ -1388,12 +1440,13 @@ private function centerPreviewContainer():Void
                 // on a widget or inline editor.
                 if (isInteractiveTarget(cast e.target)) return;
 
-                // Check if click was on a port
-                if (Std.isOfType(e.target, Sprite))
-                {
-                        var target:Sprite = cast e.target;
-                        if (inputPorts.exists(target.name) || outputPorts.exists(target.name)) return;
-                }
+                // Check if click was on a port — v5.1: hierarchy walk via
+                // isPortTarget() instead of the old name check, which
+                // compared e.target.name (auto-generated for hit areas and
+                // label children) against the port maps and MISSED, letting
+                // a double-click on a port contact fall through to
+                // OPEN_ASSEMBLY_REQUEST.
+                if (isPortTarget(cast e.target)) return;
                 // Check if click was on settings button
                 var targetObj:DisplayObject = cast e.target;
                 while (targetObj != null && targetObj != this)
@@ -2044,6 +2097,176 @@ private function centerPreviewContainer():Void
         }
 
 // =========================================================================
+// PORT LABEL EDITING (v5.0 — Port Labels)
+// =========================================================================
+        /** Inline label editor field (lazy, single instance, persistent listeners). */
+        private var _labelInput:TextField;
+        /** True while the port-label inline editor is open. */
+        private var _isEditingPortLabel:Bool = false;
+        /** Per-session commit callback (captures asm/pin context). */
+        private var _labelEditFinish:Bool -> Void;
+        /** v5.2: static label of the port being edited (hidden while the inline editor is open). */
+        private var _editedStaticLabel:TextField;
+
+        /**
+        * v5.0 (Port Labels): open the inline editor over an Assembly port.
+        *
+        * The label is PURE COSMETICS: PinDef.label (blueprint, persisted) is
+        * the source of truth, ConductorPort.label the runtime mirror. The
+        * passport (internalName/externalName), wires and lookups are never
+        * touched. Commit writes both, then emits ASSEMBLY_PORTS_CHANGED —
+        * this NodeView's own listener runs updateLayout() which recreates
+        * the port sprites with the fresh label; the parent editor refreshes
+        * wires through the proven MovePort event path. ENTER/Focus-out =
+        * apply (empty → default "port"), ESCAPE = cancel.
+        */
+        private function startPortLabelEditing(contactName:String, isInput:Bool, portSprite:Sprite):Void
+        {
+                if (_isEditingPortLabel || _isEditingName) return;
+                if (!Std.isOfType(atom, Assembly)) return;
+                var asm:Assembly = cast(atom, Assembly);
+
+                // Current label + the pin's INTERNAL name (ports map key)
+                var current:String = "port";
+                var internalName:String = null;
+                if (asm.blueprint != null && asm.blueprint.pins != null)
+                {
+                        for (pin in asm.blueprint.pins)
+                        {
+                                if (pin != null && pin.externalName == contactName)
+                                {
+                                        internalName = pin.name;
+                                        if (pin.label != null && pin.label != "") current = pin.label;
+                                        break;
+                                }
+                        }
+                }
+                if (internalName == null) return; // passport integrity first
+
+                _isEditingPortLabel = true;
+
+                if (_labelInput == null)
+                {
+                        _labelInput = new TextField();
+                        _labelInput.type = TextFieldType.INPUT;
+                        _labelInput.width = 90;
+                        _labelInput.height = 16;
+                        _labelInput.border = true;
+                        _labelInput.borderColor = 0x00AAFF;
+                        _labelInput.background = true;
+                        _labelInput.backgroundColor = 0x111122;
+                        _labelInput.textColor = 0xFFFFFF;
+                        _labelInput.selectable = true;
+                        _labelInput.mouseEnabled = true;
+                        _labelInput.defaultTextFormat = new TextFormat("_sans", 11, 0xFFFFFF, true);
+                        _labelInput.addEventListener(KeyboardEvent.KEY_DOWN, onLabelInputKeyDown);
+                        _labelInput.addEventListener(FocusEvent.FOCUS_OUT, onLabelInputFocusOut);
+                        addChild(_labelInput);
+                }
+
+                // v5.2 (cosmetic): hide the STATIC label while the inline
+                // editor is open — previously both texts were visible and
+                // the old one shone through around the input field.
+                // (Defensive restore first: never hide two at once.)
+                if (_editedStaticLabel != null)
+                {
+                        _editedStaticLabel.visible = true;
+                        _editedStaticLabel = null;
+                }
+                for (i in 0...portSprite.numChildren)
+                {
+                        var child = portSprite.getChildAt(i);
+                        if (Std.isOfType(child, TextField) && child != _labelInput)
+                        {
+                                _editedStaticLabel = cast child;
+                                _editedStaticLabel.visible = false;
+                                break;
+                        }
+                }
+
+                // Position over the port's own label (input: right of port,
+                // output: left of port) — same coords the static label uses.
+                var w = PORT_RADIUS * 2;
+                if (isInput) _labelInput.x = portSprite.x + w / 2 + 3;
+                else _labelInput.x = portSprite.x - w / 2 - _labelInput.width - 3;
+                _labelInput.y = portSprite.y - 8;
+                _labelInput.text = current;
+                _labelInput.visible = true;
+                _labelInput.setSelection(0, _labelInput.text.length);
+                if (stage != null) stage.focus = _labelInput;
+
+                var done:Bool = false;
+                _labelEditFinish = function(apply:Bool):Void
+                {
+                        if (done) return;
+                        done = true;
+                        _isEditingPortLabel = false;
+                        _labelEditFinish = null;
+
+                        // v5.2 (cosmetic): bring the static label back. On
+                        // apply the sprites are recreated anyway, but the ESC
+                        // path and the pre-emit frame need it.
+                        if (_editedStaticLabel != null)
+                        {
+                                _editedStaticLabel.visible = true;
+                                _editedStaticLabel = null;
+                        }
+
+                        var typed:String = StringTools.trim(_labelInput.text);
+                        _labelInput.visible = false;
+                        if (stage != null && stage.focus == _labelInput) stage.focus = null;
+                        if (!apply) return;
+                        if (typed.length == 0) typed = "port";
+
+                        // 1. PinDef — source of truth (persists to .atom)
+                        if (asm.blueprint != null && asm.blueprint.pins != null)
+                        {
+                                for (pin in asm.blueprint.pins)
+                                {
+                                        if (pin != null && pin.name == internalName)
+                                        {
+                                                pin.label = typed;
+                                                break;
+                                        }
+                                }
+                        }
+                        // 2. ConductorPort — runtime mirror (survives lookups)
+                        var p = asm.ports.get(internalName);
+                        if (p != null) p.label = typed;
+
+                        utils.Trap.log("PORT-LABEL", "parent: " + contactName + " -> \"" + typed + "\"");
+
+                        // 3. Views: own listener → updateLayout (fresh sprites);
+                        //    parent editor → wire refresh (MovePort event path).
+                        Impulsys.quickEmit(EventType.ASSEMBLY_PORTS_CHANGED, { assemblyId: asm.id });
+                        Impulsys.quickEmit(EventType.VALUE_COMMITTED);
+                };
+        }
+
+        /** ENTER → apply, ESCAPE → cancel; block global shortcuts while typing. */
+        private function onLabelInputKeyDown(e:KeyboardEvent):Void
+        {
+                e.stopImmediatePropagation();
+                var f = _labelEditFinish;
+                if (f == null) return;
+                if (e.keyCode == Keyboard.ENTER) f(true);
+                else if (e.keyCode == Keyboard.ESCAPE) f(false);
+        }
+
+        /** Focus-out = apply after a short delay (lets ENTER settle first). */
+        private function onLabelInputFocusOut(e:FocusEvent):Void
+        {
+                haxe.Timer.delay(function():Void
+                {
+                        if (_isEditingPortLabel)
+                        {
+                                var f = _labelEditFinish;
+                                if (f != null) f(true);
+                        }
+                }, 50);
+        }
+
+// =========================================================================
 // POSITION
 // =========================================================================
         public function setPosition(x:Float, y:Float):Void
@@ -2176,6 +2399,16 @@ utils.Trap.log("NV-DISPOSE", "nodeView down: " + nodeId + " cacheAsBitmap=" + th
                         _nameInput = null;
                 }
                 _isEditingName = false;
+                // === v5.0: Clean up port-label inline editor ===
+                if (_labelInput != null)
+                {
+                        _labelInput.removeEventListener(KeyboardEvent.KEY_DOWN, onLabelInputKeyDown);
+                        _labelInput.removeEventListener(FocusEvent.FOCUS_OUT, onLabelInputFocusOut);
+                        if (_labelInput.parent != null) _labelInput.parent.removeChild(_labelInput);
+                        _labelInput = null;
+                }
+                _isEditingPortLabel = false;
+                _labelEditFinish = null;
                 _parentAssembly = null;
                 for (name in _inlineEditors.keys())
                 {

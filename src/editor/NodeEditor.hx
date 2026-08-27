@@ -36,8 +36,23 @@ import ui.NodeVisualMode;
 using StringTools;
 
 /**
-* NODE EDITOR v4.16.1 (G5 Tracer + Ghost Wire Leak Fix + Wall Port Labels + Beneficiary Tooltips + Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention + Background Gesture Freeze + Two-Stage Deferred Wire Refresh + Exit-Path Instrumentation + Public Wire Refresh)
+* NODE EDITOR v4.18 (Wall Ports Bare + G5 Tracer + Ghost Wire Leak Fix + Beneficiary Tooltips + Zoom Traps + Zoom Performance Fix + Listener Leak Fix + Reattach API + Broadcast Storm Prevention + Background Gesture Freeze + Two-Stage Deferred Wire Refresh + Exit-Path Instrumentation + Public Wire Refresh)
 * Visual schematic editing coordinator.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v4.18 CHANGES (Port Labels v1.1 — field feedback)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  Wall ports inside an assembly are BARE contacts again: no label text
+*  and no inline label editor (the v4.17 experiment is reverted here).
+*  Labels are edited ONLY from the parent side — double-click on the
+*  port LABEL next to the assembly node (NodeView v5.1). The stable
+*  passport name of a wall port stays available in the hover tooltip.
+*  Removed: wall label TextField, wall double-click editor, TextField
+*  guard in the wall-port MOUSE_DOWN, _isEditingWallLabel state. The
+*  data layer is untouched: PinDef.label / ConductorPort.label still
+*  exist and are still saved/loaded — they are simply no longer shown
+*  inside the assembly.
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v4.16 CHANGES (Ghost Wire Leak — Episod G-5)
@@ -975,27 +990,11 @@ class NodeEditor extends Sprite
                 s.useHandCursor = true;
                 s.name = portName;
 
-                // v4.11: WALL PORT LABEL — the STABLE internal name
-                // ("Arrival_3" / "Departure_1") so the user can pair
-                // it with the parent-side Inlet_N / Outlet_N through
-                // the wall. Plain circles carried no pairing info.
-                var label = new openfl.text.TextField();
-                label.width = 90;
-                label.height = 14;
-                label.selectable = false;
-                label.mouseEnabled = false;
-                label.defaultTextFormat = new openfl.text.TextFormat("_sans", 10, 0xAAAAAA);
-                label.text = portName;
-                label.y = -7;
-                if (isLeftWall)
-                {
-                        label.x = 10;
-                }
-                else
-                {
-                        label.x = -10 - label.width;
-                }
-                s.addChild(label);
+                // v4.18 (Port Labels v1.1): wall ports are BARE contacts —
+                // no label text and no inline editor inside the assembly.
+                // Editing lives on the parent side only (double-click the
+                // port LABEL there, NodeView v5.1); the stable passport
+                // name is still available in the hover tooltip.
 
                 // v4.11: beneficiary tooltip — derived live from
                 // _assembly.getPortBeneficiary, same data source the
