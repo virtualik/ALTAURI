@@ -2542,6 +2542,10 @@ class Main extends Sprite
                 TickGenerator.getInstance().clear();
                 UndoManager.getInstance().clear();
                 ECS.reset();
+                // WP-1 FIX-1 (matches EditorContext v2.15): soft restart also
+                // resets the shared gesture statics — no stale zoom/pan flags
+                // may survive into the fresh session.
+                editor.EditorState.reset();
         }
 
         /**

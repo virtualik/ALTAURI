@@ -7,8 +7,27 @@ import core.logic.Impulse;
 import core.logic.TickGenerator;
 
 /**
-* EDITOR CONTEXT v2.14 (Stable Port Naming v3.0 bridge: legacy alias resolution + heal + background wire safety net)
+* EDITOR CONTEXT v2.15 (WP-1 Hygiene: EditorState.reset() on pop — session statics no longer leak across editor sessions)
 * Manages the stack of open editors (NodeEditor instances) and their camera states.
+*
+* ═══════════════════════════════════════════════════════════════════════════
+* v2.15 CHANGES (WP-1 Hygiene — EditorState session-static reset)
+* ═══════════════════════════════════════════════════════════════════════════
+*
+*  PROBLEM (WP-1 resource matrix, finding #13): EditorState._isZooming /
+*  _isPanning are STATIC session flags written by ViewportManager. The class
+*  ships a reset() (v1.0) that had ZERO call sites in the whole tree — the
+*  flags were reset only by the natural end of each gesture. Any pop() that
+*  lands mid-gesture (Back navigation / programmatic close while the wheel
+*  or the pan button is held) carries the stuck flag into the parent editor
+*  session and into every subsequent session until an opposite gesture
+*  happens to clear it.
+*
+*  FIX: pop() now calls EditorState.reset() immediately after disposing the
+*  closed editor (normal path) and in the catch path before the re-throw
+*  (exception path). Main.hardReset() gains the same call next to ECS.reset()
+*  so a soft restart also starts from a clean gesture slate. Matched by
+*  ToggleAtom v1.7 (dead statics removed) — see WP1_RESOURCE_MATRIX.md.
 *
 * ═══════════════════════════════════════════════════════════════════════════
 * v2.14 CHANGES (Gate-Independent Background Wire Refresh — Episod G-4.2)
@@ -715,6 +734,14 @@ class EditorContext
                         current.editor.dispose();
                         if (_layer.contains(current.container)) _layer.removeChild(current.container);
 
+                        // v2.15 (WP-1 FIX-1): EditorState._isZooming/_isPanning are
+                        // STATIC (shared by all editors). A pop() that happens in the
+                        // middle of a zoom/pan gesture would otherwise carry the stuck
+                        // flag into the parent session (and into every future session
+                        // — reset() had ZERO call sites before this fix). The closed
+                        // editor is disposed, the gesture is dead: reset the slate.
+                        EditorState.reset();
+
                         // Restore previous editor
                         var prev = _stack[_stack.length - 1];
                         if (prev.blocker != null)
@@ -804,6 +831,9 @@ class EditorContext
                         // caller learns about the failure.
                         utils.Trap.log("POP", "EXCEPTION in pop: " + e);
                         tg.unlockTopology();
+                        // v2.15 (WP-1 FIX-1): exception path — the session is dying
+                        // anyway, do not let a half-finished gesture leak its statics.
+                        EditorState.reset();
                         throw e;
                 }
                 // v2.6: Normal path — the graph is whole again. Flush deferred
@@ -956,28 +986,28 @@ class EditorContext
         {
                 if (_bgRefreshTimer != null) return; // already scheduled
                 _bgRefreshTimer = haxe.Timer.delay(function():Void
-					{
-						_bgRefreshTimer = null;
-						// The TOP editor is skipped: it is the one the user is
-						// editing in, and NodeEditor's own deferred pipeline
-						// already refreshes it.
-						var top:Int = _stack.length - 1;
-						for (i in 0...top)
-						{
-							var entry:EditorEntry = _stack[i];
-							if (entry == null || entry.editor == null) continue;
-							if (entry.editor.isDisposed) continue;
-							utils.Trap.log("G41-BG-NET",
-							"asm=" + (entry.assembly != null
-							&& entry.assembly.blueprint != null
-							? entry.assembly.blueprint.id : "?")
-							+ " level=" + i);
-							// v1.4 (Episod H-1): one poisoned entry must not kill the whole net
-							utils.Trap.ex("G41-BG-NET-BODY", function() {
-								entry.editor.refreshWiresAfterPortsChange();
-							});
-						}
-					}, 100);
+                                        {
+                                                _bgRefreshTimer = null;
+                                                // The TOP editor is skipped: it is the one the user is
+                                                // editing in, and NodeEditor's own deferred pipeline
+                                                // already refreshes it.
+                                                var top:Int = _stack.length - 1;
+                                                for (i in 0...top)
+                                                {
+                                                        var entry:EditorEntry = _stack[i];
+                                                        if (entry == null || entry.editor == null) continue;
+                                                        if (entry.editor.isDisposed) continue;
+                                                        utils.Trap.log("G41-BG-NET",
+                                                        "asm=" + (entry.assembly != null
+                                                        && entry.assembly.blueprint != null
+                                                        ? entry.assembly.blueprint.id : "?")
+                                                        + " level=" + i);
+                                                        // v1.4 (Episod H-1): one poisoned entry must not kill the whole net
+                                                        utils.Trap.ex("G41-BG-NET-BODY", function() {
+                                                                entry.editor.refreshWiresAfterPortsChange();
+                                                        });
+                                                }
+                                        }, 100);
         }
 
         // ═══════════════════════════════════════════════════════════════════
@@ -1103,5 +1133,3 @@ class EditorContext
 // so EditorEntry had to move out of EditorContext.hx to be visible to
 // editor.AssemblyReconstructor. See editor/EditorEntry.hx for the
 // structure + rationale.
-
-

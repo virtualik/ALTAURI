@@ -6,7 +6,7 @@ import core.types.ContactType;
 import core.logic.TickGenerator;
 
 /**
- * TOGGLE ATOM v1.6 (TickGenerator Migration + Robustness Pass)
+ * TOGGLE ATOM v1.7 (WP-1 Hygiene: dead statics removed)
  *
  * Toggle switch with reset immunity (Race Condition Protection).
  *
@@ -56,10 +56,11 @@ class ToggleAtom extends Atom
     // =========================================================================
     // Initialized in the past so immunity doesn't affect startup
     private var _lastToggleTime:Float = -3.0;
-    
-    // Track if TickGenerator is working
-    private static var _tickGeneratorTested:Bool = false;
-    private static var _tickGeneratorWorks:Bool = true;
+
+    // v1.7 (WP-1 FIX-2): the static probe cache _tickGeneratorTested /
+    // _tickGeneratorWorks (declared v1.6, relic of the TickGenerator
+    // migration) is REMOVED — a full-tree scan found ZERO readers/writers.
+    // TickGenerator availability is probed per-instance where needed.
 
     // =========================================================================
     // CONSTRUCTOR
@@ -207,24 +208,24 @@ class ToggleAtom extends Atom
     /**
      * Save toggle state for persistence.
      */
-	override public function getPersistentState():Dynamic
-	{
-		var base = super.getPersistentState();
-		var currentState = false;
-		if (_outputs != null && _outputs.length > 0)
-		{
-			currentState = _outputs[0].value == true;
-		}
-		var result:Dynamic = { state: currentState };
-		if (base != null)
-		{
-			for (field in Reflect.fields(base))
-			{
-				Reflect.setField(result, field, Reflect.field(base, field));
-			}
-		}
-		return result;
-	}
+        override public function getPersistentState():Dynamic
+        {
+                var base = super.getPersistentState();
+                var currentState = false;
+                if (_outputs != null && _outputs.length > 0)
+                {
+                        currentState = _outputs[0].value == true;
+                }
+                var result:Dynamic = { state: currentState };
+                if (base != null)
+                {
+                        for (field in Reflect.fields(base))
+                        {
+                                Reflect.setField(result, field, Reflect.field(base, field));
+                        }
+                }
+                return result;
+        }
 
     /**
      * Restore toggle state from saved data.
