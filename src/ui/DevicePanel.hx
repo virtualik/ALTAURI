@@ -632,7 +632,7 @@ class DevicePanel extends Sprite
     public function setContext(assembly:Assembly):Void
     {
         _assembly = assembly;
-        _titleLabel.text = "  Device Panel: " + assembly.blueprint.name;
+        _titleLabel.text = "Device Panel: " + assembly.blueprint.name;
     }
 
     /**
@@ -829,7 +829,9 @@ class DevicePanel extends Sprite
 
         _titleLabel = new TextField();
         _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 12, 0xFFFFFF, true);
-        _titleLabel.text = "  Device Panel";
+        _titleLabel.text = "Device Panel";
+		_titleLabel.x = 7;
+		_titleLabel.y = 7;
         _titleLabel.width = 300;
         _titleLabel.height = 30;
         _titleLabel.selectable = false;
