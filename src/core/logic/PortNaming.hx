@@ -5,8 +5,8 @@ import core.types.ContactType;
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                        PORT NAMING v1.0                                    ║
-* ║        Stable Wall-Port Naming: Inlet / Arrival / Departure / Outlet       ║
+* ║                        PORT NAMING v1.0                                   ║
+* ║        Stable Wall-Port Naming: Inlet / Arrival / Departure / Outlet      ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  Central authority for the v3.0 stable naming scheme of Assembly          ║
