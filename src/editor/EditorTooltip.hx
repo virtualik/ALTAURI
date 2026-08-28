@@ -77,8 +77,8 @@ class EditorTooltip
                 _label = new TextField();
                 _label.selectable = false;
                 _label.mouseEnabled = false;
-                _label.x = 6;
-                _label.y = 4;
+                _label.x = 4;
+                _label.y = 2;
                 _label.autoSize = TextFieldAutoSize.LEFT;
                 _label.defaultTextFormat = new TextFormat("_sans", 11, 0xFFFFCC);
                 _tip.addChild(_label);

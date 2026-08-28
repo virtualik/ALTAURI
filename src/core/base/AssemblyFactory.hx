@@ -149,14 +149,6 @@ class AssemblyFactory
                                                                 case "WEBSOCKET":
                                                                         normalizedTypeId = "WebSocketAtom";
 // ─────────────────────────────────────────────────────────────
-// NET RADIO PLAYER — Internet radio metadata driver
-// ─────────────────────────────────────────────────────────────
-                                case "NETRADIOPLAYERATOM":
-                                case "NETRADIOPLAYER":
-                                case "NET RADIO PLAYER":
-                                case "NETRADIO":
-                                        normalizedTypeId = "NETRadioPlayerAtom";
-// ─────────────────────────────────────────────────────────────
 // URL AUDIO STREAM PLAYER — Internet radio player
 // ─────────────────────────────────────────────────────────────
                                 case "URLAUDIOSTREAMPLAYERATOM",
@@ -230,16 +222,6 @@ class AssemblyFactory
                                                 case "WebSocketAtom":
                                                                 atom = new library.drivers.WebSocketAtom(id);
                                                                 trace('🌐 AssemblyFactory: Created WebSocketAtom...');
-// =============================================================
-// NET RADIO PLAYER — internet radio metadata extraction
-// =============================================================
-                        case "NETRadioPlayerAtom":
-                                #if cpp
-                                atom = new library.drivers.NETRadioPlayerAtom(id);
-                                trace('📻 AssemblyFactory: Created NETRadioPlayerAtom v2.0...');
-                                #else
-                                trace('⚠️ NETRadioPlayerAtom requires C++ target');
-                                #end
 // ─────────────────────────────────────────────────────────────
 // URL AUDIO STREAM PLAYER — Internet radio player
 // ─────────────────────────────────────────────────────────────

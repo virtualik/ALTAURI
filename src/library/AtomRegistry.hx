@@ -380,20 +380,6 @@ class AtomRegistry
                 ], null, "websocket", true, true, "websocket", ["cpp", "html5"]);
 
 
-        reg("NETRadioPlayerAtom", "NET Radio Player", [
-            {name: "stream_url",    type: INPUT,  dataType: "string",  priority: IMPORTANT, label: "URL"},
-            {name: "poll_interval", type: INPUT,  defaultValue: 5.0,   dataType: "float",   priority: OPTIONAL, label: "Poll (s)"},
-            {name: "playCtrl",      type: INPUT,  defaultValue: false,  dataType: "bool",    priority: CRITICAL, label: "Play"},
-            {name: "volume",        type: INPUT,  defaultValue: 1.0,   dataType: "float",   priority: IMPORTANT, label: "Volume"},
-            {name: "title",         type: OUTPUT, dataType: "string",  priority: IMPORTANT, label: "Title"},
-            {name: "artist",        type: OUTPUT, dataType: "string",  priority: IMPORTANT, label: "Artist"},
-            {name: "track",         type: OUTPUT, dataType: "string",  priority: IMPORTANT, label: "Track"},
-            {name: "raw_metadata",  type: OUTPUT, dataType: "string",  priority: INTERNAL},
-            {name: "updated",       type: OUTPUT, dataType: "bool",    priority: OPTIONAL},
-            {name: "state",         type: OUTPUT, dataType: "bool",    priority: OPTIONAL, label: "Error"},
-            {name: "error",         type: OUTPUT, dataType: "string",  priority: OPTIONAL, label: "Error Msg"}
-        ], null, "netradio", true, true, "netradio", ["cpp"]);
-
         reg("URLAudioStreamPlayer", "URL Audio Player", [
             {name: "url", type: INPUT, dataType: "string", priority: CRITICAL, visibleInEditor: true, label: "URL"},
             {name: "play", type: INPUT, dataType: "bool", priority: CRITICAL, visibleInEditor: true, label: "Play"},
@@ -401,7 +387,11 @@ class AtomRegistry
             {name: "isPlaying", type: OUTPUT, dataType: "bool", priority: CRITICAL, label: "Playing"},
             {name: "isBuffering", type: OUTPUT, dataType: "bool", priority: IMPORTANT, label: "Buffering"},
             {name: "error", type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
-            {name: "state", type: OUTPUT, dataType: "int", priority: OPTIONAL, label: "State"}
+            {name: "state", type: OUTPUT, dataType: "int", priority: OPTIONAL, label: "State"},
+            {name: "title", type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Title"},
+            {name: "artist", type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Artist"},
+            {name: "track", type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Track"},
+            {name: "updated", type: OUTPUT, dataType: "bool", priority: OPTIONAL}
         ], null, "urlplayer", true, true, "urlplayer", ["cpp"]);
 
         // =================================================================

@@ -23,7 +23,6 @@ import core.view.PanelWidget;
 #if cpp
 import core.view.MiniAudioWidget;
 import core.view.ComPortWidget;
-import core.view.NETRadioPlayerWidget;
 import core.view.SystemVUMeterWidget;
 import core.view.URLAudioStreamPlayerWidget;
 import core.view.WebSocketWidget;
@@ -148,8 +147,6 @@ class DeviceWidgetFactory
 				new MiniAudioWidget(asm);
 			case "comport", "com port":
 				new ComPortWidget(asm);
-			case "netradio", "netradioplayer":
-				new NETRadioPlayerWidget(asm);
 			case "urlplayer", "url audio player", "urlaudioplayer":
 				new URLAudioStreamPlayerWidget(asm);
 			#end
@@ -208,11 +205,9 @@ class DeviceWidgetFactory
 				new OscilloscopeWidget(atom, "samples");
 			case "systemvumeteratom", "system vu meter", "vumeter":
 				new SystemVUMeterWidget(atom);
-			case "netradioplayeratom", "net radio player":
-				new NETRadioPlayerWidget(atom);
 			case "miniaudioatom", "mini audio capture":
 				new MiniAudioWidget(atom);
-			case "urlaudioplayeratom", "url audio player":
+			case "urlaudioplayeratom", "url audio player", "urlaudiostreamplayer":
 				new URLAudioStreamPlayerWidget(atom);
 			#end			
 			case "filewriteratom", "file writer":

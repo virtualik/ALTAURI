@@ -24,8 +24,30 @@ import system.managers.DriverManager;
 #include <string>
 #include <map>
 #include <mutex>
+#include <thread>
+#include <atomic>
+#include <algorithm>
+#include <cstdlib>
+#include <cstdint>
+#include <chrono>
 
 #if defined(_WIN32)
+// v2.0.1 (Task 103, hotfix): winhttp.h does NOT include windows.h by itself -
+// it expects the base Win32 types (LPVOID, DWORD, APIENTRY, ...) to be already
+// declared. Without windows.h first, line 54 "typedef LPVOID HINTERNET;" dies
+// with C4430/C2146/C2143. Same proven order as the retired NETRadio atom:
+// windows.h THEN winhttp.h. WIN32_LEAN_AND_MEAN / NOMINMAX mirror the preamble
+// of WMFStreamSession.h (its #ifndef guards make its own windows.h include a
+// no-op), so ERROR/min/max stay clean for all headers parsed after this block.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <winhttp.h>
+#pragma comment(lib, "winhttp.lib")
 #include "../../../../include/WMFStreamSession.h"
 #else
 // ========================================================================
@@ -90,10 +112,393 @@ using WMFStreamSession = WMFStreamSessionStub;
 
 static std::map<void*, WMFStreamSession*> _urlaudio_sessions;
 static std::mutex _urlaudio_sessions_mutex;
+
+// ============================================================================
+// v2.0 (Task 102, series URL_RADIO) — ICY METADATA WORKER.
+// Transplanted from the retired NETRadioPlayerAtom and made per-instance.
+// Reads the SAME stream URL the WMF audio session plays: connects with
+// "icy-metadata: 1", reads icy-metaint, skips audio chunks, parses the ICY
+// metadata block (StreamTitle -> artist/track). FULLY INDEPENDENT from the
+// audio session — audio connection loss does not stop metadata extraction
+// and vice versa; this worker reconnects with its own exponential backoff.
+// ============================================================================
+struct URLAudioMetaState {
+    std::atomic<bool> shouldPlay;       // Worker should actively read stream
+    std::atomic<bool> shouldStop;       // Worker should stop current session
+    std::atomic<bool> isRunning;        // Worker thread is alive
+    std::atomic<bool> urlChanged;       // URL switched mid-read -> reconnect
+    std::string streamUrl;              // Current stream URL (protected by mtx)
+    float pollInterval;                 // Reconnect delay cap in seconds (MAX)
+    std::string title;                  // Parsed ICY title (protected by mtx)
+    std::string artist;                 // Parsed ICY artist (protected by mtx)
+    std::string track;                  // Parsed ICY track (protected by mtx)
+    std::string rawMetadata;            // Raw ICY metadata string
+    std::string errorMsg;               // Last error message (internal)
+    bool hasError;                      // Error flag (internal)
+    bool metadataChanged;               // Dirty flag for Haxe polling
+    bool isConnected;                   // Connection status (internal)
+    std::mutex mtx;                     // Protects string fields above
+    std::thread* worker;                // Background thread handle
+#ifdef _WIN32
+    HINTERNET hRequest;                 // WinHTTP request handle (for cancellation)
+    std::mutex hRequestMtx;             // Protects hRequest
+#endif
+    int reconnectAttempts;              // Exponential backoff counter
+
+    URLAudioMetaState()
+        : shouldPlay(false), shouldStop(false), isRunning(false),
+          urlChanged(false), pollInterval(5.0f), hasError(false),
+          metadataChanged(false), isConnected(false), worker(nullptr),
+#ifdef _WIN32
+          hRequest(NULL),
+#endif
+          reconnectAttempts(0) {}
+};
+
+// Global map: Haxe instance pointer -> metadata state
+static std::map<void*, URLAudioMetaState*> _urlaudio_meta_map;
+static std::mutex _urlaudio_meta_map_mutex;
+
+// ============================================================================
+// URL PARSER (transplant) — scheme/host/port/path, http/https
+// ============================================================================
+struct URLAudioParsedURL {
+    std::string host;
+    std::string path;
+    uint16_t port;
+    bool isHttps;
+    bool valid;
+    URLAudioParsedURL() : host(""), path("/"), port(80), isHttps(false), valid(false) {}
+};
+
+static URLAudioParsedURL urla_parse_url(const std::string& url) {
+    URLAudioParsedURL result;
+    std::string u = url;
+    size_t schemeEnd = u.find("://");
+    if (schemeEnd == std::string::npos) return result;
+
+    std::string scheme = u.substr(0, schemeEnd);
+    std::transform(scheme.begin(), scheme.end(), scheme.begin(), ::tolower);
+    if (scheme == "https") { result.isHttps = true; result.port = 443; }
+    else if (scheme == "http") { result.port = 80; }
+    else { return result; }
+
+    size_t hostStart = schemeEnd + 3;
+    size_t pathStart = u.find("/", hostStart);
+    size_t portStart = u.find(":", hostStart);
+
+    if (pathStart == std::string::npos) {
+        result.path = "/";
+        if (portStart != std::string::npos) {
+            result.host = u.substr(hostStart, portStart - hostStart);
+            std::string portStr = u.substr(portStart + 1);
+            try { result.port = (uint16_t)std::stoi(portStr); } catch (...) {}
+        } else { result.host = u.substr(hostStart); }
+    } else {
+        result.path = u.substr(pathStart);
+        if (portStart != std::string::npos && portStart < pathStart) {
+            result.host = u.substr(hostStart, portStart - hostStart);
+            std::string portStr = u.substr(portStart + 1, pathStart - portStart - 1);
+            try { result.port = (uint16_t)std::stoi(portStr); } catch (...) {}
+        } else { result.host = u.substr(hostStart, pathStart - hostStart); }
+    }
+    result.valid = !result.host.empty();
+    return result;
+}
+
+// ============================================================================
+// ICY METADATA PARSER (transplant) — StreamTitle=Artist-Track format
+// ============================================================================
+static void urla_parse_icy_metadata(const std::string& meta, std::string& outTitle, std::string& outArtist, std::string& outTrack) {
+    outTitle = ""; outArtist = ""; outTrack = "";
+    std::string quote(1, 39);
+    size_t pos = meta.find("StreamTitle=");
+    if (pos == std::string::npos) pos = meta.find("streamtitle=");
+    if (pos == std::string::npos) return;
+
+    size_t quoteStart = meta.find(quote, pos);
+    if (quoteStart == std::string::npos) return;
+    quoteStart++;
+    size_t quoteEnd = meta.find(quote, quoteStart);
+    if (quoteEnd == std::string::npos) return;
+
+    std::string fullTitle = meta.substr(quoteStart, quoteEnd - quoteStart);
+    outTitle = fullTitle;
+    size_t sep = fullTitle.find(" - ");
+    if (sep != std::string::npos) {
+        outArtist = fullTitle.substr(0, sep);
+        outTrack = fullTitle.substr(sep + 3);
+    } else { outTrack = fullTitle; }
+}
+
+// ============================================================================
+// METADATA WORKER THREAD — WinHTTP (Windows), idle on other C++ targets
+// ============================================================================
+static void _urlaudio_meta_worker_func(void* haxePtr) {
+    URLAudioMetaState* st = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(_urlaudio_meta_map_mutex);
+        std::map<void*, URLAudioMetaState*>::iterator it = _urlaudio_meta_map.find(haxePtr);
+        if (it != _urlaudio_meta_map.end()) st = it->second;
+    }
+    if (!st) return;
+
+    st->isRunning.store(true);
+
+#ifdef _WIN32
+    HINTERNET hSession = NULL;
+    HINTERNET hConnect = NULL;
+    HINTERNET hRequest = NULL;
+
+    while (st->isRunning.load()) {
+        if (!st->shouldPlay.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            continue;
+        }
+
+        std::string url;
+        { std::lock_guard<std::mutex> lock(st->mtx); url = st->streamUrl; }
+
+        if (url.empty()) {
+            std::lock_guard<std::mutex> lock(st->mtx);
+            st->hasError = true; st->errorMsg = "Empty URL";
+            st->shouldPlay.store(false); st->isConnected = false; st->metadataChanged = true;
+            continue;
+        }
+
+        URLAudioParsedURL parsed = urla_parse_url(url);
+        if (!parsed.valid) {
+            std::lock_guard<std::mutex> lock(st->mtx);
+            st->hasError = true; st->errorMsg = "Invalid URL: " + url;
+            st->shouldPlay.store(false); st->isConnected = false; st->metadataChanged = true;
+            continue;
+        }
+
+        hSession = WinHttpOpen(L"ALTAURI/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        if (!hSession) { continue; }
+
+        std::wstring wHost(parsed.host.begin(), parsed.host.end());
+        hConnect = WinHttpConnect(hSession, wHost.c_str(), parsed.port, 0);
+        if (!hConnect) { WinHttpCloseHandle(hSession); continue; }
+
+        std::wstring wPath(parsed.path.begin(), parsed.path.end());
+        DWORD flags = parsed.isHttps ? WINHTTP_FLAG_SECURE : 0;
+        hRequest = WinHttpOpenRequest(hConnect, L"GET", wPath.c_str(), NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+        if (!hRequest) { WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession); continue; }
+
+        // Save hRequest so the main thread can cancel blocking reads
+        {
+            std::lock_guard<std::mutex> lock(st->hRequestMtx);
+            st->hRequest = hRequest;
+        }
+
+        WinHttpAddRequestHeaders(hRequest, L"icy-metadata: 1", (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
+        DWORD secFlags = SECURITY_FLAG_IGNORE_ALL_CERT_ERRORS;
+        WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));
+
+        if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, NULL)) goto meta_connection_lost;
+        if (!WinHttpReceiveResponse(hRequest, NULL)) goto meta_connection_lost;
+
+        // Read icy-metaint header (bytes between metadata blocks)
+        int metaint = 0;
+        {
+            WCHAR buf[256] = {0}; DWORD bufLen = sizeof(buf);
+            const wchar_t metaintHeader[] = L"icy-metaint";
+            if (WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_CUSTOM, metaintHeader, buf, &bufLen, NULL)) {
+                std::wstring ws(buf); std::string s(ws.begin(), ws.end());
+                try { metaint = std::stoi(s); } catch (...) {}
+            }
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(st->mtx);
+            st->isConnected = true; st->hasError = false; st->errorMsg = "";
+            st->reconnectAttempts = 0; st->metadataChanged = true;
+        }
+
+        // === Metadata reading loop ===
+        // Wrapped in braces to allow goto over std::string lastRawMeta (C++ restriction)
+        {
+            std::string lastRawMeta;
+            while (st->isRunning.load() && st->shouldPlay.load()) {
+                if (st->shouldStop.load()) { st->shouldStop.store(false); st->shouldPlay.store(false); break; }
+
+                // v2.0: URL switched while connected -> drop this connection and
+                // reconnect to the new stream (shouldPlay stays true).
+                if (st->urlChanged.exchange(false)) break;
+
+                DWORD bytesAvailable = 0;
+                if (!WinHttpQueryDataAvailable(hRequest, &bytesAvailable)) break;
+                if (bytesAvailable == 0) { std::this_thread::sleep_for(std::chrono::milliseconds(50)); continue; }
+
+                if (metaint > 0) {
+                    // Skip audio chunk (metaint bytes)
+                    char audioBuf[8192]; DWORD toRead = metaint;
+                    while (toRead > 0 && st->isRunning.load() && st->shouldPlay.load()) {
+                        DWORD chunkSize = (toRead < sizeof(audioBuf)) ? toRead : sizeof(audioBuf);
+                        DWORD bytesRead = 0;
+                        if (!WinHttpReadData(hRequest, audioBuf, chunkSize, &bytesRead)) goto meta_connection_lost;
+                        if (bytesRead == 0) {
+                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                            DWORD avail = 0; WinHttpQueryDataAvailable(hRequest, &avail);
+                            if (avail == 0) { std::this_thread::sleep_for(std::chrono::milliseconds(500)); WinHttpQueryDataAvailable(hRequest, &avail); if (avail == 0) goto meta_connection_lost; }
+                            continue;
+                        }
+                        toRead -= bytesRead;
+                    }
+
+                    // Read metadata length byte (length = byte * 16)
+                    char metaLenByte = 0; DWORD metaLenRead = 0;
+                    if (!WinHttpReadData(hRequest, &metaLenByte, 1, &metaLenRead) || metaLenRead == 0) goto meta_connection_lost;
+                    int metaLen = (unsigned char)metaLenByte * 16;
+
+                    if (metaLen > 0) {
+                        std::string metaBuf; metaBuf.resize(metaLen + 1, 0); DWORD metaRead = 0;
+                        if (!WinHttpReadData(hRequest, &metaBuf[0], metaLen, &metaRead)) goto meta_connection_lost;
+                        metaBuf[metaRead] = 0;
+                        std::string rawMeta(metaBuf.c_str());
+
+                        if (rawMeta != lastRawMeta && !rawMeta.empty()) {
+                            lastRawMeta = rawMeta;
+                            std::string newTitle, newArtist, newTrack;
+                            urla_parse_icy_metadata(rawMeta, newTitle, newArtist, newTrack);
+                            if (!newTitle.empty()) {
+                                std::lock_guard<std::mutex> lock(st->mtx);
+                                st->rawMetadata = rawMeta; st->title = newTitle; st->artist = newArtist; st->track = newTrack; st->metadataChanged = true;
+                            }
+                        }
+                    }
+                } else {
+                    // No ICY metadata — just drain the stream to keep connection alive
+                    char discardBuf[8192]; DWORD bytesRead = 0;
+                    DWORD chunkSize = (bytesAvailable < sizeof(discardBuf)) ? bytesAvailable : sizeof(discardBuf);
+                    if (!WinHttpReadData(hRequest, discardBuf, chunkSize, &bytesRead)) break;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                }
+            }
+        }
+
+    meta_connection_lost:
+        {
+            std::lock_guard<std::mutex> lock(st->mtx);
+            st->isConnected = false;
+        }
+
+        // Safe cleanup of hRequest
+        {
+            std::lock_guard<std::mutex> lock(st->hRequestMtx);
+            if (st->hRequest != NULL) {
+                WinHttpCloseHandle(st->hRequest);
+                st->hRequest = NULL;
+            }
+        }
+        if (hConnect) { WinHttpCloseHandle(hConnect); hConnect = NULL; }
+        if (hSession) { WinHttpCloseHandle(hSession); hSession = NULL; }
+
+        // === RECONNECT DELAY WITH EXPONENTIAL BACKOFF (transplant) ===
+        if (st->shouldPlay.load() && st->isRunning.load()) {
+            std::lock_guard<std::mutex> lock(st->mtx);
+            st->hasError = true;
+
+            st->reconnectAttempts++;
+
+            int baseDelayMs = 1000;
+            int maxDelayMs = (int)(st->pollInterval * 1000);
+
+            int delayMs = baseDelayMs * (1 << st->reconnectAttempts);
+            if (delayMs > maxDelayMs) delayMs = maxDelayMs;
+
+            int jitterRange = delayMs / 5;
+            int jitter = (rand() % (jitterRange * 2 + 1)) - jitterRange;
+            delayMs += jitter;
+
+            char errBuf[128];
+            sprintf(errBuf, "Connection lost (retry #%d in %dms)", st->reconnectAttempts, delayMs);
+            st->errorMsg = errBuf;
+            st->metadataChanged = true;
+
+            for (int w = 0; w < delayMs / 100 && st->isRunning.load(); w++) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+        }
+    }
+    if (hRequest) WinHttpCloseHandle(hRequest);
+    if (hConnect) WinHttpCloseHandle(hConnect);
+    if (hSession) WinHttpCloseHandle(hSession);
+#else
+    // Non-Windows C++ targets: worker thread is idle (no WinHTTP).
+    while (st->isRunning.load()) std::this_thread::sleep_for(std::chrono::milliseconds(500));
+#endif
+    st->isRunning.store(false);
+}
+
+// ============================================================================
+// CANCEL METADATA REQUEST — unblocks WinHttpReadData on dispose()
+// (transplant of the RP_CancelRequest pattern)
+// ============================================================================
+static void urla_meta_cancel(void* haxePtr) {
+    URLAudioMetaState* st = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(_urlaudio_meta_map_mutex);
+        std::map<void*, URLAudioMetaState*>::iterator it = _urlaudio_meta_map.find(haxePtr);
+        if (it != _urlaudio_meta_map.end()) st = it->second;
+    }
+    if (st) {
+#ifdef _WIN32
+        std::lock_guard<std::mutex> lock(st->hRequestMtx);
+        if (st->hRequest) {
+            WinHttpCloseHandle(st->hRequest);
+            st->hRequest = NULL;
+        }
+#endif
+    }
+}
 ')
 
 /**
-* URL AUDIO STREAM PLAYER ATOM v1.5 (Idempotent init + Reconnect Loop Resolution)
+* URL AUDIO STREAM PLAYER ATOM v2.0.1 (All-in-One Net Radio: WMF audio + auto-reconnect + ICY metadata)
+*
+* ┌─────────────────────────────────────────────────────────────────────────┐
+* │  v2.0.1 HOTFIX (Task 103 — фикс компиляции MSVC):                       │
+* │                                                                         │
+* │  winhttp.h не подключает windows.h сам: его строка 54                   │
+* │  "typedef LPVOID HINTERNET;" требует базовых типов Win32                │
+* │  (LPVOID / DWORD / APIENTRY), которых в TU ещё не было —                │
+* │  отсюда каскад C4430 / C2146 / C2143. Фикс: windows.h +                 │
+* │  WIN32_LEAN_AND_MEAN + NOMINMAX ПЕРЕД winhttp.h — ровно тот             │
+* │  порядок, что держал покойный NETRadioPlayerAtom (эталон                │
+* │  сверен с git). Порядок winhttp.h -> WMFStreamSession.h не              │
+* │  менялся; guard-ы зеркальны преамбуле WMFStreamSession.h.               │
+* └─────────────────────────────────────────────────────────────────────────┘
+*
+*
+* ┌─────────────────────────────────────────────────────────────────────────┐
+* │  v2.0 CHANGES (Task 102, series URL_RADIO — Вариант A, Путь 1):         │
+* │                                                                         │
+* │  ALL-IN-ONE NET RADIO. Радио-семейство сведено к ОДНОМУ атому — этому. │
+* │  NETRadioPlayerAtom (аудио через глобальный MFPlay-синглтон,            │
+* │  deprecated mfplay.h) отправлен на пенсию; его проверенный ICY-воркер   │
+* │  пересажен СЮДА пер-инстансным WinHTTP-потоком.                         │
+* │                                                                         │
+* │  НОВОЕ — ICY-ВОРКЕР МЕТАДАННЫХ (пер-инстансный, map-keyed):             │
+* │    • читает ТОТ ЖЕ URL потока, что играет WMF-сессия                    │
+* │    • пропускает аудио-чанки (icy-metaint), парсит StreamTitle           │
+* │    • новые выходы: title / artist / track (+ импульс "updated")         │
+* │    • собственный реконнект с экспоненциальным бэкоффом                  │
+* │    • флаг urlChanged: горячая смена URL переподключает метаданные       │
+* │    • dispose: cancel + join (паттерн RP_CancelRequest)                  │
+* │                                                                         │
+* │  НОВОЕ — хуки FAULT_ISOLATION (канон Task 98):                          │
+* │    • Play() отвергнут сессией            -> markAsFaulted(PLAY_FAILED)  │
+* │    • капитуляция реконнекта (10 попыток) -> markAsFaulted(CONN_LOST)    │
+* │    • здоровый проход (state -> PLAYING)  -> clearFault()                │
+* │    • осознанный stop                     -> clearFault()+clearMetadata  │
+* │                                                                         │
+* │  ИЗМЕНЕНО — горячая смена URL: смена URL при игре теперь немедленно     │
+* │  перезапускает воспроизведение на новом URL (v1.5 останавливала звук и  │
+* │  ждала ручного переключения play).                                      │
+* └─────────────────────────────────────────────────────────────────────────┘
+*
 *
 * ┌─────────────────────────────────────────────────────────────────────────┐
 * │  v1.5 CHANGES (Task 96, Fix C — idempotent init):                       │
@@ -166,6 +571,14 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 	private var _lastBuffering:Bool = false;
 	private var _lastError:String = "";
 	private var _lastStateInt:Int = 0;
+	
+	// =========================================================================
+	// v2.0: ICY METADATA DATABANK (Task 102)
+	// =========================================================================
+	private var _lastTitle:String = "";
+	private var _lastArtist:String = "";
+	private var _lastTrack:String = "";
+	private var _updatedTimer:Float = 0.0;
 
 	// =========================================================================
 	// v1.2: AUTO-RECONNECT STATE
@@ -179,6 +592,8 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 	private static inline var BASE_RECONNECT_DELAY:Float = 1.0;
 	private static inline var MAX_RECONNECT_DELAY:Float = 30.0;
 	private static inline var BUFFERING_TIMEOUT_SEC:Float = 15.0;
+	/** v2.0: Duration of the "updated" pulse on metadata change (seconds) */
+	private static inline var PULSE_DURATION:Float = 0.1;
 
 	public function new(id:String)
 	{
@@ -192,7 +607,11 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 				new Contact(false, OUTPUT, "isPlaying"),
 				new Contact(false, OUTPUT, "isBuffering"),
 				new Contact("", OUTPUT, "error"),
-				new Contact(0, OUTPUT, "state")
+				new Contact(0, OUTPUT, "state"),
+				new Contact("", OUTPUT, "title"),
+				new Contact("", OUTPUT, "artist"),
+				new Contact("", OUTPUT, "track"),
+				new Contact(false, OUTPUT, "updated")
 			],
 			null, id, "URLAudioStreamPlayer", true
 		);
@@ -224,6 +643,14 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 				std::lock_guard<std::mutex> lock(_urlaudio_sessions_mutex);
 				_urlaudio_sessions[(void*){0}.mPtr] = session;
 			}
+			// v2.0 (Task 102): per-instance ICY metadata worker — spawned in the same
+			// guarded region, so the idempotency guard above covers BOTH resources.
+			URLAudioMetaState* mst = new URLAudioMetaState();
+			{
+				std::lock_guard<std::mutex> lock(_urlaudio_meta_map_mutex);
+				_urlaudio_meta_map[(void*){0}.mPtr] = mst;
+			}
+			mst->worker = new std::thread(_urlaudio_meta_worker_func, (void*){0}.mPtr);
 		', this);
 	}
 
@@ -233,6 +660,8 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 
 		readInputs();
 		pollSessionState();
+		pollMetadata();       // v2.0 (Task 102): ICY metadata polling
+		updatePulseTimers(dt); // v2.0 (Task 102): "updated" pulse countdown
 
 		// === v1.2: RECONNECT TIMER MANAGEMENT ===
 		if (_isReconnecting)
@@ -247,6 +676,28 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 
 	override public function dispose():Void
 	{
+		// v2.0 (Task 102): stop the ICY metadata worker FIRST —
+		// unblock a possible blocking WinHttpReadData, then join the thread.
+		untyped __cpp__('
+			urla_meta_cancel((void*){0}.mPtr);
+			URLAudioMetaState* mst = nullptr;
+			{
+				std::lock_guard<std::mutex> lock(_urlaudio_meta_map_mutex);
+				auto it = _urlaudio_meta_map.find((void*){0}.mPtr);
+				if (it != _urlaudio_meta_map.end()) {
+					mst = it->second;
+					_urlaudio_meta_map.erase(it);
+				}
+			}
+			if (mst) {
+				mst->shouldStop.store(true);
+				mst->shouldPlay.store(false);
+				mst->isRunning.store(false);
+				if (mst->worker && mst->worker->joinable()) mst->worker->join();
+				delete mst->worker; delete mst;
+			}
+		', this);
+
 		untyped __cpp__('
 			WMFStreamSession* session = nullptr;
 			{
@@ -290,6 +741,28 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 						session->Stop();
 					}
 				', this);
+				// v2.0 (Task 102): point the metadata worker at the new URL.
+				untyped __cpp__('
+					URLAudioMetaState* mst = nullptr;
+					{
+						std::lock_guard<std::mutex> lock(_urlaudio_meta_map_mutex);
+						auto it = _urlaudio_meta_map.find((void*){0}.mPtr);
+						if (it != _urlaudio_meta_map.end()) mst = it->second;
+					}
+					if (mst) {
+						std::lock_guard<std::mutex> dataLock(mst->mtx);
+						mst->streamUrl = std::string((const char*){1}.__s);
+						mst->reconnectAttempts = 0;
+						mst->urlChanged.store(true);
+					}
+				', this, newUrl);
+				clearMetadata();
+				// Hot URL switch (v2.0): if we were playing, restart audio on the new
+				// URL immediately — v1.5 stopped audio and waited for a manual play toggle.
+				if (_lastPlayCtrl)
+				{
+					startPlayback();
+				}
 			}
 		}
 
@@ -325,11 +798,39 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 				{
 					cancelReconnect();
 					startPlayback();
+					// v2.0 (Task 102): start metadata extraction for the current URL.
+					untyped __cpp__('
+						URLAudioMetaState* mst = nullptr;
+						{
+							std::lock_guard<std::mutex> lock(_urlaudio_meta_map_mutex);
+							auto it = _urlaudio_meta_map.find((void*){0}.mPtr);
+							if (it != _urlaudio_meta_map.end()) mst = it->second;
+						}
+						if (mst) {
+							{
+								std::lock_guard<std::mutex> dataLock(mst->mtx);
+								mst->streamUrl = std::string((const char*){1}.__s);
+								mst->reconnectAttempts = 0;
+							}
+							mst->shouldStop.store(false);
+							mst->shouldPlay.store(true);
+						}
+					', this, _lastUrl);
 				}
 				else
 				{
 					cancelReconnect();
 					stopPlayback();
+					// v2.0 (Task 102): stop metadata extraction too.
+					untyped __cpp__('
+						URLAudioMetaState* mst = nullptr;
+						{
+							std::lock_guard<std::mutex> lock(_urlaudio_meta_map_mutex);
+							auto it = _urlaudio_meta_map.find((void*){0}.mPtr);
+							if (it != _urlaudio_meta_map.end()) mst = it->second;
+						}
+						if (mst) { mst->shouldStop.store(true); mst->shouldPlay.store(false); }
+					', this);
 				}
 			}
 		}
@@ -347,6 +848,8 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 		_currentUrl = _lastUrl;
 		trace('🎵 URLAudioStreamPlayer: Starting playback for URL: ${_currentUrl}');
 
+		var playOk:Bool = false; // v2.0 (Task 102): captured for the fault hook
+
 		untyped __cpp__('
 			WMFStreamSession* session = nullptr;
 			{
@@ -359,10 +862,21 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 				printf("🎵 Calling session->Play() with URL: %s\\n", url.c_str());
 				bool result = session->Play(url);
 				printf("🎵 session->Play() returned: %s\\n", result ? "true" : "false");
+				{2} = result;
 			} else {
 				printf("⚠️ URLAudioStreamPlayer: Session is null!\\n");
+				{2} = false;
 			}
-		', this, _currentUrl);
+		', this, _currentUrl, playOk);
+
+		// v2.0 (Task 102): synchronous setup failure — latch the fault
+		// (red frame). A manual play toggle or URL change is the retry.
+		if (!playOk)
+		{
+			var errC = getOutput("error");
+			if (errC != null) { errC.setValueSilent("Play failed (session rejected URL)"); errC.propagateCurrentValue(); }
+			markAsFaulted("RADIO_PLAY_FAILED", "session->Play() rejected the URL (network or format error)");
+		}
 	}
 
 	private function stopPlayback():Void
@@ -385,6 +899,10 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 		_waitingForPlaying = false;
 		_reconnectAttempts = 0;
 		_reconnectTimer = 0;
+		// v2.0 (Task 102): intentional stop = fault reset (ComPort closeDevice
+		// semantics) + drop stale metadata from the old stream.
+		clearFault();
+		clearMetadata();
 	}
 
 	private function pollSessionState():Void
@@ -470,6 +988,7 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 
 				var stateC = getOutput("state");
 				if (stateC != null) { stateC.setValueSilent(4); stateC.propagateCurrentValue(); }
+				markAsFaulted("RADIO_CONNECTION_LOST", "Max reconnect attempts exceeded"); // v2.0 (Task 102)
 				return;
 			}
 
@@ -515,6 +1034,9 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 		{
 			trace('📊 URLAudioStreamPlayer: State changed: ${_lastStateInt} → $cppState (${getGameStateName(cppState)})');
 			_lastStateInt = cppState;
+			// v2.0 (Task 102): healthy pass — PLAYING reached clears the fault latch
+			// (clearFault is a no-op when the atom is not faulted).
+			if (cppState == 2) clearFault();
 			var c = getOutput("state");
 			if (c != null) { c.setValueSilent(cppState); c.propagateCurrentValue(); }
 		}
@@ -544,6 +1066,7 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 
 			var stateC = getOutput("state");
 			if (stateC != null) { stateC.setValueSilent(4); stateC.propagateCurrentValue(); }
+			markAsFaulted("RADIO_CONNECTION_LOST", "Max reconnect attempts exceeded"); // v2.0 (Task 102)
 			return;
 		}
 
@@ -626,6 +1149,7 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 
 			var stateC = getOutput("state");
 			if (stateC != null) { stateC.setValueSilent(4); stateC.propagateCurrentValue(); }
+			markAsFaulted("RADIO_CONNECTION_LOST", "Max reconnect attempts exceeded"); // v2.0 (Task 102)
 			return;
 		}
 
@@ -693,6 +1217,7 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 
 				var stateC = getOutput("state");
 				if (stateC != null) { stateC.setValueSilent(4); stateC.propagateCurrentValue(); }
+				markAsFaulted("RADIO_CONNECTION_LOST", "Max reconnect attempts exceeded"); // v2.0 (Task 102)
 				return;
 			}
 
@@ -731,6 +1256,95 @@ class URLAudioStreamPlayerAtom extends Atom implements system.managers.Driver
 			// Clear error display
 			var errC = getOutput("error");
 			if (errC != null) { errC.setValueSilent(""); errC.propagateCurrentValue(); }
+		}
+	}
+
+	// =========================================================================
+	// v2.0 (Task 102): ICY METADATA POLLING — C++ worker -> Haxe outputs
+	// =========================================================================
+	/**
+	* Poll the per-instance ICY metadata worker for fresh title/artist/track.
+	* Mirrors the proven NETRadio pollCppState pattern: read under st->mtx
+	* when the dirty flag is set, copy, clear the flag, write to output
+	* contacts on change, pulse "updated".
+	*/
+	private function pollMetadata():Void
+	{
+		var mTitle:String = "";
+		var mArtist:String = "";
+		var mTrack:String = "";
+		var mChanged:Bool = false;
+
+		untyped __cpp__('
+			URLAudioMetaState* st = nullptr;
+			{
+				std::lock_guard<std::mutex> lock(_urlaudio_meta_map_mutex);
+				auto it = _urlaudio_meta_map.find((void*){0}.mPtr);
+				if (it != _urlaudio_meta_map.end()) st = it->second;
+			}
+			if (st) {
+				std::lock_guard<std::mutex> dataLock(st->mtx);
+				if (st->metadataChanged) {
+					{1} = ::String(st->title.c_str());
+					{2} = ::String(st->artist.c_str());
+					{3} = ::String(st->track.c_str());
+					{4} = true;
+					st->metadataChanged = false;
+				}
+			}
+		', this, mTitle, mArtist, mTrack, mChanged);
+
+		if (mChanged)
+		{
+			if (mTitle != _lastTitle) { _lastTitle = mTitle; setOutput("title", mTitle); }
+			if (mArtist != _lastArtist) { _lastArtist = mArtist; setOutput("artist", mArtist); }
+			if (mTrack != _lastTrack) { _lastTrack = mTrack; setOutput("track", mTrack); }
+
+			var updatedC = getOutput("updated");
+			if (updatedC != null) { updatedC.value = true; _updatedTimer = PULSE_DURATION; }
+		}
+	}
+
+	/**
+	* v2.0 (Task 102): Reset all metadata outputs to empty values.
+	* Called on intentional stop and on URL switch (stale stream data).
+	*/
+	private function clearMetadata():Void
+	{
+		_lastTitle = "";
+		_lastArtist = "";
+		_lastTrack = "";
+		setOutput("title", "");
+		setOutput("artist", "");
+		setOutput("track", "");
+	}
+
+	/**
+	* v2.0 (Task 102): Write value to an output contact using the batched
+	* pattern: setValueSilent() + propagateCurrentValue().
+	*/
+	private function setOutput(name:String, value:Dynamic):Void
+	{
+		var c = getOutput(name);
+		if (c != null) { c.setValueSilent(value); c.propagateCurrentValue(); }
+	}
+
+	/**
+	* v2.0 (Task 102): Countdown "updated" pulse timer (NETRadio pattern).
+	* The "updated" output is a short-lived Bool pulse that fires every
+	* time the ICY metadata changes.
+	*/
+	private function updatePulseTimers(dt:Float):Void
+	{
+		if (_updatedTimer > 0)
+		{
+			_updatedTimer -= dt;
+			if (_updatedTimer <= 0)
+			{
+				_updatedTimer = 0;
+				var c = getOutput("updated");
+				if (c != null) c.value = false;
+			}
 		}
 	}
 
