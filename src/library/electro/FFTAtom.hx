@@ -90,34 +90,34 @@ import system.managers.Driver;
 * ║                     FFT ALGORITHM                                         ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
-* ║  Cooley-Tukey Radix-2 Decimation-In-Time (DIT):                          ║
+* ║  Cooley-Tukey Radix-2 Decimation-In-Time (DIT):                           ║
 * ║                                                                           ║
-* ║  1. Bit-reversal permutation входных данных                              ║
-* ║  2. Butterfly operations:                                                ║
-* ║     ┌──────┐                                                             ║
-* ║     │  a   │──────┐                                                      ║
-* ║     └──────┘      │  ┌──────┐                                            ║
-* ║                   ├─►│ a + t│                                            ║
-* ║     ┌──────┐      │  └──────┘                                            ║
-* ║     │  b   │──────┘                                                      ║
-* ║     └──────┘      │  ┌──────┐                                            ║
-* ║                   └─►│ a - t│                                            ║
-* ║                      └──────┘                                            ║
+* ║  1. Bit-reversal permutation входных данных                               ║
+* ║  2. Butterfly operations:                                                 ║
+* ║     ┌──────┐                                                              ║
+* ║     │  a   │──────┐                                                       ║
+* ║     └──────┘      │  ┌──────┐                                             ║
+* ║                   ├─►│ a + t│                                             ║
+* ║     ┌──────┐      │  └──────┘                                             ║
+* ║     │  b   │──────┘                                                       ║
+* ║     └──────┘      │  ┌──────┐                                             ║
+* ║                   └─►│ a - t│                                             ║
+* ║                      └──────┘                                             ║
 * ║                                                                           ║
-* ║     где t = b * W_N^k (twiddle factor)                                   ║
-* ║     W_N^k = e^(-2πi*k/N)                                                 ║
+* ║     где t = b * W_N^k (twiddle factor)                                    ║
+* ║     W_N^k = e^(-2πi*k/N)                                                  ║
 * ║                                                                           ║
-* ║  Сложность: O(N log N) вместо O(N²)                                      ║
+* ║  Сложность: O(N log N) вместо O(N²)                                       ║
 * ║                                                                           ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                   WINDOW FUNCTIONS                                        ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
-* ║  Hann:  w(n) = 0.5 * (1 - cos(2π * n / (N-1)))                          ║
-* ║  Hamming: w(n) = 0.54 - 0.46 * cos(2π * n / (N-1))                      ║
+* ║  Hann:  w(n) = 0.5 * (1 - cos(2π * n / (N-1)))                            ║
+* ║  Hamming: w(n) = 0.54 - 0.46 * cos(2π * n / (N-1))                        ║
 * ║                                                                           ║
-* ║  Оконные функции уменьшают спектральную утечку (spectral leakage),       ║
-* ║  вызванную резкими краями буфера.                                        ║
+* ║  Оконные функции уменьшают спектральную утечку (spectral leakage),        ║
+* ║  вызванную резкими краями буфера.                                         ║
 * ║                                                                           ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
 */
@@ -156,7 +156,7 @@ class FFTAtom extends Atom implements Driver
 	private var _maxFreq:Float = 20000.0;
 	private var _minDB:Float = -90.0;
 	private var _maxDB:Float = 0.0;
-	private var _compressionExponent:Float = 0.6;
+	private var _compressionExponent:Float = 0.8;
 	private var _noiseGate:Float = 0.01;
 	private var _gain:Float = 0.0;
 	private var _mode:Int = 0; // 0 = стандарт, 1 = кирпичики с peak hold

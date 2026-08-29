@@ -10,7 +10,7 @@ package utils;
 // Pattern below mirrors the proven one from ComPortAtom / SystemVUMeterAtom:
 // #if cpp -> @:cppFileCode(...) -> #end -> class.
 // ============================================================================
-#if cpp
+#if (cpp && !ALTAURI_TRAP_OFF)
 @:cppFileCode('
 #if defined(_WIN32) && !defined(ALTAURI_TRAP_SENTINEL_CODE)
 #define ALTAURI_TRAP_SENTINEL_CODE
@@ -99,9 +99,18 @@ static LONG WINAPI _altauri_trap_seh_filter(EXCEPTION_POINTERS* ep)
 ')
 #end
 
+// ============================================================================
+// v1.5 (Task 130): PROJECT.XML TOGGLE — the black box can be built silent.
+// Every working cpp guard now also requires !ALTAURI_TRAP_OFF (the define
+// is set from project.xml). With the define ABSENT the compiler emits
+// exactly the same code as v1.4.1 (zero-risk default).
+// Bonus fix: boot() now respects ENABLE (stderr_capture.log used to be
+// created even with ENABLE=false at runtime).
+// ============================================================================
+
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                        TRAP v1.4.1                                        ║
+* ║                        TRAP v1.5                                          ║
 * ║          (Crash-Proof Trace Logger — Episod H-1 «Black Box»)              ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
@@ -110,34 +119,34 @@ static LONG WINAPI _altauri_trap_seh_filter(EXCEPTION_POINTERS* ep)
 * ║  (pipe). On a hard crash (c0000005) the buffered tail is LOST —           ║
 * ║  exactly the most valuable part (the last moments before death).          ║
 * ║  TRAP writes every line to crash_trap.log with IMMEDIATE FLUSH.           ║
-* ║  Data that was flushed before the crash survives it.                      ║
+* ║  Data that was flushed before the crash survives it.                       ║
 * ║                                                                           ║
-* ║  v1.4.1 HOTFIX (compile, 2026-08-27):                                     ║
-* ║  - v1.4 DID NOT COMPILE: @:cppFileCode sat INSIDE the class body,         ║
-* ║    so the metadata attached to the boot() FIELD. hxcpp reads              ║
-* ║    :cppFileCode from the CLASS only → the whole native block              ║
-* ║    (io.h/fcntl.h/windows.h + _altauri_trap_seh_filter) never              ║
-* ║    reached Trap.cpp, while the __cpp__ code in boot() did →               ║
-* ║    C2065/C3861 x8 (_open/_dup2/_close/_O_CREAT/_O_WRONLY/_O_APPEND/       ║
-* ║    SetUnhandledExceptionFilter/_altauri_trap_seh_filter).                 ║
-* ║    FIX: metadata moved to class level — the exact pattern that            ║
-* ║    already compiles in ComPortAtom / SystemVUMeterAtom.                   ║
-* ║  - Hygiene: NOMINMAX + WIN32_LEAN_AND_MEAN guards before windows.h,       ║
-* ║    #include <stdint.h> for uintptr_t.                                     ║
+* ║  v1.4.1 HOTFIX (compile, 2026-08-27):                                    ║
+* ║  - v1.4 DID NOT COMPILE: @:cppFileCode sat INSIDE the class body,        ║
+* ║    so the metadata attached to the boot() FIELD. hxcpp reads             ║
+* ║    :cppFileCode from the CLASS only → the whole native block             ║
+* ║    (io.h/fcntl.h/windows.h + _altauri_trap_seh_filter) never             ║
+* ║    reached Trap.cpp, while the __cpp__ code in boot() did →              ║
+* ║    C2065/C3861 x8 (_open/_dup2/_close/_O_CREAT/_O_WRONLY/_O_APPEND/      ║
+* ║    SetUnhandledExceptionFilter/_altauri_trap_seh_filter).               ║
+* ║    FIX: metadata moved to class level — the exact pattern that          ║
+* ║    already compiles in ComPortAtom / SystemVUMeterAtom.                  ║
+* ║  - Hygiene: NOMINMAX + WIN32_LEAN_AND_MEAN guards before windows.h,      ║
+* ║    #include <stdint.h> for uintptr_t.                                    ║
 * ║                                                                           ║
 * ║  v1.4 (Episod H-1) — THE BLACK BOX. Field report 2026-08-27:              ║
 * ║  app died with lime "Done(1)", crash_trap.log ended on a BEAT             ║
 * ║  ~1 s after entering a ComPort assembly, exit path never started,         ║
 * ║  no exception text anywhere. Two dark channels swallow the evidence:      ║
 * ║    1) hxcpp prints uncaught exceptions to STDERR — "lime run" pipe        ║
-* ║       captures stdout only, stderr is lost;                               ║
+* ║       captures stdout only, stderr is lost;                                ║
 * ║    2) a native crash (SEH) never prints anything at all.                  ║
 * ║  v1.4 closes both channels:                                               ║
 * ║    - boot(): dup2() redirects fd 2 (stderr) into stderr_capture.log —     ║
 * ║      every "Uncaught exception : ..." + stack the runtime prints          ║
 * ║      from now on lands in a file that survives the crash;                 ║
 * ║    - boot(): SetUnhandledExceptionFilter installs a sentinel that         ║
-* ║      appends "[TRAP-NATIVE-CRASH] code=0x... addr=0x..." to               ║
+* ║      appends "[TRAP-NATIVE-CRASH] code=0x... addr=0x..." to              ║
 * ║      crash_trap.log using pure WinAPI (no CRT) before the OS kills        ║
 * ║      the process — one run tells Haxe-exception vs segfault;              ║
 * ║    - ex(tag, fn): guarded-call wrapper for the "dark zone" —              ║
@@ -169,7 +178,7 @@ static LONG WINAPI _altauri_trap_seh_filter(EXCEPTION_POINTERS* ep)
 * ║                                                                           ║
 * ║  v1.2 CHANGES (Deafness hunt part 2, 2026-08-25):                         ║
 * ║  - nameMatches(): SUFFIX match added — chain port names ending with       ║
-* ║    "_<token>" now pass the filter (gateway hops became visible).          ║
+* ║    "_<token>" now pass the filter (gateway hops became visible).         ║
 * ║                                                                           ║
 * ║  v1.1 CHANGES (Naming & Integrity retest, 2026-08-24):                    ║
 * ║  - NAMES extended with the first-hop leaf contacts ("out", "in",          ║
@@ -210,7 +219,7 @@ class Trap
                 "out", "in", "set", "rst"
         ];
 
-#if cpp
+#if (cpp && !ALTAURI_TRAP_OFF)
         private static var _out:sys.io.FileOutput = null;
         private static var _booted:Bool = false;
 #end
@@ -233,7 +242,8 @@ class Trap
         */
         public static function boot():Void
         {
-#if cpp
+#if (cpp && !ALTAURI_TRAP_OFF)
+                if (!ENABLE) return;
                 if (_booted) return;
                 _booted = true;
                 try
@@ -263,7 +273,7 @@ class Trap
                                 }
                                 #endif
                         ');
-                        log("TRAP", "v1.4.1 boot: stderr -> stderr_capture.log, native SEH sentinel armed (Windows)");
+                        log("TRAP", "v1.5 boot: stderr -> stderr_capture.log, native SEH sentinel armed (Windows)");
                 }
                 catch (e:Dynamic)
                 {
@@ -284,7 +294,7 @@ class Trap
         */
         public static function ex(tag:String, fn:Void -> Void):Bool
         {
-#if cpp
+#if (cpp && !ALTAURI_TRAP_OFF)
                 if (!ENABLE) { fn(); return true; }
                 try
                 {
@@ -319,8 +329,8 @@ class Trap
         public static function log(tag:String, msg:String = ""):Void
         {
                         // Блокиратор ловушки лога
-                        return;
-#if cpp
+                        //return;
+#if (cpp && !ALTAURI_TRAP_OFF)
                 if (!ENABLE) return;
                 try
                 {
@@ -344,6 +354,7 @@ class Trap
         */
         public static function nameMatches(n:String):Bool
         {
+                #if (cpp && !ALTAURI_TRAP_OFF)
                 if (!ENABLE || n == null) return false;
                 for (t in NAMES)
                 {
@@ -358,12 +369,15 @@ class Trap
                                 && StringTools.endsWith(n, "_" + t)) return true;
                 }
                 return false;
+                #else
+                return false;
+                #end
         }
 
         /** Close the handle (optional; OS closes it on exit anyway). */
         public static function close():Void
         {
-#if cpp
+#if (cpp && !ALTAURI_TRAP_OFF)
                 if (_out != null)
                 {
                         try { _out.close(); } catch (e:Dynamic) {}

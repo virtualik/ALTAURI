@@ -64,11 +64,19 @@
 	<haxelib name="openfl" />
 	<haxelib name="hxcpp" if="cpp" />
 	<haxedef name="utf8" />
+
+        <!-- ══════════════════════════════════════════════════════════════
+             ЧЁРНЫЙ ЯЩИК ALTAURI (utils.Trap): crash_trap.log,
+             stderr_capture.log + нативный SEH-страж.
+             ПО УМОЛЧАНИЮ ВКЛЮЧЁН (обе строки ниже закомментированы).
+             ТИХАЯ сборка, без файлов логов: раскомментируй строку 1.
+             Тихие только release (debug остаётся говорливым): строку 2. -->
+        <haxedef name="ALTAURI_TRAP_OFF" />
+        <!-- <haxedef name="ALTAURI_TRAP_OFF" if="release" /> -->
 	
-	<assets path="assets" />
-	<assets path="assets/icons/atoms" rename="assets/icons/atoms" recursive="true" />
-	<icon path="assets/favicon.ico" />
-	
+	<assets path="assets" embed="true" />
+	<assets path="assets/icons/atoms" rename="assets/icons/atoms" recursive="true" embed="true"/> -->
+	<icon path="assets/favicon.ico" embed="true"/> -->
     <!-- ========================================================================= -->
     <!-- ANDROID CONFIGURATION & USB SERIAL & JAVA-WEBSOCKET DEPENDENCIES          -->
     <!-- ========================================================================= -->

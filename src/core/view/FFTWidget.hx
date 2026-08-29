@@ -120,8 +120,8 @@ class FFTWidget extends DeviceView
 	
 	private var _previousBarHeights:Array<Float>;
 	private var _peakHeights:Array<Float>;
-	private var _smoothingFactor:Float = 0.0; // 0.0 = no smoothing, 1.0 = maximum smoothing
-	private var _peakFallSpeed:Float = 0.01;  // 3% of maxHeight per frame
+	private var _smoothingFactor:Float = 0.7; // 0.0 = no smoothing, 1.0 = maximum smoothing
+	private var _peakFallSpeed:Float = 0.001;  // 3% of maxHeight per frame
 
 	// =========================================================================
 	// CONSTRUCTOR
