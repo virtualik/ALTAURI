@@ -43,6 +43,7 @@ import openfl.text.TextFormat;
 import openfl.text.TextFormatAlign;
 import openfl.text.TextFieldType;
 import openfl.events.MouseEvent;
+import openfl.events.FocusEvent;
 import openfl.events.Event;
 import core.base.Atom;
 import core.base.Contact;
@@ -109,6 +110,12 @@ class WebSocketWidget extends DeviceView
     // URL section
     private var _urlLabel:TextField;
     private var _urlInput:TextField;
+
+    // W-SYNC.5: editing guards (focus) + dirty flags (user actually typed)
+    private var _isEditingUrl:Bool = false;
+    private var _isEditingSubproto:Bool = false;
+    private var _urlEdited:Bool = false;
+    private var _subprotoEdited:Bool = false;
 
     // Subprotocol + binary mode section
     private var _subprotoLabel:TextField;
@@ -253,13 +260,18 @@ class WebSocketWidget extends DeviceView
      */
     override private function flushTransientState():Void
     {
-        if (_urlContact != null && _urlInput != null)
+        // W-SYNC.5: commit the fields ONLY when the user actually edited
+        // them — untouched placeholders must never clobber legitimate
+        // contact values set through wires.
+        if (_urlContact != null && _urlInput != null && _urlEdited)
         {
             _urlContact.value = _urlInput.text;
+            _urlEdited = false;
         }
-        if (_subprotoContact != null && _subprotoInput != null)
+        if (_subprotoContact != null && _subprotoInput != null && _subprotoEdited)
         {
             _subprotoContact.value = _subprotoInput.text;
+            _subprotoEdited = false;
         }
         if (_binaryModeContact != null)
         {
@@ -343,6 +355,8 @@ class WebSocketWidget extends DeviceView
         _urlInput.x = 10;
         _urlInput.y = yPos;
         _urlInput.addEventListener(Event.CHANGE, onUrlChanged);
+        _urlInput.addEventListener(FocusEvent.FOCUS_IN, onUrlFocusIn);
+        _urlInput.addEventListener(FocusEvent.FOCUS_OUT, onUrlFocusOut);
         addChild(_urlInput);
         yPos += 30;
 
@@ -356,6 +370,8 @@ class WebSocketWidget extends DeviceView
         _subprotoInput.x = 10;
         _subprotoInput.y = yPos;
         _subprotoInput.addEventListener(Event.CHANGE, onSubprotoChanged);
+        _subprotoInput.addEventListener(FocusEvent.FOCUS_IN, onSubprotoFocusIn);
+        _subprotoInput.addEventListener(FocusEvent.FOCUS_OUT, onSubprotoFocusOut);
         addChild(_subprotoInput);
 
         // Binary mode toggle (right side)
@@ -415,7 +431,7 @@ class WebSocketWidget extends DeviceView
         _statusBar.y = yPos + 7;
         _statusBar.selectable = false;
         addChild(_statusBar);
-		
+                
         yPos += 38;
 
         // ── Stats bar ──
@@ -428,7 +444,7 @@ class WebSocketWidget extends DeviceView
         _statsBar.y = yPos;
         _statsBar.selectable = false;
         addChild(_statsBar);
-		
+                
         yPos += 15;
 
         // ── Error display ──
@@ -441,7 +457,7 @@ class WebSocketWidget extends DeviceView
         _errorDisplay.y = yPos;
         _errorDisplay.selectable = false;
         addChild(_errorDisplay);
-		
+                
         yPos += 37;
 
         // ── Auto-reconnect section ──
@@ -543,11 +559,11 @@ class WebSocketWidget extends DeviceView
 
         // Row : "Append Append Label"
         _appendAppendLabel = createLabel("Append", 40);
-		_appendAppendLabel.defaultTextFormat = new TextFormat("_typewriter", 10, _colorText, true);
+                _appendAppendLabel.defaultTextFormat = new TextFormat("_typewriter", 10, _colorText, true);
         _appendAppendLabel.x = 30;
         _appendAppendLabel.y = 17;
         _appendSection.addChild(_appendAppendLabel);
-		
+                
         // Row : "Append Mode Label"
         _appendModeLabel = createLabel("Mode", 30);
         _appendModeLabel.defaultTextFormat = new TextFormat("_typewriter", 10, _colorText, true);
@@ -560,7 +576,7 @@ class WebSocketWidget extends DeviceView
         _appendNoneLabel.x = 124;
         _appendNoneLabel.y = 3;
         _appendSection.addChild(_appendNoneLabel);
-		
+                
         // "Append nothing" radio
         _appendNoneRadio = createRadioButton();
         _appendNoneRadio.x = 130;
@@ -599,13 +615,13 @@ class WebSocketWidget extends DeviceView
         _appendCRLFLabel.x = 247;
         _appendCRLFLabel.y = 3;
         _appendSection.addChild(_appendCRLFLabel);
-		
+                
         _appendCRLFRadio = createRadioButton();
         _appendCRLFRadio.x = 255;
         _appendCRLFRadio.y = 19;
         _appendCRLFRadio.addEventListener(MouseEvent.CLICK, onAppendCRLFClick);
         _appendSection.addChild(_appendCRLFRadio);
-		
+                
         updateAppendModeVisual();  // initial state: "none" selected
 
         redrawBackground();
@@ -638,10 +654,10 @@ class WebSocketWidget extends DeviceView
             _reconnectSection.graphics.drawRoundRect(5, 0, widgetWidth - 10, 45, 4, 4);
             _reconnectSection.graphics.endFill();
         }
-		
-		// Append mode section
-		_appendSection.graphics.clear();
-		_appendSection.graphics.beginFill(0x0d0d18, 0.5);
+                
+                // Append mode section
+                _appendSection.graphics.clear();
+                _appendSection.graphics.beginFill(0x0d0d18, 0.5);
         _appendSection.graphics.lineStyle(1, 0x224466);
         _appendSection.graphics.drawRoundRect(5, 0, widgetWidth - 10, 37, 4, 4);
         _appendSection.graphics.endFill();
@@ -934,18 +950,28 @@ class WebSocketWidget extends DeviceView
         }
         else if (contact == _urlContact)
         {
-            if (newValue != null && _urlInput != null)
+            // W-SYNC.5: live mirror, suppressed while the user is editing
+            if (newValue != null && _urlInput != null && !_isEditingUrl)
             {
                 var urlStr = Std.string(newValue);
-                if (urlStr != _urlInput.text) _urlInput.text = urlStr;
+                if (urlStr != _urlInput.text)
+                {
+                    _urlInput.text = urlStr;
+                    _urlEdited = false;
+                }
             }
         }
         else if (contact == _subprotoContact)
         {
-            if (newValue != null && _subprotoInput != null)
+            // W-SYNC.5: live mirror, suppressed while the user is editing
+            if (newValue != null && _subprotoInput != null && !_isEditingSubproto)
             {
                 var spStr = Std.string(newValue);
-                if (spStr != _subprotoInput.text) _subprotoInput.text = spStr;
+                if (spStr != _subprotoInput.text)
+                {
+                    _subprotoInput.text = spStr;
+                    _subprotoEdited = false;
+                }
             }
         }
         else if (contact == _autoReconnectContact)
@@ -1077,6 +1103,7 @@ class WebSocketWidget extends DeviceView
      */
     private function onUrlChanged(e:Event):Void
     {
+        _urlEdited = true;
         if (_urlContact != null)
         {
             _urlContact.value = _urlInput.text;
@@ -1088,10 +1115,32 @@ class WebSocketWidget extends DeviceView
      */
     private function onSubprotoChanged(e:Event):Void
     {
+        _subprotoEdited = true;
         if (_subprotoContact != null)
         {
             _subprotoContact.value = _subprotoInput.text;
         }
+    }
+
+    /** W-SYNC.5: focus guards — the live mirror is suppressed while typing. */
+    private function onUrlFocusIn(e:FocusEvent):Void
+    {
+        _isEditingUrl = true;
+    }
+
+    private function onUrlFocusOut(e:FocusEvent):Void
+    {
+        _isEditingUrl = false;
+    }
+
+    private function onSubprotoFocusIn(e:FocusEvent):Void
+    {
+        _isEditingSubproto = true;
+    }
+
+    private function onSubprotoFocusOut(e:FocusEvent):Void
+    {
+        _isEditingSubproto = false;
     }
 
     /**
@@ -1235,8 +1284,18 @@ class WebSocketWidget extends DeviceView
         if (_appendLFRadio != null) _appendLFRadio.removeEventListener(MouseEvent.CLICK, onAppendLFClick);
         if (_appendCRLFRadio != null) _appendCRLFRadio.removeEventListener(MouseEvent.CLICK, onAppendCRLFClick);
         if (_reconnectToggle != null) _reconnectToggle.removeEventListener(MouseEvent.CLICK, onReconnectToggleClick);
-        if (_urlInput != null) _urlInput.removeEventListener(Event.CHANGE, onUrlChanged);
-        if (_subprotoInput != null) _subprotoInput.removeEventListener(Event.CHANGE, onSubprotoChanged);
+        if (_urlInput != null)
+        {
+            _urlInput.removeEventListener(Event.CHANGE, onUrlChanged);
+            _urlInput.removeEventListener(FocusEvent.FOCUS_IN, onUrlFocusIn);
+            _urlInput.removeEventListener(FocusEvent.FOCUS_OUT, onUrlFocusOut);
+        }
+        if (_subprotoInput != null)
+        {
+            _subprotoInput.removeEventListener(Event.CHANGE, onSubprotoChanged);
+            _subprotoInput.removeEventListener(FocusEvent.FOCUS_IN, onSubprotoFocusIn);
+            _subprotoInput.removeEventListener(FocusEvent.FOCUS_OUT, onSubprotoFocusOut);
+        }
         if (_intervalInput != null) _intervalInput.removeEventListener(Event.CHANGE, onIntervalChanged);
         if (_maxAttemptsInput != null) _maxAttemptsInput.removeEventListener(Event.CHANGE, onMaxAttemptsChanged);
 

@@ -7,12 +7,14 @@ import openfl.text.TextFieldType;
 import openfl.events.MouseEvent;
 import openfl.events.Event;
 import openfl.events.KeyboardEvent;
+import openfl.events.FocusEvent;
 import openfl.ui.Keyboard;
 import core.base.Atom;
 import core.base.Contact;
 
 /**
- * URL AUDIO STREAM PLAYER WIDGET v2.0 (Task 102, series URL_RADIO)
+ * URL AUDIO STREAM PLAYER WIDGET v2.1 (Task 102, series URL_RADIO;
+ * W-SYNC.1: live contact→field mirror for url/volume + edit guards)
  *
  * Reconstructed to match the standard atom face (WebSocket / ComPort style):
  * header bar with status LED + glow, URL field, PLAY/STOP action buttons,
@@ -45,9 +47,16 @@ import core.base.Contact;
  * the user wires their own Button and Indicator atoms — the widget is the
  * fallback control surface, wires are the primary one.
  *
- * URL field commits on ENTER (and on flushTransientState / PLAY click) —
- * NOT on every keystroke, so editing the URL while playing does not
- * hot-switch the stream per character.
+ * URL field commits on ENTER (and on PLAY click / deactivation WHEN the
+ * user actually edited the field) — NOT on every keystroke, so editing
+ * the URL while playing does not hot-switch the stream per character.
+ *
+ * W-SYNC.1 doctrine ("Atom is Databank"):
+ *  - url/volume contacts are mirrored LIVE into the fields (contact→field),
+ *    except while the user is editing the field (focus guard);
+ *  - PLAY/deactivation commit the field back (field→contact) ONLY if the
+ *    user actually modified it (_urlEdited) — a stale default placeholder
+ *    can never clobber a legitimate URL set through the contact by wires.
  *
  * Mouse isolation is handled automatically by DeviceView base class (v3.4).
  * Keyboard events in the URL field are stopped from bubbling to the editor.
@@ -122,6 +131,11 @@ class URLAudioStreamPlayerWidget extends DeviceView
     // =========================================================================
     // UI STATE (display cache only — no business data)
     // =========================================================================
+    // W-SYNC.1: editing guards (focus) + dirty flag (user actually typed)
+    private var _isEditingUrl:Bool = false;
+    private var _isEditingVol:Bool = false;
+    private var _urlEdited:Bool = false;
+
     private var _isPlaying:Bool = false;
     private var _isBuffering:Bool = false;
     private var _stateInt:Int = 0;
@@ -169,9 +183,13 @@ class URLAudioStreamPlayerWidget extends DeviceView
      */
     override private function flushTransientState():Void
     {
-        if (_urlContact != null && _urlInput != null)
+        // W-SYNC.1: commit the field ONLY when the user actually edited it —
+        // an untouched placeholder ("http://") must never clobber a
+        // legitimate URL set through the contact by wires.
+        if (_urlContact != null && _urlInput != null && _urlEdited && _urlInput.text != "")
         {
             _urlContact.value = _urlInput.text;
+            _urlEdited = false;
         }
         if (_volumeContact != null && _volInput != null)
         {
@@ -239,6 +257,9 @@ class URLAudioStreamPlayerWidget extends DeviceView
         _urlInput.x = 10;
         _urlInput.y = yPos;
         _urlInput.addEventListener(KeyboardEvent.KEY_DOWN, onUrlKeyDown);
+        _urlInput.addEventListener(Event.CHANGE, onUrlTextChanged);
+        _urlInput.addEventListener(FocusEvent.FOCUS_IN, onUrlFocusIn);
+        _urlInput.addEventListener(FocusEvent.FOCUS_OUT, onUrlFocusOut);
         addChild(_urlInput);
         yPos += 30;
 
@@ -268,6 +289,8 @@ class URLAudioStreamPlayerWidget extends DeviceView
         _volInput.x = 214;
         _volInput.y = yPos + 2;
         _volInput.addEventListener(Event.CHANGE, onVolumeChanged);
+        _volInput.addEventListener(FocusEvent.FOCUS_IN, onVolFocusIn);
+        _volInput.addEventListener(FocusEvent.FOCUS_OUT, onVolFocusOut);
         addChild(_volInput);
 
         // Status bar (right of transport row, below buttons)
@@ -427,9 +450,43 @@ class URLAudioStreamPlayerWidget extends DeviceView
             {
                 _urlContact.value = _urlInput.text;
             }
+            _urlEdited = false;
             if (stage != null) stage.focus = null;
         }
         e.stopPropagation();
+    }
+
+    /** W-SYNC.1: user modified the URL field (gate for PLAY/flush commits). */
+    private function onUrlTextChanged(e:Event):Void
+    {
+        _urlEdited = true;
+    }
+
+    /** W-SYNC.1: focus guards — the live mirror is suppressed while typing. */
+    private function onUrlFocusIn(e:FocusEvent):Void
+    {
+        _isEditingUrl = true;
+    }
+
+    private function onUrlFocusOut(e:FocusEvent):Void
+    {
+        _isEditingUrl = false;
+    }
+
+    private function onVolFocusIn(e:FocusEvent):Void
+    {
+        _isEditingVol = true;
+    }
+
+    private function onVolFocusOut(e:FocusEvent):Void
+    {
+        _isEditingVol = false;
+        // Leaving the volume field: normalize display to the committed value
+        if (_volInput != null && _volumeContact != null && _volumeContact.value != null)
+        {
+            var volStr:String = Std.string(_volumeContact.value);
+            if (_volInput.text != volStr) _volInput.text = volStr;
+        }
     }
 
     /**
@@ -450,9 +507,13 @@ class URLAudioStreamPlayerWidget extends DeviceView
      */
     private function onPlayClick(e:MouseEvent):Void
     {
-        if (_urlContact != null && _urlInput != null && _urlInput.text != "")
+        // W-SYNC.1: commit ONLY a user-edited field. The atom's url contact
+        // is the source of truth — PLAY must never clobber a legitimate URL
+        // (set through the contact by wires) with a stale field placeholder.
+        if (_urlContact != null && _urlInput != null && _urlEdited && _urlInput.text != "")
         {
             _urlContact.value = _urlInput.text;
+            _urlEdited = false;
         }
         if (_playContact != null)
         {
@@ -483,6 +544,7 @@ class URLAudioStreamPlayerWidget extends DeviceView
             if (_urlInput != null && _urlInput.text != url && url != "")
             {
                 _urlInput.text = url;
+                _urlEdited = false;
             }
         }
 
@@ -501,6 +563,30 @@ class URLAudioStreamPlayerWidget extends DeviceView
     override private function onContactChanged(contact:Contact, newValue:Dynamic):Void
     {
         if (isDisposed) return;
+
+        // W-SYNC.1: LIVE MIRROR contact → field ("Atom is Databank").
+        // Guard: never clobber a field the user is editing right now.
+        if (contact == _urlContact && !_isEditingUrl)
+        {
+            if (newValue != null)
+            {
+                var urlStr:String = Std.string(newValue);
+                if (urlStr != "" && _urlInput != null && _urlInput.text != urlStr)
+                {
+                    _urlInput.text = urlStr;
+                    _urlEdited = false;
+                }
+            }
+        }
+        else if (contact == _volumeContact && !_isEditingVol)
+        {
+            if (newValue != null && _volInput != null)
+            {
+                var volStr:String = Std.string(newValue);
+                if (_volInput.text != volStr) _volInput.text = volStr;
+            }
+        }
+
         updateState();
     }
 
@@ -655,10 +741,15 @@ class URLAudioStreamPlayerWidget extends DeviceView
         if (_urlInput != null)
         {
             _urlInput.removeEventListener(KeyboardEvent.KEY_DOWN, onUrlKeyDown);
+            _urlInput.removeEventListener(Event.CHANGE, onUrlTextChanged);
+            _urlInput.removeEventListener(FocusEvent.FOCUS_IN, onUrlFocusIn);
+            _urlInput.removeEventListener(FocusEvent.FOCUS_OUT, onUrlFocusOut);
         }
         if (_volInput != null)
         {
             _volInput.removeEventListener(Event.CHANGE, onVolumeChanged);
+            _volInput.removeEventListener(FocusEvent.FOCUS_IN, onVolFocusIn);
+            _volInput.removeEventListener(FocusEvent.FOCUS_OUT, onVolFocusOut);
         }
 
         _bg = null;

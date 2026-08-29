@@ -2,12 +2,14 @@
 package core.view;
 
 import core.base.Atom;
+import core.base.Contact;
 import library.drivers.MiniAudioAtom;
 import openfl.display.Sprite;
 import openfl.text.TextField;
 import openfl.text.TextFieldType;
 import openfl.events.Event;
 import openfl.events.MouseEvent;
+import openfl.events.FocusEvent;
 
 /**
  * MINI AUDIO WIDGET
@@ -65,6 +67,10 @@ class MiniAudioWidget extends DeviceView
     // =========================================================================
     private var _maxVUWidth:Float = 150;
     private var _clipTimeout:haxe.Timer;
+
+    // W-SYNC.3: editing guards — live mirror suppressed while typing
+    private var _isEditingGain:Bool = false;
+    private var _isEditingQuantum:Bool = false;
 
     public function new(atom:Atom)
     {
@@ -166,6 +172,10 @@ class MiniAudioWidget extends DeviceView
         _restartBtn.addEventListener(MouseEvent.CLICK, onRestartClick);
         _gainInput.addEventListener(Event.CHANGE, onGainChanged);
         _quantumInput.addEventListener(Event.CHANGE, onQuantumChanged);
+        _gainInput.addEventListener(FocusEvent.FOCUS_IN, onGainFocusIn);
+        _gainInput.addEventListener(FocusEvent.FOCUS_OUT, onGainFocusOut);
+        _quantumInput.addEventListener(FocusEvent.FOCUS_IN, onQuantumFocusIn);
+        _quantumInput.addEventListener(FocusEvent.FOCUS_OUT, onQuantumFocusOut);
     }
 
     // =========================================================================
@@ -292,6 +302,74 @@ class MiniAudioWidget extends DeviceView
     }
 
     // =========================================================================
+    // LIVE MIRROR: input contacts → parameter fields (W-SYNC.3)
+    // =========================================================================
+    /**
+     * The DeviceView base subscribes this widget to ALL atom contacts.
+     * Mirror external changes of "gain" / "quantum" into the fields
+     * ("Atom is Databank"), suppressed while the user is editing a field.
+     */
+    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void
+    {
+        if (isDisposed || newValue == null) return;
+
+        var gainC = _atom.getInput("gain");
+        var qC = _atom.getInput("quantum");
+
+        if (contact == gainC && !_isEditingGain && _gainInput != null)
+        {
+            var s = Std.string(newValue);
+            if (_gainInput.text != s) _gainInput.text = s;
+        }
+        else if (contact == qC && !_isEditingQuantum && _quantumInput != null)
+        {
+            var s = Std.string(newValue);
+            if (_quantumInput.text != s) _quantumInput.text = s;
+        }
+    }
+
+    /** W-SYNC.3: focus guards — the live mirror is suppressed while typing. */
+    private function onGainFocusIn(e:FocusEvent):Void
+    {
+        _isEditingGain = true;
+    }
+
+    private function onGainFocusOut(e:FocusEvent):Void
+    {
+        _isEditingGain = false;
+        // Leaving the field: normalize display to the committed value
+        if (_gainInput != null)
+        {
+            var gainC = _atom.getInput("gain");
+            if (gainC != null && gainC.value != null)
+            {
+                var s = Std.string(gainC.value);
+                if (_gainInput.text != s) _gainInput.text = s;
+            }
+        }
+    }
+
+    private function onQuantumFocusIn(e:FocusEvent):Void
+    {
+        _isEditingQuantum = true;
+    }
+
+    private function onQuantumFocusOut(e:FocusEvent):Void
+    {
+        _isEditingQuantum = false;
+        // Leaving the field: normalize display to the committed value
+        if (_quantumInput != null)
+        {
+            var qC = _atom.getInput("quantum");
+            if (qC != null && qC.value != null)
+            {
+                var s = Std.string(qC.value);
+                if (_quantumInput.text != s) _quantumInput.text = s;
+            }
+        }
+    }
+
+    // =========================================================================
     // UI UTILITIES
     // =========================================================================
     private function createLabel(text:String, color:Int, size:Int = 10, bold:Bool = false):TextField
@@ -338,6 +416,10 @@ class MiniAudioWidget extends DeviceView
         _restartBtn.removeEventListener(MouseEvent.CLICK, onRestartClick);
         _gainInput.removeEventListener(Event.CHANGE, onGainChanged);
         _quantumInput.removeEventListener(Event.CHANGE, onQuantumChanged);
+        _gainInput.removeEventListener(FocusEvent.FOCUS_IN, onGainFocusIn);
+        _gainInput.removeEventListener(FocusEvent.FOCUS_OUT, onGainFocusOut);
+        _quantumInput.removeEventListener(FocusEvent.FOCUS_IN, onQuantumFocusIn);
+        _quantumInput.removeEventListener(FocusEvent.FOCUS_OUT, onQuantumFocusOut);
 
         // Unsubscribe from contacts (crucial for cleanup!)
         var rms = _atom.getOutput("rms"); if (rms != null) rms.unsubscribe(onRmsUpdate);

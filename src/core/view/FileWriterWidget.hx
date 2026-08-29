@@ -7,12 +7,14 @@ import openfl.text.TextFormatAlign;
 import openfl.text.TextFieldType;
 import openfl.events.MouseEvent;
 import openfl.events.Event;
+import openfl.events.FocusEvent;
 import core.base.Atom;
 import core.base.Contact;
 
 /**
- * FILE WRITER WIDGET v1.0
+ * FILE WRITER WIDGET v1.1
  * Interactive control panel for FileWriterAtom (HTML5 File System Access API).
+ * W-SYNC.2: live mirror fileName/mode contacts → UI ("Atom is Databank").
  *
  * Architecture: "ATOM IS DATABANK & COMPUTE CORE"
  *
@@ -69,7 +71,7 @@ class FileWriterWidget extends DeviceView
     
     private var _statsLabel:TextField;
     private var _errorLabel:TextField;
-	
+        
     private var _suggestedFileName:String = "output.txt";
     // =========================================================================
     // CONTACTS
@@ -89,6 +91,9 @@ class FileWriterWidget extends DeviceView
     // =========================================================================
     // STATE
     // =========================================================================
+    // W-SYNC.2: editing guard — live mirror suppressed while typing
+    private var _isEditingFileName:Bool = false;
+
     private var _isOpen:Bool = false;
     private var _writeCount:Int = 0;
     private var _fileSize:Int = 0;
@@ -209,6 +214,8 @@ class FileWriterWidget extends DeviceView
         _fileNameInput.x = 50;
         _fileNameInput.y = yPos;
         _fileNameInput.addEventListener(Event.CHANGE, onFileNameChanged);
+        _fileNameInput.addEventListener(FocusEvent.FOCUS_IN, onFileNameFocusIn);
+        _fileNameInput.addEventListener(FocusEvent.FOCUS_OUT, onFileNameFocusOut);
         addChild(_fileNameInput);
         
         _selectBtn = createActionButton("Select", 0x224466, onSelectClick);
@@ -256,7 +263,7 @@ class FileWriterWidget extends DeviceView
         _closeBtn.y = yPos;
         addChild(_closeBtn);
         
-		// FLUSH в html5 не нужен (не будет)
+                // FLUSH в html5 не нужен (не будет)
         #if !html5
         _flushBtn = createActionButton("FLUSH", 0x334455, onFlushClick);
         _flushBtn.x = 140;
@@ -373,11 +380,11 @@ class FileWriterWidget extends DeviceView
     // =========================================================================
     override private function syncFromAtom():Void
     {
-	    if (_fileNameContact != null && _fileNameContact.value != null)
-		{
-			_suggestedFileName = Std.string(_fileNameContact.value);
-			_fileNameInput.text = _suggestedFileName;
-		}
+            if (_fileNameContact != null && _fileNameContact.value != null)
+                {
+                        _suggestedFileName = Std.string(_fileNameContact.value);
+                        _fileNameInput.text = _suggestedFileName;
+                }
         
         if (_modeContact != null && _modeContact.value != null)
         {
@@ -446,6 +453,33 @@ class FileWriterWidget extends DeviceView
                 _lastError = "";
             }
         }
+        // W-SYNC.2: LIVE MIRROR input contacts → UI ("Atom is Databank")
+        else if (contact == _fileNameContact)
+        {
+            // fileName → field; suppressed while the user is editing it
+            if (!_isEditingFileName && newValue != null)
+            {
+                var fnStr = Std.string(newValue);
+                if (_fileNameInput != null && _fileNameInput.text != fnStr)
+                {
+                    _fileNameInput.text = fnStr;
+                    _suggestedFileName = fnStr;
+                }
+            }
+        }
+        else if (contact == _modeContact)
+        {
+            // mode → Mode button label (Write/Append)
+            if (newValue != null)
+            {
+                var m:Int = Std.int(newValue);
+                if (m != _currentMode)
+                {
+                    _currentMode = m;
+                    updateModeDisplay();
+                }
+            }
+        }
     }
     
     // =========================================================================
@@ -493,8 +527,8 @@ class FileWriterWidget extends DeviceView
     private function formatFileSize(bytes:Int):String
     {
         if (bytes < 1024) return bytes + " B";
-		if (bytes < 1024 * 1024) return _toFixed(bytes / 1024, 1) + " KB";
-		return _toFixed(bytes / (1024 * 1024), 1) + " MB";
+                if (bytes < 1024 * 1024) return _toFixed(bytes / 1024, 1) + " KB";
+                return _toFixed(bytes / (1024 * 1024), 1) + " MB";
     }
     
     // =========================================================================
@@ -507,21 +541,42 @@ class FileWriterWidget extends DeviceView
             _fileNameContact.value = _fileNameInput.text;
         }
     }
+
+    /** W-SYNC.2: focus guards — the live mirror is suppressed while typing. */
+    private function onFileNameFocusIn(e:FocusEvent):Void
+    {
+        _isEditingFileName = true;
+    }
+
+    private function onFileNameFocusOut(e:FocusEvent):Void
+    {
+        _isEditingFileName = false;
+        // Leaving the field: normalize display to the committed value
+        if (_fileNameInput != null && _fileNameContact != null && _fileNameContact.value != null)
+        {
+            var fnStr = Std.string(_fileNameContact.value);
+            if (_fileNameInput.text != fnStr)
+            {
+                _fileNameInput.text = fnStr;
+                _suggestedFileName = fnStr;
+            }
+        }
+    }
     
-	private function onSelectClick(e:MouseEvent):Void
-	{
-		// CRITICAL FIX: Direct synchronous call to preserve user gesture context.
-		// Do NOT use _openContact.value = true, as it destroys user gesture on older Android Chrome.
-		if (atom != null && Std.isOfType(atom, library.drivers.FileWriterAtom))
-		{
-			var writerAtom:library.drivers.FileWriterAtom = cast atom;
-			writerAtom.showFilePicker(_suggestedFileName);
-		}
-		else
-		{
-			trace('FileWriterWidget: Atom is not FileWriterAtom or is null');
-		}
-	}
+        private function onSelectClick(e:MouseEvent):Void
+        {
+                // CRITICAL FIX: Direct synchronous call to preserve user gesture context.
+                // Do NOT use _openContact.value = true, as it destroys user gesture on older Android Chrome.
+                if (atom != null && Std.isOfType(atom, library.drivers.FileWriterAtom))
+                {
+                        var writerAtom:library.drivers.FileWriterAtom = cast atom;
+                        writerAtom.showFilePicker(_suggestedFileName);
+                }
+                else
+                {
+                        trace('FileWriterWidget: Atom is not FileWriterAtom or is null');
+                }
+        }
     
     private function onModeClick(e:MouseEvent):Void
     {
@@ -534,21 +589,21 @@ class FileWriterWidget extends DeviceView
         }
     }
     
-	private function onOpenClick(e:MouseEvent):Void
-	{
-		// CRITICAL: Direct synchronous call to preserve user gesture context.
-		// Do NOT use _openContact.value = true — that goes through readInputs() 
-		// which loses the user gesture context.
-		if (atom != null && Std.isOfType(atom, library.drivers.FileWriterAtom))
-		{
-			var writerAtom:library.drivers.FileWriterAtom = cast atom;
-			writerAtom.showFilePicker(_suggestedFileName);
-		}
-		else
-		{
-			trace('FileWriterWidget: Atom is not FileWriterAtom or is null');
-		}
-	}
+        private function onOpenClick(e:MouseEvent):Void
+        {
+                // CRITICAL: Direct synchronous call to preserve user gesture context.
+                // Do NOT use _openContact.value = true — that goes through readInputs() 
+                // which loses the user gesture context.
+                if (atom != null && Std.isOfType(atom, library.drivers.FileWriterAtom))
+                {
+                        var writerAtom:library.drivers.FileWriterAtom = cast atom;
+                        writerAtom.showFilePicker(_suggestedFileName);
+                }
+                else
+                {
+                        trace('FileWriterWidget: Atom is not FileWriterAtom or is null');
+                }
+        }
     
     private function onCloseClick(e:MouseEvent):Void
     {
@@ -573,52 +628,57 @@ class FileWriterWidget extends DeviceView
             _clearContact.value = true;
         }
     }
-	
+        
     // ═══════════════════════════════════════════════════════════════════════════
-	// FLOAT FORMATTING HELPER (replaces JS-specific toFixed)
-	// ═══════════════════════════════════════════════════════════════════════════
-	// Haxe's Float type has no toFixed() method. This helper provides identical
-	// behaviour: rounds to N decimal places and guarantees the decimal point is
-	// present (e.g., 2 → "2.0", 1.567 → "1.6").
-	//
-	// Algorithm:
-	//   1. Multiply by 10^decimals
-	//   2. Math.round() to nearest integer
-	//   3. Divide back
-	//   4. Convert to string
-	//   5. If no "." in string → append ".0"
-	//   6. If fractional part shorter than `decimals` → pad with trailing zeros
-	// ═══════════════════════════════════════════════════════════════════════════
-	private static function _toFixed(value:Float, decimals:Int = 1):String
-	{
-		if (Math.isNaN(value) || !Math.isFinite(value)) return "0.0";
+        // FLOAT FORMATTING HELPER (replaces JS-specific toFixed)
+        // ═══════════════════════════════════════════════════════════════════════════
+        // Haxe's Float type has no toFixed() method. This helper provides identical
+        // behaviour: rounds to N decimal places and guarantees the decimal point is
+        // present (e.g., 2 → "2.0", 1.567 → "1.6").
+        //
+        // Algorithm:
+        //   1. Multiply by 10^decimals
+        //   2. Math.round() to nearest integer
+        //   3. Divide back
+        //   4. Convert to string
+        //   5. If no "." in string → append ".0"
+        //   6. If fractional part shorter than `decimals` → pad with trailing zeros
+        // ═══════════════════════════════════════════════════════════════════════════
+        private static function _toFixed(value:Float, decimals:Int = 1):String
+        {
+                if (Math.isNaN(value) || !Math.isFinite(value)) return "0.0";
 
-		var multiplier:Float = Math.pow(10, decimals);
-		var rounded:Float = Math.round(value * multiplier) / multiplier;
-		var s:String = Std.string(rounded);
+                var multiplier:Float = Math.pow(10, decimals);
+                var rounded:Float = Math.round(value * multiplier) / multiplier;
+                var s:String = Std.string(rounded);
 
-		// Ensure decimal point exists (integer case: 2 → "2.0")
-		if (s.indexOf(".") == -1)
-		{
-			s += ".";
-			for (_ in 0...decimals) s += "0";
-			return s;
-		}
+                // Ensure decimal point exists (integer case: 2 → "2.0")
+                if (s.indexOf(".") == -1)
+                {
+                        s += ".";
+                        for (_ in 0...decimals) s += "0";
+                        return s;
+                }
 
-		// Pad with trailing zeros if needed (e.g., "1.5" → "1.50" for decimals=2)
-		var parts:Array<String> = s.split(".");
-		var frac:String = parts[1];
-		while (frac.length < decimals) frac += "0";
+                // Pad with trailing zeros if needed (e.g., "1.5" → "1.50" for decimals=2)
+                var parts:Array<String> = s.split(".");
+                var frac:String = parts[1];
+                while (frac.length < decimals) frac += "0";
 
-		return parts[0] + "." + frac;
-	}
-	
+                return parts[0] + "." + frac;
+        }
+        
     // =========================================================================
     // DISPOSE
     // =========================================================================
     override public function dispose():Void
     {
-        if (_fileNameInput != null) _fileNameInput.removeEventListener(Event.CHANGE, onFileNameChanged);
+        if (_fileNameInput != null)
+        {
+            _fileNameInput.removeEventListener(Event.CHANGE, onFileNameChanged);
+            _fileNameInput.removeEventListener(FocusEvent.FOCUS_IN, onFileNameFocusIn);
+            _fileNameInput.removeEventListener(FocusEvent.FOCUS_OUT, onFileNameFocusOut);
+        }
         if (_selectBtn != null) _selectBtn.removeEventListener(MouseEvent.CLICK, onSelectClick);
         if (_modeBtn != null) _modeBtn.removeEventListener(MouseEvent.CLICK, onModeClick);
         if (_openBtn != null) _openBtn.removeEventListener(MouseEvent.CLICK, onOpenClick);

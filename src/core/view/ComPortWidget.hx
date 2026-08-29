@@ -7,6 +7,7 @@ import openfl.text.TextFormatAlign;
 import openfl.text.TextFieldType;
 import openfl.events.MouseEvent;
 import openfl.events.Event;
+import openfl.events.FocusEvent;
 import core.base.Atom;
 import core.base.Contact;
 import core.logic.Impulsys;
@@ -80,6 +81,8 @@ class ComPortWidget extends DeviceView
     private var _titleLabel:TextField;
     private var _baudLabel:TextField;
     private var _baudInput:TextField;
+    // W-SYNC.4: editing guard — live mirror suppressed while typing
+    private var _isEditingBaud:Bool = false;
     private var _openBtn:Sprite;
     private var _closeBtn:Sprite;
     private var _dtrBtn:Sprite;
@@ -425,7 +428,10 @@ class ComPortWidget extends DeviceView
         _baudLabel = createLabel("BAUD"); _baudLabel.x = 10; _baudLabel.y = yPos; addChild(_baudLabel);
         yPos += 18;
         _baudInput = createInputField("9600", Std.int(widgetWidth - 20)); _baudInput.x = 10; _baudInput.y = yPos;
-        _baudInput.addEventListener(Event.CHANGE, onBaudRateChanged); addChild(_baudInput);
+        _baudInput.addEventListener(Event.CHANGE, onBaudRateChanged);
+        _baudInput.addEventListener(FocusEvent.FOCUS_IN, onBaudFocusIn);
+        _baudInput.addEventListener(FocusEvent.FOCUS_OUT, onBaudFocusOut);
+        addChild(_baudInput);
         yPos += 30;
         
         return yPos;
@@ -844,6 +850,52 @@ class ComPortWidget extends DeviceView
                 }
             }
         }
+        // W-SYNC.4: LIVE MIRROR input contacts → UI ("Atom is Databank")
+        else if (contact == _baudRateContact)
+        {
+            // baudRate → field; suppressed while the user is editing it
+            if (!_isEditingBaud && _baudInput != null && newValue != null)
+            {
+                var baudStr = Std.string(newValue);
+                if (_baudInput.text != baudStr) _baudInput.text = baudStr;
+            }
+        }
+        else if (contact == _portNameContact)
+        {
+            // portName → device selection: highlight the matching scanned
+            // device; if not in the list, show the external port name.
+            if (newValue != null && newValue != "")
+            {
+                var portStr = Std.string(newValue);
+                var foundIdx = -1;
+                if (_scannedDevices != null)
+                {
+                    for (i in 0..._scannedDevices.length)
+                    {
+                        var parts = _scannedDevices[i].split("|");
+                        var matches = false;
+                        #if android
+                        if (parts.length >= 2 && (parts[0] + ":" + parts[1]) == portStr) matches = true;
+                        #else
+                        if (parts.length > 3 && parts[3] == portStr) matches = true;
+                        #end
+                        if (matches) { foundIdx = i; break; }
+                    }
+                }
+                if (foundIdx >= 0)
+                {
+                    if (foundIdx != _selectedDeviceIndex)
+                    {
+                        _selectedDeviceIndex = foundIdx;
+                        updateDeviceList();
+                    }
+                }
+                else if (_selectedInfo != null)
+                {
+                    _selectedInfo.text = "Selected: " + portStr + " (external)";
+                }
+            }
+        }
     }
 
     // === Connection status ===
@@ -884,6 +936,23 @@ class ComPortWidget extends DeviceView
         if (_baudRateContact != null) {
             var baud = Std.parseInt(_baudInput.text);
             if (baud != null && baud > 0) _baudRateContact.value = baud;
+        }
+    }
+
+    /** W-SYNC.4: focus guards — the live mirror is suppressed while typing. */
+    private function onBaudFocusIn(e:FocusEvent):Void
+    {
+        _isEditingBaud = true;
+    }
+
+    private function onBaudFocusOut(e:FocusEvent):Void
+    {
+        _isEditingBaud = false;
+        // Leaving the field: normalize display to the committed value
+        if (_baudInput != null && _baudRateContact != null && _baudRateContact.value != null)
+        {
+            var baudStr = Std.string(_baudRateContact.value);
+            if (_baudInput.text != baudStr) _baudInput.text = baudStr;
         }
     }
 
@@ -1092,7 +1161,12 @@ class ComPortWidget extends DeviceView
         if (_onComPortError != null) Impulsys.removeImpulse(EventType.COMPORT_ERROR, _onComPortError);
         if (_openBtn != null) _openBtn.removeEventListener(MouseEvent.CLICK, onOpenClick);
         if (_closeBtn != null) _closeBtn.removeEventListener(MouseEvent.CLICK, onCloseClick);
-        if (_baudInput != null) _baudInput.removeEventListener(Event.CHANGE, onBaudRateChanged);
+        if (_baudInput != null)
+        {
+            _baudInput.removeEventListener(Event.CHANGE, onBaudRateChanged);
+            _baudInput.removeEventListener(FocusEvent.FOCUS_IN, onBaudFocusIn);
+            _baudInput.removeEventListener(FocusEvent.FOCUS_OUT, onBaudFocusOut);
+        }
         if (_appendNoneRadio != null) _appendNoneRadio.removeEventListener(MouseEvent.CLICK, onAppendNoneClick);
         if (_appendCRRadio != null) _appendCRRadio.removeEventListener(MouseEvent.CLICK, onAppendCRClick);
         if (_appendLFRadio != null) _appendLFRadio.removeEventListener(MouseEvent.CLICK, onAppendLFClick);
