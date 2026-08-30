@@ -13,6 +13,8 @@ import core.view.TextWidget;
 import core.view.TextInputWidget;
 import core.view.TextAreaWidget;
 import core.view.FileWriterWidget;
+import core.view.FileReaderWidget;
+import core.view.DataStorageWidget;
 import core.view.OscilloscopeWidget;
 import core.view.FFTWidget;
 import core.view.SignalGeneratorWidget;
@@ -157,6 +159,12 @@ class DeviceWidgetFactory
 			
 			case "filewriter", "file writer":
 				new FileWriterWidget(asm);
+
+			case "filereader", "file reader":
+				new FileReaderWidget(asm);
+			
+			case "datastorage", "data storage":
+				new DataStorageWidget(asm);
 			
 			default:
 				// Try to find class by name
@@ -212,6 +220,12 @@ class DeviceWidgetFactory
 			#end			
 			case "filewriteratom", "file writer":
 				new FileWriterWidget(atom);
+
+			case "filereaderatom", "file reader":
+				new FileReaderWidget(atom);
+			
+			case "datastorageatom", "data storage":
+				new DataStorageWidget(atom);
 						
 			default:
 				// Universal widget - text display

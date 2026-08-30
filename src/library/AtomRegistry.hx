@@ -312,6 +312,49 @@ class AtomRegistry
                         {name: "error",     type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
                         {name: "errorTick", type: OUTPUT, dataType: "bool",   priority: INTERNAL}
                 ], null, "filewriter", true, true, "filewriter");
+
+        // =========================================================================
+        // FILE READER — mirror of File Writer (Этап 4a-1, Task 140)
+        // Spec: SPEC_STAGE4A_FILEREADER.md (контакты и семантика §2)
+        // =========================================================================
+        reg("FileReaderAtom", "File Reader", [
+                {name: "open",      type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Open"},
+                {name: "close",     type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Close"},
+                {name: "read",      type: INPUT,  dataType: "bool",   priority: IMPORTANT, label: "Read"},
+                {name: "enabled",   type: INPUT,  defaultValue: true, dataType: "bool",   priority: OPTIONAL,  label: "Enabled"},
+                {name: "isOpen",    type: OUTPUT, dataType: "bool",   priority: CRITICAL},
+                {name: "data",      type: OUTPUT, dataType: "string", priority: CRITICAL,  label: "Data"},
+                {name: "bytes",     type: OUTPUT, dataType: "string", priority: CRITICAL,  label: "Bytes"},
+                {name: "fileName",  type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "File Name"},
+                {name: "size",      type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Size"},
+                {name: "readCount", type: OUTPUT, dataType: "int",    priority: OPTIONAL,  label: "Reads"},
+                {name: "error",     type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
+                {name: "readTick",  type: OUTPUT, dataType: "bool",   priority: IMPORTANT, label: "Read Tick"},
+                {name: "errorTick", type: OUTPUT, dataType: "bool",   priority: INTERNAL}
+        ], null, "filereader", true, true, "filereader");
+        
+        // =========================================================================
+        // DATA STORAGE — атом-хранилище данных (Этап 4a-2, Task 145)
+        // Spec: SPEC_STAGE4A_DATASTORAGE.md (контакты и семантика §2)
+        // =========================================================================
+        reg("DataStorageAtom", "Data Storage", [
+                        {name: "enabled",    type: INPUT,  defaultValue: false, dataType: "bool",   priority: CRITICAL,  label: "Enabled"},
+                        {name: "data",       type: INPUT,  dataType: "string",   priority: CRITICAL,  label: "Data"},
+                        {name: "isBytes",    type: INPUT,  defaultValue: false, dataType: "bool",   priority: IMPORTANT, label: "Is Bytes"},
+                        {name: "clear",      type: INPUT,  dataType: "bool",     priority: CRITICAL,  label: "Clear"},
+                        {name: "read",       type: INPUT,  dataType: "bool",     priority: IMPORTANT, label: "Read"},
+                        {name: "hasData",    type: OUTPUT, dataType: "bool",     priority: CRITICAL},
+                        {name: "kind",       type: OUTPUT, dataType: "string",   priority: IMPORTANT, label: "Kind"},
+                        {name: "text",       type: OUTPUT, dataType: "string",   priority: CRITICAL,  label: "Text"},
+                        {name: "bytes",      type: OUTPUT, dataType: "string",   priority: CRITICAL,  label: "Bytes"},
+                        {name: "fileName",   type: OUTPUT, dataType: "string",   priority: OPTIONAL,  label: "File Name"},
+                        {name: "size",       type: OUTPUT, dataType: "int",      priority: IMPORTANT, label: "Size"},
+                        {name: "storeCount", type: OUTPUT, dataType: "int",      priority: OPTIONAL,  label: "Stores"},
+                        {name: "error",      type: OUTPUT, dataType: "string",   priority: IMPORTANT,  label: "Error"},
+                        {name: "storedTick", type: OUTPUT, dataType: "bool",     priority: IMPORTANT, label: "Stored Tick"},
+                        {name: "readTick",   type: OUTPUT, dataType: "bool",     priority: IMPORTANT, label: "Read Tick"},
+                        {name: "errorTick",  type: OUTPUT, dataType: "bool",     priority: INTERNAL}
+                ], null, "datastorage", true, true, "datastorage");
                 
         
         reg("MiniAudioAtom", "Mini Audio Capture", [

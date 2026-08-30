@@ -141,6 +141,21 @@ class AssemblyFactory
                                                                 case "FILEWRITER":
                                                                 case "FILE WRITER":
                                                                         normalizedTypeId = "FileWriterAtom";
+
+                                                                        // ─────────────────────────────────────────────────────────────
+                                                                        // FILE READER ATOM — mirror of File Writer (Этап 4a-1, Task 140)
+                                                                        // ─────────────────────────────────────────────────────────────
+                                                                case "FILEREADERATOM":
+                                                                case "FILEREADER":
+                                                                case "FILE READER":
+                                                                normalizedTypeId = "FileReaderAtom";
+                                                                // ─────────────────────────────────────────────────────────────
+                                                                // DATA STORAGE ATOM — runtime-хранилище данных (Этап 4a-2, Task 145)
+                                                                // ─────────────────────────────────────────────────────────────
+                                                                case "DATASTORAGEATOM":
+                                                                case "DATASTORAGE":
+                                                                case "DATA STORAGE":
+                                                                normalizedTypeId = "DataStorageAtom";
 // ─────────────────────────────────────────────────────────────
 // WEBSOCKET — WebSocket Client (cross-platform)
 // ─────────────────────────────────────────────────────────────
@@ -216,6 +231,13 @@ class AssemblyFactory
                                                 case "FileWriterAtom":
                                                                 atom = new library.drivers.FileWriterAtom(id);
                                                                 trace('📝 AssemblyFactory: Created FileWriterAtom...');
+
+                                                case "FileReaderAtom":
+                                                                atom = new library.drivers.FileReaderAtom(id);
+                                                                trace('📖 AssemblyFactory: Created FileReaderAtom...');
+                                                case "DataStorageAtom":
+                                                                atom = new library.drivers.DataStorageAtom(id);
+                                                                trace('💾 AssemblyFactory: Created DataStorageAtom...');
 // =============================================================
 // WEB SOCKET — Web Socket port
 // =============================================================
