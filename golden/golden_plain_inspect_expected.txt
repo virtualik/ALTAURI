@@ -1,0 +1,4 @@
+ALTAURI payload tail inspector v1
+file: golden_plain.bin
+size: 4096 bytes
+tail: none

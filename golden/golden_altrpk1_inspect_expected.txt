@@ -1,0 +1,12 @@
+ALTAURI payload tail inspector v1
+file: golden_altrpk1.bin
+size: 4508 bytes
+tail: ALTRPK1 v1
+base: 4096 bytes, payload: 388 bytes, entries: 4
+flags: 0x0003 [SCHEME ASSETS]
+payload crc32: 159C82F0 OK
+  #1 type=SCHEME name=Selfrun.atom len=100 crc32=DAA6D569 OK
+  #2 type=LIBRARY name=CustomAssembly_golden.atom len=84 crc32=931D3D9B OK
+  #3 type=ASSET name=demo.png len=72 crc32=CE8AB7ED OK
+  #4 type=UNKNOWN(85) name=future.bin len=16 crc32=35FDEA6E OK
+summary: 4 entries, all crc OK

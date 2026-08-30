@@ -51,6 +51,13 @@ using StringTools;
 * ║  │   │  - init()                 → Create directories, scan library│   ║  ║
 * ║  │   └─────────────────────────────────────────────────────────────┘   ║  ║
 * ║  │                                                                     │  ║
+* ║  │  v2.6.1 (Stage 2.1 hotfix, field report T-S2.6):                   ║  ║
+* ║  │  - FIXED: loadSelfrun() forces isOpen = true when the scheme       ║  ║
+* ║  │    comes from the own tail ("scheme source: tail"): a DEVICE       ║  ║
+* ║  │    shows its face (Device panel) on every start. The flag          ║  ║
+* ║  │    frozen in the tail was written by the EDITOR session at         ║  ║
+* ║  │    pack time - it does not belong to the device. argv / disk       ║  ║
+* ║  │    boots keep the legacy isOpen semantics (Z-stand: s9_face_*).    ║  ║
 * ║  │  v2.6 Changes:                                                     │  ║
 * ║  │  - ADDED: "mainWindow" sibling section in Selfrun.atom:            │  ║
 * ║  │                                                                     │  ║
@@ -153,7 +160,10 @@ class ProjectManager
                 AtomRegistry.customLibraryPath = libraryPath;
 
                 // Scan library for custom atoms
-                AtomRegistry.scanFolder(libraryPath);
+                // Этап 2 (Task 135): у прибора библиотека — из его хвоста
+                // (детерминизм: прибор несёт свой мир); иначе — папка, как раньше.
+                if (core.io.TailStartup.hasTailLibrary()) core.io.TailStartup.loadLibraryToRegistry();
+                else AtomRegistry.scanFolder(libraryPath);
                 #else
                 selfrunPath = "Selfrun.atom";
                 libraryPath = "library";
@@ -350,10 +360,17 @@ class ProjectManager
         }
         {
                 #if sys
-                if (!FileSystem.exists(selfrunPath)) return null;
+                // Этап 2 (Task 135): приоритет источника схемы — argv > хвост >
+                // Selfrun.atom. TailStartup.readSchemeContent() даёт контент только
+                // при argv-файле или валидном хвосте; null = диск, как раньше.
+                var content:String = core.io.TailStartup.readSchemeContent();
+                if (content == null)
+                {
+                        if (!FileSystem.exists(selfrunPath)) return null;
+                        content = File.getContent(selfrunPath);
+                }
                 try
                 {
-                        var content = File.getContent(selfrunPath);
                         var json = haxe.Json.parse(content);
                         var rawBp:Dynamic = json.blueprint;
 // Parse blueprint (includes v2.4 sanitization + v2.5 platforms)
@@ -425,6 +442,18 @@ class ProjectManager
                                         maximized: (json.mainWindow.state == "maximized")
                                 };
                         }
+// ══════════════════════════════════════════════════════════════════
+// Этап 2.1 (hotfix T-S2.6): ПРИБОР ПОКАЗЫВАЕТ ЛИЦО. Схема из
+// собственного хвоста («scheme source: tail») — старт прошивки
+// прибора: Device-панель обязана открыться при каждом запуске.
+// Флаг isOpen, замороженный в хвосте, писала сессия РЕДАКТОРА в
+// момент упаковки — к прибору он отношения не имеет. Выход прибора
+// по-прежнему честно пишет isOpen на диск (Documents/ALTAURI), но
+// приборному старту диск не указ — хвост главнее. argv-загрузка и
+// обычный редактор семантику isOpen НЕ меняют (контроли Z-стенда:
+// s9_face_tail / s9_face_disk / s9_face_argv).
+// ══════════════════════════════════════════════════════════════════
+                        if (core.io.TailStartup.schemeSource() == "tail") isOpen = true;
                         return
                         {
                                 blueprint: bp,
@@ -461,10 +490,17 @@ class ProjectManager
         public function loadMainWindowStateEarly():Null<{x:Float, y:Float, width:Float, height:Float, screen:Int, maximized:Bool}>
         {
                 #if sys
-                if (!FileSystem.exists(selfrunPath)) return null;
+                // Этап 2 (Task 135): тот же приоритет argv > хвост > Selfrun —
+                // состояние окна прибора лежит в ЕГО схеме (в хвосте).
+                var earlyContent:String = core.io.TailStartup.readSchemeContent();
+                if (earlyContent == null)
+                {
+                        if (!FileSystem.exists(selfrunPath)) return null;
+                        earlyContent = File.getContent(selfrunPath);
+                }
                 try
                 {
-                        var json = haxe.Json.parse(File.getContent(selfrunPath));
+                        var json = haxe.Json.parse(earlyContent);
                         if (json.mainWindow == null) return null;
                         return {
                                 x: _safeFloat(json.mainWindow.x, 100),

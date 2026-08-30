@@ -502,7 +502,27 @@ class AtomRegistry
     {
         #if sys
         try {
-            var content = sys.io.File.getContent(fullPath);
+            return loadAtomContent(sys.io.File.getContent(fullPath), fullPath);
+        }
+        catch (e:Dynamic)
+        {
+            trace("Failed to load atom: " + fullPath + " | Error: " + e);
+            return false;
+        }
+        #else
+        return false;
+        #end
+    }
+
+    /**
+    * Этап 2 (Task 135): разбор и регистрация .atom-контента из ПАМЯТИ —
+    * источник хвоста прибора (TailStartup). Тело разбора перенесено из
+    * loadAtomFile без изменений; файловая io-обёртка осталась наверху.
+    * @param sourceLabel имя источника для диагностики (entry хвоста / путь)
+    */
+    public static function loadAtomContent(content:String, sourceLabel:String):Bool
+    {
+        try {
             var json = haxe.Json.parse(content);
             var rawBp:Dynamic = json.blueprint;
 
@@ -611,12 +631,9 @@ class AtomRegistry
         }
         catch (e:Dynamic)
         {
-            trace("Failed to load atom: " + fullPath + " | Error: " + e);
+            trace("Failed to load atom: " + sourceLabel + " | Error: " + e);
             return false;
         }
-        #else
-        return false;
-        #end
     }
 
     /**

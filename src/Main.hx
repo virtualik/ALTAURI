@@ -24,6 +24,7 @@ import system.managers.ProjectManager;
 import editor.EditorTheme;
 import editor.ContextMenuManager;
 import editor.EditorContext;
+import core.io.NativeDialog;
 import ui.TextInputPopup;
 import ui.PropertiesWindow;
 import ui.ButtonComponent;
@@ -197,6 +198,8 @@ class Main extends Sprite
         private var _btnSettings:ButtonComponent;
         private var _btnDelete:ButtonComponent;
         private var _btnClose:ButtonComponent;
+// Этап 3 (Task 137): [P] Export — упаковка прибора мышкой (= --pack + диалог путей)
+        private var _btnExport:ButtonComponent;
 
 // --- State ---
         private var _lastTime:Int = 0;
@@ -244,6 +247,20 @@ class Main extends Sprite
                                 
                                 // v1.4 (Episod H-1): black box FIRST — stderr capture + native SEH sentinel
                                 utils.Trap.boot();
+                #if sys
+                // Этап 1 (Task 132, PayloadTail): лабораторный CLI (--pack /
+                // --inspect) — до любой инициализации редактора. true = команда
+                // обработана: немедленный выход с кодом LabCLI.exitCode, UI не создаём.
+                if (core.io.LabCLI.maybeHandle()) Sys.exit(core.io.LabCLI.exitCode);
+                #end
+
+                #if sys
+                // Этап 2 (Task 135, TailStartup): источник старта — argv > хвост >
+                // Selfrun. После LabCLI (CLI-команды уже вышли; --pack читает
+                // Documents напрямую) и ДО ProjectManager.init() (решение
+                // о библиотеке: хвост прибора или скан папки).
+                core.io.TailStartup.install();
+                #end
                                 
                 _theme = EditorTheme.getInstance();
 
@@ -1602,6 +1619,12 @@ class Main extends Sprite
                 _btnSettings.x = _btnReset.x - btnSize - btnPadding; _btnSettings.y = startY;
                  _titleBar.addControlButton(_btnSettings);
 
+// Этап 3 (Task 137): [P] Export — ряд: [P][?][R][N][V][E][<]. Клепает Device.exe
+// из ТЕКУЩЕЙ схемы и библиотеки (сохранение — внутри обработчика onExportClick).
+                _btnExport = new ButtonComponent("P", onExportClick);
+                _btnExport.x = _btnSettings.x - btnSize - btnPadding; _btnExport.y = startY;
+                _titleBar.addControlButton(_btnExport);
+
                 _nameField = new TextField();
                 _nameField.defaultTextFormat = new TextFormat("_sans", 24, _theme.TITLE_TEXT_COLOR, true);
                 _nameField.text = "Selfrun";
@@ -2104,6 +2127,9 @@ class Main extends Sprite
                 _btnBack.visible = !isRoot;
                 _btnDelete.visible = !isRoot;
                 _btnNew.visible = _settingsPanel.allowAssembly;
+// Этап 3 (Task 137): экспорт — только из корня (схема прибора = корень);
+// кнопка молчит, пока пользователь внутри вложенной сборки
+                _btnExport.visible = isRoot;
         }
 
         /**
@@ -2688,6 +2714,70 @@ class Main extends Sprite
                         _settingsPanel.show(stage.stageWidth, stage.stageHeight);
                         updateSettingsStats();
                 }
+        }
+
+        /**
+        * Этап 3 (Task 137): [P] Export clicked — упаковка прибора мышкой.
+        *
+        * КОНВЕЙЕР:
+        *   1) только из корня (вложенные правки живут в библиотеке .atom,
+        *      но Device-семантика = корневая схема);
+        *   2) нативный диалог сохранения (ui.NativeDialog, GetSaveFileNameW)
+        *      — модальный, БЕЗ побочных эффектов при отмене: диалог ДО
+        *      сохранения;
+        *   3) сохранение текущей схемы — то же, что S/выход: прибор несёт
+        *      то, что видит пользователь (prepare + saveCurrentContext);
+        *   4) core.io.DeviceExporter.export(): base = работающий exe
+        *      (старый хвост усечён — анти-матрёшка), библиотека =
+        *      хвост ∪ диск (диск приоритетен), guard'ы канонические;
+        *   5) итог — в поле лога (5 сек) и в консоль (ASCII, формат --pack).
+        *
+        * Пауза рендера на время диалога — осознанная v1-мера (аудио играет:
+        * драйверы на нативных потоках).
+        */
+        private function onExportClick():Void
+        {
+                #if (sys && windows)
+                if (_editorContext == null || _editorContext.currentAssembly == null)
+                {
+                        log("Export: no scheme open");
+                        return;
+                }
+                if (_editorContext.getStackLength() > 1)
+                {
+                        log("Export: return to the root assembly first");
+                        return;
+                }
+
+// Диалог ДО сохранения: отмена не оставляет побочных эффектов.
+// Стартовый каталог — папка работающего редактора (там живут Device*.exe).
+                var initialDir:String = core.io.PathCanon.dirname(Sys.programPath());
+                var outPath:String = NativeDialog.saveFile(
+                        "Export ALTAURI device", "Device.exe", initialDir);
+                if (outPath == null) return; // отмена — молчание
+                utils.Trap.log("EXPORT", "target: " + outPath);
+
+// Сохраняем текущую схему (то же, что S/выход): Selfrun.atom + вложенные
+// сборки в библиотеку — прибор несёт состояние экрана.
+                _editorContext.prepareCurrentAssemblyForSave();
+                saveCurrentContext();
+                utils.Trap.log("EXPORT", "scheme saved");
+
+                var r = core.io.DeviceExporter.export(outPath);
+                if (r.ok)
+                {
+                        log("Device exported: " + outPath + " (" + r.outSize + " bytes)");
+                        utils.Trap.log("EXPORT", "ok " + r.outSize + " bytes");
+                }
+                else
+                {
+                        log("Export failed: " + r.errorMessage);
+                        utils.Trap.log("EXPORT", "fail code " + r.errorCode
+                                + ": " + r.errorMessage);
+                }
+                #else
+                log("Export is available in the Windows build");
+                #end
         }
 
         /**

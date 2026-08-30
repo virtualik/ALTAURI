@@ -1,0 +1,4 @@
+ALTAURI payload tail inspector v1
+file: golden_crc_fail.bin
+tail: ALTRPK1 (detected)
+error: payload crc32 mismatch (stored 159C82F0, computed 4BBBF96D)
