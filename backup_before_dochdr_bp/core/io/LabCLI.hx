@@ -37,13 +37,6 @@ package core.io;
 import sys.io.File;
 import sys.FileSystem;
 
-/**
- * LAB CLI v1.0.1 (Этап 1, Task 132 + hotfix 133)
- * Лабораторный CLI: --pack (упаковка прибора) / --inspect (вскрытие хвоста)
- * из Main.new() под #if sys, ДО UI; вернул true → немедленный Sys.exit.
- * Выходы: 0 успех / 1 I-O / 2 формат / 3 CRC. Вывод ASCII-only.
- * Детальная спецификация — в // баннере файла.
- */
 class LabCLI
 {
         /** Код выхода после обработки команды (валиден при возврате true). */
@@ -317,4 +310,3 @@ class LabCLI
                 return 0;
         }
 }
-

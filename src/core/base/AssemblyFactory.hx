@@ -157,6 +157,12 @@ class AssemblyFactory
                                                                 case "DATA STORAGE":
                                                                 normalizedTypeId = "DataStorageAtom";
 // ─────────────────────────────────────────────────────────────
+// PICTURE — atom-portrait, consumer of the binary pipe (Этап 4a-3, Task 155)
+// ─────────────────────────────────────────────────────────────
+                                                                case "PICTUREATOM":
+                                                                case "PICTURE":
+                                                                normalizedTypeId = "PictureAtom";
+// ─────────────────────────────────────────────────────────────
 // WEBSOCKET — WebSocket Client (cross-platform)
 // ─────────────────────────────────────────────────────────────
                                                                 case "WebSocketAtom":
@@ -238,6 +244,9 @@ class AssemblyFactory
                                                 case "DataStorageAtom":
                                                                 atom = new library.drivers.DataStorageAtom(id);
                                                                 trace('💾 AssemblyFactory: Created DataStorageAtom...');
+                                                case "PictureAtom":
+                                                                atom = new library.drivers.PictureAtom(id);
+                                                                trace('🖼 AssemblyFactory: Created PictureAtom...');
 // =============================================================
 // WEB SOCKET — Web Socket port
 // =============================================================
@@ -499,3 +508,4 @@ class AssemblyFactory
                 return (bp.internalAtoms != null && bp.internalAtoms.length > 0);
         }
 }
+

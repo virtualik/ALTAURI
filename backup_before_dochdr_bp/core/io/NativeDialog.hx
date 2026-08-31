@@ -230,15 +230,6 @@ int _nd_openDialog(const char* inTitle, const char* inFilter, const char* inInit
 #endif
 ')
 #end
-/**
- * NATIVE DIALOG v1.1 (Этап 3, Tasks 137-138 + 141)
- * Мост к WinAPI comdlg32: saveFile(title, defaultName, initialDir, filter,
- * defaultExt) / openFile(title, filter, initialDir) / isSupported().
- * МОДАЛЬНЫЕ (hwndOwner = главное окно), OFN_NOCHANGEDIR; возврат — путь
- * UTF-8 или null (отмена/ошибка/не-Windows неразличимы, v1-честность).
- * Замена выдуманного lime.ui.FileDialog-API (урок Task 141).
- * Детальная спецификация — в // баннере файла.
- */
 class NativeDialog
 {
         /**
@@ -321,4 +312,3 @@ class NativeDialog
                 #end
         }
 }
-

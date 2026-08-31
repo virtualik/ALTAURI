@@ -46,16 +46,6 @@ package core.io;
 import sys.FileSystem;
 import sys.io.File;
 
-/**
- * TAIL STARTUP v1.1 (Этап 2, Task 135; v1.1 — Этап 3, Task 137)
- * Источник схемы при старте: argv > ХВОСТ > Selfrun.atom. Прибор несёт
- * библиотеку ЦЕЛИКОМ из хвоста (документ. папка не сканируется); битый
- * хвост = откат на диск, НЕ падаем. install() идемпотентен; вызов из
- * Main.new() между LabCLI и ProjectManager.init().
- * v1.1: + tailLibrarySnapshot() — снимок LIBRARY-байтов для DeviceExporter
- * (экспорт из сеанса прибора); поведение старта не изменено.
- * Детальная спецификация — в // баннере файла.
- */
 class TailStartup
 {
         // ── Состояние (заполняется один раз в install()) ─────────────────
@@ -253,4 +243,3 @@ class TailStartup
                         ? "tail (" + _libEntries.length + " files)" : "folder"));
         }
 }
-

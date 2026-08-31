@@ -355,33 +355,7 @@ class AtomRegistry
                         {name: "readTick",   type: OUTPUT, dataType: "bool",     priority: IMPORTANT, label: "Read Tick"},
                         {name: "errorTick",  type: OUTPUT, dataType: "bool",     priority: INTERNAL}
                 ], null, "datastorage", true, true, "datastorage");
-
-        // =========================================================================
-        // PICTURE — atom-portrait, consumer of the binary pipe (Этап 4a-3, Task 155)
-        // Spec: SPEC_STAGE4A_PICTURE.md (контакты и семантика §2-§4)
-        // =========================================================================
-        reg("PictureAtom", "Picture", [
-                        {name: "image",     type: INPUT,  dataType: "string", priority: CRITICAL,  label: "Image"},
-                        {name: "clear",     type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Clear"},
-                        {name: "posX",      type: INPUT,  defaultValue: 0,  dataType: "float",   priority: IMPORTANT, label: "Pos X"},
-                        {name: "posY",      type: INPUT,  defaultValue: 0,  dataType: "float",   priority: IMPORTANT, label: "Pos Y"},
-                        {name: "width",     type: INPUT,  defaultValue: 0,  dataType: "float",   priority: OPTIONAL,  label: "Width"},
-                        {name: "height",    type: INPUT,  defaultValue: 0,  dataType: "float",   priority: OPTIONAL,  label: "Height"},
-                        {name: "scaleX",    type: INPUT,  defaultValue: 1,  dataType: "float",   priority: OPTIONAL,  label: "Scale X"},
-                        {name: "scaleY",    type: INPUT,  defaultValue: 1,  dataType: "float",   priority: OPTIONAL,  label: "Scale Y"},
-                        {name: "visible",   type: INPUT,  defaultValue: true, dataType: "bool",  priority: OPTIONAL,  label: "Visible"},
-                        {name: "alpha",     type: INPUT,  defaultValue: 1,  dataType: "float",   priority: OPTIONAL,  label: "Alpha"},
-                        {name: "zOrder",    type: INPUT,  defaultValue: 0,  dataType: "int",     priority: OPTIONAL,  label: "Z-Order"},
-                        {name: "ok",        type: OUTPUT, dataType: "bool",   priority: CRITICAL},
-                        {name: "kind",      type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Kind"},
-                        {name: "imgWidth",  type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Img W"},
-                        {name: "imgHeight", type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Img H"},
-                        {name: "error",     type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
-                        {name: "loadedTick",type: OUTPUT, dataType: "bool",   priority: IMPORTANT, label: "Loaded Tick"},
-                        {name: "errorTick", type: OUTPUT, dataType: "bool",   priority: INTERNAL}
-                ], null, "picture", true, true, "picture");
-
-
+                
         
         reg("MiniAudioAtom", "Mini Audio Capture", [
             {name: "mode",     type: INPUT,  defaultValue: 1,    dataType: "int",     priority: IMPORTANT, label: "Mode"},
