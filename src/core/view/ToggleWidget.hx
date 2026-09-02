@@ -44,6 +44,11 @@ class ToggleWidget extends DeviceView
     private var _outContact:Contact;
     private var _rstContact:Contact;
     private var _setContact:Contact;
+    private var _zOrderContact:Contact;
+
+    // Transform mirror (UI state)
+    private var _tZOrder:Int = 0;
+    private var _appliedZ:Int = -1;
 
     // =========================================================================
     // CONFIGURATION
@@ -88,13 +93,21 @@ class ToggleWidget extends DeviceView
             if (_outContact == null) _outContact = atom.getOutput("out");
             _rstContact = atom.getInput("rst");
             _setContact = atom.getInput("set");
+            _zOrderContact = atom.getInput("zOrder");
         }
     }
 
     override private function onActivate():Void 
     {
         findContacts();
-        // Sync visual with current Databank state
+        // Activation reads the DATABANK (Picture pattern): restored zOrder
+        // lives in the atom until the contact is driven externally.
+        if (atom != null && Std.isOfType(atom, ToggleAtom))
+        {
+            _tZOrder = cast(atom, ToggleAtom).getZOrder();
+        }
+        syncTransformMirror(); // live contact value wins if already driven
+        applyCardPlacement();
         updateVisual();
     }
 
@@ -149,6 +162,18 @@ class ToggleWidget extends DeviceView
             // Force a visual update here just in case.
             updateVisual();
         }
+        else if (contact == _zOrderContact)
+        {
+            if (newValue != null) _tZOrder = Math.round(parseFloat(newValue, _tZOrder));
+            applyCardPlacement();
+        }
+    }
+
+    private function parseFloat(v:Dynamic, current:Float):Float
+    {
+        var f:Float = Std.parseFloat(Std.string(v));
+        if (Math.isNaN(f) || !Math.isFinite(f)) return current;
+        return f;
     }
 
     private function onClick(e:MouseEvent):Void 
@@ -222,6 +247,44 @@ class ToggleWidget extends DeviceView
     }
 
     // =========================================================================
+    // TRANSFORM MIRROR & CARD PLACEMENT (Picture pattern)
+    // =========================================================================
+    private function syncTransformMirror():Void
+    {
+        if (_zOrderContact != null && _zOrderContact.value != null)
+        {
+            _tZOrder = Math.round(parseFloat(_zOrderContact.value, _tZOrder));
+        }
+    }
+
+    private function applyCardPlacement():Void
+    {
+        if (!isDeviceMode()) return;
+
+        var card:Dynamic = parent;
+        if (card == null) return;
+
+        // Apply zOrder only if changed (dedupe guard - Picture pattern)
+        if (_tZOrder >= 1 && _tZOrder != _appliedZ)
+        {
+            _appliedZ = _tZOrder;
+            var panel:Dynamic = Reflect.getProperty(card, "parent");
+            if (panel != null && Reflect.hasField(panel, "setCardZOrder"))
+            {
+                try
+                {
+                    Reflect.callMethod(panel, Reflect.field(panel, "setCardZOrder"), [card, _tZOrder]);
+                }
+                catch (e:Dynamic)
+                {
+                    // exotic owner (e.g. DeviceWindow without the z-system) -
+                    // honest no-op: the depth stays auto there
+                }
+            }
+        }
+    }
+
+    // =========================================================================
     // DISPOSE
     // =========================================================================
     override public function dispose():Void 
@@ -236,6 +299,7 @@ class ToggleWidget extends DeviceView
         _outContact = null;
         _rstContact = null;
         _setContact = null;
+        _zOrderContact = null;
         _labelField = null;
         _stateField = null;
         super.dispose();

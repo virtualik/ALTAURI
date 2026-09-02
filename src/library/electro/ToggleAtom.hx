@@ -57,6 +57,9 @@ class ToggleAtom extends Atom
     // Initialized in the past so immunity doesn't affect startup
     private var _lastToggleTime:Float = -3.0;
 
+    // zOrder mirror (contact is the live source, atom state is the bank)
+    private var _zOrder:Int = 0;
+
     // v1.7 (WP-1 FIX-2): the static probe cache _tickGeneratorTested /
     // _tickGeneratorWorks (declared v1.6, relic of the TickGenerator
     // migration) is REMOVED — a full-tree scan found ZERO readers/writers.
@@ -68,10 +71,11 @@ class ToggleAtom extends Atom
     public function new(id:String)
     {
         super(
-            // Two inputs: rst (Reset) and set (Set)
+            // Three inputs: rst (Reset), set (Set), and zOrder (stacking order)
             [
                 new Contact(false, INPUT, "rst"),
-                new Contact(false, INPUT, "set")
+                new Contact(false, INPUT, "set"),
+                new Contact(0, INPUT, "zOrder")
             ],
             // One output: out (current state)
             [
@@ -99,6 +103,16 @@ class ToggleAtom extends Atom
         
         var rstContact = getInput("rst");
         var setContact = getInput("set");
+        var zOrderContact = getInput("zOrder");
+        
+        // Handle zOrder contact - mirror contact value to atom state
+        if (c == zOrderContact && c != null && c.value != null)
+        {
+            var f:Float = Std.parseFloat(Std.string(c.value));
+            if (!Math.isNaN(f) && Math.isFinite(f)) _zOrder = Math.round(f);
+            super.onContactChanged(c);
+            return;
+        }
         
         if (rstContact == null && setContact == null)
         {
@@ -202,30 +216,37 @@ class ToggleAtom extends Atom
         return false;
     }
 
+    /**
+     * Get zOrder value (for widget to read on activation).
+     */
+    public function getZOrder():Int return _zOrder;
+
     // =========================================================================
     // STATE SERIALIZATION v1.7
     // =========================================================================
     /**
      * Save toggle state for persistence.
      */
-        override public function getPersistentState():Dynamic
+    override public function getPersistentState():Dynamic
+    {
+        var base = super.getPersistentState();
+        var currentState = false;
+        if (_outputs != null && _outputs.length > 0)
         {
-                var base = super.getPersistentState();
-                var currentState = false;
-                if (_outputs != null && _outputs.length > 0)
-                {
-                        currentState = _outputs[0].value == true;
-                }
-                var result:Dynamic = { state: currentState };
-                if (base != null)
-                {
-                        for (field in Reflect.fields(base))
-                        {
-                                Reflect.setField(result, field, Reflect.field(base, field));
-                        }
-                }
-                return result;
+            currentState = _outputs[0].value == true;
         }
+        var result:Dynamic = { state: currentState };
+        if (base != null)
+        {
+            for (field in Reflect.fields(base))
+            {
+                Reflect.setField(result, field, Reflect.field(base, field));
+            }
+        }
+        // Save zOrder only if non-default (Picture pattern)
+        if (_zOrder != 0) { result.zOrder = _zOrder; }
+        return result;
+    }
 
     /**
      * Restore toggle state from saved data.
@@ -246,6 +267,13 @@ class ToggleAtom extends Atom
                 // signals immediately after project load.
                 _outputs[0].value = state.state;
             }
+        }
+        
+        // Restore zOrder (tolerant: missing/garbage keeps default 0)
+        if (Reflect.hasField(state, "zOrder"))
+        {
+            var f:Float = Std.parseFloat(Std.string(Reflect.field(state, "zOrder")));
+            if (!Math.isNaN(f) && Math.isFinite(f)) _zOrder = Math.round(f);
         }
     }
 }
