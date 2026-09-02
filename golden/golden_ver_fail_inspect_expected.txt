@@ -1,4 +1,0 @@
-ALTAURI payload tail inspector v1
-file: golden_ver_fail.bin
-tail: ALTRPK1 (detected)
-error: unsupported tail version 2 (reader supports 1)

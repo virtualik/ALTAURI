@@ -71,7 +71,7 @@
              ПО УМОЛЧАНИЮ ВКЛЮЧЁН (обе строки ниже закомментированы).
              ТИХАЯ сборка, без файлов логов: раскомментируй строку 1.
              Тихие только release (debug остаётся говорливым): строку 2. -->
-        <haxedef name="ALTAURI_TRAP_OFF" />
+        <!-- <haxedef name="ALTAURI_TRAP_OFF" /> -->
         <!-- <haxedef name="ALTAURI_TRAP_OFF" if="release" /> -->
 	
 	<assets path="assets" embed="true" />

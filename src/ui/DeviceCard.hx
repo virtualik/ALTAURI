@@ -12,7 +12,7 @@ import core.logic.Impulsys;
 import core.logic.EventType;
 
 /**
- * DEVICE CARD v1.1 (Fixed Header Button Interaction)
+ * DEVICE CARD v1.2 (Bare Canvas, Task 159)
  * Card holding a DeviceView inside a DevicePanel or DeviceWindow.
  *
  * Architecture:
@@ -32,6 +32,22 @@ import core.logic.EventType;
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
+ * FRAMELESS MODE (v1.2): widgets reporting isFramelessWidget() == true
+ * (PictureWidget "bare canvas") get a PHANTOM card: no title bar, no close
+ * button, no background, fully mouse-transparent (clicks fall through to
+ * the cards underneath). The widget itself owns placement via its atom
+ * contacts (posX/posY always; zOrder through the DevicePanel v3.12
+ * z-system). Removal — by deleting the atom in the editor.
+ *
+ * v1.2 Changes:
+ * - ADDED: frameless phantom mode (buildFramelessCard) — the bare canvas
+ *   contract from DeviceView v1.2 (isFramelessWidget).
+ * - ADDED: zOrder field (1-based slot; the DevicePanel z-system renumbers
+ *   it on every mutation — insert / bring-to-front / remove).
+ * - CHANGED: click-to-front now asks the owner for bringCardToFront()
+ *   first (keeps the panel z numbering honest); legacy owners (e.g.
+ *   DeviceWindow) fall back to the old addChild-to-top.
+ *
  * v1.1 Changes:
  * - FIXED: Close button MOUSE_DOWN now calls stopPropagation() to prevent
  *   the MOUSE_DOWN event from bubbling up to the title bar and starting
@@ -44,6 +60,9 @@ class DeviceCard extends Sprite {
     public var atom(default, null):Atom;
     public var cardWidth(default, null):Float = 100;
     public var cardHeight(default, null):Float = 80;
+    /** Panel z-order slot (1-based). Assigned by the DevicePanel z-system
+     *  (reapplyZOrder renumbers on every mutation); readable by widgets. */
+    public var zOrder:Int = 0;
     
     // =========================================================================
     // PRIVATE FIELDS
@@ -108,6 +127,16 @@ class DeviceCard extends Sprite {
             createFallbackCard();
             return;
         }
+
+        // FRAMELESS MODE (v1.1, Task 159): widgets that render bare on the
+        // panel (PictureWidget "bare canvas") get a phantom card: no title
+        // bar, no close button, no background, fully mouse-transparent.
+        // The widget owns its placement/geometry via its atom contacts.
+        if (_deviceView.isFramelessWidget())
+        {
+            buildFramelessCard();
+            return;
+        }
         
         // 3. Determine card dimensions based on widget size
         var viewWidth = _deviceView.width;
@@ -128,7 +157,7 @@ class DeviceCard extends Sprite {
         
         _titleLabel = new TextField();
         _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 10, 0xFFFFFF);
-		_titleLabel.text = " " + (atom != null ? (atom.displayName != null ? atom.displayName : atom.name) : "Device");
+                _titleLabel.text = " " + (atom != null ? (atom.displayName != null ? atom.displayName : atom.name) : "Device");
         _titleLabel.width = viewWidth;
         _titleLabel.height = 20;
         _titleLabel.selectable = false;
@@ -174,6 +203,32 @@ class DeviceCard extends Sprite {
         _titleBar.addEventListener(MouseEvent.MOUSE_DOWN, onCardMouseDown);
         
         //trace('DeviceCard: Built card for "${atom.name}"');
+    }
+    
+    /**
+     * Frameless (phantom) card: the widget IS the face. No chrome, no
+     * dragging, no close — mouse-transparent so clicks fall through to
+     * the cards underneath (pilot decision, Task 158 D4/D5/D6).
+     */
+    private function buildFramelessCard():Void {
+        var viewWidth:Float = _deviceView.width;
+        var viewHeight:Float = _deviceView.height;
+        if (viewWidth < 0) viewWidth = 0;
+        if (viewHeight < 0) viewHeight = 0;
+        
+        cardWidth = viewWidth;
+        cardHeight = viewHeight;
+        
+        // The widget was placed at (0, 20) by moveToDeviceWindow — flatten
+        // it to (0, 0): the bare face starts at the card origin, the card
+        // itself is positioned by the widget's posX/posY mirror.
+        _deviceView.x = 0;
+        _deviceView.y = 0;
+        
+        // Phantom: the card itself never intercepts the mouse
+        this.mouseEnabled = false;
+        this.mouseChildren = false;
+        this.buttonMode = false;
     }
     
     /**
@@ -223,8 +278,20 @@ class DeviceCard extends Sprite {
         _mouseStartX = e.stageX;
         _mouseStartY = e.stageY;
         
-        // Bring card to front
-        if (parent != null) parent.addChild(this);
+        // Bring card to front. Preferred route: the panel's z-system
+        // (v3.12 — keeps the zOrder numbering honest); fallback for exotic
+        // owners (DeviceWindow and others): the legacy addChild-to-top.
+        var raised:Bool = false;
+        if (_owner != null && Reflect.hasField(_owner, 'bringCardToFront'))
+        {
+            try
+            {
+                Reflect.callMethod(_owner, Reflect.field(_owner, 'bringCardToFront'), [this]);
+                raised = true;
+            }
+            catch (e:Dynamic) { /* fall through to legacy */ }
+        }
+        if (!raised && parent != null) parent.addChild(this);
         
         if (stage != null) {
             stage.addEventListener(MouseEvent.MOUSE_MOVE, onCardMouseMove);

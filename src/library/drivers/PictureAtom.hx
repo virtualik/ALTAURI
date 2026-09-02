@@ -9,7 +9,7 @@ import system.managers.DriverManager;
 import haxe.io.Bytes;
 
 /**
- * PICTURE ATOM v1.0.1 (Stage 4a-3, Task 155; hotfix Task 156)
+ * PICTURE ATOM v1.2 (Stage 4a-3, Task 155; hotfix Task 156; "bare canvas" Task 159)
  * ============================================================================
  * ATOM-PORTRAIT: the visual consumer of the binary pipe. Accepts picture
  * bytes on [image] (Bytes | Cargo{bytes}), validates the image HEADER
@@ -18,9 +18,10 @@ import haxe.io.Bytes;
  *
  * Architecture: "Atom is Databank & Compute Core"
  *   image portion → header validation → databank (bytes+kind+dims+version)
- *   transform pins (pos/size/scale/visible/alpha/zOrder) → widget geometry
+ *   transform pins (pos/size/scale/aspect/visible/enabled/alpha/zOrder) →
+ *   widget geometry
  *
- * SEMANTICS (see SPEC §2-§4):
+ * SEMANTICS (see SPEC §2-§4, §13 for the v1.2 bare-canvas rules):
  *   · image — the picture portion. Cargo{bytes} (from FileReader [bytes] /
  *     DataStorage [bytes]) is unpacked by kind; a naked Bytes is sniffed the
  *     same way. Replacement: a NEW valid picture REPLACES the old one; an
@@ -31,6 +32,13 @@ import haxe.io.Bytes;
  *     frame from contacts, mirrored into atom state; the widget applies
  *     them: posX/posY place the device CARD, zOrder sets card stacking,
  *     width/height/scale/visible/alpha shape the bitmap itself.
+ *   · aspect (v1.2) — "keep aspect ratio": true = a width edit derives
+ *     height (natW/natH) and vice versa (last edit wins); false/absent =
+ *     width and height apply verbatim. Derived in the WIDGET (it owns the
+ *     last-edit event); the atom mirrors the flag for state integrity.
+ *   · enabled (v1.2, family name like DataStorage) — the render gate for
+ *     the bare Device-panel face: false = the panel image is hidden; the
+ *     data bank and outputs keep working (a gate, not a kill switch).
  *   · Header validation is the ATOM's job; the real CODEC decode is the
  *     WIDGET's job. A codec failure latches the v7.2 fault (red frame);
  *     a bad header is a data-level error (error/errorTick channel).
@@ -82,7 +90,9 @@ class PictureAtom extends Atom implements system.managers.Driver
     private var _sizeH:Float = 0;             // 0 = natural height
     private var _scaleX:Float = 1;
     private var _scaleY:Float = 1;
+    private var _aspect:Bool = false;         // v1.2: keep aspect ratio
     private var _visible:Bool = true;
+    private var _enabled:Bool = true;         // v1.2: device render gate
     private var _alpha:Float = 1;             // clamped 0..1
     private var _zOrder:Int = 0;
 
@@ -102,7 +112,9 @@ class PictureAtom extends Atom implements system.managers.Driver
                 new Contact(0, INPUT, "height"),
                 new Contact(1, INPUT, "scaleX"),
                 new Contact(1, INPUT, "scaleY"),
+                new Contact(false, INPUT, "aspect"),
                 new Contact(true, INPUT, "visible"),
+                new Contact(true, INPUT, "enabled"),
                 new Contact(1, INPUT, "alpha"),
                 new Contact(0, INPUT, "zOrder")
             ],
@@ -407,6 +419,19 @@ class PictureAtom extends Atom implements system.managers.Driver
         {
             _visible = (visibleC.value == true);
         }
+
+        // v1.2: aspect / enabled mirrors (inputs ride on wires; the state
+        // copy exists for introspection and future persistence decisions)
+        var aspectC = getInput("aspect");
+        if (aspectC != null && aspectC.value != null)
+        {
+            _aspect = (aspectC.value == true);
+        }
+        var enabledC = getInput("enabled");
+        if (enabledC != null && enabledC.value != null)
+        {
+            _enabled = (enabledC.value == true);
+        }
     }
 
     /** Tolerant Float read: null / NaN / non-numeric keep the current value. */
@@ -633,4 +658,8 @@ class PictureAtom extends Atom implements system.managers.Driver
     /** 0..1 (clamped). */
     public function getAlpha():Float return _alpha;
     public function getZOrder():Int return _zOrder;
+    /** v1.2: aspect mirror ([aspect] input). */
+    public function getAspect():Bool return _aspect;
+    /** v1.2: enabled mirror ([enabled] input, render gate). */
+    public function getEnabled():Bool return _enabled;
 }

@@ -219,8 +219,8 @@ if (isDisposed) return;
 if (!forwardRepeats && _value == newValue) return;
 if (_oscillationBlocked) return;
 
-// v5.11: probe the propagateCurrentValue delivery path
-if (utils.Trap.nameMatches(this.name)) utils.Trap.log("CONTACT", (owner != null ? owner.id : "?") + "." + this.name + " <= " + Std.string(newValue) + " [recv]");
+// v5.11: probe the propagateCurrentValue delivery path (v1.6: gated by Trap.DATA, truncated)
+if (utils.Trap.DATA && utils.Trap.nameMatches(this.name)) utils.Trap.log("CONTACT", (owner != null ? owner.id : "?") + "." + this.name + " <= " + utils.Trap.shortPayload(newValue) + " [recv]");
 _value = newValue;
 
 // v5.9: TOPOLOGY GUARD - Defer if graph is mutating
@@ -336,8 +336,8 @@ return callbackTargets != null && callbackTargets.indexOf(callback) != -1;
 private function set_value(newValue:Dynamic):Dynamic
 {
 if (isDisposed) return newValue;
-// v5.10: TRAP PROBE — filtered, crash-proof conduction trace.
-if (utils.Trap.nameMatches(this.name)) utils.Trap.log("CONTACT", (owner != null ? owner.id : "?") + "." + this.name + " <= " + Std.string(newValue));
+// v5.10: TRAP PROBE — filtered, crash-proof conduction trace (v1.6: gated by Trap.DATA, truncated)
+if (utils.Trap.DATA && utils.Trap.nameMatches(this.name)) utils.Trap.log("CONTACT", (owner != null ? owner.id : "?") + "." + this.name + " <= " + utils.Trap.shortPayload(newValue));
 if (!forwardRepeats && _value == newValue && !Std.isOfType(newValue, Array)) return newValue;
 
 // Oscillation detection

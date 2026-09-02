@@ -102,7 +102,7 @@ void _dp_registerDragTick(void* inTick) {
 #end
 
 /**
-* DEVICE PANEL v3.9 (Vector Icons + Restore-Before-Drag + Native Drag + Force Render)
+* DEVICE PANEL v3.12 (Vector Icons + Restore-Before-Drag + Native Drag + Force Render + Z-System)
 * Full-size device display panel inside the Main Window.
 *
 * Architecture: "ATOM IS DATABANK & COMPUTE CORE"
@@ -138,6 +138,22 @@ void _dp_registerDragTick(void* inTick) {
 * ═══════════════════════════════════════════════════════════════════════════
 * VERSION HISTORY
 * ═══════════════════════════════════════════════════════════════════════════
+*
+* v3.12 Changes:
+* - ADDED: the Z-ORDER SYSTEM (Task 158/159, pilot design). Every card on
+*   the panel carries a 1-based zOrder slot; the _deviceCards array order
+*   IS the z numbering (index i = zOrder i+1). API:
+*     · setCardZOrder(card, z) — INSERT semantics: z>=1 pulls the card to
+*       slot z, widgets below keep their slots, the tail is renumbered
+*       upward one-by-one (the pilot's exact rule); z<=0 = "surface" = the
+*       contact does not manage depth (auto order stays);
+*     · bringCardToFront(card) — the click-to-front route for framed cards
+*       (DeviceCard asks the owner first; legacy owners fall back to
+*       addChild);
+*     · reapplyZOrder() — renumbers 1..N and mirrors the order into the
+*       DisplayList (cards sit right above the panel header).
+*   Consumers: PictureWidget [zOrder] contact (v1.2 bare canvas); future
+*   atoms get the same channel for free.
 *
 * v3.11 Changes:
 * - REMOVED: manual restore-under-cursor block (v3.10) — with real
@@ -698,6 +714,10 @@ class DevicePanel extends Sprite
             card.y = pos.y;
         }
 
+        // v3.12: keep the z numbering honest for the newcomer (it is
+        // appended last → topmost slot).
+        reapplyZOrder();
+
         // Emit save signal when adding a new device
         Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
     }
@@ -721,7 +741,89 @@ class DevicePanel extends Sprite
         {
             if (this.contains(card)) removeChild(card);
             card.dispose();
+            reapplyZOrder(); // v3.12: compact the numbering 1..N-1
             Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
+        }
+    }
+
+    // =========================================================================
+    // Z-ORDER SYSTEM (v3.12, Task 158/159 — the pilot's design)
+    // =========================================================================
+
+    /**
+    * The array order IS the z numbering: index i = zOrder i+1.
+    *
+    * INSERT semantics (the pilot's exact rule): setting a widget's zOrder
+    * to 1 makes ALL other widgets get zOrder > 1 in turn; setting it to 3
+    * keeps the widgets with 1 and 2 untouched, places this one at 3, and
+    * renumbers the tail (old 3 becomes 4, old 4 becomes 5, ...). z <= 0
+    * is "the surface itself" — the caller does not manage depth and the
+    * current auto order stays untouched.
+    */
+    public function setCardZOrder(card:DeviceCard, z:Int):Void
+    {
+        if (card == null || z < 1) return;
+        if (_deviceCards.indexOf(card) == -1) return;
+
+        _deviceCards.remove(card);
+
+        var idx:Int = z - 1;
+        if (idx > _deviceCards.length) idx = _deviceCards.length;
+        _deviceCards.insert(idx, card);
+
+        reapplyZOrder();
+    }
+
+    /**
+    * Click-to-front route for framed cards: moves the card to the topmost
+    * slot and renumbers. DeviceCard prefers this over the legacy
+    * addChild-to-top so the numbering never lies.
+    */
+    public function bringCardToFront(card:DeviceCard):Void
+    {
+        if (card == null) return;
+        if (_deviceCards.indexOf(card) == -1) return;
+
+        _deviceCards.remove(card);
+        _deviceCards.push(card);
+
+        reapplyZOrder();
+    }
+
+    /** Current 1-based z slot of the card (0 = not on this panel). */
+    public function getCardZOrder(card:DeviceCard):Int
+    {
+        var idx:Int = _deviceCards.indexOf(card);
+        return (idx == -1) ? 0 : idx + 1;
+    }
+
+    /**
+    * Renumber 1..N and mirror the array order into the DisplayList.
+    * Cards sit right above the panel header (header first, then cards in
+    * z order). O(N) on a few dozen cards — cheap enough per mutation.
+    */
+    private function reapplyZOrder():Void
+    {
+        var base:Int = 1;
+        if (_header != null && this.contains(_header))
+        {
+            try { base = getChildIndex(_header) + 1; } catch (e:Dynamic) { base = 1; }
+        }
+
+        for (i in 0..._deviceCards.length)
+        {
+            var card:DeviceCard = _deviceCards[i];
+            card.zOrder = i + 1;
+            if (!this.contains(card)) continue;
+            try
+            {
+                setChildIndex(card, base + i);
+            }
+            catch (e:Dynamic)
+            {
+                // exotic container state — the array order still rules the
+                // numbering; the visual slot catches up on the next pass
+            }
         }
     }
 
@@ -830,8 +932,8 @@ class DevicePanel extends Sprite
         _titleLabel = new TextField();
         _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 12, 0xFFFFFF, true);
         _titleLabel.text = "Device Panel";
-		_titleLabel.x = 7;
-		_titleLabel.y = 7;
+                _titleLabel.x = 7;
+                _titleLabel.y = 7;
         _titleLabel.width = 300;
         _titleLabel.height = 30;
         _titleLabel.selectable = false;
@@ -1434,3 +1536,4 @@ class DevicePanel extends Sprite
         Impulsys.removeImpulse(EventType.ATOM_DELETED, onAtomDeleted);
     }
 }
+

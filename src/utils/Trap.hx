@@ -110,9 +110,23 @@ static LONG WINAPI _altauri_trap_seh_filter(EXCEPTION_POINTERS* ep)
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                        TRAP v1.5                                          ║
+* ║                        TRAP v1.6                                          ║
 * ║          (Crash-Proof Trace Logger — Episod H-1 «Black Box»)              ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║                                                                           ║
+* ║  v1.6 (Task 165) — THE SAFETY:                                            ║
+* ║  crash_trap.log grew to 21 MB in days: CONTACT probes dump FULL           ║
+* ║  payloads (audio = hundreds of samples @ 60 Hz), and the NAMES            ║
+* ║  filter ("in"/"out"/"set"/"rst") lets almost every atom through.          ║
+* ║  Fix, without losing the hunting tool:                                    ║
+* ║    - Trap.DATA (default FALSE) gates the payload dumps in Contact.hx;     ║
+* ║      framework events (TRAP/EX/EXIT/LINK/...) always log;                 ║
+* ║    - Trap.shortPayload(v) truncates any dump to DATA_MAX_CHARS            ║
+* ║      (default 160) when DATA is switched back on for a hunt;              ║
+* ║    - Trap.ROTATE_MB (default 5): boot() renames an oversized              ║
+* ║      crash_trap.log to crash_trap_<YYYYMMDD_HHMM>.log — the box           ║
+* ║      starts every flight slim.                                            ║
 * ║                                                                           ║
 * ║  PURPOSE:                                                                 ║
 * ║  stdout on Windows is BUFFERED when the app runs through "lime run"       ║
@@ -197,6 +211,26 @@ class Trap
         public static var ENABLE:Bool = true;
 
         /**
+        * v1.6 (Task 165): payload dumps switch. The CONTACT probes in
+        * Contact.hx log the FULL value of every filtered contact; for
+        * audio links that is hundreds of samples @ 60 Hz, which grew the
+        * log to 21 MB in days. false (default) = framework events only
+        * (TRAP/EX/EXIT/LINK/...), the log stays slim. true = payloads are
+        * logged again, truncated to DATA_MAX_CHARS. For hunting sessions.
+        */
+        public static var DATA:Bool = false;
+
+        /** v1.6: max chars of one payload dump when DATA is true. */
+        public static var DATA_MAX_CHARS:Int = 160;
+
+        /**
+        * v1.6: at boot(), if crash_trap.log exceeds this many megabytes
+        * it is renamed crash_trap_<YYYYMMDD_HHMM>.log and a fresh log
+        * starts. 0 = never rotate. Keeps the black box slim for good.
+        */
+        public static var ROTATE_MB:Float = 5;
+
+        /**
         * Contact names that pass the set_value probe filter.
         * Edit per test scenario. Defaults = ComPort grouping test:
         * assembly gateway ports (Com_Port_*), driver's own contacts,
@@ -222,6 +256,21 @@ class Trap
 #if (cpp && !ALTAURI_TRAP_OFF)
         private static var _out:sys.io.FileOutput = null;
         private static var _booted:Bool = false;
+
+        /**
+        * v1.6 (Task 165): boot-time rotation. If the previous log grew
+        * beyond ROTATE_MB, move it aside (crash_trap_<stamp>.log) so the
+        * new flight starts on a slim file. Never throws.
+        */
+        private static function _rotateIfNeeded():Void
+        {
+                if (ROTATE_MB <= 0) return;
+                if (!sys.FileSystem.exists("crash_trap.log")) return;
+                var sz:Float = sys.FileSystem.stat("crash_trap.log").size;
+                if (sz <= ROTATE_MB * 1024 * 1024) return;
+                var stamp:String = DateTools.format(Date.now(), "%Y%m%d_%H%M");
+                sys.FileSystem.rename("crash_trap.log", "crash_trap_" + stamp + ".log");
+        }
 #end
         private static var _seq:Int = 0;
 
@@ -248,6 +297,7 @@ class Trap
                 _booted = true;
                 try
                 {
+                        _rotateIfNeeded(); // v1.6: keep the black box slim
                         untyped __cpp__('
                                 #ifdef _WIN32
                                 {
@@ -273,7 +323,7 @@ class Trap
                                 }
                                 #endif
                         ');
-                        log("TRAP", "v1.5 boot: stderr -> stderr_capture.log, native SEH sentinel armed (Windows)");
+                        log("TRAP", "v1.6 boot: stderr -> stderr_capture.log, native SEH sentinel armed (Windows), DATA=" + (DATA ? "ON" : "off") + ", ROTATE=" + ROTATE_MB + "MB");
                 }
                 catch (e:Dynamic)
                 {
@@ -347,6 +397,18 @@ class Trap
                         // Swallow — traps must never break the app.
                 }
 #end
+        }
+
+        /**
+        * v1.6 (Task 165): shrink a payload for the log. With DATA off this
+        * is never called; with DATA on, dumps longer than DATA_MAX_CHARS
+        * keep their head and report how much was omitted.
+        */
+        public static function shortPayload(v:Dynamic):String
+        {
+                var s:String = Std.string(v);
+                if (DATA_MAX_CHARS <= 0 || s.length <= DATA_MAX_CHARS) return s;
+                return s.substr(0, DATA_MAX_CHARS) + "...(+" + (s.length - DATA_MAX_CHARS) + " chars)";
         }
 
         /**

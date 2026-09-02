@@ -6,54 +6,49 @@ import openfl.display.BitmapData;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
 import openfl.text.TextFormatAlign;
-import openfl.events.MouseEvent;
+import openfl.events.Event;
 import lime.graphics.Image;
 import core.base.Atom;
 import core.base.Contact;
-import core.logic.EventType;
-import core.logic.Impulsys;
 import ui.DeviceCard;
+import core.view.DeviceViewRegistry;
 import library.drivers.PictureAtom;
 
 /**
- * PICTURE WIDGET v1.1 (Task 156 field fix)
- * The Face of PictureAtom (Stage 4a-3, Task 155).
- * Spec: SPEC_STAGE4A_PICTURE.md §5.
+ * PICTURE WIDGET v1.2 (Task 159 — the "bare canvas" dual face)
+ * The Face of PictureAtom (Stage 4a-3, Task 155; hotfix Task 156).
+ * Spec: SPEC_STAGE4A_PICTURE.md §5, §13.
  *
- * Architecture: "Atom is Databank & Compute Core"
- *   ┌─────────────────────────────────────────────────────────────────────────┐
- *   │   PICTURE                                                               │
- *   │   ────────────────────────────────────────────────────────────────     │
- *   │   Kind: png   120×90   45.2 KB          [LED ●]                        │
- *   │   ┌───────────────────────────────────────────────────────────────     │
- *   │   │                    (Bitmap / placeholder)                       │     │
- *   │   └───────────────────────────────────────────────────────────────     │
- *   │   Error: ___________________                                            │
- *   └─────────────────────────────────────────────────────────────────────────┘
+ * DUAL FACE (v1.2, the pilot's design):
+ *   · EDITOR face (NodeView, "Heavy" embed): the classic framed card —
+ *     header / LED / info / error lines, and the image NORMALIZED to fit
+ *     the card's image area with the aspect preserved (contain fit).
+ *     NO makeup contact applies here: the editor preview is passive
+ *     (pos/scale/alpha of the atom's node are the node view's business).
+ *   · DEVICE face (DevicePanel / DeviceWindow): the BARE bitmap — no
+ *     frame, no labels, no placeholder, no drag, fully mouse-transparent
+ *     (clicks fall through to the cards underneath, pilot decision D4).
+ *     The contacts are the ONLY placement source: posX/posY position the
+ *     phantom DeviceCard ALWAYS (0,0 = panel origin); width/height
+ *     (0 = natural) * scaleX/scaleY size the bitmap exactly (aspect
+ *     derivation below); visible & enabled gate it, alpha tints it;
+ *     zOrder (>=1) drives the DevicePanel z-system (insert semantics,
+ *     v3.12); zOrder <= 0 = "the surface" = auto order stays.
  *
- * DIVISION OF LABOR (the honest split):
- *   · ATOM validates the image header (magic + dims) — data-level truth;
- *   · THIS WIDGET performs the real BitmapData decode via the platform
- *     codecs. A codec failure latches the v7.2 fault on the atom
- *     (markAsFaulted — red frame in the editor); a successful decode
- *     unlatches it.
- *   · Re-decode trigger: the atom's image version counter (bumped per
- *     store/clear). Status outputs are the change signal; the bytes flow
- *     through the public getter (reference — decode is read-only).
+ * ASPECT (v1.2, [aspect] contact): true = keep proportions — a width
+ *   edit derives height (natW/natH) and a height edit derives width;
+ *   the LAST size edit wins (_lastSizeEdit tracks the wire event; the
+ *   widget owns the derivation because it owns the event). false or
+ *   absent = width/height apply verbatim (exact control). The device
+ *   face renders 0/0 sizes at NATURAL size (no auto-contain on the
+ *   panel — the editor face is where normalization lives).
  *
- * "MAKEUP" GEOMETRY (programmatic picture):
- *   · posX/posY — position the DEVICE CARD on the panel (non-default
- *     values only: defaults must not fight the panel's auto-placement
- *     and manual card drags);
- *   · zOrder — card stacking order among panel children (non-zero only:
- *     0 = manual stacking via click-to-front stays untouched);
- *   · width/height (0 = natural) * scaleX/scaleY — the bitmap display
- *     size inside the card (W = (w>0 ? w : natW) * sx; aspect is NOT
- *     preserved — exact control stays with the user);
- *   · visible/alpha — the bitmap;
- *   · Mouse drag ON THE PICTURE moves the parent DeviceCard (the panel
- *     persists positions via DEVICE_WINDOW_CHANGED; no contact writeback
- *     in v1 — signal pins are one-way atom → widget).
+ * MODE SWITCH: the DeviceViewRegistry container type (NodeView /
+ * DeviceWindow) is the mode source. moveToDeviceWindow()/moveToNodeView()
+ * set it AFTER addChild — so an Event.ADDED handler schedules a one-frame
+ * deferred applyMode() (the registry record is final by then); the
+ * activate()/syncFromAtom() path re-applies it immediately. The frameless
+ * phantom card is requested via isFramelessWidget() (DeviceView v1.2).
  *
  * DECODE GATEWAY v1.1 (Task 156, field fix): five ordered codec paths,
  * each guarded by try/catch, each result validated (0x0 = no pixels =
@@ -124,7 +119,9 @@ class PictureWidget extends DeviceView
     private var _heightContact:Contact;
     private var _scaleXContact:Contact;
     private var _scaleYContact:Contact;
+    private var _aspectContact:Contact;
     private var _visibleContact:Contact;
+    private var _enabledContact:Contact;
     private var _alphaContact:Contact;
     private var _zOrderContact:Contact;
 
@@ -151,28 +148,35 @@ class PictureWidget extends DeviceView
     // CONTACT VALUE is the single source of truth here: contact callbacks
     // fire BEFORE the atom mirrors them into its own fields (next frame),
     // so the widget parses contact values directly — no race, no gap.
+    // v1.2: the aspect derivation (width<->height) also lives here — the
+    // widget owns the LAST-EDIT event, which is what the derivation needs.
     private var _tPosX:Float = 0;
     private var _tPosY:Float = 0;
     private var _tSizeW:Float = 0;
     private var _tSizeH:Float = 0;
     private var _tScaleX:Float = 1;
     private var _tScaleY:Float = 1;
+    private var _tAspect:Bool = false;
     private var _tVisible:Bool = true;
+    private var _tEnabled:Bool = true;
     private var _tAlpha:Float = 1;
     private var _tZOrder:Int = 0;
 
-    // Card drag state (mouse on the picture moves the DeviceCard)
-    private var _cardDragging:Bool = false;
-    private var _cardStartX:Float = 0;
-    private var _cardStartY:Float = 0;
-    private var _mouseStartX:Float = 0;
-    private var _mouseStartY:Float = 0;
+    /** Which size contact fired LAST ("width" | "height" | null) —
+     *  the aspect-derivation tiebreaker (last edit wins). */
+    private var _lastSizeEdit:String = null;
 
-    // Cached stage listener refs: ONE closure object is used for both
-    // add and remove — identity is guaranteed on every target (a fresh
-    // method reference may not compare equal).
-    private var _stageMoveRef:MouseEvent -> Void;
-    private var _stageUpRef:MouseEvent -> Void;
+    /** Last zOrder value actually pushed into the panel z-system
+     *  (dedupe guard — the panel insert renumbers the whole tail). */
+    private var _appliedZ:Int = -1;
+
+    /** One-frame deferred mode refresh is scheduled (Event.ADDED path). */
+    private var _modeRefreshScheduled:Bool = false;
+
+    /** CACHED closure for the one-frame tick: ONE object is used for both
+     *  add and remove — a fresh method reference may not compare equal on
+     *  eval/hxcpp (the T155 stage-listener lesson, applied to ENTER_FRAME). */
+    private var _modeTickRef:Event -> Void;
 
     // =========================================================================
     // CONFIGURATION
@@ -209,6 +213,13 @@ class PictureWidget extends DeviceView
         findContacts();
         buildUI();
         syncFromAtom();
+
+        // v1.2: reparent awareness — moveToDeviceWindow()/moveToNodeView()
+        // call addChild BEFORE setting the registry container type, so the
+        // mode application is deferred by one frame (the registry record is
+        // final by then). Only OUR OWN additions count (children bubble ADDED).
+        _modeTickRef = onModeRefreshTick;
+        addEventListener(Event.ADDED, onWidgetAdded);
     }
 
     // =========================================================================
@@ -226,7 +237,9 @@ class PictureWidget extends DeviceView
         _heightContact = atom.getInput("height");
         _scaleXContact = atom.getInput("scaleX");
         _scaleYContact = atom.getInput("scaleY");
+        _aspectContact = atom.getInput("aspect");
         _visibleContact = atom.getInput("visible");
+        _enabledContact = atom.getInput("enabled");
         _alphaContact = atom.getInput("alpha");
         _zOrderContact = atom.getInput("zOrder");
 
@@ -243,6 +256,89 @@ class PictureWidget extends DeviceView
     {
         findContacts();
         syncFromAtom();
+    }
+
+    // =========================================================================
+    // DUAL-FACE MODE (v1.2)
+    // =========================================================================
+
+    /** Registry container type drives the face: DeviceWindow (panel or
+     *  separate window) = the bare device face; NodeView = the editor
+     *  card face; null/unknown = the editor face (the safe default). */
+    private function isDeviceMode():Bool
+    {
+        return getContainerType() == DeviceViewRegistry.CONTAINER_DEVICE_WINDOW;
+    }
+
+    /** Our own reparent happened — the registry record may still be the OLD
+     *  one (moveToDeviceWindow sets it after addChild), so apply the mode
+     *  one frame later. Children bubbling ADDED are ignored. */
+    private function onWidgetAdded(e:Event):Void
+    {
+        if (e.target != this) return;
+        if (isDisposed) return;
+        if (_modeRefreshScheduled) return;
+        _modeRefreshScheduled = true;
+        addEventListener(Event.ENTER_FRAME, _modeTickRef);
+    }
+
+    private function onModeRefreshTick(e:Event):Void
+    {
+        removeEventListener(Event.ENTER_FRAME, _modeTickRef);
+        _modeRefreshScheduled = false;
+        if (isDisposed) return;
+        applyMode();
+    }
+
+    /**
+     * Apply the current face: chrome visibility, mouse transparency,
+     * holder anchoring, then the full geometry pass. Cheap — called on
+     * activate, on reparent (deferred) and from syncFromAtom.
+     */
+    private function applyMode():Void
+    {
+        if (isDisposed) return;
+        var deviceMode:Bool = isDeviceMode();
+
+        // Chrome: the editor face keeps the full framed card; the device
+        // face is the bare bitmap (no frame, no labels, no placeholder).
+        var chrome:Bool = !deviceMode;
+        _bg.visible = chrome;
+        _header.visible = chrome;
+        _infoLabel.visible = chrome;
+        _errorLabel.visible = chrome;
+        showPlaceholder(_bitmap == null); // device face: suppressed inside
+
+        // Mouse: the bare image is fully transparent for the mouse (D4) —
+        // clicks fall through to the cards underneath. The editor face
+        // keeps the DeviceView mouse isolation.
+        this.mouseEnabled = chrome;
+        this.mouseChildren = false;
+
+        // Anchoring: the bare face starts at the card origin (the card is
+        // positioned by posX/posY); the editor face uses the inset area.
+        if (!deviceMode)
+        {
+            _imageHolder.x = AREA_X;
+            _imageHolder.y = AREA_Y;
+        }
+
+        // Re-apply the geometry for the face that is now active.
+        applyTransform();
+        applyCardPlacement();
+    }
+
+    /** Placeholder is an EDITOR-only courtesy — the bare panel stays bare. */
+    private function showPlaceholder(v:Bool):Void
+    {
+        _placeholder.visible = v && !isDeviceMode();
+    }
+
+    /** The device face wants a frameless phantom DeviceCard (DeviceView
+     *  v1.2 contract, DeviceCard v1.1 frameless mode). */
+    override public function isFramelessWidget():Bool
+    {
+        return true;
     }
 
     // =========================================================================
@@ -324,12 +420,8 @@ class PictureWidget extends DeviceView
 
         _imageHolder.addChild(_placeholder);
 
-        // Grab-the-picture drag (moves the parent DeviceCard, see class docs)
-        _imageHolder.buttonMode = true;
-        _imageHolder.useHandCursor = true;
-        _stageMoveRef = onStageMouseMove;
-        _stageUpRef = onStageMouseUp;
-        _imageHolder.addEventListener(MouseEvent.MOUSE_DOWN, onImageMouseDown);
+        // v1.2: no drag hooks on the image — the device face is anchored by
+        // contacts (D4/D5, pilot decision); the editor face is passive.
 
         // === ERROR ===
         _errorLabel = new TextField();
@@ -391,8 +483,7 @@ class PictureWidget extends DeviceView
 
         checkAndDecode();
         syncTransformMirror();
-        applyTransform();
-        applyCardPlacement();
+        applyMode();
         updateInfo();
     }
 
@@ -412,6 +503,9 @@ class PictureWidget extends DeviceView
 
             checkAndDecode();
             updateInfo();
+            // v1.2: a new picture re-runs the fit (editor contain / device
+            // natural+scale) — the natural size changed under the mirrors.
+            applyTransform();
         }
         else if (contact == _errorContact)
         {
@@ -437,13 +531,22 @@ class PictureWidget extends DeviceView
         }
         else if (contact == _widthContact || contact == _heightContact
             || contact == _scaleXContact || contact == _scaleYContact
-            || contact == _visibleContact || contact == _alphaContact)
+            || contact == _aspectContact || contact == _visibleContact
+            || contact == _enabledContact || contact == _alphaContact)
         {
+            // v1.2: track the LAST size edit — the aspect-derivation
+            // tiebreaker ("I set a new width → height follows", and vice
+            // versa; last edit wins, SPEC §13).
+            if (contact == _widthContact) _lastSizeEdit = "width";
+            if (contact == _heightContact) _lastSizeEdit = "height";
+
             if (contact == _widthContact && newValue != null) _tSizeW = parseFloat(newValue, _tSizeW);
             if (contact == _heightContact && newValue != null) _tSizeH = parseFloat(newValue, _tSizeH);
             if (contact == _scaleXContact && newValue != null) _tScaleX = parseScale(newValue, _tScaleX);
             if (contact == _scaleYContact && newValue != null) _tScaleY = parseScale(newValue, _tScaleY);
+            if (contact == _aspectContact) _tAspect = (newValue == true);
             if (contact == _visibleContact && newValue != null) _tVisible = (newValue == true);
+            if (contact == _enabledContact) _tEnabled = (newValue == true);
             if (contact == _alphaContact && newValue != null) _tAlpha = clamp01(parseFloat(newValue, _tAlpha));
             applyTransform();
         }
@@ -474,8 +577,8 @@ class PictureWidget extends DeviceView
         var bytes = a.getImageBytes();
         if (bytes == null || bytes.length == 0)
         {
-            // Cleared state: the placeholder is the honest face.
-            _placeholder.visible = true;
+            // Cleared state: the placeholder is the honest (editor) face.
+            showPlaceholder(true);
             updateConnectionStatus(false);
             return;
         }
@@ -491,17 +594,20 @@ class PictureWidget extends DeviceView
             if (a.isFaulted) a.clearFault();
             a.markAsFaulted("CODEC", msg);
             a.reportCodecError(msg); // the wire channel: [error] + [errorTick]
-            _placeholder.visible = true;
+            showPlaceholder(true);
             updateConnectionStatus(false);
             return;
         }
 
         _bitmap = new Bitmap(bmd);
         _imageHolder.addChild(_bitmap);
-        _placeholder.visible = false;
+        showPlaceholder(false);
         a.clearFault();
         updateConnectionStatus(true);
         trace('PictureWidget: decoded ${bytes.length} bytes -> ${bmd.width}x${bmd.height} (path=${_lastDecodePath})');
+        // v1.2: the new bitmap needs its face geometry immediately (the
+        // status wave arrives before any transform contact may fire).
+        applyTransform();
     }
 
     /** Which decode path succeeded (diagnostics for the field protocol). */
@@ -798,24 +904,79 @@ class PictureWidget extends DeviceView
     }
 
     // =========================================================================
-    // "MAKEUP" GEOMETRY
+    // "MAKEUP" GEOMETRY (v1.2 — the dual face)
     // =========================================================================
 
-    /**
-     * Apply the transform pins to the bitmap:
-     *   W = (width > 0 ? width : naturalW) * scaleX
-     *   H = (height > 0 ? height : naturalH) * scaleY
-     * (aspect is NOT preserved — exact control by design, SPEC §4);
-     * visible/alpha apply to the holder.
-     */
+    /** Dispatcher: the editor face normalizes, the device face obeys
+     *  the contacts (SPEC §13). */
     private function applyTransform():Void
     {
-        _imageHolder.visible = _tVisible;
+        if (isDeviceMode()) applyDeviceTransform();
+        else applyEditorPreview();
+    }
+
+    /**
+     * EDITOR FACE: fit the image into the card's image area with the
+     * aspect preserved (contain), centered. NONE of the makeup contacts
+     * applies — the editor preview is passive (the pilot's rule: the
+     * editor widget "just shows the picture fitted, no parameters").
+     */
+    private function applyEditorPreview():Void
+    {
+        _imageHolder.visible = true;
+        _imageHolder.alpha = 1;
+
+        if (_bitmap == null || _bitmap.bitmapData == null)
+        {
+            showPlaceholder(true);
+            return;
+        }
+        showPlaceholder(false);
+
+        var bmd:BitmapData = _bitmap.bitmapData;
+        if (bmd.width <= 0 || bmd.height <= 0) return;
+
+        var natW:Int = (_imgW > 0) ? _imgW : bmd.width;
+        var natH:Int = (_imgH > 0) ? _imgH : bmd.height;
+
+        // Contain fit: scale to fit BOTH dimensions, keep the aspect.
+        var k:Float = Math.min(AREA_W / natW, AREA_H / natH);
+        if (Math.isNaN(k) || !Math.isFinite(k) || k <= 0) k = 1;
+
+        var targetW:Float = natW * k;
+        var targetH:Float = natH * k;
+
+        // Center inside the image area
+        _imageHolder.x = AREA_X + (AREA_W - targetW) / 2;
+        _imageHolder.y = AREA_Y + (AREA_H - targetH) / 2;
+
+        _bitmap.scaleX = targetW / bmd.width;
+        _bitmap.scaleY = targetH / bmd.height;
+    }
+
+    /**
+     * DEVICE FACE: the bare bitmap, contacts are the ONLY source:
+     *   W = (width > 0 ? width : naturalW) * scaleX
+     *   H = (height > 0 ? height : naturalH) * scaleY
+     * with [aspect] derivation applied first (last edit wins);
+     * visible AND enabled gate the holder, alpha tints it. No auto-fit
+     * here — the device face is exact (0 = natural size, the pilot's
+     * decision: normalization lives in the editor face).
+     */
+    private function applyDeviceTransform():Void
+    {
+        _imageHolder.x = 0;
+        _imageHolder.y = 0;
+
+        var show:Bool = _tVisible && _tEnabled; // enabled = render gate
+        _imageHolder.visible = show;
         _imageHolder.alpha = _tAlpha;
 
         if (_bitmap == null || _bitmap.bitmapData == null) return;
         var bmd:BitmapData = _bitmap.bitmapData;
         if (bmd.width <= 0 || bmd.height <= 0) return;
+
+        deriveAspect();
 
         var natW:Int = (_imgW > 0) ? _imgW : bmd.width;
         var natH:Int = (_imgH > 0) ? _imgH : bmd.height;
@@ -828,10 +989,40 @@ class PictureWidget extends DeviceView
     }
 
     /**
-     * Apply the panel-level "makeup": posX/posY place the parent DeviceCard,
-     * zOrder sets its stacking among panel children. NON-DEFAULT values only:
-     * defaults must not fight the panel's auto-placement, manual drags and
-     * click-to-front stacking (SPEC §4.2).
+     * [aspect] derivation (v1.2): true = keep the natural proportions —
+     * the LAST size edit wins: a width edit derives the height, a height
+     * edit derives the width (the pilot's exact rule). Without a known
+     * last edit (fresh restore) both values apply verbatim — the wires
+     * re-deliver them in a deterministic order and the first callback
+     * sets the tiebreaker.
+     */
+    private function deriveAspect():Void
+    {
+        if (!_tAspect) return;
+        if (_imgW <= 0 || _imgH <= 0) return;
+
+        var ratio:Float = _imgW / _imgH;
+        if (Math.isNaN(ratio) || !Math.isFinite(ratio) || ratio <= 0) return;
+
+        if (_lastSizeEdit == "width" && _tSizeW > 0)
+        {
+            _tSizeH = _tSizeW / ratio;
+        }
+        else if (_lastSizeEdit == "height" && _tSizeH > 0)
+        {
+            _tSizeW = _tSizeH * ratio;
+        }
+    }
+
+    /**
+     * Apply the panel-level "makeup" — DEVICE FACE ONLY (the editor node
+     * keeps its own layout business):
+     *   · posX/posY place the parent (phantom) DeviceCard ALWAYS — the
+     *     contacts are the only placement source (0,0 = panel origin;
+     *     the panel's auto-position is overridden on the first sync);
+     *   · zOrder (>=1) asks the panel z-system to INSERT the card at that
+     *     slot (renumbering the tail, DevicePanel v3.12); zOrder <= 0 =
+     *     "the surface itself" — auto order stays (pilot's rule).
      *
      * Reflect note: the card/panel are accessed through Reflect properties —
      * openfl geometry (x/y/parent/numChildren) may be real properties (get/set)
@@ -839,90 +1030,33 @@ class PictureWidget extends DeviceView
      */
     private function applyCardPlacement():Void
     {
+        if (!isDeviceMode()) return;
+
         var card:Dynamic = parent;
         if (card == null || !Std.isOfType(card, DeviceCard)) return;
 
-        if (_tPosX != 0 || _tPosY != 0)
-        {
-            Reflect.setProperty(card, "x", _tPosX);
-            Reflect.setProperty(card, "y", _tPosY);
-        }
+        // ALWAYS: contacts are the placement source (v1.2 semantics —
+        // the phantom card has no drag, no auto-position of its own).
+        Reflect.setProperty(card, "x", _tPosX);
+        Reflect.setProperty(card, "y", _tPosY);
 
-        if (_tZOrder != 0)
+        if (_tZOrder >= 1 && _tZOrder != _appliedZ)
         {
+            _appliedZ = _tZOrder;
             var panel:Dynamic = Reflect.getProperty(card, "parent");
-            if (panel != null)
+            if (panel != null && Reflect.hasField(panel, "setCardZOrder"))
             {
-                var nChildren:Dynamic = Reflect.getProperty(panel, "numChildren");
-                if (nChildren != null)
+                try
                 {
-                    var idx:Int = _tZOrder;
-                    if (idx < 0) idx = 0;
-                    var max:Int = Std.int(nChildren) - 1;
-                    if (idx > max) idx = max;
-                    try
-                    {
-                        panel.setChildIndex(card, idx);
-                    }
-                    catch (e:Dynamic)
-                    {
-                        // exotic container — keep manual order (honest no-op)
-                    }
+                    Reflect.callMethod(panel, Reflect.field(panel, "setCardZOrder"), [card, _tZOrder]);
+                }
+                catch (e:Dynamic)
+                {
+                    // exotic owner (e.g. DeviceWindow without the z-system) —
+                    // honest no-op: the depth stays auto there
                 }
             }
         }
-    }
-
-    // =========================================================================
-    // PICTURE DRAG (moves the parent DeviceCard)
-    // =========================================================================
-    private function onImageMouseDown(e:MouseEvent):Void
-    {
-        if (isDisposed) return;
-
-        var card:Dynamic = parent;
-        if (card == null || !Std.isOfType(card, DeviceCard)) return;
-        if (stage == null) return;
-
-        e.stopPropagation();
-
-        _cardDragging = true;
-        _cardStartX = Reflect.getProperty(card, "x");
-        _cardStartY = Reflect.getProperty(card, "y");
-        _mouseStartX = e.stageX;
-        _mouseStartY = e.stageY;
-
-        // Bring the card to front (layers: the grabbed picture wins)
-        var panel:Dynamic = Reflect.getProperty(card, "parent");
-        if (panel != null) panel.addChild(card);
-
-        stage.addEventListener(MouseEvent.MOUSE_MOVE, _stageMoveRef);
-        stage.addEventListener(MouseEvent.MOUSE_UP, _stageUpRef);
-    }
-
-    private function onStageMouseMove(e:MouseEvent):Void
-    {
-        if (!_cardDragging || isDisposed) return;
-
-        var card:Dynamic = parent;
-        if (card == null) return;
-
-        Reflect.setProperty(card, "x", _cardStartX + (e.stageX - _mouseStartX));
-        Reflect.setProperty(card, "y", _cardStartY + (e.stageY - _mouseStartY));
-    }
-
-    private function onStageMouseUp(e:MouseEvent):Void
-    {
-        _cardDragging = false;
-
-        if (stage != null)
-        {
-            stage.removeEventListener(MouseEvent.MOUSE_MOVE, _stageMoveRef);
-            stage.removeEventListener(MouseEvent.MOUSE_UP, _stageUpRef);
-        }
-
-        // The panel persists card positions on this signal (family style)
-        Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
     }
 
     // =========================================================================
@@ -1016,7 +1150,9 @@ class PictureWidget extends DeviceView
         if (_heightContact != null && _heightContact.value != null) _tSizeH = parseFloat(_heightContact.value, _tSizeH);
         if (_scaleXContact != null && _scaleXContact.value != null) _tScaleX = parseScale(_scaleXContact.value, _tScaleX);
         if (_scaleYContact != null && _scaleYContact.value != null) _tScaleY = parseScale(_scaleYContact.value, _tScaleY);
+        if (_aspectContact != null && _aspectContact.value != null) _tAspect = (_aspectContact.value == true);
         if (_visibleContact != null && _visibleContact.value != null) _tVisible = (_visibleContact.value == true);
+        if (_enabledContact != null && _enabledContact.value != null) _tEnabled = (_enabledContact.value == true);
         if (_alphaContact != null && _alphaContact.value != null) _tAlpha = clamp01(parseFloat(_alphaContact.value, _tAlpha));
         if (_zOrderContact != null && _zOrderContact.value != null) _tZOrder = Math.round(parseFloat(_zOrderContact.value, _tZOrder));
     }
@@ -1048,15 +1184,11 @@ class PictureWidget extends DeviceView
     {
         if (isDisposed) return;
 
-        if (_imageHolder != null)
-        {
-            _imageHolder.removeEventListener(MouseEvent.MOUSE_DOWN, onImageMouseDown);
-        }
-        if (stage != null)
-        {
-            stage.removeEventListener(MouseEvent.MOUSE_MOVE, onStageMouseMove);
-            stage.removeEventListener(MouseEvent.MOUSE_UP, onStageMouseUp);
-        }
+        // v1.2: mode-refresh plumbing (cached ref — the T155 closure lesson)
+        removeEventListener(Event.ADDED, onWidgetAdded);
+        removeEventListener(Event.ENTER_FRAME, _modeTickRef);
+        _modeRefreshScheduled = false;
+        _modeTickRef = null;
 
         disposeBitmap();
 
@@ -1080,7 +1212,9 @@ class PictureWidget extends DeviceView
         _heightContact = null;
         _scaleXContact = null;
         _scaleYContact = null;
+        _aspectContact = null;
         _visibleContact = null;
+        _enabledContact = null;
         _alphaContact = null;
         _zOrderContact = null;
         _okContact = null;

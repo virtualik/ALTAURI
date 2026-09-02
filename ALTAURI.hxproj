@@ -20,16 +20,15 @@
     <class path="C:\HaxeToolkit\lime-src\src" />
     <class path="C:\HaxeToolkit\haxe\lib\hxcpp\4,3,2" />
     <class path="src" />
-    <class path="bin\windows\haxe" />
   </classpaths>
   <!-- Build options -->
   <build>
-    <option directives="openfl=9.5.2&#xA;lime=8.3.2&#xA;hxcpp=4.3.2&#xA;lime-openal&#xA;utf8&#xA;native&#xA;lime-curl&#xA;lime-mojoal&#xA;openfl-native&#xA;lime-harfbuzz&#xA;lime-threads&#xA;tools=8.3.2&#xA;lime-cairo&#xA;lime-threads-deque&#xA;lime-opengl&#xA;no-compilation&#xA;ALTAURI_TRAP_OFF&#xA;lime-native&#xA;lime-vorbis&#xA;lime-cffi&#xA;fdb&#xA;windows&#xA;desktop" />
+    <option directives="openfl=9.5.2&#xA;lime=8.3.2&#xA;hxcpp=4.3.2&#xA;lime-harfbuzz&#xA;lime-openal&#xA;utf8&#xA;tools=8.3.2&#xA;lime-cairo&#xA;lime-opengl&#xA;no-compilation&#xA;native&#xA;lime-openalsoft&#xA;lime-curl&#xA;lime-native&#xA;lime-vorbis&#xA;openfl-native&#xA;lime-cffi&#xA;windows&#xA;desktop" />
     <option flashStrict="False" />
     <option noInlineOnDebug="False" />
     <option mainClass="ApplicationMain" />
     <option enabledebug="True" />
-    <option additional="--macro openfl.utils._internal.ExtraParamsMacro.include()&#xA;--macro lime._internal.macros.DefineMacro.run()&#xA;--macro haxe.macro.Compiler.addMetadata(&quot;@:autoBuild(lime._internal.macros.AssetsMacro.embedBytes())&quot;, &quot;haxe.io.Bytes&quot;)&#xA;--remap flash:openfl" />
+    <option additional="--macro openfl.utils._internal.ExtraParamsMacro.include()&#xA;--macro lime._internal.macros.DefineMacro.run()&#xA;--macro haxe.macro.Compiler.addMetadata(&quot;@:autoBuild(lime._internal.macros.AssetsMacro.embedBytes())&quot;, &quot;haxe.io.Bytes&quot;)&#xA;--remap flash:openfl&#xA;--no-output " />
   </build>
   <!-- haxelib libraries -->
   <haxelib>
