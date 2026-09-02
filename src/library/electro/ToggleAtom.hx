@@ -105,11 +105,14 @@ class ToggleAtom extends Atom
         var setContact = getInput("set");
         var zOrderContact = getInput("zOrder");
         
-        // Handle zOrder contact - mirror contact value to atom state
-        if (c == zOrderContact && c != null && c.value != null)
+        // Handle zOrder contact - mirror contact value to atom state (Picture pattern)
+        if (c == zOrderContact && c != null)
         {
-            var f:Float = Std.parseFloat(Std.string(c.value));
-            if (!Math.isNaN(f) && Math.isFinite(f)) _zOrder = Math.round(f);
+            if (c.value != null)
+            {
+                var f:Float = Std.parseFloat(Std.string(c.value));
+                if (!Math.isNaN(f) && Math.isFinite(f)) _zOrder = Math.round(f);
+            }
             super.onContactChanged(c);
             return;
         }

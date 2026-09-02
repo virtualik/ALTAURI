@@ -8,6 +8,8 @@ import openfl.events.MouseEvent;
 import core.base.Atom;
 import core.base.Contact;
 import library.electro.ToggleAtom;
+import ui.DeviceCard;
+import core.view.DeviceViewRegistry;
 
 /**
  * TOGGLE WIDGET
@@ -262,7 +264,7 @@ class ToggleWidget extends DeviceView
         if (!isDeviceMode()) return;
 
         var card:Dynamic = parent;
-        if (card == null) return;
+        if (card == null || !Std.isOfType(card, DeviceCard)) return;
 
         // Apply zOrder only if changed (dedupe guard - Picture pattern)
         if (_tZOrder >= 1 && _tZOrder != _appliedZ)
@@ -282,6 +284,11 @@ class ToggleWidget extends DeviceView
                 }
             }
         }
+    }
+
+    private function isDeviceMode():Bool
+    {
+        return getContainerType() == DeviceViewRegistry.CONTAINER_DEVICE_WINDOW;
     }
 
     // =========================================================================
