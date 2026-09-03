@@ -260,12 +260,22 @@ class DeviceCard extends Sprite {
         
         if (_owner != null) {
             // Universal call to owner's removeDevice method
-            if (Reflect.hasField(_owner, 'removeDevice')) {
+            // (Reflect.field probe: hasField misses methods on C++)
+            if (Reflect.field(_owner, 'removeDevice') != null) {
                 Reflect.callMethod(_owner, Reflect.field(_owner, 'removeDevice'), [this]);
             }
         }
     }
     
+    /**
+     * Re-apply widget-owned placement (zOrder etc.) — called by the owner
+     * panel AFTER this card is attached, when the widget's own activation
+     * pass was too early to land (see DeviceView.refreshPlacement()).
+     */
+    public function refreshPlacement():Void {
+        if (_deviceView != null) _deviceView.refreshPlacement();
+    }
+
     // =========================================================================
     // DRAG LOGIC
     // =========================================================================
@@ -281,8 +291,10 @@ class DeviceCard extends Sprite {
         // Bring card to front. Preferred route: the panel's z-system
         // (v3.12 — keeps the zOrder numbering honest); fallback for exotic
         // owners (DeviceWindow and others): the legacy addChild-to-top.
+        // NOTE: Reflect.hasField() does NOT see class methods on the C++
+        // target — probe with Reflect.field() instead.
         var raised:Bool = false;
-        if (_owner != null && Reflect.hasField(_owner, 'bringCardToFront'))
+        if (_owner != null && Reflect.field(_owner, 'bringCardToFront') != null)
         {
             try
             {

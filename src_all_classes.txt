@@ -2820,7 +2820,7 @@ utils.Trap.log("ASM-DISPOSE", "dispose enter: id=" + this.id);
 
 ================================================================================
 // FILE: core\base\AssemblyFactory.hx
-// Lines: 502 | Chars: 27422
+// Lines: 512 | Chars: 28185
 ================================================================================
 
 package core.base;
@@ -2982,6 +2982,12 @@ class AssemblyFactory
                                                                 case "DATA STORAGE":
                                                                 normalizedTypeId = "DataStorageAtom";
 // ─────────────────────────────────────────────────────────────
+// PICTURE — atom-portrait, consumer of the binary pipe (Этап 4a-3, Task 155)
+// ─────────────────────────────────────────────────────────────
+                                                                case "PICTUREATOM":
+                                                                case "PICTURE":
+                                                                normalizedTypeId = "PictureAtom";
+// ─────────────────────────────────────────────────────────────
 // WEBSOCKET — WebSocket Client (cross-platform)
 // ─────────────────────────────────────────────────────────────
                                                                 case "WebSocketAtom":
@@ -3063,6 +3069,9 @@ class AssemblyFactory
                                                 case "DataStorageAtom":
                                                                 atom = new library.drivers.DataStorageAtom(id);
                                                                 trace('💾 AssemblyFactory: Created DataStorageAtom...');
+                                                case "PictureAtom":
+                                                                atom = new library.drivers.PictureAtom(id);
+                                                                trace('🖼 AssemblyFactory: Created PictureAtom...');
 // =============================================================
 // WEB SOCKET — Web Socket port
 // =============================================================
@@ -3324,6 +3333,7 @@ class AssemblyFactory
                 return (bp.internalAtoms != null && bp.internalAtoms.length > 0);
         }
 }
+
 
 
 ================================================================================
@@ -4053,7 +4063,7 @@ class ConductorPort
 
 ================================================================================
 // FILE: core\base\Contact.hx
-// Lines: 610 | Chars: 18729
+// Lines: 610 | Chars: 18868
 ================================================================================
 
 package core.base;
@@ -4277,8 +4287,8 @@ if (isDisposed) return;
 if (!forwardRepeats && _value == newValue) return;
 if (_oscillationBlocked) return;
 
-// v5.11: probe the propagateCurrentValue delivery path
-if (utils.Trap.nameMatches(this.name)) utils.Trap.log("CONTACT", (owner != null ? owner.id : "?") + "." + this.name + " <= " + Std.string(newValue) + " [recv]");
+// v5.11: probe the propagateCurrentValue delivery path (v1.6: gated by Trap.DATA, truncated)
+if (utils.Trap.DATA && utils.Trap.nameMatches(this.name)) utils.Trap.log("CONTACT", (owner != null ? owner.id : "?") + "." + this.name + " <= " + utils.Trap.shortPayload(newValue) + " [recv]");
 _value = newValue;
 
 // v5.9: TOPOLOGY GUARD - Defer if graph is mutating
@@ -4394,8 +4404,8 @@ return callbackTargets != null && callbackTargets.indexOf(callback) != -1;
 private function set_value(newValue:Dynamic):Dynamic
 {
 if (isDisposed) return newValue;
-// v5.10: TRAP PROBE — filtered, crash-proof conduction trace.
-if (utils.Trap.nameMatches(this.name)) utils.Trap.log("CONTACT", (owner != null ? owner.id : "?") + "." + this.name + " <= " + Std.string(newValue));
+// v5.10: TRAP PROBE — filtered, crash-proof conduction trace (v1.6: gated by Trap.DATA, truncated)
+if (utils.Trap.DATA && utils.Trap.nameMatches(this.name)) utils.Trap.log("CONTACT", (owner != null ? owner.id : "?") + "." + this.name + " <= " + utils.Trap.shortPayload(newValue));
 if (!forwardRepeats && _value == newValue && !Std.isOfType(newValue, Array)) return newValue;
 
 // Oscillation detection
@@ -4908,7 +4918,7 @@ class Blueprint
 
 ================================================================================
 // FILE: core\io\DeviceExporter.hx
-// Lines: 205 | Chars: 9644
+// Lines: 214 | Chars: 10036
 ================================================================================
 
 package core.io;
@@ -4971,6 +4981,14 @@ typedef ExportResult = {
         libBytes:Int
 }
 
+/**
+ * DEVICE EXPORTER v1.0 (Этап 3, Task 137)
+ * Оркестратор кнопки [P] Export: base = работающий редактор (анти-матрёшка:
+ * писатель УСЕКАЕТ чужой хвост) + scheme = Selfrun.atom с диска (Main
+ * СОХРАНЯЕТ схему ДО вызова; нет файла → честный отказ, код 1) +
+ * library = хвост-сеанс ∪ диск (конфликт имён: приоритет диска).
+ * Детальная спецификация и источники — в // баннере файла.
+ */
 class DeviceExporter
 {
         /**
@@ -5117,9 +5135,10 @@ class DeviceExporter
 }
 
 
+
 ================================================================================
 // FILE: core\io\LabCLI.hx
-// Lines: 313 | Chars: 13453
+// Lines: 321 | Chars: 13775
 ================================================================================
 
 package core.io;
@@ -5161,6 +5180,13 @@ package core.io;
 import sys.io.File;
 import sys.FileSystem;
 
+/**
+ * LAB CLI v1.0.1 (Этап 1, Task 132 + hotfix 133)
+ * Лабораторный CLI: --pack (упаковка прибора) / --inspect (вскрытие хвоста)
+ * из Main.new() под #if sys, ДО UI; вернул true → немедленный Sys.exit.
+ * Выходы: 0 успех / 1 I-O / 2 формат / 3 CRC. Вывод ASCII-only.
+ * Детальная спецификация — в // баннере файла.
+ */
 class LabCLI
 {
         /** Код выхода после обработки команды (валиден при возврате true). */
@@ -5436,9 +5462,10 @@ class LabCLI
 }
 
 
+
 ================================================================================
 // FILE: core\io\NativeDialog.hx
-// Lines: 315 | Chars: 14326
+// Lines: 325 | Chars: 14788
 ================================================================================
 
 package core.io;
@@ -5673,6 +5700,15 @@ int _nd_openDialog(const char* inTitle, const char* inFilter, const char* inInit
 #endif
 ')
 #end
+/**
+ * NATIVE DIALOG v1.1 (Этап 3, Tasks 137-138 + 141)
+ * Мост к WinAPI comdlg32: saveFile(title, defaultName, initialDir, filter,
+ * defaultExt) / openFile(title, filter, initialDir) / isSupported().
+ * МОДАЛЬНЫЕ (hwndOwner = главное окно), OFN_NOCHANGEDIR; возврат — путь
+ * UTF-8 или null (отмена/ошибка/не-Windows неразличимы, v1-честность).
+ * Замена выдуманного lime.ui.FileDialog-API (урок Task 141).
+ * Детальная спецификация — в // баннере файла.
+ */
 class NativeDialog
 {
         /**
@@ -5757,9 +5793,10 @@ class NativeDialog
 }
 
 
+
 ================================================================================
 // FILE: core\io\PathCanon.hx
-// Lines: 230 | Chars: 10016
+// Lines: 239 | Chars: 10426
 ================================================================================
 
 package core.io;
@@ -5800,6 +5837,14 @@ package core.io;
 // таргетах не компилируется (не референсится вне #if sys-кода).
 // ============================================================================
 
+/**
+ * PATH CANON v1.0 (Этап 3, Task 137)
+ * Лексический канонизатор путей записи: приводит путь к сравнимой форме ДО
+ * сопоставления с Sys.programPath()/источниками истины. Историческая
+ * причина — урок T-EMB.7: строковый guard пропускал ОТНОСИТЕЛЬНЫЙ путь →
+ * sharing violation от ОС; теперь канонический предохранитель в коде.
+ * Pure-функция от строки (+ опциональный cwd); правила — в // баннере.
+ */
 class PathCanon
 {
         /**
@@ -5991,6 +6036,7 @@ class PathCanon
                 #end
         }
 }
+
 
 
 ================================================================================
@@ -6734,7 +6780,7 @@ class PayloadTailWriter
 
 ================================================================================
 // FILE: core\io\TailStartup.hx
-// Lines: 246 | Chars: 11085
+// Lines: 257 | Chars: 11611
 ================================================================================
 
 package core.io;
@@ -6785,6 +6831,16 @@ package core.io;
 import sys.FileSystem;
 import sys.io.File;
 
+/**
+ * TAIL STARTUP v1.1 (Этап 2, Task 135; v1.1 — Этап 3, Task 137)
+ * Источник схемы при старте: argv > ХВОСТ > Selfrun.atom. Прибор несёт
+ * библиотеку ЦЕЛИКОМ из хвоста (документ. папка не сканируется); битый
+ * хвост = откат на диск, НЕ падаем. install() идемпотентен; вызов из
+ * Main.new() между LabCLI и ProjectManager.init().
+ * v1.1: + tailLibrarySnapshot() — снимок LIBRARY-байтов для DeviceExporter
+ * (экспорт из сеанса прибора); поведение старта не изменено.
+ * Детальная спецификация — в // баннере файла.
+ */
 class TailStartup
 {
         // ── Состояние (заполняется один раз в install()) ─────────────────
@@ -6982,6 +7038,7 @@ class TailStartup
                         ? "tail (" + _libEntries.length + " files)" : "folder"));
         }
 }
+
 
 
 ================================================================================
@@ -11632,7 +11689,7 @@ class DataStorageWidget extends DeviceView
 
 ================================================================================
 // FILE: core\view\DeviceView.hx
-// Lines: 482 | Chars: 17142
+// Lines: 522 | Chars: 22809
 ================================================================================
 
 package core.view;
@@ -11714,409 +11771,449 @@ class DeviceView extends Sprite
 // =========================================================================
 // REFERENCES
 // =========================================================================
-	/**
-	* Atom (Model) - the Databank and Compute Core.
-	* DeviceView reads data from atom and displays it.
-	*/
-	public var atom(default, null):Atom;
-	/**
-	* Assembly reference if atom is an Assembly.
-	* Useful for accessing internal atoms.
-	*/
-	public var assembly(default, null):Assembly;
+        /**
+        * Atom (Model) - the Databank and Compute Core.
+        * DeviceView reads data from atom and displays it.
+        */
+        public var atom(default, null):Atom;
+        /**
+        * Assembly reference if atom is an Assembly.
+        * Useful for accessing internal atoms.
+        */
+        public var assembly(default, null):Assembly;
 // =========================================================================
 // STATE
 // =========================================================================
-	/**
-	* Is this view currently active (subscribed to updates)?
-	*/
-	public var isActive(default, null):Bool = false;
-	/**
-	* Has this view been disposed?
-	*/
-	public var isDisposed(default, null):Bool = false;
+        /**
+        * Is this view currently active (subscribed to updates)?
+        */
+        public var isActive(default, null):Bool = false;
+        /**
+        * Has this view been disposed?
+        */
+        public var isDisposed(default, null):Bool = false;
 // =========================================================================
 // SUBSCRIPTION TRACKING
 // =========================================================================
-	/**
-	* Tracked contact subscriptions for proper cleanup.
-	* Format: [{contact: Contact, callback: Dynamic -> Void}]
-	*/
-	private var _contactCallbacks:Array< {contact:Contact, callback:Dynamic -> Void}>;
-	/**
-	* Flag to prevent recursive activation.
-	*/
-	private var _isActivating:Bool = false;
+        /**
+        * Tracked contact subscriptions for proper cleanup.
+        * Format: [{contact: Contact, callback: Dynamic -> Void}]
+        */
+        private var _contactCallbacks:Array< {contact:Contact, callback:Dynamic -> Void}>;
+        /**
+        * Flag to prevent recursive activation.
+        */
+        private var _isActivating:Bool = false;
 // =========================================================================
 // CONSTRUCTOR
 // =========================================================================
-	public function new(atom:Atom)
-	{
-		super();
-		this.atom = atom;
-		if (Std.isOfType(atom, Assembly))
-		{
-			this.assembly = cast(atom, Assembly);
-		}
-		_contactCallbacks = [];
-	}
+        public function new(atom:Atom)
+        {
+                super();
+                this.atom = atom;
+                if (Std.isOfType(atom, Assembly))
+                {
+                        this.assembly = cast(atom, Assembly);
+                }
+                _contactCallbacks = [];
+        }
 // =========================================================================
 // LIFECYCLE
 // =========================================================================
-	/**
-	* Activate the view.
-	*
-	* Called when:
-	* - NodeView becomes visible
-	* - DeviceWindow opens and adds this widget
-	* - User focuses on this device
-	*
-	* Subclasses should override onActivate() instead of this method.
-	*/
-	public function activate():Void
-	{
-		if (isActive || _isActivating || isDisposed) return;
-		_isActivating = true;
-		isActive = true;
+        /**
+        * Activate the view.
+        *
+        * Called when:
+        * - NodeView becomes visible
+        * - DeviceWindow opens and adds this widget
+        * - User focuses on this device
+        *
+        * Subclasses should override onActivate() instead of this method.
+        */
+        public function activate():Void
+        {
+                if (isActive || _isActivating || isDisposed) return;
+                _isActivating = true;
+                isActive = true;
 // Subscribe to all contacts
-		subscribeToContacts();
+                subscribeToContacts();
 // Sync current state from atom's Databank
-		syncFromAtom();
+                syncFromAtom();
 // Subclass hook
-		onActivate();
-		_isActivating = false;
+                onActivate();
+                _isActivating = false;
 // v3.4: Prevent NodeView drag when interacting with this widget
-		addMouseIsolation();
-	}
-	/**
-	* Deactivate the view.
-	*
-	* Called when:
-	* - NodeView becomes invisible
-	* - DeviceWindow closes
-	* - User navigates away
-	*
-	* Subclasses should override onDeactivate() instead of this method.
-	*/
-	public function deactivate():Void
-	{
-		if (!isActive || isDisposed) return;
-		
-		 // 1. RESCUE DATA: Push uncommitted UI state to the Databank
-		flushTransientState(); 
-		
-		isActive = false;
+                addMouseIsolation();
+        }
+        /**
+        * Deactivate the view.
+        *
+        * Called when:
+        * - NodeView becomes invisible
+        * - DeviceWindow closes
+        * - User navigates away
+        *
+        * Subclasses should override onDeactivate() instead of this method.
+        */
+        public function deactivate():Void
+        {
+                if (!isActive || isDisposed) return;
+                
+                 // 1. RESCUE DATA: Push uncommitted UI state to the Databank
+                flushTransientState(); 
+                
+                isActive = false;
 // Unsubscribe from all contacts
-		unsubscribeFromContacts();
+                unsubscribeFromContacts();
 // Subclass hook
-		onDeactivate();
+                onDeactivate();
 // v3.4: Remove mouse isolation before deactivation
-		removeMouseIsolation();
-	}
-	/**
-	* Called after activation.
-	* Override in subclasses to perform initialization.
-	*/
-	private function onActivate():Void
-	{
+                removeMouseIsolation();
+        }
+        /**
+        * Called after activation.
+        * Override in subclasses to perform initialization.
+        */
+        private function onActivate():Void
+        {
 // Override me
-	}
-	/**
-	* Called after deactivation.
-	* Override in subclasses to perform cleanup.
-	*/
-	private function onDeactivate():Void
-	{
+        }
+        /**
+        * Called after deactivation.
+        * Override in subclasses to perform cleanup.
+        */
+        private function onDeactivate():Void
+        {
 // Override me
-	}
-	
+        }
+        /**
+        * Re-apply panel-level placement (zOrder etc.) when the owning card
+        * is already attached to its panel.
+        *
+        * WHY THIS EXISTS: widgets are activated from the DeviceCard
+        * constructor, BEFORE the panel pushes the card into its device list
+        * (addDevice: new DeviceCard(...) → push → addChild). Any placement
+        * done during onActivate() silently misses (no parent, not in the
+        * panel's card list yet). The panel calls this hook AFTER the card
+        * is fully attached, so widgets that own their placement get one
+        * clean, correctly-timed pass.
+        *
+        * Default: no-op — widgets without panel placement ignore it.
+        */
+        public function refreshPlacement():Void
+        {
+// Override in widgets that manage their own card placement
+        }
+        
 // =========================================================================
 // MOUSE EVENT ISOLATION (v3.4)
 // =========================================================================
 
-	/**
-	 * v3.4: Called during activate(). Adds mouse-down listener that stops
-	 * event propagation, preventing the parent NodeView from starting
-	 * a drag operation when the user interacts with this widget.
-	 *
-	 * This ensures ALL widgets (Button, Toggle, TextInput, Oscilloscope,
-	 * TextWidget, etc.) are automatically protected without each widget
-	 * needing its own stopPropagation logic.
-	 */
-	private function addMouseIsolation():Void
-	{
-		addEventListener(MouseEvent.MOUSE_DOWN, onWidgetMouseDown);
-	}
+        /**
+         * v3.4: Called during activate(). Adds mouse-down listener that stops
+         * event propagation, preventing the parent NodeView from starting
+         * a drag operation when the user interacts with this widget.
+         *
+         * This ensures ALL widgets (Button, Toggle, TextInput, Oscilloscope,
+         * TextWidget, etc.) are automatically protected without each widget
+         * needing its own stopPropagation logic.
+         */
+        private function addMouseIsolation():Void
+        {
+                addEventListener(MouseEvent.MOUSE_DOWN, onWidgetMouseDown);
+        }
 
-	/**
-	 * v3.4: Called during deactivate(). Removes mouse-down isolation listener.
-	 */
-	private function removeMouseIsolation():Void
-	{
-		removeEventListener(MouseEvent.MOUSE_DOWN, onWidgetMouseDown);
-	}
+        /**
+         * v3.4: Called during deactivate(). Removes mouse-down isolation listener.
+         */
+        private function removeMouseIsolation():Void
+        {
+                removeEventListener(MouseEvent.MOUSE_DOWN, onWidgetMouseDown);
+        }
 
-	/**
-	 * v3.4: Stops MOUSE_DOWN from bubbling up to NodeView.
-	 * This is REDUNDANT with NodeView.isInteractiveTarget() but provides
-	 * defense-in-depth and also prevents any intermediate containers
-	 * from reacting to the click.
-	 */
-	private function onWidgetMouseDown(e:MouseEvent):Void
-	{
-		e.stopPropagation();
-	}
-	
-	
-	/**
-	* HOOK: Flush transient UI state to the Model (Databank).
-	* 
-	* Called automatically right before the widget unsubscribes from contacts
-	* and goes offline (e.g., when moving between NodeView and DevicePanel).
-	* 
-	* Subclasses with interactive inputs (TextFields, Sliders) MUST override this
-	* to push their current uncommitted UI state into the Atom's Contacts.
-	* This prevents data loss when the View is detached from the display list.
-	*/
-	private function flushTransientState():Void
-	{
-		// Base implementation does nothing.
+        /**
+         * v3.4: Stops MOUSE_DOWN from bubbling up to NodeView.
+         * This is REDUNDANT with NodeView.isInteractiveTarget() but provides
+         * defense-in-depth and also prevents any intermediate containers
+         * from reacting to the click.
+         */
+        private function onWidgetMouseDown(e:MouseEvent):Void
+        {
+                e.stopPropagation();
+        }
+        
+        
+        /**
+        * HOOK: Flush transient UI state to the Model (Databank).
+        * 
+        * Called automatically right before the widget unsubscribes from contacts
+        * and goes offline (e.g., when moving between NodeView and DevicePanel).
+        * 
+        * Subclasses with interactive inputs (TextFields, Sliders) MUST override this
+        * to push their current uncommitted UI state into the Atom's Contacts.
+        * This prevents data loss when the View is detached from the display list.
+        */
+        private function flushTransientState():Void
+        {
+                // Base implementation does nothing.
 // Override in TextInputWidget, ComPortWidget, etc.
-	}
+        }
 
 // =========================================================================
 // CONTACT SUBSCRIPTION
 // =========================================================================
-	/**
-	* Subscribe to all atom contacts.
-	*
-	* This is how DeviceView (View) connects to Atom (Model).
-	* When a Contact value changes, onContactChanged() is called.
-	*/
-	private function subscribeToContacts():Void
-	{
-		if (isDisposed || atom == null) return;
+        /**
+        * Subscribe to all atom contacts.
+        *
+        * This is how DeviceView (View) connects to Atom (Model).
+        * When a Contact value changes, onContactChanged() is called.
+        */
+        private function subscribeToContacts():Void
+        {
+                if (isDisposed || atom == null) return;
 // Clean existing subscriptions first
-		if (_contactCallbacks.length > 0)
-		{
-			unsubscribeFromContacts();
-		}
+                if (_contactCallbacks.length > 0)
+                {
+                        unsubscribeFromContacts();
+                }
 // Subscribe to inputs
-		var inputs = atom.getInputs();
-		if (inputs != null)
-		{
-			for (c in inputs)
-			{
-				if (c != null && !c.isDisposed)
-				{
-					var cb = function(v:Dynamic)
-					{
-						if (!isDisposed) onContactChanged(c, v);
-					};
-					c.subscribe(cb);
-					_contactCallbacks.push({contact: c, callback: cb});
+                var inputs = atom.getInputs();
+                if (inputs != null)
+                {
+                        for (c in inputs)
+                        {
+                                if (c != null && !c.isDisposed)
+                                {
+                                        var cb = function(v:Dynamic)
+                                        {
+                                                if (!isDisposed) onContactChanged(c, v);
+                                        };
+                                        c.subscribe(cb);
+                                        _contactCallbacks.push({contact: c, callback: cb});
 // Process initial value
-					if (c.value != null && !isDisposed)
-					{
-						onContactChanged(c, c.value);
-					}
-				}
-			}
-		}
+                                        if (c.value != null && !isDisposed)
+                                        {
+                                                onContactChanged(c, c.value);
+                                        }
+                                }
+                        }
+                }
 // Subscribe to outputs
-		var outputs = atom.getOutputs();
-		if (outputs != null)
-		{
-			for (c in outputs)
-			{
-				if (c != null && !c.isDisposed)
-				{
-					var cb = function(v:Dynamic)
-					{
-						if (!isDisposed) onContactChanged(c, v);
-					};
-					c.subscribe(cb);
-					_contactCallbacks.push({contact: c, callback: cb});
-					if (c.value != null && !isDisposed)
-					{
-						onContactChanged(c, c.value);
-					}
-				}
-			}
-		}
-	}
-	/**
-	* Unsubscribe from all contacts.
-	*/
-	private function unsubscribeFromContacts():Void
-	{
-		for (item in _contactCallbacks)
-		{
-			if (item.contact != null && !item.contact.isDisposed)
-			{
-				item.contact.unsubscribe(item.callback);
-			}
-		}
-		_contactCallbacks.resize(0);
-	}
+                var outputs = atom.getOutputs();
+                if (outputs != null)
+                {
+                        for (c in outputs)
+                        {
+                                if (c != null && !c.isDisposed)
+                                {
+                                        var cb = function(v:Dynamic)
+                                        {
+                                                if (!isDisposed) onContactChanged(c, v);
+                                        };
+                                        c.subscribe(cb);
+                                        _contactCallbacks.push({contact: c, callback: cb});
+                                        if (c.value != null && !isDisposed)
+                                        {
+                                                onContactChanged(c, c.value);
+                                        }
+                                }
+                        }
+                }
+        }
+        /**
+        * Unsubscribe from all contacts.
+        */
+        private function unsubscribeFromContacts():Void
+        {
+                for (item in _contactCallbacks)
+                {
+                        if (item.contact != null && !item.contact.isDisposed)
+                        {
+                                item.contact.unsubscribe(item.callback);
+                        }
+                }
+                _contactCallbacks.resize(0);
+        }
 // =========================================================================
 // DATA SYNCHRONIZATION
 // =========================================================================
-	/**
-	* Synchronize view state from atom's Databank.
-	*
-	* Called automatically on activate().
-	* Override in subclasses to read atom's buffer/state.
-	*
-	* Example for OscilloscopeWidget:
-	* ┌─────────────────────────────────────────────────────────────────────────┐
-	* │ override private function syncFromAtom():Void {                         │
-	* │     if (Std.isOfType(atom, OscilloscopeAtom)) {                         │
-	* │         var oscAtom = cast(atom, OscilloscopeAtom);                     │
-	* │         // Read buffer from atom's Databank                             │
-	* │         drawWave(                                                       │
-	* │             oscAtom.getBuffer(),                                        │
-	* │             oscAtom.getWriteIndex(),                                    │
-	* │             oscAtom.getSamplesCollected()                               │
-	* │         );                                                              │
-	* │     }                                                                   │
-	* │ }                                                                       │
-	* └─────────────────────────────────────────────────────────────────────────┘
-	*/
-	private function syncFromAtom():Void
-	{
+        /**
+        * Synchronize view state from atom's Databank.
+        *
+        * Called automatically on activate().
+        * Override in subclasses to read atom's buffer/state.
+        *
+        * Example for OscilloscopeWidget:
+        * ┌─────────────────────────────────────────────────────────────────────────┐
+        * │ override private function syncFromAtom():Void {                         │
+        * │     if (Std.isOfType(atom, OscilloscopeAtom)) {                         │
+        * │         var oscAtom = cast(atom, OscilloscopeAtom);                     │
+        * │         // Read buffer from atom's Databank                             │
+        * │         drawWave(                                                       │
+        * │             oscAtom.getBuffer(),                                        │
+        * │             oscAtom.getWriteIndex(),                                    │
+        * │             oscAtom.getSamplesCollected()                               │
+        * │         );                                                              │
+        * │     }                                                                   │
+        * │ }                                                                       │
+        * └─────────────────────────────────────────────────────────────────────────┘
+        */
+        private function syncFromAtom():Void
+        {
 // Override in subclasses to sync from Databank
-	}
-	/**
-	* Handle contact value change.
-	*
-	* This is the MAIN method for responding to data changes.
-	* Override in subclasses to update the visual representation.
-	*
-	* @param contact The contact that changed
-	* @param newValue The new value
-	*
-	* Example for LEDWidget:
-	* ┌─────────────────────────────────────────────────────────────────────────┐
-	* │ override private function onContactChanged(c:Contact, v:Dynamic):Void { │
-	* │     if (isDisposed) return;                                             │
-	* │     // Check which contact changed                                      │
-	* │     if (c.name == "in") {                                               │
-	* │         // Update visual based on value                                 │
-	* │         _isOn = (v == true);                                            │
-	* │         redraw();                                                       │
-	* │     }                                                                   │
-	* │ }                                                                       │
-	* └─────────────────────────────────────────────────────────────────────────┘
-	*/
-	private function onContactChanged(contact:Contact, newValue:Dynamic):Void
-	{
+        }
+        /**
+        * Handle contact value change.
+        *
+        * This is the MAIN method for responding to data changes.
+        * Override in subclasses to update the visual representation.
+        *
+        * @param contact The contact that changed
+        * @param newValue The new value
+        *
+        * Example for LEDWidget:
+        * ┌─────────────────────────────────────────────────────────────────────────┐
+        * │ override private function onContactChanged(c:Contact, v:Dynamic):Void { │
+        * │     if (isDisposed) return;                                             │
+        * │     // Check which contact changed                                      │
+        * │     if (c.name == "in") {                                               │
+        * │         // Update visual based on value                                 │
+        * │         _isOn = (v == true);                                            │
+        * │         redraw();                                                       │
+        * │     }                                                                   │
+        * │ }                                                                       │
+        * └─────────────────────────────────────────────────────────────────────────┘
+        */
+        private function onContactChanged(contact:Contact, newValue:Dynamic):Void
+        {
 // Override me
-	}
+        }
 // =========================================================================
 // DISPOSE
 // =========================================================================
-	/**
-	* Clean up all resources.
-	*
-	* Called when:
-	* - Atom is deleted from project
-	* - DeviceViewRegistry clears all widgets
-	* - Application shuts down
-	*/
-	public function dispose():Void
-	{
-		if (isDisposed) return;
-		isDisposed = true;
+        /**
+        * Clean up all resources.
+        *
+        * Called when:
+        * - Atom is deleted from project
+        * - DeviceViewRegistry clears all widgets
+        * - Application shuts down
+        */
+        public function dispose():Void
+        {
+                if (isDisposed) return;
+                isDisposed = true;
 // Deactivate if active
-		deactivate();
+                deactivate();
 // Clear references
-		atom = null;
-		assembly = null;
+                atom = null;
+                assembly = null;
 // Remove all children
-		while (numChildren > 0)
-		{
-			var child = removeChildAt(0);
-			if (Std.isOfType(child, DeviceView))
-			{
-				cast(child, DeviceView).dispose();
-			}
-		}
+                while (numChildren > 0)
+                {
+                        var child = removeChildAt(0);
+                        if (Std.isOfType(child, DeviceView))
+                        {
+                                cast(child, DeviceView).dispose();
+                        }
+                }
 // Clear graphics
-		graphics.clear();
-	}
+                graphics.clear();
+        }
 // =========================================================================
 // UTILITY
 // =========================================================================
-	/**
-	* Get current container type.
-	* Uses DeviceViewRegistry to determine location.
-	*/
-	public function getContainerType():String
-	{
-		if (atom == null) return null;
-		return DeviceViewRegistry.getInstance().getContainer(atom.id);
-	}
-	/**
-	* Check if this view is in DeviceWindow.
-	*/
-	public function isInDeviceWindow():Bool
-	{
-		return getContainerType() == DeviceViewRegistry.CONTAINER_DEVICE_WINDOW;
-	}
-	/**
-	* Check if this view is in NodeView.
-	*/
-	public function isInNodeView():Bool
-	{
-		return getContainerType() == DeviceViewRegistry.CONTAINER_NODE_VIEW;
-	}
+        /**
+        * Get current container type.
+        * Uses DeviceViewRegistry to determine location.
+        */
+        public function getContainerType():String
+        {
+                if (atom == null) return null;
+                return DeviceViewRegistry.getInstance().getContainer(atom.id);
+        }
+        /**
+        * Check if this view is in DeviceWindow.
+        */
+        public function isInDeviceWindow():Bool
+        {
+                return getContainerType() == DeviceViewRegistry.CONTAINER_DEVICE_WINDOW;
+        }
+        /**
+        * Check if this view is in NodeView.
+        */
+        public function isInNodeView():Bool
+        {
+                return getContainerType() == DeviceViewRegistry.CONTAINER_NODE_VIEW;
+        }
 // =========================================================================
 // WIDGET SIZE QUERY (v1.1)
 // =========================================================================
-	/**
-	* Returns the natural (unscaled) dimensions of this widget.
-	*
-	* Used by NodeView to calculate the proper node rectangle size,
-	* ensuring that the Atom body with contacts is always larger than
-	* the Widget card, and the Widget fits comfortably inside the
-	* Atom rectangle with padding.
-	*
-	* Subclasses that define `widgetWidth` and `widgetHeight` fields
-	* do NOT need to override this method — it reads them via Reflect.
-	* Only subclasses with non-standard sizing need to override.
-	*
-	* Layout principle:
-	* ┌──────────────────────────────────────────────┐
-	* │  NodeView rectangle (Atom body + contacts)   │
-	* │  ┌────────────────────────────────────────┐  │
-	* │  │  Widget (scaled by PREVIEW_SCALE)      │  │
-	* │  │  Always smaller than NodeView          │  │
-	* │  └────────────────────────────────────────┘  │
-	* │  ← padding →                    ← padding →  │
-	* └──────────────────────────────────────────────┘
-	*
-	* @return {width: Float, height: Float} unscaled widget dimensions
-	*/
-	public function getWidgetSize(): {width:Float, height:Float}
-	{
-		var w:Float = 80;
-		var h:Float = 40;
+        /**
+        * Returns the natural (unscaled) dimensions of this widget.
+        *
+        * Used by NodeView to calculate the proper node rectangle size,
+        * ensuring that the Atom body with contacts is always larger than
+        * the Widget card, and the Widget fits comfortably inside the
+        * Atom rectangle with padding.
+        *
+        * Subclasses that define `widgetWidth` and `widgetHeight` fields
+        * do NOT need to override this method — it reads them via Reflect.
+        * Only subclasses with non-standard sizing need to override.
+        *
+        * Layout principle:
+        * ┌──────────────────────────────────────────────┐
+        * │  NodeView rectangle (Atom body + contacts)   │
+        * │  ┌────────────────────────────────────────┐  │
+        * │  │  Widget (scaled by PREVIEW_SCALE)      │  │
+        * │  │  Always smaller than NodeView          │  │
+        * │  └────────────────────────────────────────┘  │
+        * │  ← padding →                    ← padding →  │
+        * └──────────────────────────────────────────────┘
+        *
+        * @return {width: Float, height: Float} unscaled widget dimensions
+        */
+        public function getWidgetSize(): {width:Float, height:Float}
+        {
+                var w:Float = 80;
+                var h:Float = 40;
 // Most subclasses declare public var widgetWidth / widgetHeight.
 // Read them via Reflect so we don't force every subclass to override.
-		if (Reflect.hasField(this, "widgetWidth"))
-		{
-			var v = Reflect.field(this, "widgetWidth");
-			if (v != null) w = cast v;
-		}
-		if (Reflect.hasField(this, "widgetHeight"))
-		{
-			var v = Reflect.field(this, "widgetHeight");
-			if (v != null) h = cast v;
-		}
-		return {width: w, height: h};
-	}
+                if (Reflect.hasField(this, "widgetWidth"))
+                {
+                        var v = Reflect.field(this, "widgetWidth");
+                        if (v != null) w = cast v;
+                }
+                if (Reflect.hasField(this, "widgetHeight"))
+                {
+                        var v = Reflect.field(this, "widgetHeight");
+                        if (v != null) h = cast v;
+                }
+                return {width: w, height: h};
+        }
+// =========================================================================
+// FRAMELESS DEVICE FACE (v1.2, Task 159)
+// =========================================================================
+        /**
+        * Does this widget want a CHROME-FREE DeviceCard when placed on the
+        * DevicePanel / DeviceWindow?
+        *
+        * true = the card skips the title bar, the close button, the card
+        * background and ALL mouse interaction: the widget renders bare
+        * (PictureWidget — the "bare canvas" mode, SPEC_PICTURE §13). The
+        * widget itself then owns its placement via its contacts.
+        *
+        * Override in subclasses that render bare on the panel; the base
+        * widgets keep the standard framed card.
+        *
+        * @return false for the standard framed card
+        */
+        public function isFramelessWidget():Bool
+        {
+                return false;
+        }
 }
+
 
 ================================================================================
 // FILE: core\view\DeviceViewRegistry.hx
@@ -12526,7 +12623,7 @@ class DeviceViewRegistry
 
 ================================================================================
 // FILE: core\view\DeviceWidgetFactory.hx
-// Lines: 307 | Chars: 9272
+// Lines: 312 | Chars: 13516
 ================================================================================
 
 // FILE: core/view/DeviceWidgetFactory.hx
@@ -12546,6 +12643,7 @@ import core.view.TextAreaWidget;
 import core.view.FileWriterWidget;
 import core.view.FileReaderWidget;
 import core.view.DataStorageWidget;
+import core.view.PictureWidget;
 import core.view.OscilloscopeWidget;
 import core.view.FFTWidget;
 import core.view.SignalGeneratorWidget;
@@ -12602,239 +12700,243 @@ import core.view.WebSocketWidget;
 */
 class DeviceWidgetFactory
 {
-	/**
-	* Create DeviceView for atom.
-	*
-	* This is the ENTRY POINT for creating Atom's Face.
-	*
-	* PRINCIPLE: One atom = one widget.
-	* Use DeviceViewRegistry.getOrCreate() instead of calling this method directly.
-	*
-	* @param atom Atom for which widget is created
-	* @return DeviceView or null if atom null or type not supported
-	*/
-	public static function create(atom:Atom):DeviceView
-	{
-		if (atom == null) return null;
-		
-		try {
-			// 1. First check Assembly (this prevents recursion)
-			if (Std.isOfType(atom, Assembly))
-			{
-				var asm:Assembly = cast(atom, Assembly);
-				return createForAssembly(asm);
-			}
-			
-			// 2. Native atoms - by type
-			return createByAtomType(atom);
-		}
-		catch (e:Dynamic)
-		{
-			trace('DeviceWidgetFactory: Error creating widget for atom "${atom.name}": $e');
-			return null;
-	 }
-	}
+        /**
+        * Create DeviceView for atom.
+        *
+        * This is the ENTRY POINT for creating Atom's Face.
+        *
+        * PRINCIPLE: One atom = one widget.
+        * Use DeviceViewRegistry.getOrCreate() instead of calling this method directly.
+        *
+        * @param atom Atom for which widget is created
+        * @return DeviceView or null if atom null or type not supported
+        */
+        public static function create(atom:Atom):DeviceView
+        {
+                if (atom == null) return null;
+                
+                try {
+                        // 1. First check Assembly (this prevents recursion)
+                        if (Std.isOfType(atom, Assembly))
+                        {
+                                var asm:Assembly = cast(atom, Assembly);
+                                return createForAssembly(asm);
+                        }
+                        
+                        // 2. Native atoms - by type
+                        return createByAtomType(atom);
+                }
+                catch (e:Dynamic)
+                {
+                        trace('DeviceWidgetFactory: Error creating widget for atom "${atom.name}": $e');
+                        return null;
+         }
+        }
 
-	/**
-	* Create widget for Assembly by blueprint.deviceType.
-	*/
-	private static function createForAssembly(asm:Assembly):DeviceView
-	{
-		if (asm == null || asm.blueprint == null) return null;
-		
-		var bp = asm.blueprint;
-		var deviceType:String = bp.deviceType;
-		
-		// If deviceType not specified - PanelWidget (container)
-		if (deviceType == null || deviceType == "")
-		{
-			return new PanelWidget(asm);
-		}
-		
-		// Determine by deviceType
-		return switch (deviceType.toLowerCase())
-		{
-			case "led", "indicator", "light":
-				new LEDWidget(asm, getContactName(bp, "in"));
-			case "toggle", "switch":
-				new ToggleWidget(asm, getContactName(bp, "out"));
-			case "button", "push":
-				new ButtonWidget(asm, getContactName(bp, "out"));
-			case "text", "display", "label":
-				new TextWidget(asm, getContactName(bp, "value"));
-			case "panel", "container", "group":
-				new PanelWidget(asm);
-			case "oscilloscope", "scope":
-				new OscilloscopeWidget(asm, "in");
-			case "fftatom", "fft spectrum":
-				new FFTWidget(asm);
-			case "textinput":
-				new TextInputWidget(asm);
-			case "textarea":
-				new TextAreaWidget(asm);
-			case "signalgenerator":
-				new SignalGeneratorWidget(asm);
-				
-			#if cpp
-			case "miniaudioatom", "mini audio capture":
-				new MiniAudioWidget(asm);
-			case "comport", "com port":
-				new ComPortWidget(asm);
-			case "urlplayer", "url audio player", "urlaudioplayer":
-				new URLAudioStreamPlayerWidget(asm);
-			#end
+        /**
+        * Create widget for Assembly by blueprint.deviceType.
+        */
+        private static function createForAssembly(asm:Assembly):DeviceView
+        {
+                if (asm == null || asm.blueprint == null) return null;
+                
+                var bp = asm.blueprint;
+                var deviceType:String = bp.deviceType;
+                
+                // If deviceType not specified - PanelWidget (container)
+                if (deviceType == null || deviceType == "")
+                {
+                        return new PanelWidget(asm);
+                }
+                
+                // Determine by deviceType
+                return switch (deviceType.toLowerCase())
+                {
+                        case "led", "indicator", "light":
+                                new LEDWidget(asm, getContactName(bp, "in"));
+                        case "toggle", "switch":
+                                new ToggleWidget(asm, getContactName(bp, "out"));
+                        case "button", "push":
+                                new ButtonWidget(asm, getContactName(bp, "out"));
+                        case "text", "display", "label":
+                                new TextWidget(asm, getContactName(bp, "value"));
+                        case "panel", "container", "group":
+                                new PanelWidget(asm);
+                        case "oscilloscope", "scope":
+                                new OscilloscopeWidget(asm, "in");
+                        case "fftatom", "fft spectrum":
+                                new FFTWidget(asm);
+                        case "textinput":
+                                new TextInputWidget(asm);
+                        case "textarea":
+                                new TextAreaWidget(asm);
+                        case "signalgenerator":
+                                new SignalGeneratorWidget(asm);
+                                
+                        #if cpp
+                        case "miniaudioatom", "mini audio capture":
+                                new MiniAudioWidget(asm);
+                        case "comport", "com port":
+                                new ComPortWidget(asm);
+                        case "urlplayer", "url audio player", "urlaudioplayer":
+                                new URLAudioStreamPlayerWidget(asm);
+                        #end
 
-			// Cross-platform — no #if wrapper
-			case "websocketatom", "websocket atom":
-				new WebSocketWidget(asm);
-			
-			case "filewriter", "file writer":
-				new FileWriterWidget(asm);
+                        // Cross-platform — no #if wrapper
+                        case "websocketatom", "websocket atom":
+                                new WebSocketWidget(asm);
+                        
+                        case "filewriter", "file writer":
+                                new FileWriterWidget(asm);
 
-			case "filereader", "file reader":
-				new FileReaderWidget(asm);
-			
-			case "datastorage", "data storage":
-				new DataStorageWidget(asm);
-			
-			default:
-				// Try to find class by name
-				createByClassName(deviceType, asm);
-		}
-	}
+                        case "filereader", "file reader":
+                                new FileReaderWidget(asm);
+                        
+                        case "datastorage", "data storage":
+                                new DataStorageWidget(asm);
+                        
+                        default:
+                                // Try to find class by name
+                                createByClassName(deviceType, asm);
+                }
+        }
 
-	/**
-	* Create widget by atom type (for native atoms).
-	*/
-	private static function createByAtomType(atom:Atom):DeviceView
-	{
-		if (atom == null) return null;
-		
-		var type = atom.type.toLowerCase();
-		
-		return switch (type)
-		{
-			case "led", "led indicator":
-				new LEDWidget(atom, "in");
-			case "button", "push button":
-				new ButtonWidget(atom, "out");
-			case "toggle", "switch":
-				new ToggleWidget(atom, "out");
-			case "textinput":
-				new TextInputWidget(atom);
-			case "textarea":
-				new TextAreaWidget(atom);
-			case "oscilloscope":
-				new OscilloscopeWidget(atom, "in");
-			case "fftatom", "fft spectrum":
-				new FFTWidget(atom);
-			case "relay":
-				// Show output "out"
-				new TextWidget(atom, "out", false);
-			case "signalgenerator":
-				new SignalGeneratorWidget(atom);
-			case "comportatom", "com port":
-				new ComPortWidget(atom);
-				
-			case "websocketatom":
-				new WebSocketWidget(atom);
-				
-			#if cpp
-			case "audioin", "audioinput", "audio":
-				new OscilloscopeWidget(atom, "samples");
-			case "systemvumeteratom", "system vu meter", "vumeter":
-				new SystemVUMeterWidget(atom);
-			case "miniaudioatom", "mini audio capture":
-				new MiniAudioWidget(atom);
-			case "urlaudioplayeratom", "url audio player", "urlaudiostreamplayer":
-				new URLAudioStreamPlayerWidget(atom);
-			#end			
-			case "filewriteratom", "file writer":
-				new FileWriterWidget(atom);
+        /**
+        * Create widget by atom type (for native atoms).
+        */
+        private static function createByAtomType(atom:Atom):DeviceView
+        {
+                if (atom == null) return null;
+                
+                var type = atom.type.toLowerCase();
+                
+                return switch (type)
+                {
+                        case "led", "led indicator":
+                                new LEDWidget(atom, "in");
+                        case "button", "push button":
+                                new ButtonWidget(atom, "out");
+                        case "toggle", "switch":
+                                new ToggleWidget(atom, "out");
+                        case "textinput":
+                                new TextInputWidget(atom);
+                        case "textarea":
+                                new TextAreaWidget(atom);
+                        case "oscilloscope":
+                                new OscilloscopeWidget(atom, "in");
+                        case "fftatom", "fft spectrum":
+                                new FFTWidget(atom);
+                        case "relay":
+                                // Show output "out"
+                                new TextWidget(atom, "out", false);
+                        case "signalgenerator":
+                                new SignalGeneratorWidget(atom);
+                        case "comportatom", "com port":
+                                new ComPortWidget(atom);
+                                
+                        case "websocketatom":
+                                new WebSocketWidget(atom);
+                                
+                        #if cpp
+                        case "audioin", "audioinput", "audio":
+                                new OscilloscopeWidget(atom, "samples");
+                        case "systemvumeteratom", "system vu meter", "vumeter":
+                                new SystemVUMeterWidget(atom);
+                        case "miniaudioatom", "mini audio capture":
+                                new MiniAudioWidget(atom);
+                        case "urlaudioplayeratom", "url audio player", "urlaudiostreamplayer":
+                                new URLAudioStreamPlayerWidget(atom);
+                        #end                    
+                        case "filewriteratom", "file writer":
+                                new FileWriterWidget(atom);
 
-			case "filereaderatom", "file reader":
-				new FileReaderWidget(atom);
-			
-			case "datastorageatom", "data storage":
-				new DataStorageWidget(atom);
-						
-			default:
-				// Universal widget - text display
-				new TextWidget(atom);
-		}
-	}
+                        case "filereaderatom", "file reader":
+                                new FileReaderWidget(atom);
+                        
+                        case "datastorageatom", "data storage":
+                                new DataStorageWidget(atom);
 
-	/**
-	* Attempt to create widget by class name.
-	* Allows extending system without changing Factory.
-	*/
-	private static function createByClassName(className:String, atom:Atom):DeviceView
-	{
-		var fullClassName = "core.view." + className;
-		try {
-			var cls = Type.resolveClass(fullClassName);
-			if (cls != null)
-			{
-				var instance = Type.createInstance(cls, [atom]);
-				if (Std.isOfType(instance, DeviceView))
-				{
-					return cast(instance, DeviceView);
-				}
-			}
-		}
-		catch (e:Dynamic)
-		{
-			// Ignore errors - return fallback
-		}
-		
-		// Fallback - universal widget
-		return new TextWidget(atom);
-	}
+                        case "pictureatom", "picture":
+                                new PictureWidget(atom);
+                                                
+                        default:
+                                // Universal widget - text display
+                                new TextWidget(atom);
+                }
+        }
 
-	/**
-	* Find contact name in Blueprint.
-	* Used to determine contact for display.
-	*/
-	private static function getContactName(bp:Blueprint, defaultName:String):String
-	{
-		if (bp == null || bp.pins == null) return defaultName;
-		
-		// Search exact match
-		for (pin in bp.pins)
-		{
-			if (pin.name == defaultName) return pin.name;
-		}
-		
-		// Take first available
-		for (pin in bp.pins)
-		{
-			if (pin.name != null) return pin.name;
-		}
-		
-		return defaultName;
-	}
+        /**
+        * Attempt to create widget by class name.
+        * Allows extending system without changing Factory.
+        */
+        private static function createByClassName(className:String, atom:Atom):DeviceView
+        {
+                var fullClassName = "core.view." + className;
+                try {
+                        var cls = Type.resolveClass(fullClassName);
+                        if (cls != null)
+                        {
+                                var instance = Type.createInstance(cls, [atom]);
+                                if (Std.isOfType(instance, DeviceView))
+                                {
+                                        return cast(instance, DeviceView);
+                                }
+                        }
+                }
+                catch (e:Dynamic)
+                {
+                        // Ignore errors - return fallback
+                }
+                
+                // Fallback - universal widget
+                return new TextWidget(atom);
+        }
 
-	/**
-	* Check if atom type is supported.
-	*/
-	public static function isSupported(atomType:String):Bool
-	{
-		if (atomType == null) return false;
-		
-		var type = atomType.toLowerCase();
-		return switch (type)
-		{
-			case "led" | "button" | "toggle" | "oscilloscope" | "fftatom" | "textinput" |
-				 "audioin" | "audioinput" | "relay" | "conductor" |
-				 "universalgen" | "signalgen" | "fpsmonitor" | "frametime" |
-				 "textarea" | "websocketatom" | "comportatom" | "filewriteratom":
-				true;
-			default:
-				// Check Assembly
-				true; // PanelWidget as fallback
-		}
-	}
+        /**
+        * Find contact name in Blueprint.
+        * Used to determine contact for display.
+        */
+        private static function getContactName(bp:Blueprint, defaultName:String):String
+        {
+                if (bp == null || bp.pins == null) return defaultName;
+                
+                // Search exact match
+                for (pin in bp.pins)
+                {
+                        if (pin.name == defaultName) return pin.name;
+                }
+                
+                // Take first available
+                for (pin in bp.pins)
+                {
+                        if (pin.name != null) return pin.name;
+                }
+                
+                return defaultName;
+        }
+
+        /**
+        * Check if atom type is supported.
+        */
+        public static function isSupported(atomType:String):Bool
+        {
+                if (atomType == null) return false;
+                
+                var type = atomType.toLowerCase();
+                return switch (type)
+                {
+                        case "led" | "button" | "toggle" | "oscilloscope" | "fftatom" | "textinput" |
+                                 "audioin" | "audioinput" | "relay" | "conductor" |
+                                 "universalgen" | "signalgen" | "fpsmonitor" | "frametime" |
+                                 "textarea" | "websocketatom" | "comportatom" | "filewriteratom":
+                                true;
+                        default:
+                                // Check Assembly
+                                true; // PanelWidget as fallback
+                }
+        }
 }
+
 
 
 ================================================================================
@@ -16495,6 +16597,1256 @@ class PanelWidget extends DeviceView
 }
 
 ================================================================================
+// FILE: core\view\PictureWidget.hx
+// Lines: 1244 | Chars: 48987
+================================================================================
+
+package core.view;
+
+import openfl.display.Sprite;
+import openfl.display.Bitmap;
+import openfl.display.BitmapData;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import openfl.text.TextFormatAlign;
+import openfl.events.Event;
+import lime.graphics.Image;
+import core.base.Atom;
+import core.base.Contact;
+import ui.DeviceCard;
+import core.view.DeviceViewRegistry;
+import library.drivers.PictureAtom;
+
+/**
+ * PICTURE WIDGET v1.2 (Task 159 — the "bare canvas" dual face)
+ * The Face of PictureAtom (Stage 4a-3, Task 155; hotfix Task 156).
+ * Spec: SPEC_STAGE4A_PICTURE.md §5, §13.
+ *
+ * DUAL FACE (v1.2, the pilot's design):
+ *   · EDITOR face (NodeView, "Heavy" embed): the classic framed card —
+ *     header / LED / info / error lines, and the image NORMALIZED to fit
+ *     the card's image area with the aspect preserved (contain fit).
+ *     NO makeup contact applies here: the editor preview is passive
+ *     (pos/scale/alpha of the atom's node are the node view's business).
+ *   · DEVICE face (DevicePanel / DeviceWindow): the BARE bitmap — no
+ *     frame, no labels, no placeholder, no drag, fully mouse-transparent
+ *     (clicks fall through to the cards underneath, pilot decision D4).
+ *     The contacts are the ONLY placement source: posX/posY position the
+ *     phantom DeviceCard ALWAYS (0,0 = panel origin); width/height
+ *     (0 = natural) * scaleX/scaleY size the bitmap exactly (aspect
+ *     derivation below); visible & enabled gate it, alpha tints it;
+ *     zOrder (>=1) drives the DevicePanel z-system (insert semantics,
+ *     v3.12); zOrder <= 0 = "the surface" = auto order stays.
+ *
+ * ASPECT (v1.2, [aspect] contact): true = keep proportions — a width
+ *   edit derives height (natW/natH) and a height edit derives width;
+ *   the LAST size edit wins (_lastSizeEdit tracks the wire event; the
+ *   widget owns the derivation because it owns the event). false or
+ *   absent = width/height apply verbatim (exact control). The device
+ *   face renders 0/0 sizes at NATURAL size (no auto-contain on the
+ *   panel — the editor face is where normalization lives).
+ *
+ * MODE SWITCH: the DeviceViewRegistry container type (NodeView /
+ * DeviceWindow) is the mode source. moveToDeviceWindow()/moveToNodeView()
+ * set it AFTER addChild — so an Event.ADDED handler schedules a one-frame
+ * deferred applyMode() (the registry record is final by then); the
+ * activate()/syncFromAtom() path re-applies it immediately. The frameless
+ * phantom card is requested via isFramelessWidget() (DeviceView v1.2).
+ *
+ * DECODE GATEWAY v1.1 (Task 156, field fix): five ordered codec paths,
+ * each guarded by try/catch, each result validated (0x0 = no pixels =
+ * failure). The v1.0 two-path reflection gateway relied on
+ * BitmapData.fromBytes + a ByteArray.fromBytes retry that do not exist
+ * in the field OpenFL build — the v1.0 stand passed because its stubs
+ * were written from the ASSUMED API, not the real one (the T141 rake
+ * again). The gateway is now rebuilt against the verified OpenFL/lime
+ * API surface:
+ *   A  BitmapData.fromBytes(bytes) — the current API accepts a
+ *      haxe.io.Bytes directly (native: synchronous decode);
+ *   C  lime.graphics.Image.fromBytes(bytes) → BitmapData.fromImage —
+ *      lime decodes raw haxe.io.Bytes natively (the most universal
+ *      route; verified: static fromBytes(bytes:Bytes):Image);
+ *   B  reflective openfl.utils.ByteArray.fromBytes conversion →
+ *      fromBytes(byteArray) (covers strict ByteArray-typed signatures
+ *      of older OpenFL builds);
+ *   D  BitmapData.fromBase64 — the string-channel fallback;
+ *   E  temp-file roundtrip: saveBytes → BitmapData.fromFile →
+ *      immediate delete (native last resort, no litter).
+ * DCE ARMOR: the primary entry points are taken as BARE METHOD VALUES
+ * (var f:Dynamic = BitmapData.fromBytes) — a static reference keeps the
+ * method alive under hxcpp dead-code elimination, where a purely
+ * reflective Reflect.field on an unreferenced library static may
+ * return null. Signature drift between OpenFL versions is absorbed at
+ * runtime: a throw or a null/0x0 result simply falls through to the
+ * next path. Every attempt records a per-path trace; a total failure
+ * publishes that trace (a) into the v7.2 fault latch and (b) onto the
+ * atom's [error]/[errorTick] outputs via reportCodecError — the wire
+ * channel the field demanded: a FAULT with a silent [error] contact
+ * is a missing channel, not a feature.
+ * HAXE NOTE: only single-quoted strings interpolate. The v1.0 fault
+ * message used double quotes and printed a literal "${bytes.length}"
+ * on the field plaque — all message strings are single-quoted or
+ * concatenated now. Native targets decode synchronously; html5 may
+ * deliver no pixels (async codecs) — an honest boundary, SPEC §7.
+ */
+class PictureWidget extends DeviceView
+{
+    // =========================================================================
+    // UI COMPONENTS
+    // =========================================================================
+    private var _bg:Sprite;
+    private var _header:Sprite;
+    private var _titleLabel:TextField;
+    private var _statusLed:Sprite;
+    private var _statusGlow:Sprite;
+
+    private var _infoLabel:TextField;
+    private var _errorLabel:TextField;
+
+    /** Container of the decoded Bitmap; geometry target of visible/alpha. */
+    private var _imageHolder:Sprite;
+    /** Placeholder shown while the bank is empty ("no image"). */
+    private var _placeholder:Sprite;
+    private var _placeholderLabel:TextField;
+    /** The decoded picture. */
+    private var _bitmap:Bitmap;
+
+    // =========================================================================
+    // CONTACTS
+    // =========================================================================
+    private var _imageContact:Contact;      // not drawn: the heavy cargo (P2)
+    private var _clearContact:Contact;
+    private var _posXContact:Contact;
+    private var _posYContact:Contact;
+    private var _widthContact:Contact;
+    private var _heightContact:Contact;
+    private var _scaleXContact:Contact;
+    private var _scaleYContact:Contact;
+    private var _aspectContact:Contact;
+    private var _visibleContact:Contact;
+    private var _enabledContact:Contact;
+    private var _alphaContact:Contact;
+    private var _zOrderContact:Contact;
+
+    private var _okContact:Contact;
+    private var _kindContact:Contact;
+    private var _imgWidthContact:Contact;
+    private var _imgHeightContact:Contact;
+    private var _errorContact:Contact;
+    private var _loadedTickContact:Contact;
+    private var _errorTickContact:Contact;
+
+    // =========================================================================
+    // STATE (UI mirror only; the truth lives in the atom's Databank)
+    // =========================================================================
+    /** Atom image version already decoded (re-decode guard). */
+    private var _decodedVersion:Int = -1;
+    private var _kind:String = "none";
+    private var _imgW:Int = 0;
+    private var _imgH:Int = 0;
+    private var _byteSize:Int = 0;
+    private var _lastError:String = "";
+
+    // Transform mirror (UI state — DeviceView doctrine allows it). The
+    // CONTACT VALUE is the single source of truth here: contact callbacks
+    // fire BEFORE the atom mirrors them into its own fields (next frame),
+    // so the widget parses contact values directly — no race, no gap.
+    // v1.2: the aspect derivation (width<->height) also lives here — the
+    // widget owns the LAST-EDIT event, which is what the derivation needs.
+    private var _tPosX:Float = 0;
+    private var _tPosY:Float = 0;
+    private var _tSizeW:Float = 0;
+    private var _tSizeH:Float = 0;
+    private var _tScaleX:Float = 1;
+    private var _tScaleY:Float = 1;
+    private var _tAspect:Bool = false;
+    private var _tVisible:Bool = true;
+    private var _tEnabled:Bool = true;
+    private var _tAlpha:Float = 1;
+    private var _tZOrder:Int = 0;
+
+    /** Which size contact fired LAST ("width" | "height" | null) —
+     *  the aspect-derivation tiebreaker (last edit wins). */
+    private var _lastSizeEdit:String = null;
+
+    /** Last zOrder value actually pushed into the panel z-system
+     *  (dedupe guard — the panel insert renumbers the whole tail). */
+    private var _appliedZ:Int = -1;
+
+    /** One-frame deferred mode refresh is scheduled (Event.ADDED path). */
+    private var _modeRefreshScheduled:Bool = false;
+
+    /** CACHED closure for the one-frame tick: ONE object is used for both
+     *  add and remove — a fresh method reference may not compare equal on
+     *  eval/hxcpp (the T155 stage-listener lesson, applied to ENTER_FRAME). */
+    private var _modeTickRef:Event -> Void;
+
+    // =========================================================================
+    // CONFIGURATION
+    // =========================================================================
+    public var widgetWidth:Float = 240;
+    public var widgetHeight:Float = 190;
+
+    /** Image area geometry (inside the card, below the info line). */
+    private static inline var AREA_X:Float = 10;
+    private static inline var AREA_Y:Float = 54;
+    private static inline var AREA_W:Float = 220;
+    private static inline var AREA_H:Float = 108;
+
+    override public function getWidgetSize():{width:Float, height:Float}
+    {
+        return {width: widgetWidth, height: widgetHeight};
+    }
+
+    private var _colorBg:Int = 0x1a1a24;
+    private var _colorHeader:Int = 0x2a2a3a;
+    private var _colorAccent:Int = 0xAA66FF;
+    private var _colorActive:Int = 0x00FF88;
+    private var _colorDanger:Int = 0xFF4444;
+    private var _colorText:Int = 0xFFFFFF;
+    private var _colorMuted:Int = 0x888899;
+    private var _colorAreaBg:Int = 0x0d0d18;
+
+    // =========================================================================
+    // CONSTRUCTOR
+    // =========================================================================
+    public function new(atom:Atom)
+    {
+        super(atom);
+        findContacts();
+        buildUI();
+        syncFromAtom();
+
+        // v1.2: reparent awareness — moveToDeviceWindow()/moveToNodeView()
+        // call addChild BEFORE setting the registry container type, so the
+        // mode application is deferred by one frame (the registry record is
+        // final by then). Only OUR OWN additions count (children bubble ADDED).
+        _modeTickRef = onModeRefreshTick;
+        addEventListener(Event.ADDED, onWidgetAdded);
+    }
+
+    // =========================================================================
+    // INITIALIZATION
+    // =========================================================================
+    private function findContacts():Void
+    {
+        if (atom == null) return;
+
+        _imageContact = atom.getInput("image");
+        _clearContact = atom.getInput("clear");
+        _posXContact = atom.getInput("posX");
+        _posYContact = atom.getInput("posY");
+        _widthContact = atom.getInput("width");
+        _heightContact = atom.getInput("height");
+        _scaleXContact = atom.getInput("scaleX");
+        _scaleYContact = atom.getInput("scaleY");
+        _aspectContact = atom.getInput("aspect");
+        _visibleContact = atom.getInput("visible");
+        _enabledContact = atom.getInput("enabled");
+        _alphaContact = atom.getInput("alpha");
+        _zOrderContact = atom.getInput("zOrder");
+
+        _okContact = atom.getOutput("ok");
+        _kindContact = atom.getOutput("kind");
+        _imgWidthContact = atom.getOutput("imgWidth");
+        _imgHeightContact = atom.getOutput("imgHeight");
+        _errorContact = atom.getOutput("error");
+        _loadedTickContact = atom.getOutput("loadedTick");
+        _errorTickContact = atom.getOutput("errorTick");
+    }
+
+    override private function onActivate():Void
+    {
+        findContacts();
+        syncFromAtom();
+    }
+
+    // =========================================================================
+    // DUAL-FACE MODE (v1.2)
+    // =========================================================================
+
+    /** Registry container type drives the face: DeviceWindow (panel or
+     *  separate window) = the bare device face; NodeView = the editor
+     *  card face; null/unknown = the editor face (the safe default). */
+    private function isDeviceMode():Bool
+    {
+        return getContainerType() == DeviceViewRegistry.CONTAINER_DEVICE_WINDOW;
+    }
+
+    /** Our own reparent happened — the registry record may still be the OLD
+     *  one (moveToDeviceWindow sets it after addChild), so apply the mode
+     *  one frame later. Children bubbling ADDED are ignored. */
+    private function onWidgetAdded(e:Event):Void
+    {
+        if (e.target != this) return;
+        if (isDisposed) return;
+        if (_modeRefreshScheduled) return;
+        _modeRefreshScheduled = true;
+        addEventListener(Event.ENTER_FRAME, _modeTickRef);
+    }
+
+    private function onModeRefreshTick(e:Event):Void
+    {
+        removeEventListener(Event.ENTER_FRAME, _modeTickRef);
+        _modeRefreshScheduled = false;
+        if (isDisposed) return;
+        applyMode();
+    }
+
+    /**
+     * Apply the current face: chrome visibility, mouse transparency,
+     * holder anchoring, then the full geometry pass. Cheap — called on
+     * activate, on reparent (deferred) and from syncFromAtom.
+     */
+    private function applyMode():Void
+    {
+        if (isDisposed) return;
+        var deviceMode:Bool = isDeviceMode();
+
+        // Chrome: the editor face keeps the full framed card; the device
+        // face is the bare bitmap (no frame, no labels, no placeholder).
+        var chrome:Bool = !deviceMode;
+        _bg.visible = chrome;
+        _header.visible = chrome;
+        _infoLabel.visible = chrome;
+        _errorLabel.visible = chrome;
+        showPlaceholder(_bitmap == null); // device face: suppressed inside
+
+        // Mouse: the bare image is fully transparent for the mouse (D4) —
+        // clicks fall through to the cards underneath. The editor face
+        // keeps the DeviceView mouse isolation.
+        this.mouseEnabled = chrome;
+        this.mouseChildren = false;
+
+        // Anchoring: the bare face starts at the card origin (the card is
+        // positioned by posX/posY); the editor face uses the inset area.
+        if (!deviceMode)
+        {
+            _imageHolder.x = AREA_X;
+            _imageHolder.y = AREA_Y;
+        }
+
+        // Re-apply the geometry for the face that is now active.
+        applyTransform();
+        applyCardPlacement();
+    }
+
+    /** Placeholder is an EDITOR-only courtesy — the bare panel stays bare. */
+    private function showPlaceholder(v:Bool):Void
+    {
+        _placeholder.visible = v && !isDeviceMode();
+    }
+
+    /** The device face wants a frameless phantom DeviceCard (DeviceView
+     *  v1.2 contract, DeviceCard v1.1 frameless mode). */
+    override public function isFramelessWidget():Bool
+    {
+        return true;
+    }
+
+    // =========================================================================
+    // UI CONSTRUCTION
+    // =========================================================================
+    private function buildUI():Void
+    {
+        // === BACKGROUND ===
+        _bg = new Sprite();
+        addChild(_bg);
+
+        // === HEADER ===
+        _header = new Sprite();
+        addChild(_header);
+
+        _titleLabel = new TextField();
+        _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 13, _colorText, true);
+        _titleLabel.text = "  PICTURE";
+        _titleLabel.width = widgetWidth - 40;
+        _titleLabel.height = 28;
+        _titleLabel.selectable = false;
+        _titleLabel.mouseEnabled = false;
+        _header.addChild(_titleLabel);
+
+        // Status LED (green = picture decoded and held)
+        _statusGlow = new Sprite();
+        _statusGlow.graphics.beginFill(_colorActive, 0.2);
+        _statusGlow.graphics.drawCircle(0, 0, 12);
+        _statusGlow.graphics.endFill();
+        _statusGlow.x = widgetWidth - 18;
+        _statusGlow.y = 14;
+        _statusGlow.visible = false;
+        _header.addChild(_statusGlow);
+
+        _statusLed = new Sprite();
+        _statusLed.graphics.beginFill(0x440000);
+        _statusLed.graphics.drawCircle(0, 0, 6);
+        _statusLed.graphics.endFill();
+        _statusLed.x = widgetWidth - 18;
+        _statusLed.y = 14;
+        _header.addChild(_statusLed);
+
+        // === INFO LINE ===
+        _infoLabel = new TextField();
+        _infoLabel.defaultTextFormat = new TextFormat("_typewriter", 10, _colorMuted);
+        _infoLabel.text = "Kind: none   0x0   0 B";
+        _infoLabel.width = widgetWidth - 20;
+        _infoLabel.height = 16;
+        _infoLabel.x = 10;
+        _infoLabel.y = 34;
+        _infoLabel.selectable = false;
+        _infoLabel.mouseEnabled = false;
+        addChild(_infoLabel);
+
+        // === IMAGE HOLDER (geometry target; the Bitmap lives inside) ===
+        _imageHolder = new Sprite();
+        _imageHolder.x = AREA_X;
+        _imageHolder.y = AREA_Y;
+        addChild(_imageHolder);
+
+        // === PLACEHOLDER ===
+        _placeholder = new Sprite();
+        _placeholder.graphics.beginFill(_colorAreaBg);
+        _placeholder.graphics.lineStyle(1, 0x333355);
+        _placeholder.graphics.drawRect(0, 0, AREA_W, AREA_H);
+        _placeholder.graphics.endFill();
+
+        _placeholderLabel = new TextField();
+        _placeholderLabel.defaultTextFormat = new TextFormat("_typewriter", 12, _colorMuted, true,
+            null, null, null, null, TextFormatAlign.CENTER);
+        _placeholderLabel.text = "no image";
+        _placeholderLabel.width = AREA_W;
+        _placeholderLabel.height = 20;
+        _placeholderLabel.x = 0;
+        _placeholderLabel.y = (AREA_H - 20) / 2;
+        _placeholderLabel.selectable = false;
+        _placeholderLabel.mouseEnabled = false;
+        _placeholder.addChild(_placeholderLabel);
+
+        _imageHolder.addChild(_placeholder);
+
+        // v1.2: no drag hooks on the image — the device face is anchored by
+        // contacts (D4/D5, pilot decision); the editor face is passive.
+
+        // === ERROR ===
+        _errorLabel = new TextField();
+        _errorLabel.defaultTextFormat = new TextFormat("_typewriter", 9, _colorDanger);
+        _errorLabel.text = "";
+        _errorLabel.width = widgetWidth - 20;
+        _errorLabel.height = 15;
+        _errorLabel.x = 10;
+        _errorLabel.y = widgetHeight - 22;
+        _errorLabel.selectable = false;
+        _errorLabel.mouseEnabled = false;
+        addChild(_errorLabel);
+
+        redrawBackground();
+    }
+
+    private function redrawBackground():Void
+    {
+        _bg.graphics.clear();
+        _bg.graphics.beginFill(_colorBg, 0.95);
+        _bg.graphics.lineStyle(1, _colorAccent);
+        _bg.graphics.drawRoundRect(0, 0, widgetWidth, widgetHeight, 8, 8);
+        _bg.graphics.endFill();
+
+        _header.graphics.clear();
+        _header.graphics.beginFill(_colorHeader);
+        _header.graphics.drawRoundRectComplex(0, 0, widgetWidth, 28, 8, 8, 0, 0);
+        _header.graphics.endFill();
+    }
+
+    // =========================================================================
+    // ATOM SYNCHRONIZATION
+    // =========================================================================
+    override private function syncFromAtom():Void
+    {
+        if (isDisposed) return;
+
+        if (_kindContact != null && _kindContact.value != null)
+        {
+            _kind = Std.string(_kindContact.value);
+        }
+        if (_imgWidthContact != null && _imgWidthContact.value != null)
+        {
+            _imgW = Std.int(_imgWidthContact.value);
+        }
+        if (_imgHeightContact != null && _imgHeightContact.value != null)
+        {
+            _imgH = Std.int(_imgHeightContact.value);
+        }
+        if (_errorContact != null && _errorContact.value != null)
+        {
+            var errStr:String = Std.string(_errorContact.value);
+            if (errStr != _lastError)
+            {
+                _errorLabel.text = (errStr != "") ? "Error: " + errStr : "";
+                _lastError = errStr;
+            }
+        }
+
+        checkAndDecode();
+        syncTransformMirror();
+        applyMode();
+        updateInfo();
+    }
+
+    override private function onContactChanged(contact:Contact, newValue:Dynamic):Void
+    {
+        if (isDisposed) return;
+
+        // [image] itself is NOT drawn: the atom consumes the portion and
+        // bumps the version — the status outputs below are the change signal.
+        if (contact == _okContact || contact == _kindContact
+            || contact == _imgWidthContact || contact == _imgHeightContact
+            || contact == _loadedTickContact)
+        {
+            if (contact == _kindContact && newValue != null) _kind = Std.string(newValue);
+            if (contact == _imgWidthContact && newValue != null) _imgW = Std.int(newValue);
+            if (contact == _imgHeightContact && newValue != null) _imgH = Std.int(newValue);
+
+            checkAndDecode();
+            updateInfo();
+            // v1.2: a new picture re-runs the fit (editor contain / device
+            // natural+scale) — the natural size changed under the mirrors.
+            applyTransform();
+        }
+        else if (contact == _errorContact)
+        {
+            var errStr:String = Std.string(newValue);
+            if (errStr != "" && errStr != "null")
+            {
+                _errorLabel.text = "Error: " + errStr;
+                _lastError = errStr;
+            }
+            else
+            {
+                _errorLabel.text = "";
+                _lastError = "";
+            }
+        }
+        else if (contact == _posXContact || contact == _posYContact
+            || contact == _zOrderContact)
+        {
+            if (contact == _posXContact && newValue != null) _tPosX = parseFloat(newValue, _tPosX);
+            if (contact == _posYContact && newValue != null) _tPosY = parseFloat(newValue, _tPosY);
+            if (contact == _zOrderContact && newValue != null) _tZOrder = Math.round(parseFloat(newValue, _tZOrder));
+            applyCardPlacement();
+        }
+        else if (contact == _widthContact || contact == _heightContact
+            || contact == _scaleXContact || contact == _scaleYContact
+            || contact == _aspectContact || contact == _visibleContact
+            || contact == _enabledContact || contact == _alphaContact)
+        {
+            // v1.2: track the LAST size edit — the aspect-derivation
+            // tiebreaker ("I set a new width → height follows", and vice
+            // versa; last edit wins, SPEC §13).
+            if (contact == _widthContact) _lastSizeEdit = "width";
+            if (contact == _heightContact) _lastSizeEdit = "height";
+
+            if (contact == _widthContact && newValue != null) _tSizeW = parseFloat(newValue, _tSizeW);
+            if (contact == _heightContact && newValue != null) _tSizeH = parseFloat(newValue, _tSizeH);
+            if (contact == _scaleXContact && newValue != null) _tScaleX = parseScale(newValue, _tScaleX);
+            if (contact == _scaleYContact && newValue != null) _tScaleY = parseScale(newValue, _tScaleY);
+            if (contact == _aspectContact) _tAspect = (newValue == true);
+            if (contact == _visibleContact && newValue != null) _tVisible = (newValue == true);
+            if (contact == _enabledContact) _tEnabled = (newValue == true);
+            if (contact == _alphaContact && newValue != null) _tAlpha = clamp01(parseFloat(newValue, _tAlpha));
+            applyTransform();
+        }
+    }
+
+    // =========================================================================
+    // DECODE (the real codec — reflection boundary, see class docs)
+    // =========================================================================
+
+    /**
+     * Re-decode when the atom's image version moved (store, replace, clear).
+     * The atom state is already final when this runs: the status wave is
+     * pushed AFTER the bank is updated.
+     */
+    private function checkAndDecode():Void
+    {
+        if (isDisposed) return;
+        var a:PictureAtom = pictureAtom();
+        if (a == null) return;
+
+        var ver:Int = a.getImageVersion();
+        if (ver == _decodedVersion) return;
+        _decodedVersion = ver;
+
+        // Drop the previous bitmap (its BitmapData is ours to dispose)
+        disposeBitmap();
+
+        var bytes = a.getImageBytes();
+        if (bytes == null || bytes.length == 0)
+        {
+            // Cleared state: the placeholder is the honest (editor) face.
+            showPlaceholder(true);
+            updateConnectionStatus(false);
+            return;
+        }
+
+        var bmd:BitmapData = decodeToBitmapData(bytes, a.getPictureKind());
+        if (bmd == null || bmd.width <= 0 || bmd.height <= 0)
+        {
+            var msg:String = 'codec decode failed (${bytes.length} bytes, kind=${a.getPictureKind()}): '
+                + ((_decodeTrace.length > 0) ? _decodeTrace.join(", ") : "no codec path available");
+            // Fresh latch per attempt (attempts are bounded by version
+            // changes, not frames): clear + re-mark re-emits the honest
+            // CURRENT message instead of the stale first one.
+            if (a.isFaulted) a.clearFault();
+            a.markAsFaulted("CODEC", msg);
+            a.reportCodecError(msg); // the wire channel: [error] + [errorTick]
+            showPlaceholder(true);
+            updateConnectionStatus(false);
+            return;
+        }
+
+        _bitmap = new Bitmap(bmd);
+        _imageHolder.addChild(_bitmap);
+        showPlaceholder(false);
+        a.clearFault();
+        updateConnectionStatus(true);
+        trace('PictureWidget: decoded ${bytes.length} bytes -> ${bmd.width}x${bmd.height} (path=${_lastDecodePath})');
+        // v1.2: the new bitmap needs its face geometry immediately (the
+        // status wave arrives before any transform contact may fire).
+        applyTransform();
+    }
+
+    /** Which decode path succeeded (diagnostics for the field protocol). */
+    private var _lastDecodePath:String = "-";
+
+    /** Per-attempt decode diagnostics (one entry per tried path). */
+    private var _decodeTrace:Array<String> = [];
+
+    /**
+     * Decode bytes into BitmapData via the platform codec.
+     * Five ordered paths (see the class doc): A fromBytes → C lime image →
+     * B ByteArray conversion → D base64 → E temp-file roundtrip.
+     * Anchored bare-method references survive hxcpp DCE; signature drift
+     * is absorbed at runtime (throw / null / 0x0 → next path).
+     * Returns null only when EVERY path failed — the caller then owns the
+     * honest fault + error publication.
+     */
+    private function decodeToBitmapData(bytes:Dynamic, kind:String):BitmapData
+    {
+        _lastDecodePath = "-";
+        _decodeTrace = [];
+        var mime:String = (kind != null && kind != "none") ? "image/" + kind : "image/png";
+
+        // ── Path A: BitmapData.fromBytes (anchored static reference) ──
+        try
+        {
+            var fn:Dynamic = BitmapData.fromBytes; // bare method value: DCE anchor
+            if (fn != null)
+            {
+                var bmd:BitmapData = callCodec(BitmapData, fn, [bytes]);
+                if (validPixels(bmd))
+                {
+                    _lastDecodePath = "A:fromBytes";
+                    return bmd;
+                }
+                _decodeTrace.push((bmd == null) ? "A:no-result" : "A:no-pixels");
+            }
+            else
+            {
+                _decodeTrace.push("A:absent");
+            }
+        }
+        catch (e:Dynamic)
+        {
+            _decodeTrace.push("A:threw:" + briefOf(e));
+        }
+
+        // ── Path C: lime Image.fromBytes → BitmapData.fromImage (anchored) ──
+        try
+        {
+            var imageFn:Dynamic = Image.fromBytes; // DCE anchor (lime)
+            var wrapFn:Dynamic = BitmapData.fromImage; // DCE anchor
+            if (imageFn != null && wrapFn != null)
+            {
+                var image:Dynamic = callCodec(Image, imageFn, [bytes]);
+                if (image != null && Reflect.getProperty(image, "buffer") != null)
+                {
+                    var bmd:BitmapData = callCodec(BitmapData, wrapFn, [image]);
+                    if (validPixels(bmd))
+                    {
+                        _lastDecodePath = "C:lime-image";
+                        return bmd;
+                    }
+                    _decodeTrace.push((bmd == null) ? "C:no-result" : "C:no-pixels");
+                }
+                else
+                {
+                    _decodeTrace.push("C:image-empty");
+                }
+            }
+            else
+            {
+                _decodeTrace.push("C:absent");
+            }
+        }
+        catch (e:Dynamic)
+        {
+            _decodeTrace.push("C:threw:" + briefOf(e));
+        }
+
+        // ── Path B: reflective ByteArray conversion → fromBytes(byteArray) ──
+        try
+        {
+            var baClass:Dynamic = Type.resolveClass("openfl.utils.ByteArray");
+            var conv:Dynamic = (baClass != null) ? Reflect.field(baClass, "fromBytes") : null;
+            if (baClass != null && conv != null)
+            {
+                var ba:Dynamic = Reflect.callMethod(baClass, conv, [bytes]);
+                var fn:Dynamic = BitmapData.fromBytes; // anchored
+                if (ba != null && fn != null)
+                {
+                    var bmd:BitmapData = callCodec(BitmapData, fn, [ba]);
+                    if (validPixels(bmd))
+                    {
+                        _lastDecodePath = "B:bytearray";
+                        return bmd;
+                    }
+                    _decodeTrace.push((bmd == null) ? "B:no-result" : "B:no-pixels");
+                }
+                else
+                {
+                    _decodeTrace.push("B:no-convert");
+                }
+            }
+            else
+            {
+                _decodeTrace.push("B:absent");
+            }
+        }
+        catch (e:Dynamic)
+        {
+            _decodeTrace.push("B:threw:" + briefOf(e));
+        }
+
+        // ── Path D: base64 string channel (two historical call shapes) ──
+        try
+        {
+            var fn:Dynamic = BitmapData.fromBase64; // anchored
+            if (fn != null)
+            {
+                var b64:String = haxe.crypto.Base64.encode(bytes);
+                var bmd:BitmapData = null;
+                try
+                {
+                    bmd = callCodec(BitmapData, fn, [b64, mime]);
+                }
+                catch (e1:Dynamic)
+                {
+                    bmd = callCodec(BitmapData, fn, [b64]); // older signature
+                }
+                if (validPixels(bmd))
+                {
+                    _lastDecodePath = "D:base64";
+                    return bmd;
+                }
+                _decodeTrace.push((bmd == null) ? "D:no-result" : "D:no-pixels");
+            }
+            else
+            {
+                _decodeTrace.push("D:absent");
+            }
+        }
+        catch (e:Dynamic)
+        {
+            _decodeTrace.push("D:threw:" + briefOf(e));
+        }
+
+        // ── Path E: temp-file roundtrip (native only; no litter) ──
+        var tmpPath:String = tempPicturePath(kind);
+        if (tmpPath == null)
+        {
+            _decodeTrace.push("E:no-tempdir");
+        }
+        else
+        {
+            try
+            {
+                var fileClass:Dynamic = Type.resolveClass("sys.io.File");
+                var fn:Dynamic = BitmapData.fromFile; // anchored
+                if (fileClass != null && fn != null)
+                {
+                    var bmd:BitmapData = null;
+                    try
+                    {
+                        Reflect.callMethod(fileClass, Reflect.field(fileClass, "saveBytes"), [tmpPath, bytes]);
+                        bmd = callCodec(BitmapData, fn, [tmpPath]);
+                    }
+                    catch (inner:Dynamic)
+                    {
+                        deleteQuietly(tmpPath); // cleanup first — Haxe has no finally
+                        throw inner; // outer catch records it
+                    }
+                    deleteQuietly(tmpPath);
+                    if (validPixels(bmd))
+                    {
+                        _lastDecodePath = "E:tempfile";
+                        return bmd;
+                    }
+                    _decodeTrace.push((bmd == null) ? "E:no-result" : "E:no-pixels");
+                }
+                else
+                {
+                    deleteQuietly(tmpPath);
+                    _decodeTrace.push("E:absent");
+                }
+            }
+            catch (e:Dynamic)
+            {
+                _decodeTrace.push("E:threw:" + briefOf(e));
+            }
+        }
+
+        return null;
+    }
+
+    // ── Decode gateway helpers ───────────────────────────────────────────
+
+    /** Call a codec entry point dynamically; a throw is the path's business. */
+    private static function callCodec(owner:Dynamic, fn:Dynamic, args:Array<Dynamic>):BitmapData
+    {
+        var r:Dynamic = Reflect.callMethod(owner, fn, args);
+        return (r == null) ? null : cast r;
+    }
+
+    /** Validate a decode result: real dimensions, real pixels. */
+    private static function validPixels(bmd:Dynamic):Bool
+    {
+        if (bmd == null) return false;
+        // width/height are PROPERTIES on real openfl — Reflect, not field access
+        var w:Dynamic = Reflect.getProperty(bmd, "width");
+        var h:Dynamic = Reflect.getProperty(bmd, "height");
+        if (w == null || h == null) return false;
+        var wf:Float = Std.parseFloat(Std.string(w));
+        var hf:Float = Std.parseFloat(Std.string(h));
+        return !Math.isNaN(wf) && !Math.isNaN(hf) && wf > 0 && hf > 0;
+    }
+
+    /** Compact exception summary for the decode trace (bounded length). */
+    private static function briefOf(e:Dynamic):String
+    {
+        var s:String = (e == null) ? "null" : Std.string(e);
+        s = StringTools.replace(s, "\n", " ");
+        s = StringTools.replace(s, "\r", " ");
+        if (s.length > 48) s = s.substr(0, 48) + "...";
+        return s;
+    }
+
+    /**
+     * A temp path for the native file-roundtrip decode (Path E):
+     * <tmpdir>/altauri_picture_<atomId>.<ext>. kind picks the extension
+     * (cosmetic — lime sniffs the magic bytes, not the name).
+     */
+    private function tempPicturePath(kind:String):String
+    {
+        var dir:String = null;
+        try
+        {
+            dir = Sys.getEnv("TEMP");
+            if (dir == null) dir = Sys.getEnv("TMP");
+            if (dir == null) dir = Sys.getEnv("TMPDIR");
+        }
+        catch (e:Dynamic)
+        {
+            dir = null;
+        }
+        if (dir == null || dir == "") dir = "./";
+        if (!StringTools.endsWith(dir, "/") && !StringTools.endsWith(dir, "\\")) dir += "/";
+
+        var safeId:String = "x";
+        if (atom != null && atom.id != null)
+        {
+            safeId = "";
+            for (i in 0...atom.id.length)
+            {
+                var ch:String = atom.id.charAt(i);
+                var okCh:Bool = (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z")
+                    || (ch >= "0" && ch <= "9") || ch == "_" || ch == "-";
+                safeId += okCh ? ch : "_";
+            }
+        }
+
+        var ext:String = switch (kind)
+        {
+            case "png": ".png";
+            case "jpeg": ".jpg";
+            case "bmp": ".bmp";
+            default: ".img";
+        }
+        return dir + "altauri_picture_" + safeId + ext;
+    }
+
+    /** Best-effort temp file removal (Path E hygiene — decode or not). */
+    private static function deleteQuietly(path:String):Void
+    {
+        try
+        {
+            var fs:Dynamic = Type.resolveClass("sys.FileSystem");
+            if (fs != null) Reflect.callMethod(fs, Reflect.field(fs, "deleteFile"), [path]);
+        }
+        catch (e:Dynamic)
+        {
+            // best effort — a stale temp file is not worth a fault
+        }
+    }
+
+    private function disposeBitmap():Void
+    {
+        if (_bitmap != null)
+        {
+            if (_imageHolder.contains(_bitmap)) _imageHolder.removeChild(_bitmap);
+            if (_bitmap.bitmapData != null) _bitmap.bitmapData.dispose();
+            _bitmap = null;
+        }
+    }
+
+    // =========================================================================
+    // "MAKEUP" GEOMETRY (v1.2 — the dual face)
+    // =========================================================================
+
+    /** Dispatcher: the editor face normalizes, the device face obeys
+     *  the contacts (SPEC §13). */
+    private function applyTransform():Void
+    {
+        if (isDeviceMode()) applyDeviceTransform();
+        else applyEditorPreview();
+    }
+
+    /**
+     * EDITOR FACE: fit the image into the card's image area with the
+     * aspect preserved (contain), centered. NONE of the makeup contacts
+     * applies — the editor preview is passive (the pilot's rule: the
+     * editor widget "just shows the picture fitted, no parameters").
+     */
+    private function applyEditorPreview():Void
+    {
+        _imageHolder.visible = true;
+        _imageHolder.alpha = 1;
+
+        if (_bitmap == null || _bitmap.bitmapData == null)
+        {
+            showPlaceholder(true);
+            return;
+        }
+        showPlaceholder(false);
+
+        var bmd:BitmapData = _bitmap.bitmapData;
+        if (bmd.width <= 0 || bmd.height <= 0) return;
+
+        var natW:Int = (_imgW > 0) ? _imgW : bmd.width;
+        var natH:Int = (_imgH > 0) ? _imgH : bmd.height;
+
+        // Contain fit: scale to fit BOTH dimensions, keep the aspect.
+        var k:Float = Math.min(AREA_W / natW, AREA_H / natH);
+        if (Math.isNaN(k) || !Math.isFinite(k) || k <= 0) k = 1;
+
+        var targetW:Float = natW * k;
+        var targetH:Float = natH * k;
+
+        // Center inside the image area
+        _imageHolder.x = AREA_X + (AREA_W - targetW) / 2;
+        _imageHolder.y = AREA_Y + (AREA_H - targetH) / 2;
+
+        _bitmap.scaleX = targetW / bmd.width;
+        _bitmap.scaleY = targetH / bmd.height;
+    }
+
+    /**
+     * DEVICE FACE: the bare bitmap, contacts are the ONLY source:
+     *   W = (width > 0 ? width : naturalW) * scaleX
+     *   H = (height > 0 ? height : naturalH) * scaleY
+     * with [aspect] derivation applied first (last edit wins);
+     * visible AND enabled gate the holder, alpha tints it. No auto-fit
+     * here — the device face is exact (0 = natural size, the pilot's
+     * decision: normalization lives in the editor face).
+     */
+    private function applyDeviceTransform():Void
+    {
+        _imageHolder.x = 0;
+        _imageHolder.y = 0;
+
+        var show:Bool = _tVisible && _tEnabled; // enabled = render gate
+        _imageHolder.visible = show;
+        _imageHolder.alpha = _tAlpha;
+
+        if (_bitmap == null || _bitmap.bitmapData == null) return;
+        var bmd:BitmapData = _bitmap.bitmapData;
+        if (bmd.width <= 0 || bmd.height <= 0) return;
+
+        deriveAspect();
+
+        var natW:Int = (_imgW > 0) ? _imgW : bmd.width;
+        var natH:Int = (_imgH > 0) ? _imgH : bmd.height;
+
+        var targetW:Float = ((_tSizeW > 0) ? _tSizeW : natW) * _tScaleX;
+        var targetH:Float = ((_tSizeH > 0) ? _tSizeH : natH) * _tScaleY;
+
+        _bitmap.scaleX = targetW / bmd.width;
+        _bitmap.scaleY = targetH / bmd.height;
+    }
+
+    /**
+     * [aspect] derivation (v1.2): true = keep the natural proportions —
+     * the LAST size edit wins: a width edit derives the height, a height
+     * edit derives the width (the pilot's exact rule). Without a known
+     * last edit (fresh restore) both values apply verbatim — the wires
+     * re-deliver them in a deterministic order and the first callback
+     * sets the tiebreaker.
+     */
+    private function deriveAspect():Void
+    {
+        if (!_tAspect) return;
+        if (_imgW <= 0 || _imgH <= 0) return;
+
+        var ratio:Float = _imgW / _imgH;
+        if (Math.isNaN(ratio) || !Math.isFinite(ratio) || ratio <= 0) return;
+
+        if (_lastSizeEdit == "width" && _tSizeW > 0)
+        {
+            _tSizeH = _tSizeW / ratio;
+        }
+        else if (_lastSizeEdit == "height" && _tSizeH > 0)
+        {
+            _tSizeW = _tSizeH * ratio;
+        }
+    }
+
+    /**
+     * Apply the panel-level "makeup" — DEVICE FACE ONLY (the editor node
+     * keeps its own layout business):
+     *   · posX/posY place the parent (phantom) DeviceCard ALWAYS — the
+     *     contacts are the only placement source (0,0 = panel origin;
+     *     the panel's auto-position is overridden on the first sync);
+     *   · zOrder (>=1) asks the panel z-system to INSERT the card at that
+     *     slot (renumbering the tail, DevicePanel v3.12); zOrder <= 0 =
+     *     "the surface itself" — auto order stays (pilot's rule).
+     *
+     * Reflect note: the card/panel are accessed through Reflect properties —
+     * openfl geometry (x/y/parent/numChildren) may be real properties (get/set)
+     * where raw Dynamic field access silently misses them.
+     */
+    private function applyCardPlacement():Void
+    {
+        if (!isDeviceMode()) return;
+
+        var card:Dynamic = parent;
+        if (card == null || !Std.isOfType(card, DeviceCard)) return;
+
+        // ALWAYS: contacts are the placement source (v1.2 semantics —
+        // the phantom card has no drag, no auto-position of its own).
+        Reflect.setProperty(card, "x", _tPosX);
+        Reflect.setProperty(card, "y", _tPosY);
+
+        // Apply zOrder only if changed (dedupe guard - Picture pattern)
+        if (_tZOrder >= 1 && _tZOrder != _appliedZ)
+        {
+            var panel:Dynamic = Reflect.getProperty(card, "parent");
+            // NOTE: Reflect.hasField() does NOT see class methods on the C++
+            // target — probe with Reflect.field() instead.
+            var setZ:Dynamic = panel != null ? Reflect.field(panel, "setCardZOrder") : null;
+            // Panel not ready yet (the card is attached after the widget's
+            // activation pass) — leave the guard unconsumed so the panel's
+            // refreshPlacement() hook can re-apply later.
+            if (setZ == null) return;
+
+            _appliedZ = _tZOrder;
+            try
+            {
+                Reflect.callMethod(panel, setZ, [card, _tZOrder]);
+            }
+            catch (e:Dynamic)
+            {
+                // exotic owner (e.g. DeviceWindow without the z-system) —
+                // honest no-op: the depth stays auto there
+            }
+        }
+    }
+
+    // Panel calls this after the card is attached — the correctly-timed
+    // pass that onActivate() could not complete (see DeviceView hook).
+    override public function refreshPlacement():Void
+    {
+        applyCardPlacement();
+    }
+
+    // =========================================================================
+    // UI UPDATES
+    // =========================================================================
+    private function updateInfo():Void
+    {
+        var a:PictureAtom = pictureAtom();
+        var sizeStr:String = "0 B";
+        if (a != null && a.getImageBytes() != null)
+        {
+            sizeStr = formatFileSize(a.getImageBytes().length);
+        }
+        _infoLabel.text = 'Kind: $_kind   ${_imgW}x${_imgH}   $sizeStr';
+
+        if (a != null && a.isFaulted)
+        {
+            _errorLabel.text = "Fault: " + a.faultMessage;
+        }
+    }
+
+    private function updateConnectionStatus(hasPicture:Bool):Void
+    {
+        if (hasPicture)
+        {
+            _statusLed.graphics.clear();
+            _statusLed.graphics.beginFill(_colorActive);
+            _statusLed.graphics.drawCircle(0, 0, 6);
+            _statusLed.graphics.endFill();
+            _statusGlow.visible = true;
+        }
+        else
+        {
+            _statusLed.graphics.clear();
+            _statusLed.graphics.beginFill(0x440000);
+            _statusLed.graphics.drawCircle(0, 0, 6);
+            _statusLed.graphics.endFill();
+            _statusGlow.visible = false;
+        }
+    }
+
+    private function formatFileSize(bytes:Int):String
+    {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return _toFixed(bytes / 1024, 1) + " KB";
+        return _toFixed(bytes / (1024 * 1024), 1) + " MB";
+    }
+
+    /** Typed atom accessor (null when the atom is foreign/disposed). */
+    private function pictureAtom():PictureAtom
+    {
+        if (atom == null || isDisposed) return null;
+        if (!Std.isOfType(atom, PictureAtom)) return null;
+        return cast(atom, PictureAtom);
+    }
+
+    private static function _toFixed(value:Float, decimals:Int = 1):String
+    {
+        if (Math.isNaN(value) || !Math.isFinite(value)) return "0.0";
+
+        var multiplier:Float = Math.pow(10, decimals);
+        var rounded:Float = Math.round(value * multiplier) / multiplier;
+        var s:String = Std.string(rounded);
+
+        if (s.indexOf(".") == -1)
+        {
+            s += ".";
+            for (_ in 0...decimals) s += "0";
+            return s;
+        }
+
+        var parts:Array<String> = s.split(".");
+        var frac:String = parts[1];
+        while (frac.length < decimals) frac += "0";
+
+        return parts[0] + "." + frac;
+    }
+
+    // =========================================================================
+    // TRANSFORM PARSING (contact value -> UI mirror; tolerant, same guards
+    // as the atom: NaN/garbage keep the current value, scale<=0 -> 1,
+    // alpha clamped 0..1)
+    // =========================================================================
+
+    /** Read all transform contacts into the UI mirror (activate path). */
+    private function syncTransformMirror():Void
+    {
+        if (_posXContact != null && _posXContact.value != null) _tPosX = parseFloat(_posXContact.value, _tPosX);
+        if (_posYContact != null && _posYContact.value != null) _tPosY = parseFloat(_posYContact.value, _tPosY);
+        if (_widthContact != null && _widthContact.value != null) _tSizeW = parseFloat(_widthContact.value, _tSizeW);
+        if (_heightContact != null && _heightContact.value != null) _tSizeH = parseFloat(_heightContact.value, _tSizeH);
+        if (_scaleXContact != null && _scaleXContact.value != null) _tScaleX = parseScale(_scaleXContact.value, _tScaleX);
+        if (_scaleYContact != null && _scaleYContact.value != null) _tScaleY = parseScale(_scaleYContact.value, _tScaleY);
+        if (_aspectContact != null && _aspectContact.value != null) _tAspect = (_aspectContact.value == true);
+        if (_visibleContact != null && _visibleContact.value != null) _tVisible = (_visibleContact.value == true);
+        if (_enabledContact != null && _enabledContact.value != null) _tEnabled = (_enabledContact.value == true);
+        if (_alphaContact != null && _alphaContact.value != null) _tAlpha = clamp01(parseFloat(_alphaContact.value, _tAlpha));
+        if (_zOrderContact != null && _zOrderContact.value != null) _tZOrder = Math.round(parseFloat(_zOrderContact.value, _tZOrder));
+    }
+
+    private static function parseFloat(v:Dynamic, current:Float):Float
+    {
+        var f:Float = Std.parseFloat(Std.string(v));
+        if (Math.isNaN(f) || !Math.isFinite(f)) return current;
+        return f;
+    }
+
+    private static function parseScale(v:Dynamic, current:Float):Float
+    {
+        var f:Float = parseFloat(v, current);
+        return (f <= 0) ? 1 : f;
+    }
+
+    private static function clamp01(v:Float):Float
+    {
+        if (v < 0) return 0;
+        if (v > 1) return 1;
+        return v;
+    }
+
+    // =========================================================================
+    // DISPOSE
+    // =========================================================================
+    override public function dispose():Void
+    {
+        if (isDisposed) return;
+
+        // v1.2: mode-refresh plumbing (cached ref — the T155 closure lesson)
+        removeEventListener(Event.ADDED, onWidgetAdded);
+        removeEventListener(Event.ENTER_FRAME, _modeTickRef);
+        _modeRefreshScheduled = false;
+        _modeTickRef = null;
+
+        disposeBitmap();
+
+        _bg = null;
+        _header = null;
+        _titleLabel = null;
+        _statusLed = null;
+        _statusGlow = null;
+        _infoLabel = null;
+        _errorLabel = null;
+        _imageHolder = null;
+        _placeholder = null;
+        _placeholderLabel = null;
+        _bitmap = null;
+
+        _imageContact = null;
+        _clearContact = null;
+        _posXContact = null;
+        _posYContact = null;
+        _widthContact = null;
+        _heightContact = null;
+        _scaleXContact = null;
+        _scaleYContact = null;
+        _aspectContact = null;
+        _visibleContact = null;
+        _enabledContact = null;
+        _alphaContact = null;
+        _zOrderContact = null;
+        _okContact = null;
+        _kindContact = null;
+        _imgWidthContact = null;
+        _imgHeightContact = null;
+        _errorContact = null;
+        _loadedTickContact = null;
+        _errorTickContact = null;
+
+        super.dispose();
+    }
+}
+
+
+================================================================================
 // FILE: core\view\SignalGeneratorWidget.hx
 // Lines: 871 | Chars: 29029
 ================================================================================
@@ -19851,7 +21203,7 @@ class TextWidget extends DeviceView
 
 ================================================================================
 // FILE: core\view\ToggleWidget.hx
-// Lines: 243 | Chars: 8794
+// Lines: 358 | Chars: 13160
 ================================================================================
 
 package core.view;
@@ -19864,6 +21216,8 @@ import openfl.events.MouseEvent;
 import core.base.Atom;
 import core.base.Contact;
 import library.electro.ToggleAtom;
+import ui.DeviceCard;
+import core.view.DeviceViewRegistry;
 
 /**
  * TOGGLE WIDGET
@@ -19900,6 +21254,11 @@ class ToggleWidget extends DeviceView
     private var _outContact:Contact;
     private var _rstContact:Contact;
     private var _setContact:Contact;
+    private var _zOrderContact:Contact;
+
+    // Transform mirror (UI state)
+    private var _tZOrder:Int = 0;
+    private var _appliedZ:Int = -1;
 
     // =========================================================================
     // CONFIGURATION
@@ -19944,13 +21303,23 @@ class ToggleWidget extends DeviceView
             if (_outContact == null) _outContact = atom.getOutput("out");
             _rstContact = atom.getInput("rst");
             _setContact = atom.getInput("set");
+            _zOrderContact = atom.getInput("zOrder");
         }
     }
 
-    override private function onActivate():Void 
+    override private function onActivate():Void
     {
         findContacts();
-        // Sync visual with current Databank state
+        // Activation reads the DATABANK (Picture pattern): restored zOrder
+        // lives in the atom until the contact is driven externally.
+        if (atom != null && Std.isOfType(atom, ToggleAtom))
+        {
+            _tZOrder = cast(atom, ToggleAtom).getZOrder();
+        }
+        syncTransformMirror(); // live contact value wins if already driven
+        var wz:Int = readWireZOrder();
+        if (wz >= 1) _tZOrder = wz; // wire source is the authority
+        applyCardPlacement();
         updateVisual();
     }
 
@@ -20005,6 +21374,18 @@ class ToggleWidget extends DeviceView
             // Force a visual update here just in case.
             updateVisual();
         }
+        else if (contact == _zOrderContact)
+        {
+            if (newValue != null) _tZOrder = Math.round(parseFloat(newValue, _tZOrder));
+            applyCardPlacement();
+        }
+    }
+
+    private function parseFloat(v:Dynamic, current:Float):Float
+    {
+        var f:Float = Std.parseFloat(Std.string(v));
+        if (Math.isNaN(f) || !Math.isFinite(f)) return current;
+        return f;
     }
 
     private function onClick(e:MouseEvent):Void 
@@ -20078,6 +21459,91 @@ class ToggleWidget extends DeviceView
     }
 
     // =========================================================================
+    // TRANSFORM MIRROR & CARD PLACEMENT (Picture pattern)
+    // =========================================================================
+    private function syncTransformMirror():Void
+    {
+        if (_zOrderContact != null && _zOrderContact.value != null)
+        {
+            _tZOrder = Math.round(parseFloat(_zOrderContact.value, _tZOrder));
+        }
+    }
+
+    private function applyCardPlacement():Void
+    {
+        if (!isDeviceMode()) return;
+
+        var card:Dynamic = parent;
+        if (card == null || !Std.isOfType(card, DeviceCard)) return;
+
+        // Apply zOrder only if changed (dedupe guard - Picture pattern)
+        if (_tZOrder < 1 || _tZOrder == _appliedZ) return;
+
+        var panel:Dynamic = Reflect.getProperty(card, "parent");
+        // NOTE: Reflect.hasField() does NOT see class methods on the C++
+        // target — probe with Reflect.field() instead.
+        var setZ:Dynamic = panel != null ? Reflect.field(panel, "setCardZOrder") : null;
+        // Panel not ready yet (the card is attached after the widget's
+        // activation pass) — leave the guard unconsumed so the panel's
+        // refreshPlacement() hook can re-apply later.
+        if (setZ == null) return;
+
+        _appliedZ = _tZOrder;
+        try
+        {
+            Reflect.callMethod(panel, setZ, [card, _tZOrder]);
+        }
+        catch (e:Dynamic)
+        {
+            // exotic owner (e.g. DeviceWindow without the z-system) -
+            // honest no-op: the depth stays auto there
+        }
+    }
+
+    // Panel calls this after the card is attached — the correctly-timed
+    // pass that onActivate() could not complete (see DeviceView hook).
+    override public function refreshPlacement():Void
+    {
+        // The wire source is the authoritative number: reconstruction may
+        // have zeroed the atom/contact mirrors with a stale initial push.
+        var wz:Int = readWireZOrder();
+        if (wz >= 1) _tZOrder = wz;
+        applyCardPlacement();
+    }
+
+    /**
+     * Read zOrder straight from the wire: the OUTPUT contacts linked to
+     * our zOrder input carry the source atom's current value (e.g. a
+     * TextInput driving zOrder). Falls back to our own contact value.
+     * Returns -1 when nothing usable is on the wire.
+     */
+    private function readWireZOrder():Int
+    {
+        if (_zOrderContact == null) return -1;
+        var lt:Array<Contact> = Reflect.field(_zOrderContact, "linkedTargets");
+        if (lt != null)
+        {
+            for (src in lt)
+            {
+                if (src == null || src.isDisposed) continue;
+                var f:Float = Std.parseFloat(Std.string(src.value));
+                if (!Math.isNaN(f) && Math.isFinite(f) && f >= 1) return Math.round(f);
+            }
+        }
+        if (_zOrderContact.value != null)
+        {
+            var f2:Float = Std.parseFloat(Std.string(_zOrderContact.value));
+            if (!Math.isNaN(f2) && Math.isFinite(f2) && f2 >= 1) return Math.round(f2);
+        }
+        return -1;
+    }
+
+    private function isDeviceMode():Bool
+    {
+        return getContainerType() == DeviceViewRegistry.CONTAINER_DEVICE_WINDOW;
+    }
+
+    // =========================================================================
     // DISPOSE
     // =========================================================================
     override public function dispose():Void 
@@ -20092,6 +21558,7 @@ class ToggleWidget extends DeviceView
         _outContact = null;
         _rstContact = null;
         _setContact = null;
+        _zOrderContact = null;
         _labelField = null;
         _stateField = null;
         super.dispose();
@@ -25385,7 +26852,7 @@ class EditorCameraStore
 
 ================================================================================
 // FILE: editor\EditorContext.hx
-// Lines: 1136 | Chars: 64853
+// Lines: 1136 | Chars: 64854
 ================================================================================
 
 package editor;
@@ -25627,7 +27094,7 @@ import core.logic.TickGenerator;
 *  ║    └─ refreshAssemblyViews                                       ║
 *  ║  unlockTopology()                                                ║
 *  ║    ├─ flush _deferredTopologyTasks (graph is WHOLE now)          ║
-*  ║    ├─ quickEmit(REDRAW_WIRES)                                   ║
+*  ║    ├─ quickEmit(REDRAW_WIRES)                                    ║
 *  ║    └─ resume process()                                           ║
 *  ╚══════════════════════════════════════════════════════════════════╝
 *
@@ -34824,7 +36291,7 @@ typedef WireEntry = {
 
 ================================================================================
 // FILE: library\AtomRegistry.hx
-// Lines: 711 | Chars: 39436
+// Lines: 739 | Chars: 42359
 ================================================================================
 
 // FILE: library/AtomRegistry.hx
@@ -35184,7 +36651,35 @@ class AtomRegistry
                         {name: "readTick",   type: OUTPUT, dataType: "bool",     priority: IMPORTANT, label: "Read Tick"},
                         {name: "errorTick",  type: OUTPUT, dataType: "bool",     priority: INTERNAL}
                 ], null, "datastorage", true, true, "datastorage");
-                
+
+        // =========================================================================
+        // PICTURE — atom-portrait, consumer of the binary pipe (Этап 4a-3, Task 155)
+        // Spec: SPEC_STAGE4A_PICTURE.md (контакты и семантика §2-§4)
+        // =========================================================================
+        reg("PictureAtom", "Picture", [
+                        {name: "image",     type: INPUT,  dataType: "string", priority: CRITICAL,  label: "Image"},
+                        {name: "clear",     type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Clear"},
+                        {name: "posX",      type: INPUT,  defaultValue: 0,  dataType: "float",   priority: IMPORTANT, label: "Pos X"},
+                        {name: "posY",      type: INPUT,  defaultValue: 0,  dataType: "float",   priority: IMPORTANT, label: "Pos Y"},
+                        {name: "width",     type: INPUT,  defaultValue: 0,  dataType: "float",   priority: OPTIONAL,  label: "Width"},
+                        {name: "height",    type: INPUT,  defaultValue: 0,  dataType: "float",   priority: OPTIONAL,  label: "Height"},
+                        {name: "scaleX",    type: INPUT,  defaultValue: 1,  dataType: "float",   priority: OPTIONAL,  label: "Scale X"},
+                        {name: "scaleY",    type: INPUT,  defaultValue: 1,  dataType: "float",   priority: OPTIONAL,  label: "Scale Y"},
+                        {name: "aspect",    type: INPUT,  defaultValue: false, dataType: "bool", priority: OPTIONAL,  label: "Aspect"},
+                        {name: "visible",   type: INPUT,  defaultValue: true, dataType: "bool",  priority: OPTIONAL,  label: "Visible"},
+                        {name: "enabled",   type: INPUT,  defaultValue: true, dataType: "bool",  priority: OPTIONAL,  label: "Enabled"},
+                        {name: "alpha",     type: INPUT,  defaultValue: 1,  dataType: "float",   priority: OPTIONAL,  label: "Alpha"},
+                        {name: "zOrder",    type: INPUT,  defaultValue: 0,  dataType: "int",     priority: OPTIONAL,  label: "Z-Order"},
+                        {name: "ok",        type: OUTPUT, dataType: "bool",   priority: CRITICAL},
+                        {name: "kind",      type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Kind"},
+                        {name: "imgWidth",  type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Img W"},
+                        {name: "imgHeight", type: OUTPUT, dataType: "int",    priority: IMPORTANT, label: "Img H"},
+                        {name: "error",     type: OUTPUT, dataType: "string", priority: IMPORTANT, label: "Error"},
+                        {name: "loadedTick",type: OUTPUT, dataType: "bool",   priority: IMPORTANT, label: "Loaded Tick"},
+                        {name: "errorTick", type: OUTPUT, dataType: "bool",   priority: INTERNAL}
+                ], null, "picture", true, true, "picture");
+
+
         
         reg("MiniAudioAtom", "Mini Audio Capture", [
             {name: "mode",     type: INPUT,  defaultValue: 1,    dataType: "int",     priority: IMPORTANT, label: "Mode"},
@@ -41015,6 +42510,678 @@ class MiniAudioAtom extends Atom implements system.managers.Driver
 	}
 }
 #end
+
+
+================================================================================
+// FILE: library\drivers\PictureAtom.hx
+// Lines: 666 | Chars: 25106
+================================================================================
+
+package library.drivers;
+
+import core.base.Atom;
+import core.base.Contact;
+import core.types.ContactType;
+import core.types.ContactType.*;
+import core.types.Cargo;
+import system.managers.DriverManager;
+import haxe.io.Bytes;
+
+/**
+ * PICTURE ATOM v1.2 (Stage 4a-3, Task 155; hotfix Task 156; "bare canvas" Task 159)
+ * ============================================================================
+ * ATOM-PORTRAIT: the visual consumer of the binary pipe. Accepts picture
+ * bytes on [image] (Bytes | Cargo{bytes}), validates the image HEADER
+ * (magic + dimensions) and holds them for the face (PictureWidget), which
+ * performs the real BitmapData decode. Spec: SPEC_STAGE4A_PICTURE.md.
+ *
+ * Architecture: "Atom is Databank & Compute Core"
+ *   image portion → header validation → databank (bytes+kind+dims+version)
+ *   transform pins (pos/size/scale/aspect/visible/enabled/alpha/zOrder) →
+ *   widget geometry
+ *
+ * SEMANTICS (see SPEC §2-§4, §13 for the v1.2 bare-canvas rules):
+ *   · image — the picture portion. Cargo{bytes} (from FileReader [bytes] /
+ *     DataStorage [bytes]) is unpacked by kind; a naked Bytes is sniffed the
+ *     same way. Replacement: a NEW valid picture REPLACES the old one; an
+ *     INVALID portion keeps the old picture untouched (atomic swap) and
+ *     reports an honest error. Consumed after accept (P1 hygiene).
+ *   · clear — drop the picture back to the "no image" placeholder.
+ *   · posX..zOrder — transform state (the "makeup" channel). Read EVERY
+ *     frame from contacts, mirrored into atom state; the widget applies
+ *     them: posX/posY place the device CARD, zOrder sets card stacking,
+ *     width/height/scale/visible/alpha shape the bitmap itself.
+ *   · aspect (v1.2) — "keep aspect ratio": true = a width edit derives
+ *     height (natW/natH) and vice versa (last edit wins); false/absent =
+ *     width and height apply verbatim. Derived in the WIDGET (it owns the
+ *     last-edit event); the atom mirrors the flag for state integrity.
+ *   · enabled (v1.2, family name like DataStorage) — the render gate for
+ *     the bare Device-panel face: false = the panel image is hidden; the
+ *     data bank and outputs keep working (a gate, not a kill switch).
+ *   · Header validation is the ATOM's job; the real CODEC decode is the
+ *     WIDGET's job. A codec failure latches the v7.2 fault (red frame);
+ *     a bad header is a data-level error (error/errorTick channel).
+ *
+ * WHAT PICTURE DOES NOT DO: it does not touch the disk, does not call
+ * dialogs, does not decode pixels, does not import openfl — the purest
+ * atom of the data family (DataStorage sibling). All input arrives over
+ * wires; the face is a separate class.
+ *
+ * PERSISTENCE (Stage 4a-3 decision): the image itself is NOT serialized —
+ * it is runtime-derived from the graph (Reader/Storage re-feed it after
+ * reload; persistent bytes are DataStorage's doctrine). Only non-default
+ * transform fields ride in getPersistentState(). Known boundary: after a
+ * scheme reload the portrait is empty until the graph sends bytes again.
+ * ============================================================================
+ */
+class PictureAtom extends Atom implements system.managers.Driver
+{
+    private static inline var PULSE_DURATION:Float = 0.05;
+
+    /** Kind: no picture loaded. */
+    private static inline var KIND_NONE:String = "none";
+    /** Kind: PNG magic 89 50 4E 47 0D 0A 1A 0A. */
+    private static inline var KIND_PNG:String = "png";
+    /** Kind: JPEG magic FF D8 FF. */
+    private static inline var KIND_JPEG:String = "jpeg";
+    /** Kind: BMP magic 42 4D. */
+    private static inline var KIND_BMP:String = "bmp";
+
+    /** PNG magic length. */
+    private static inline var PNG_HEADER_LEN:Int = 24;
+    /** BMP: minimal file length to read BITMAPINFOHEADER dims. */
+    private static inline var BMP_HEADER_LEN:Int = 26;
+    /** JPEG: safety cap for the SOF marker scan. */
+    private static inline var JPEG_SCAN_LIMIT:Int = 4096;
+
+    // STATE (DATABANK) — the picture bank + transform mirror
+    private var _imageBytes:Bytes = null;     // null = no picture
+    private var _kind:String = KIND_NONE;     // none | png | jpeg | bmp
+    private var _natW:Int = 0;                // natural width from header
+    private var _natH:Int = 0;                // natural height from header
+    private var _imageVersion:Int = 0;        // bumped per picture change
+    private var _lastError:String = "";
+
+    // TRANSFORM STATE ("makeup" mirror; canonical values live here)
+    private var _posX:Float = 0;
+    private var _posY:Float = 0;
+    private var _sizeW:Float = 0;             // 0 = natural width
+    private var _sizeH:Float = 0;             // 0 = natural height
+    private var _scaleX:Float = 1;
+    private var _scaleY:Float = 1;
+    private var _aspect:Bool = false;         // v1.2: keep aspect ratio
+    private var _visible:Bool = true;
+    private var _enabled:Bool = true;         // v1.2: device render gate
+    private var _alpha:Float = 1;             // clamped 0..1
+    private var _zOrder:Int = 0;
+
+    // PULSE TIMERS
+    private var _loadedTickTimer:Float = 0.0;
+    private var _errorTimer:Float = 0.0;
+
+    public function new(id:String)
+    {
+        super(
+            [   // INPUTS
+                new Contact(null, INPUT, "image"),
+                new Contact(false, INPUT, "clear"),
+                new Contact(0, INPUT, "posX"),
+                new Contact(0, INPUT, "posY"),
+                new Contact(0, INPUT, "width"),
+                new Contact(0, INPUT, "height"),
+                new Contact(1, INPUT, "scaleX"),
+                new Contact(1, INPUT, "scaleY"),
+                new Contact(false, INPUT, "aspect"),
+                new Contact(true, INPUT, "visible"),
+                new Contact(true, INPUT, "enabled"),
+                new Contact(1, INPUT, "alpha"),
+                new Contact(0, INPUT, "zOrder")
+            ],
+            [   // OUTPUTS
+                new Contact(false, OUTPUT, "ok"),
+                new Contact(KIND_NONE, OUTPUT, "kind"),
+                new Contact(0, OUTPUT, "imgWidth"),
+                new Contact(0, OUTPUT, "imgHeight"),
+                new Contact("", OUTPUT, "error"),
+                new Contact(false, OUTPUT, "loadedTick"),
+                new Contact(false, OUTPUT, "errorTick")
+            ],
+            null,
+            id,
+            "PictureAtom",
+            true
+        );
+        init();
+    }
+
+    override public function init():Void
+    {
+        trace('PictureAtom: Initialized (Main Thread)');
+        DriverManager.getInstance().register(this);
+    }
+
+    override public function update(dt:Float):Void
+    {
+        if (_isDisposed) return;
+        readInputs();
+        updatePulseTimers(dt);
+    }
+
+    override public function dispose():Void
+    {
+        _imageBytes = null;
+        DriverManager.getInstance().unregister(this.id);
+        super.dispose();
+    }
+
+    // ── Portion intake ───────────────────────────────────────────────────────
+
+    /**
+     * Accept a portion on [image]. Three intake languages (family style):
+     *  1. Cargo{bytes} — the pipe portion (FileReader [bytes], Storage
+     *     [bytes]): unpacked by kind, atomic swap on success;
+     *  2. naked Bytes — sniffed the same way;
+     *  3. naked String / Cargo{text} — HONEST ERROR, never a decode attempt:
+     *     text pipes mangle binary (the fft.png lesson, Stage 4a-4).
+     * Empty portions (0 bytes) are wire noise — ignored silently.
+     */
+    private function acceptPortion(portion:Dynamic):Void
+    {
+        if (Cargo.isCargo(portion))
+        {
+            var c:Cargo = cast portion;
+            if (c.kind != Cargo.KIND_BYTES)
+            {
+                setError('text cargo is not an image — use the [bytes] pipe: ${c}');
+                return;
+            }
+            var body:Bytes = cast c.data;
+            if (body == null || body.length == 0)
+            {
+                setError('empty cargo rejected: ${c}');
+                return;
+            }
+            tryStore(body);
+            return;
+        }
+
+        if (Std.isOfType(portion, Bytes))
+        {
+            var b:Bytes = cast portion;
+            if (b.length == 0) return; // noise
+            tryStore(b);
+            return;
+        }
+
+        if (Std.isOfType(portion, String))
+        {
+            setError('String on [image] — pictures travel as Bytes/Cargo{bytes} (fft.png lesson)');
+            return;
+        }
+
+        setError('unsupported portion type on [image]: ${portion}');
+    }
+
+    /**
+     * Validate the header and ATOMICALLY swap the bank:
+     * on success — store bytes (reference, P3), kind, dims, bump version,
+     * push the status wave and pulse loadedTick; on failure — keep the old
+     * picture untouched and report the honest error.
+     */
+    private function tryStore(b:Bytes):Void
+    {
+        var parsed = sniffHeader(b);
+        if (parsed.error != null)
+        {
+            setError(parsed.error);
+            return;
+        }
+
+        _imageBytes = b;                     // reference (P3: no copies in flight)
+        _kind = parsed.kind;
+        _natW = parsed.width;
+        _natH = parsed.height;
+        _imageVersion++;
+
+        pushStatus(false);
+        pulseLoaded();
+        trace('PictureAtom: stored ${b.length} bytes (kind=$_kind, ${_natW}x${_natH}, v$_imageVersion)');
+    }
+
+    /**
+     * Header sniffing — magic bytes decide the kind (file names are not
+     * trusted), dimensions come from the structure:
+     *   PNG: IHDR (bytes 16..23, big-endian);
+     *   JPEG: first SOF marker scan (C0..CF except C4/C8/CC);
+     *   BMP: BITMAPINFOHEADER (40+) or BITMAPCOREHEADER (12) dims, LE.
+     * Returns {kind, width, height, error}; error != null = rejected.
+     */
+    private function sniffHeader(b:Bytes):{kind:String, width:Int, height:Int, error:String}
+    {
+        if (b.length < 4)
+        {
+            return {kind: KIND_NONE, width: 0, height: 0,
+                error: 'truncated image header (${b.length} bytes)'};
+        }
+
+        // ── PNG ──
+        if (b.get(0) == 0x89 && b.get(1) == 0x50 && b.get(2) == 0x4E
+            && b.get(3) == 0x47)
+        {
+            if (b.length < PNG_HEADER_LEN)
+            {
+                return {kind: KIND_PNG, width: 0, height: 0,
+                    error: 'truncated PNG header (${b.length} < ${PNG_HEADER_LEN} bytes)'};
+            }
+            var w:Int = be32(b, 16);
+            var h:Int = be32(b, 20);
+            if (w <= 0 || h <= 0 || w > 0x3FFFFFFF || h > 0x3FFFFFFF)
+            {
+                return {kind: KIND_PNG, width: 0, height: 0,
+                    error: 'bad IHDR dimensions (${w}x${h})'};
+            }
+            return {kind: KIND_PNG, width: w, height: h, error: null};
+        }
+
+        // ── JPEG ──
+        if (b.get(0) == 0xFF && b.get(1) == 0xD8 && b.get(2) == 0xFF)
+        {
+            var dims = jpegDimensions(b);
+            // SOF not found: honest unknown (codec decides later), no error.
+            return {kind: KIND_JPEG, width: dims.w, height: dims.h, error: null};
+        }
+
+        // ── BMP ──
+        if (b.get(0) == 0x42 && b.get(1) == 0x4D)
+        {
+            if (b.length < BMP_HEADER_LEN)
+            {
+                return {kind: KIND_BMP, width: 0, height: 0,
+                    error: 'truncated BMP header (${b.length} bytes)'};
+            }
+            var headerSize:Int = le32(b, 14);
+            var bw:Int = 0;
+            var bh:Int = 0;
+            if (headerSize == 12)
+            {
+                bw = (b.get(19) << 8) | b.get(18);
+                bh = (b.get(23) << 8) | b.get(22);
+            }
+            else
+            {
+                bw = le32(b, 18);
+                bh = le32(b, 22);
+            }
+            if (bw <= 0 || bh <= 0)
+            {
+                return {kind: KIND_BMP, width: 0, height: 0,
+                    error: 'bad BMP dimensions (${bw}x${bh})'};
+            }
+            return {kind: KIND_BMP, width: bw, height: bh, error: null};
+        }
+
+        return {kind: KIND_NONE, width: 0, height: 0,
+            error: 'unrecognized image format (magic mismatch)'};
+    }
+
+    /** Big-endian 32-bit read (multiplication form avoids Int sign overflow). */
+    private static function be32(b:Bytes, pos:Int):Int
+    {
+        return (b.get(pos) * 16777216) + (b.get(pos + 1) << 16)
+            + (b.get(pos + 2) << 8) + b.get(pos + 3);
+    }
+
+    /** Little-endian 32-bit read. */
+    private static function le32(b:Bytes, pos:Int):Int
+    {
+        return b.get(pos) + (b.get(pos + 1) << 8)
+            + (b.get(pos + 2) << 16) + (b.get(pos + 3) * 16777216);
+    }
+
+    /**
+     * JPEG dimension scan: walk the marker segments to the first SOF
+     * (Start of Frame) marker. Standalone markers (D0-D9, 01) carry no
+     * length; everything else advances by its 16-bit length field.
+     */
+    private function jpegDimensions(b:Bytes):{w:Int, h:Int}
+    {
+        var i:Int = 2;
+        var steps:Int = 0;
+        while (i + 4 < b.length && steps < JPEG_SCAN_LIMIT)
+        {
+            steps++;
+            if (b.get(i) != 0xFF)
+            {
+                return {w: 0, h: 0}; // structure lost — unknown, codec decides
+            }
+            var marker:Int = b.get(i + 1);
+            if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD9))
+            {
+                i += 2;
+                continue;
+            }
+            if (marker >= 0xC0 && marker <= 0xCF
+                && marker != 0xC4 && marker != 0xC8 && marker != 0xCC)
+            {
+                if (i + 9 > b.length) return {w: 0, h: 0};
+                var h:Int = (b.get(i + 5) << 8) | b.get(i + 6);
+                var w:Int = (b.get(i + 7) << 8) | b.get(i + 8);
+                return {w: w, h: h};
+            }
+            var segLen:Int = (b.get(i + 2) << 8) | b.get(i + 3);
+            if (segLen < 2) return {w: 0, h: 0};
+            i += 2 + segLen;
+        }
+        return {w: 0, h: 0};
+    }
+
+    // ── Clear ────────────────────────────────────────────────────────────────
+
+    /** Drop the picture: bank empty, version bumped (the face drops the bitmap). */
+    private function clearPicture():Void
+    {
+        if (_imageBytes == null) return; // already empty — silence
+
+        _imageBytes = null;
+        _kind = KIND_NONE;
+        _natW = 0;
+        _natH = 0;
+        _imageVersion++;
+
+        pushStatus(false);
+        trace('PictureAtom: picture cleared (v$_imageVersion)');
+    }
+
+    // ── Per-frame input processing ───────────────────────────────────────────
+
+    private function readInputs():Void
+    {
+        if (_isDisposed) return;
+
+        // 1. clear — lives outside any gate (family style)
+        var clearC = getInput("clear");
+        if (clearC != null && clearC.value == true)
+        {
+            clearC.value = false;
+            clearPicture();
+        }
+
+        // 2. image — the portion (consumed on sight, P1)
+        var imageC = getInput("image");
+        if (imageC != null && imageC.value != null)
+        {
+            var portion:Dynamic = imageC.value;
+            // Wire noise: null and BARE empty bytes are silent; an EMPTY
+            // CARGO is NOT noise — it gets the honest family error below.
+            var noise:Bool = (portion == null)
+                || (Std.isOfType(portion, Bytes) && portion.length == 0);
+            if (!noise)
+            {
+                // P1 "accept — clear the input": consumed BEFORE processing
+                imageC.setValueSilent(null);
+                acceptPortion(portion);
+            }
+        }
+
+        // 3. transforms — mirrored every frame (tolerant, guards below)
+        _posX = readFloat(getInput("posX"), _posX);
+        _posY = readFloat(getInput("posY"), _posY);
+        _sizeW = readFloat(getInput("width"), _sizeW);
+        _sizeH = readFloat(getInput("height"), _sizeH);
+        _scaleX = readScale(getInput("scaleX"), _scaleX);
+        _scaleY = readScale(getInput("scaleY"), _scaleY);
+        _alpha = clamp01(readFloat(getInput("alpha"), _alpha));
+        _zOrder = readInt(getInput("zOrder"), _zOrder);
+
+        var visibleC = getInput("visible");
+        if (visibleC != null && visibleC.value != null)
+        {
+            _visible = (visibleC.value == true);
+        }
+
+        // v1.2: aspect / enabled mirrors (inputs ride on wires; the state
+        // copy exists for introspection and future persistence decisions)
+        var aspectC = getInput("aspect");
+        if (aspectC != null && aspectC.value != null)
+        {
+            _aspect = (aspectC.value == true);
+        }
+        var enabledC = getInput("enabled");
+        if (enabledC != null && enabledC.value != null)
+        {
+            _enabled = (enabledC.value == true);
+        }
+    }
+
+    /** Tolerant Float read: null / NaN / non-numeric keep the current value. */
+    private static function readFloat(c:Contact, current:Float):Float
+    {
+        if (c == null || c.value == null) return current;
+        var f:Float = Std.parseFloat(Std.string(c.value));
+        if (Math.isNaN(f) || !Math.isFinite(f)) return current;
+        return f;
+    }
+
+    /** Scale read: additionally, non-positive values fall back to 1 (collapse-proof). */
+    private static function readScale(c:Contact, current:Float):Float
+    {
+        var f:Float = readFloat(c, current);
+        return (f <= 0) ? 1 : f;
+    }
+
+    /** Tolerant Int read (zOrder). */
+    private static function readInt(c:Contact, current:Int):Int
+    {
+        if (c == null || c.value == null) return current;
+        var f:Float = Std.parseFloat(Std.string(c.value));
+        if (Math.isNaN(f) || !Math.isFinite(f)) return current;
+        return Std.int(f);
+    }
+
+    private static function clamp01(v:Float):Float
+    {
+        if (v < 0) return 0;
+        if (v > 1) return 1;
+        return v;
+    }
+
+    // ── Status outputs ───────────────────────────────────────────────────────
+
+    /**
+     * Push the status wave: ok/kind/imgWidth/imgHeight.
+     * silent=true — restore path: wires are not linked yet (load-symmetric
+     * reconstruction, family discipline).
+     */
+    private function pushStatus(silent:Bool):Void
+    {
+        var has:Bool = (_imageBytes != null && _imageBytes.length > 0);
+        setOut("ok", has, silent);
+        setOut("kind", _kind, silent);
+        setOut("imgWidth", has ? _natW : 0, silent);
+        setOut("imgHeight", has ? _natH : 0, silent);
+    }
+
+    private function setOut(name:String, value:Dynamic, silent:Bool):Void
+    {
+        var c = getOutput(name);
+        if (c == null) return;
+        c.setValueSilent(value);
+        if (!silent) c.propagateCurrentValue();
+    }
+
+    private function setError(msg:String):Void
+    {
+        if (_isDisposed) return;
+        _lastError = msg;
+        var errorOut = getOutput("error");
+        if (errorOut != null)
+        {
+            errorOut.setValueSilent(msg);
+            errorOut.propagateCurrentValue();
+        }
+        var errorTickOut = getOutput("errorTick");
+        if (errorTickOut != null)
+        {
+            errorTickOut.value = true;
+            _errorTimer = PULSE_DURATION;
+        }
+        trace('PictureAtom ERROR: $msg');
+    }
+
+    private function pulseLoaded():Void
+    {
+        if (_isDisposed) return;
+        var c = getOutput("loadedTick");
+        if (c != null)
+        {
+            c.value = true;
+            _loadedTickTimer = PULSE_DURATION;
+        }
+    }
+
+    private function updatePulseTimers(dt:Float):Void
+    {
+        if (_isDisposed) return;
+
+        if (_loadedTickTimer > 0)
+        {
+            _loadedTickTimer -= dt;
+            if (_loadedTickTimer <= 0)
+            {
+                var c = getOutput("loadedTick");
+                if (c != null) c.value = false;
+            }
+        }
+        if (_errorTimer > 0)
+        {
+            _errorTimer -= dt;
+            if (_errorTimer <= 0)
+            {
+                var c = getOutput("errorTick");
+                if (c != null) c.value = false;
+            }
+        }
+    }
+
+    // ── PERSISTENCE (transform state only; the image is runtime-derived) ─────
+
+    /**
+     * Save state: ONLY non-default transform fields ride into the scheme
+     * JSON. The picture bytes are NOT serialized (DataStorage owns
+     * persistent bytes; the graph re-feeds this atom after reload).
+     */
+    override public function getPersistentState():Dynamic
+    {
+        var state:Dynamic = super.getPersistentState();
+        if (state == null) state = {};
+
+        var dirty:Bool = false;
+        if (_posX != 0) { state.posX = _posX; dirty = true; }
+        if (_posY != 0) { state.posY = _posY; dirty = true; }
+        if (_sizeW != 0) { state.width = _sizeW; dirty = true; }
+        if (_sizeH != 0) { state.height = _sizeH; dirty = true; }
+        if (_scaleX != 1) { state.scaleX = _scaleX; dirty = true; }
+        if (_scaleY != 1) { state.scaleY = _scaleY; dirty = true; }
+        if (!_visible) { state.visible = false; dirty = true; }
+        if (_alpha != 1) { state.alpha = _alpha; dirty = true; }
+        if (_zOrder != 0) { state.zOrder = _zOrder; dirty = true; }
+
+        if (!dirty && Reflect.fields(state).length == 0) return null;
+        return state;
+    }
+
+    /**
+     * Restore state (tolerant): missing/garbage fields keep defaults; the
+     * picture itself stays empty — the graph re-feeds it (honest boundary).
+     * The status wave is pushed silently (wires build later).
+     */
+    override public function restoreState(state:Dynamic):Void
+    {
+        super.restoreState(state);
+        if (state == null) return;
+
+        _posX = restoreFloat(state, "posX", 0);
+        _posY = restoreFloat(state, "posY", 0);
+        _sizeW = restoreFloat(state, "width", 0);
+        _sizeH = restoreFloat(state, "height", 0);
+        _scaleX = restoreScale(state, "scaleX");
+        _scaleY = restoreScale(state, "scaleY");
+        _alpha = clamp01(restoreFloat(state, "alpha", 1));
+        _zOrder = Math.round(restoreFloat(state, "zOrder", 0));
+
+        if (Reflect.hasField(state, "visible"))
+        {
+            _visible = (state.visible == true);
+        }
+
+        // The bank stays empty by design; status reflects that honestly.
+        _imageBytes = null;
+        _kind = KIND_NONE;
+        _natW = 0;
+        _natH = 0;
+
+        pushStatus(true);
+        trace('PictureAtom: state restored (pos=${_posX},${_posY} scale=${_scaleX},${_scaleY} z=${_zOrder})');
+    }
+
+    private static function restoreFloat(state:Dynamic, field:String, def:Float):Float
+    {
+        if (!Reflect.hasField(state, field)) return def;
+        var f:Float = Std.parseFloat(Std.string(Reflect.field(state, field)));
+        if (Math.isNaN(f) || !Math.isFinite(f)) return def;
+        return f;
+    }
+
+    private static function restoreScale(state:Dynamic, field:String):Float
+    {
+        var f:Float = restoreFloat(state, field, 1);
+        return (f <= 0) ? 1 : f;
+    }
+
+    // ── Public access (the face reads the databank; no openfl here) ─────────
+
+    /**
+     * Codec error report from the face (PictureWidget owns the real
+     * decode). The v7.2 fault latch makes the failure visible in the
+     * EDITOR (red frame, FAULT plaque); THIS channel makes it visible on
+     * the WIRES: the message is published to [error] and [errorTick]
+     * fires — downstream atoms and the pilot's probe texts see it.
+     * (Field lesson, Task 156: a FAULTed picture with a silent [error]
+     * contact is a missing channel, not a feature.)
+     */
+    public function reportCodecError(message:String):Void
+    {
+        if (_isDisposed) return;
+        setError((message != null) ? message : "codec decode failed");
+    }
+
+    /** The raw picture bytes (reference — the face decodes read-only). null = empty. */
+    public function getImageBytes():Bytes return _imageBytes;
+    /** Picture change counter: bump on every store/clear — the face's re-decode trigger. */
+    public function getImageVersion():Int return _imageVersion;
+    public function hasPicture():Bool return (_imageBytes != null && _imageBytes.length > 0);
+    public function getPictureKind():String return _kind;
+    public function getNaturalWidth():Int return _natW;
+    public function getNaturalHeight():Int return _natH;
+
+    // Transform getters (widget geometry source of truth)
+    public function getPosX():Float return _posX;
+    public function getPosY():Float return _posY;
+    /** 0 = natural width. */
+    public function getDisplayWidth():Float return _sizeW;
+    /** 0 = natural height. */
+    public function getDisplayHeight():Float return _sizeH;
+    public function getScaleX():Float return _scaleX;
+    public function getScaleY():Float return _scaleY;
+    public function isVisible():Bool return _visible;
+    /** 0..1 (clamped). */
+    public function getAlpha():Float return _alpha;
+    public function getZOrder():Int return _zOrder;
+    /** v1.2: aspect mirror ([aspect] input). */
+    public function getAspect():Bool return _aspect;
+    /** v1.2: enabled mirror ([enabled] input, render gate). */
+    public function getEnabled():Bool return _enabled;
+}
 
 
 ================================================================================
@@ -48612,7 +50779,7 @@ class TextInputAtom extends Atom
 
 ================================================================================
 // FILE: library\electro\ToggleAtom.hx
-// Lines: 252 | Chars: 8833
+// Lines: 288 | Chars: 10027
 ================================================================================
 
 package library.electro;
@@ -48674,6 +50841,9 @@ class ToggleAtom extends Atom
     // Initialized in the past so immunity doesn't affect startup
     private var _lastToggleTime:Float = -3.0;
 
+    // zOrder mirror (contact is the live source, atom state is the bank)
+    private var _zOrder:Int = 0;
+
     // v1.7 (WP-1 FIX-2): the static probe cache _tickGeneratorTested /
     // _tickGeneratorWorks (declared v1.6, relic of the TickGenerator
     // migration) is REMOVED — a full-tree scan found ZERO readers/writers.
@@ -48685,10 +50855,11 @@ class ToggleAtom extends Atom
     public function new(id:String)
     {
         super(
-            // Two inputs: rst (Reset) and set (Set)
+            // Three inputs: rst (Reset), set (Set), and zOrder (stacking order)
             [
                 new Contact(false, INPUT, "rst"),
-                new Contact(false, INPUT, "set")
+                new Contact(false, INPUT, "set"),
+                new Contact(0, INPUT, "zOrder")
             ],
             // One output: out (current state)
             [
@@ -48712,8 +50883,26 @@ class ToggleAtom extends Atom
      */
     override public function onContactChanged(c:Contact):Void
     {
-        if (_isScheduled || _isDisposed) return;
-        
+        if (_isDisposed) return;
+
+        var zOrderContact = getInput("zOrder");
+
+        // Handle zOrder contact FIRST and OUTSIDE the _isScheduled guard:
+        // it is UI placement, not logic — a scheduler-frozen atom must
+        // still mirror its stacking order or the restored z is lost.
+        if (c == zOrderContact && c != null)
+        {
+            if (c.value != null)
+            {
+                var f:Float = Std.parseFloat(Std.string(c.value));
+                if (!Math.isNaN(f) && Math.isFinite(f)) _zOrder = Math.round(f);
+            }
+            super.onContactChanged(c);
+            return;
+        }
+
+        if (_isScheduled) return;
+
         var rstContact = getInput("rst");
         var setContact = getInput("set");
         
@@ -48819,30 +51008,37 @@ class ToggleAtom extends Atom
         return false;
     }
 
+    /**
+     * Get zOrder value (for widget to read on activation).
+     */
+    public function getZOrder():Int return _zOrder;
+
     // =========================================================================
     // STATE SERIALIZATION v1.7
     // =========================================================================
     /**
      * Save toggle state for persistence.
      */
-        override public function getPersistentState():Dynamic
+    override public function getPersistentState():Dynamic
+    {
+        var base = super.getPersistentState();
+        var currentState = false;
+        if (_outputs != null && _outputs.length > 0)
         {
-                var base = super.getPersistentState();
-                var currentState = false;
-                if (_outputs != null && _outputs.length > 0)
-                {
-                        currentState = _outputs[0].value == true;
-                }
-                var result:Dynamic = { state: currentState };
-                if (base != null)
-                {
-                        for (field in Reflect.fields(base))
-                        {
-                                Reflect.setField(result, field, Reflect.field(base, field));
-                        }
-                }
-                return result;
+            currentState = _outputs[0].value == true;
         }
+        var result:Dynamic = { state: currentState };
+        if (base != null)
+        {
+            for (field in Reflect.fields(base))
+            {
+                Reflect.setField(result, field, Reflect.field(base, field));
+            }
+        }
+        // Save zOrder only if non-default (Picture pattern)
+        if (_zOrder != 0) { result.zOrder = _zOrder; }
+        return result;
+    }
 
     /**
      * Restore toggle state from saved data.
@@ -48864,13 +51060,20 @@ class ToggleAtom extends Atom
                 _outputs[0].value = state.state;
             }
         }
+        
+        // Restore zOrder (tolerant: missing/garbage keeps default 0)
+        if (Reflect.hasField(state, "zOrder"))
+        {
+            var f:Float = Std.parseFloat(Std.string(Reflect.field(state, "zOrder")));
+            if (!Math.isNaN(f) && Math.isFinite(f)) _zOrder = Math.round(f);
+        }
     }
 }
 
 
 ================================================================================
 // FILE: Main.hx
-// Lines: 3046 | Chars: 134212
+// Lines: 3046 | Chars: 134218
 ================================================================================
 
 package;
@@ -50496,13 +52699,13 @@ class Main extends Sprite
 
 // Этап 3 (Task 137): [P] Export — ряд: [P][?][R][N][V][E][<]. Клепает Device.exe
 // из ТЕКУЩЕЙ схемы и библиотеки (сохранение — внутри обработчика onExportClick).
-                _btnExport = new ButtonComponent("P", onExportClick);
-                _btnExport.x = _btnSettings.x - btnSize - btnPadding; _btnExport.y = startY;
+                _btnExport = new ButtonComponent("Export", onExportClick);
+                _btnExport.x = _btnSettings.x - btnSize - btnPadding; _btnExport.y = startY+20;
                 _titleBar.addControlButton(_btnExport);
 
                 _nameField = new TextField();
                 _nameField.defaultTextFormat = new TextFormat("_sans", 24, _theme.TITLE_TEXT_COLOR, true);
-                _nameField.text = "Selfrun";
+                _nameField.text = "Slfrn";
                 _nameField.autoSize = LEFT;
                 _nameField.selectable = false;
                 _nameField.mouseEnabled = false;
@@ -60787,7 +62990,7 @@ enum SidebarPosition
 
 ================================================================================
 // FILE: ui\DeviceCard.hx
-// Lines: 296 | Chars: 11565
+// Lines: 376 | Chars: 15205
 ================================================================================
 
 package ui;
@@ -60804,7 +63007,7 @@ import core.logic.Impulsys;
 import core.logic.EventType;
 
 /**
- * DEVICE CARD v1.1 (Fixed Header Button Interaction)
+ * DEVICE CARD v1.2 (Bare Canvas, Task 159)
  * Card holding a DeviceView inside a DevicePanel or DeviceWindow.
  *
  * Architecture:
@@ -60824,6 +63027,22 @@ import core.logic.EventType;
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
+ * FRAMELESS MODE (v1.2): widgets reporting isFramelessWidget() == true
+ * (PictureWidget "bare canvas") get a PHANTOM card: no title bar, no close
+ * button, no background, fully mouse-transparent (clicks fall through to
+ * the cards underneath). The widget itself owns placement via its atom
+ * contacts (posX/posY always; zOrder through the DevicePanel v3.12
+ * z-system). Removal — by deleting the atom in the editor.
+ *
+ * v1.2 Changes:
+ * - ADDED: frameless phantom mode (buildFramelessCard) — the bare canvas
+ *   contract from DeviceView v1.2 (isFramelessWidget).
+ * - ADDED: zOrder field (1-based slot; the DevicePanel z-system renumbers
+ *   it on every mutation — insert / bring-to-front / remove).
+ * - CHANGED: click-to-front now asks the owner for bringCardToFront()
+ *   first (keeps the panel z numbering honest); legacy owners (e.g.
+ *   DeviceWindow) fall back to the old addChild-to-top.
+ *
  * v1.1 Changes:
  * - FIXED: Close button MOUSE_DOWN now calls stopPropagation() to prevent
  *   the MOUSE_DOWN event from bubbling up to the title bar and starting
@@ -60836,6 +63055,9 @@ class DeviceCard extends Sprite {
     public var atom(default, null):Atom;
     public var cardWidth(default, null):Float = 100;
     public var cardHeight(default, null):Float = 80;
+    /** Panel z-order slot (1-based). Assigned by the DevicePanel z-system
+     *  (reapplyZOrder renumbers on every mutation); readable by widgets. */
+    public var zOrder:Int = 0;
     
     // =========================================================================
     // PRIVATE FIELDS
@@ -60900,6 +63122,16 @@ class DeviceCard extends Sprite {
             createFallbackCard();
             return;
         }
+
+        // FRAMELESS MODE (v1.1, Task 159): widgets that render bare on the
+        // panel (PictureWidget "bare canvas") get a phantom card: no title
+        // bar, no close button, no background, fully mouse-transparent.
+        // The widget owns its placement/geometry via its atom contacts.
+        if (_deviceView.isFramelessWidget())
+        {
+            buildFramelessCard();
+            return;
+        }
         
         // 3. Determine card dimensions based on widget size
         var viewWidth = _deviceView.width;
@@ -60920,7 +63152,7 @@ class DeviceCard extends Sprite {
         
         _titleLabel = new TextField();
         _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 10, 0xFFFFFF);
-		_titleLabel.text = " " + (atom != null ? (atom.displayName != null ? atom.displayName : atom.name) : "Device");
+                _titleLabel.text = " " + (atom != null ? (atom.displayName != null ? atom.displayName : atom.name) : "Device");
         _titleLabel.width = viewWidth;
         _titleLabel.height = 20;
         _titleLabel.selectable = false;
@@ -60969,6 +63201,32 @@ class DeviceCard extends Sprite {
     }
     
     /**
+     * Frameless (phantom) card: the widget IS the face. No chrome, no
+     * dragging, no close — mouse-transparent so clicks fall through to
+     * the cards underneath (pilot decision, Task 158 D4/D5/D6).
+     */
+    private function buildFramelessCard():Void {
+        var viewWidth:Float = _deviceView.width;
+        var viewHeight:Float = _deviceView.height;
+        if (viewWidth < 0) viewWidth = 0;
+        if (viewHeight < 0) viewHeight = 0;
+        
+        cardWidth = viewWidth;
+        cardHeight = viewHeight;
+        
+        // The widget was placed at (0, 20) by moveToDeviceWindow — flatten
+        // it to (0, 0): the bare face starts at the card origin, the card
+        // itself is positioned by the widget's posX/posY mirror.
+        _deviceView.x = 0;
+        _deviceView.y = 0;
+        
+        // Phantom: the card itself never intercepts the mouse
+        this.mouseEnabled = false;
+        this.mouseChildren = false;
+        this.buttonMode = false;
+    }
+    
+    /**
      * Fallback when no widget is available.
      */
     private function createFallbackCard():Void {
@@ -60997,12 +63255,22 @@ class DeviceCard extends Sprite {
         
         if (_owner != null) {
             // Universal call to owner's removeDevice method
-            if (Reflect.hasField(_owner, 'removeDevice')) {
+            // (Reflect.field probe: hasField misses methods on C++)
+            if (Reflect.field(_owner, 'removeDevice') != null) {
                 Reflect.callMethod(_owner, Reflect.field(_owner, 'removeDevice'), [this]);
             }
         }
     }
     
+    /**
+     * Re-apply widget-owned placement (zOrder etc.) — called by the owner
+     * panel AFTER this card is attached, when the widget's own activation
+     * pass was too early to land (see DeviceView.refreshPlacement()).
+     */
+    public function refreshPlacement():Void {
+        if (_deviceView != null) _deviceView.refreshPlacement();
+    }
+
     // =========================================================================
     // DRAG LOGIC
     // =========================================================================
@@ -61015,8 +63283,22 @@ class DeviceCard extends Sprite {
         _mouseStartX = e.stageX;
         _mouseStartY = e.stageY;
         
-        // Bring card to front
-        if (parent != null) parent.addChild(this);
+        // Bring card to front. Preferred route: the panel's z-system
+        // (v3.12 — keeps the zOrder numbering honest); fallback for exotic
+        // owners (DeviceWindow and others): the legacy addChild-to-top.
+        // NOTE: Reflect.hasField() does NOT see class methods on the C++
+        // target — probe with Reflect.field() instead.
+        var raised:Bool = false;
+        if (_owner != null && Reflect.field(_owner, 'bringCardToFront') != null)
+        {
+            try
+            {
+                Reflect.callMethod(_owner, Reflect.field(_owner, 'bringCardToFront'), [this]);
+                raised = true;
+            }
+            catch (e:Dynamic) { /* fall through to legacy */ }
+        }
+        if (!raised && parent != null) parent.addChild(this);
         
         if (stage != null) {
             stage.addEventListener(MouseEvent.MOUSE_MOVE, onCardMouseMove);
@@ -61087,9 +63369,10 @@ class DeviceCard extends Sprite {
     }
 }
 
+
 ================================================================================
 // FILE: ui\DevicePanel.hx
-// Lines: 1437 | Chars: 52707
+// Lines: 1546 | Chars: 56945
 ================================================================================
 
 package ui;
@@ -61196,7 +63479,7 @@ void _dp_registerDragTick(void* inTick) {
 #end
 
 /**
-* DEVICE PANEL v3.9 (Vector Icons + Restore-Before-Drag + Native Drag + Force Render)
+* DEVICE PANEL v3.12 (Vector Icons + Restore-Before-Drag + Native Drag + Force Render + Z-System)
 * Full-size device display panel inside the Main Window.
 *
 * Architecture: "ATOM IS DATABANK & COMPUTE CORE"
@@ -61232,6 +63515,22 @@ void _dp_registerDragTick(void* inTick) {
 * ═══════════════════════════════════════════════════════════════════════════
 * VERSION HISTORY
 * ═══════════════════════════════════════════════════════════════════════════
+*
+* v3.12 Changes:
+* - ADDED: the Z-ORDER SYSTEM (Task 158/159, pilot design). Every card on
+*   the panel carries a 1-based zOrder slot; the _deviceCards array order
+*   IS the z numbering (index i = zOrder i+1). API:
+*     · setCardZOrder(card, z) — INSERT semantics: z>=1 pulls the card to
+*       slot z, widgets below keep their slots, the tail is renumbered
+*       upward one-by-one (the pilot's exact rule); z<=0 = "surface" = the
+*       contact does not manage depth (auto order stays);
+*     · bringCardToFront(card) — the click-to-front route for framed cards
+*       (DeviceCard asks the owner first; legacy owners fall back to
+*       addChild);
+*     · reapplyZOrder() — renumbers 1..N and mirrors the order into the
+*       DisplayList (cards sit right above the panel header).
+*   Consumers: PictureWidget [zOrder] contact (v1.2 bare canvas); future
+*   atoms get the same channel for free.
 *
 * v3.11 Changes:
 * - REMOVED: manual restore-under-cursor block (v3.10) — with real
@@ -61792,6 +64091,16 @@ class DevicePanel extends Sprite
             card.y = pos.y;
         }
 
+        // v3.12: keep the z numbering honest for the newcomer (it is
+        // appended last → topmost slot).
+        reapplyZOrder();
+
+        // The widget activated inside the DeviceCard constructor — before
+        // the card was pushed onto the panel — so its placement pass was
+        // too early. Now that the card is attached and numbered, let the
+        // widget land its zOrder (DeviceView.refreshPlacement hook).
+        card.refreshPlacement();
+
         // Emit save signal when adding a new device
         Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
     }
@@ -61815,7 +64124,89 @@ class DevicePanel extends Sprite
         {
             if (this.contains(card)) removeChild(card);
             card.dispose();
+            reapplyZOrder(); // v3.12: compact the numbering 1..N-1
             Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
+        }
+    }
+
+    // =========================================================================
+    // Z-ORDER SYSTEM (v3.12, Task 158/159 — the pilot's design)
+    // =========================================================================
+
+    /**
+    * The array order IS the z numbering: index i = zOrder i+1.
+    *
+    * INSERT semantics (the pilot's exact rule): setting a widget's zOrder
+    * to 1 makes ALL other widgets get zOrder > 1 in turn; setting it to 3
+    * keeps the widgets with 1 and 2 untouched, places this one at 3, and
+    * renumbers the tail (old 3 becomes 4, old 4 becomes 5, ...). z <= 0
+    * is "the surface itself" — the caller does not manage depth and the
+    * current auto order stays untouched.
+    */
+    public function setCardZOrder(card:DeviceCard, z:Int):Void
+    {
+        if (card == null || z < 1) return;
+        if (_deviceCards.indexOf(card) == -1) return;
+
+        _deviceCards.remove(card);
+
+        var idx:Int = z - 1;
+        if (idx > _deviceCards.length) idx = _deviceCards.length;
+        _deviceCards.insert(idx, card);
+
+        reapplyZOrder();
+    }
+
+    /**
+    * Click-to-front route for framed cards: moves the card to the topmost
+    * slot and renumbers. DeviceCard prefers this over the legacy
+    * addChild-to-top so the numbering never lies.
+    */
+    public function bringCardToFront(card:DeviceCard):Void
+    {
+        if (card == null) return;
+        if (_deviceCards.indexOf(card) == -1) return;
+
+        _deviceCards.remove(card);
+        _deviceCards.push(card);
+
+        reapplyZOrder();
+    }
+
+    /** Current 1-based z slot of the card (0 = not on this panel). */
+    public function getCardZOrder(card:DeviceCard):Int
+    {
+        var idx:Int = _deviceCards.indexOf(card);
+        return (idx == -1) ? 0 : idx + 1;
+    }
+
+    /**
+    * Renumber 1..N and mirror the array order into the DisplayList.
+    * Cards sit right above the panel header (header first, then cards in
+    * z order). O(N) on a few dozen cards — cheap enough per mutation.
+    */
+    private function reapplyZOrder():Void
+    {
+        var base:Int = 1;
+        if (_header != null && this.contains(_header))
+        {
+            try { base = getChildIndex(_header) + 1; } catch (e:Dynamic) { base = 1; }
+        }
+
+        for (i in 0..._deviceCards.length)
+        {
+            var card:DeviceCard = _deviceCards[i];
+            card.zOrder = i + 1;
+            if (!this.contains(card)) continue;
+            try
+            {
+                setChildIndex(card, base + i);
+            }
+            catch (e:Dynamic)
+            {
+                // exotic container state — the array order still rules the
+                // numbering; the visual slot catches up on the next pass
+            }
         }
     }
 
@@ -61924,8 +64315,8 @@ class DevicePanel extends Sprite
         _titleLabel = new TextField();
         _titleLabel.defaultTextFormat = new TextFormat("_typewriter", 12, 0xFFFFFF, true);
         _titleLabel.text = "Device Panel";
-		_titleLabel.x = 7;
-		_titleLabel.y = 7;
+                _titleLabel.x = 7;
+                _titleLabel.y = 7;
         _titleLabel.width = 300;
         _titleLabel.height = 30;
         _titleLabel.selectable = false;
@@ -62530,9 +64921,10 @@ class DevicePanel extends Sprite
 }
 
 
+
 ================================================================================
 // FILE: ui\DeviceWindow.hx
-// Lines: 649 | Chars: 26028
+// Lines: 654 | Chars: 26339
 ================================================================================
 
 package ui;
@@ -62862,6 +65254,11 @@ class DeviceWindow {
             card.x = pos.x;
             card.y = pos.y;
         }
+        // Same reasoning as DevicePanel.addDevice: the widget's placement
+        // pass during activation ran before the card was attached — give it
+        // a correctly-timed retry. (DeviceWindow has no z-system; widgets
+        // with zOrder land an honest no-op here.)
+        card.refreshPlacement();
         trace('DeviceWindow: Added device "${atom.name}" at (${card.x}, ${card.y})');
     }
 
@@ -63910,16 +66307,24 @@ class DeviceButtons
 
 ================================================================================
 // FILE: ui\DisplayMode.hx
-// Lines: 7 | Chars: 84
+// Lines: 15 | Chars: 402
 ================================================================================
 
 // ui/DisplayMode.hx
 package ui;
 
+/**
+ * DISPLAY MODE v1.0
+ * Режим главного окна приложения: EDITOR (графовый редактор) или
+ * DEVICE_PANEL (панель приборов). Управляется Main / DisplayConfig.
+ * ВНИМАНИЕ: живёт ОДНОИМЁННЫЙ enum ui.contextmenu.DisplayMode (визуальный
+ * режим пунктов меню) — известная коллизия имён, кандидат на переименование.
+ */
 enum DisplayMode {
     EDITOR;
     DEVICE_PANEL;
 }
+
 
 ================================================================================
 // FILE: ui\NodeVisualMode.hx
@@ -67652,7 +70057,7 @@ enum WireType {
 
 ================================================================================
 // FILE: utils\Trap.hx
-// Lines: 389 | Chars: 19154
+// Lines: 451 | Chars: 22596
 ================================================================================
 
 package utils;
@@ -67767,9 +70172,23 @@ static LONG WINAPI _altauri_trap_seh_filter(EXCEPTION_POINTERS* ep)
 
 /**
 * ╔═══════════════════════════════════════════════════════════════════════════╗
-* ║                        TRAP v1.5                                          ║
+* ║                        TRAP v1.6                                          ║
 * ║          (Crash-Proof Trace Logger — Episod H-1 «Black Box»)              ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
+* ║                                                                           ║
+* ║                                                                           ║
+* ║  v1.6 (Task 165) — THE SAFETY:                                            ║
+* ║  crash_trap.log grew to 21 MB in days: CONTACT probes dump FULL           ║
+* ║  payloads (audio = hundreds of samples @ 60 Hz), and the NAMES            ║
+* ║  filter ("in"/"out"/"set"/"rst") lets almost every atom through.          ║
+* ║  Fix, without losing the hunting tool:                                    ║
+* ║    - Trap.DATA (default FALSE) gates the payload dumps in Contact.hx;     ║
+* ║      framework events (TRAP/EX/EXIT/LINK/...) always log;                 ║
+* ║    - Trap.shortPayload(v) truncates any dump to DATA_MAX_CHARS            ║
+* ║      (default 160) when DATA is switched back on for a hunt;              ║
+* ║    - Trap.ROTATE_MB (default 5): boot() renames an oversized              ║
+* ║      crash_trap.log to crash_trap_<YYYYMMDD_HHMM>.log — the box           ║
+* ║      starts every flight slim.                                            ║
 * ║                                                                           ║
 * ║  PURPOSE:                                                                 ║
 * ║  stdout on Windows is BUFFERED when the app runs through "lime run"       ║
@@ -67854,6 +70273,26 @@ class Trap
         public static var ENABLE:Bool = true;
 
         /**
+        * v1.6 (Task 165): payload dumps switch. The CONTACT probes in
+        * Contact.hx log the FULL value of every filtered contact; for
+        * audio links that is hundreds of samples @ 60 Hz, which grew the
+        * log to 21 MB in days. false (default) = framework events only
+        * (TRAP/EX/EXIT/LINK/...), the log stays slim. true = payloads are
+        * logged again, truncated to DATA_MAX_CHARS. For hunting sessions.
+        */
+        public static var DATA:Bool = false;
+
+        /** v1.6: max chars of one payload dump when DATA is true. */
+        public static var DATA_MAX_CHARS:Int = 160;
+
+        /**
+        * v1.6: at boot(), if crash_trap.log exceeds this many megabytes
+        * it is renamed crash_trap_<YYYYMMDD_HHMM>.log and a fresh log
+        * starts. 0 = never rotate. Keeps the black box slim for good.
+        */
+        public static var ROTATE_MB:Float = 5;
+
+        /**
         * Contact names that pass the set_value probe filter.
         * Edit per test scenario. Defaults = ComPort grouping test:
         * assembly gateway ports (Com_Port_*), driver's own contacts,
@@ -67879,6 +70318,21 @@ class Trap
 #if (cpp && !ALTAURI_TRAP_OFF)
         private static var _out:sys.io.FileOutput = null;
         private static var _booted:Bool = false;
+
+        /**
+        * v1.6 (Task 165): boot-time rotation. If the previous log grew
+        * beyond ROTATE_MB, move it aside (crash_trap_<stamp>.log) so the
+        * new flight starts on a slim file. Never throws.
+        */
+        private static function _rotateIfNeeded():Void
+        {
+                if (ROTATE_MB <= 0) return;
+                if (!sys.FileSystem.exists("crash_trap.log")) return;
+                var sz:Float = sys.FileSystem.stat("crash_trap.log").size;
+                if (sz <= ROTATE_MB * 1024 * 1024) return;
+                var stamp:String = DateTools.format(Date.now(), "%Y%m%d_%H%M");
+                sys.FileSystem.rename("crash_trap.log", "crash_trap_" + stamp + ".log");
+        }
 #end
         private static var _seq:Int = 0;
 
@@ -67905,6 +70359,7 @@ class Trap
                 _booted = true;
                 try
                 {
+                        _rotateIfNeeded(); // v1.6: keep the black box slim
                         untyped __cpp__('
                                 #ifdef _WIN32
                                 {
@@ -67930,7 +70385,7 @@ class Trap
                                 }
                                 #endif
                         ');
-                        log("TRAP", "v1.5 boot: stderr -> stderr_capture.log, native SEH sentinel armed (Windows)");
+                        log("TRAP", "v1.6 boot: stderr -> stderr_capture.log, native SEH sentinel armed (Windows), DATA=" + (DATA ? "ON" : "off") + ", ROTATE=" + ROTATE_MB + "MB");
                 }
                 catch (e:Dynamic)
                 {
@@ -68004,6 +70459,18 @@ class Trap
                         // Swallow — traps must never break the app.
                 }
 #end
+        }
+
+        /**
+        * v1.6 (Task 165): shrink a payload for the log. With DATA off this
+        * is never called; with DATA on, dumps longer than DATA_MAX_CHARS
+        * keep their head and report how much was omitted.
+        */
+        public static function shortPayload(v:Dynamic):String
+        {
+                var s:String = Std.string(v);
+                if (DATA_MAX_CHARS <= 0 || s.length <= DATA_MAX_CHARS) return s;
+                return s.substr(0, DATA_MAX_CHARS) + "...(+" + (s.length - DATA_MAX_CHARS) + " chars)";
         }
 
         /**

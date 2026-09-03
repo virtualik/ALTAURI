@@ -34,13 +34,13 @@ import openfl.Lib;
  *  ┌─────────────────────────────────────────────────────────────────────┐
  *  │  Main.hx (owns lime.ui.Window + WindowController)                   │
  *  │        ▲ callbacks                     │ delegates                  │
- *  │        │                               ▼                             │
+ *  │        │                               ▼                            │
  *  │  ┌───────────────────────────────────────────────────────────────┐  │
  *  │  │  TitleBar (Sprite, 30px, child of Main._uiLayer)              │  │
  *  │  │                                                               │  │
  *  │  │  [ Selfrun / assembly name ... ]   [?][R][N][V][E][<][-][□][X]│  │
- *  │  │    ▲ drag zone (whole bar)        └─Main 40×40─┘ └vector 28×26┘│  │
- *  │  │                                    (addControlButton)  (native) │  │
+ *  │  │    ▲ drag zone (whole bar)        └─Main 40×40─┘ └vector 28×26┘│ │
+ *  │  │                                    (addControlButton)  (native)│ │
  *  │  └───────────────────────────────────────────────────────────────┘  │
  *  └─────────────────────────────────────────────────────────────────────┘
  *
@@ -116,7 +116,7 @@ class TitleBar extends Sprite
     // =========================================================================
 
     /** Fixed bar height. Matches DevicePanel header height (DisplayConfig.headerHeight). */
-    public static inline var BAR_HEIGHT:Float = 30;
+    public static inline var BAR_HEIGHT:Float = 44;
 
     /** Bar background color — matches DevicePanel header (0x2a2a34) for
         consistent chrome across Editor and Device modes. */

@@ -1587,47 +1587,53 @@ class Main extends Sprite
 
                 _popup = new TextInputPopup();
                 addChild(_popup);
-// Registration order matters: [X] first (rightmost), then <, E, V, N, R, ? —
-// TitleBar places them right-to-left AFTER the native [-][□] pair:
-// [ Selfrun ... ]                   [?][R][N][V][E][<]   [-]    [□]    [X]
-//  └ drag zone ┘                   └──── Main 40×40 ──┘└28×26┘└28×26┘└40×40┘
-                _btnClose = new ButtonComponent("X", onCloseClicked);
-                _btnClose.x = startX - btnSize; _btnClose.y = startY;
-                _titleBar.addControlButton(_btnClose);
+				
+				// Registration order matters: [X] first (rightmost), then <, E, DEVICE, ASSEMBLY,
+				// RESET, SETTINGS, EXPORT — TitleBar places them right-to-left AFTER the native
+				// [-][□] pair. Button widths are auto-sized by ButtonComponent.applyLabel();
+				// TitleBar.setSize() reads btn.width and packs the row right-to-left.
+				// [ Selfrun ... ]   [EXPORT][SETTINGS][RESET][ASSEMBLY][DEVICE][E][<]  [-]  [□]  [X]
+				_btnClose = new ButtonComponent("X", onCloseClicked);
+				_btnClose.x = startX - btnSize; _btnClose.y = startY;
+				_titleBar.addControlButton(_btnClose);
 
-                _btnBack = new ButtonComponent("<", onBackClicked);
-                _btnBack.x = _btnClose.x - btnSize - btnPadding; _btnBack.y = startY;
-                _titleBar.addControlButton(_btnBack);
+				_btnBack = new ButtonComponent("< BACK", onBackClicked);
+				_btnBack.x = _btnClose.x - btnSize - btnPadding; _btnBack.y = startY;
+				_titleBar.addControlButton(_btnBack);
 
-                _btnDelete = new ButtonComponent("E", onDeleteCurrentAssembly);
-                _btnDelete.x = _btnBack.x - btnSize - btnPadding; _btnDelete.y = startY;
-                _titleBar.addControlButton(_btnDelete);
+				// ⚠️ [E] = Delete current assembly. Не переименован — оставлен как есть.
+				//     Если хочешь, можно сделать "DELETE" — скажи, и я подправлю.
+				_btnDelete = new ButtonComponent("E", onDeleteCurrentAssembly);
+				_btnDelete.x = _btnBack.x - btnSize - btnPadding; _btnDelete.y = startY;
+				_titleBar.addControlButton(_btnDelete);
 
-                _btnView = new ButtonComponent("V", onToggleView);
-                _btnView.x = _btnDelete.x - btnSize - btnPadding; _btnView.y = startY;
-                _titleBar.addControlButton(_btnView);
+				_btnView = new ButtonComponent("DEVICE", onToggleView);
+				_btnView.x = _btnDelete.x - btnSize - btnPadding; _btnView.y = startY;
+				_titleBar.addControlButton(_btnView);
 
-                _btnNew = new ButtonComponent("N", onNewAssembly);
-                _btnNew.x = _btnView.x - btnSize - btnPadding; _btnNew.y = startY;
-                _titleBar.addControlButton(_btnNew);
+				_btnNew = new ButtonComponent("ASSEMBLY", onNewAssembly);
+				_btnNew.x = _btnView.x - btnSize - btnPadding; _btnNew.y = startY;
+				_titleBar.addControlButton(_btnNew);
 
-                _btnReset = new ButtonComponent("R", onResetClick);
-                _btnReset.x = _btnNew.x - btnSize - btnPadding; _btnReset.y = startY;
-                _titleBar.addControlButton(_btnReset);
+				_btnReset = new ButtonComponent("RESET", onResetClick);
+				_btnReset.x = _btnNew.x - btnSize - btnPadding; _btnReset.y = startY;
+				_titleBar.addControlButton(_btnReset);
 
-                _btnSettings = new ButtonComponent("?", onSettingsClick);
-                _btnSettings.x = _btnReset.x - btnSize - btnPadding; _btnSettings.y = startY;
-                 _titleBar.addControlButton(_btnSettings);
+				_btnSettings = new ButtonComponent("SETTINGS", onSettingsClick);
+				_btnSettings.x = _btnReset.x - btnSize - btnPadding; _btnSettings.y = startY;
+				_titleBar.addControlButton(_btnSettings);
 
-// Этап 3 (Task 137): [P] Export — ряд: [P][?][R][N][V][E][<]. Клепает Device.exe
-// из ТЕКУЩЕЙ схемы и библиотеки (сохранение — внутри обработчика onExportClick).
-                _btnExport = new ButtonComponent("P", onExportClick);
-                _btnExport.x = _btnSettings.x - btnSize - btnPadding; _btnExport.y = startY;
-                _titleBar.addControlButton(_btnExport);
+				// Этап 3 (Task 137): [EXPORT] — клепает Device.exe из текущей схемы и библиотеки.
+				// Ряд: [EXPORT][SETTINGS][RESET][ASSEMBLY][DEVICE][E][<]
+				// v2: убран +20 по Y — кнопка теперь в одном ряду с остальными, ширина авто.
+				_btnExport = new ButtonComponent("EXPORT", onExportClick);
+				_btnExport.x = _btnSettings.x - btnSize - btnPadding;
+				_btnExport.y = startY;
+				_titleBar.addControlButton(_btnExport);
 
                 _nameField = new TextField();
                 _nameField.defaultTextFormat = new TextFormat("_sans", 24, _theme.TITLE_TEXT_COLOR, true);
-                _nameField.text = "Selfrun";
+                _nameField.text = "Slfrn";
                 _nameField.autoSize = LEFT;
                 _nameField.selectable = false;
                 _nameField.mouseEnabled = false;

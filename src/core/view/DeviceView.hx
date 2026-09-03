@@ -192,6 +192,24 @@ class DeviceView extends Sprite
         {
 // Override me
         }
+        /**
+        * Re-apply panel-level placement (zOrder etc.) when the owning card
+        * is already attached to its panel.
+        *
+        * WHY THIS EXISTS: widgets are activated from the DeviceCard
+        * constructor, BEFORE the panel pushes the card into its device list
+        * (addDevice: new DeviceCard(...) → push → addChild). Any placement
+        * done during onActivate() silently misses (no parent, not in the
+        * panel's card list yet). The panel calls this hook AFTER the card
+        * is fully attached, so widgets that own their placement get one
+        * clean, correctly-timed pass.
+        *
+        * Default: no-op — widgets without panel placement ignore it.
+        */
+        public function refreshPlacement():Void
+        {
+// Override in widgets that manage their own card placement
+        }
         
 // =========================================================================
 // MOUSE EVENT ISOLATION (v3.4)

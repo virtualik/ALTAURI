@@ -718,6 +718,12 @@ class DevicePanel extends Sprite
         // appended last → topmost slot).
         reapplyZOrder();
 
+        // The widget activated inside the DeviceCard constructor — before
+        // the card was pushed onto the panel — so its placement pass was
+        // too early. Now that the card is attached and numbered, let the
+        // widget land its zOrder (DeviceView.refreshPlacement hook).
+        card.refreshPlacement();
+
         // Emit save signal when adding a new device
         Impulsys.quickEmit(EventType.DEVICE_WINDOW_CHANGED);
     }

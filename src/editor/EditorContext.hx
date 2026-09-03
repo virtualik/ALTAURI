@@ -237,7 +237,7 @@ import core.logic.TickGenerator;
 *  ║    └─ refreshAssemblyViews                                       ║
 *  ║  unlockTopology()                                                ║
 *  ║    ├─ flush _deferredTopologyTasks (graph is WHOLE now)          ║
-*  ║    ├─ quickEmit(REDRAW_WIRES)                                   ║
+*  ║    ├─ quickEmit(REDRAW_WIRES)                                    ║
 *  ║    └─ resume process()                                           ║
 *  ╚══════════════════════════════════════════════════════════════════╝
 *

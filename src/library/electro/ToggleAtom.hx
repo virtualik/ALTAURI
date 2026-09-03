@@ -99,13 +99,13 @@ class ToggleAtom extends Atom
      */
     override public function onContactChanged(c:Contact):Void
     {
-        if (_isScheduled || _isDisposed) return;
-        
-        var rstContact = getInput("rst");
-        var setContact = getInput("set");
+        if (_isDisposed) return;
+
         var zOrderContact = getInput("zOrder");
-        
-        // Handle zOrder contact - mirror contact value to atom state (Picture pattern)
+
+        // Handle zOrder contact FIRST and OUTSIDE the _isScheduled guard:
+        // it is UI placement, not logic — a scheduler-frozen atom must
+        // still mirror its stacking order or the restored z is lost.
         if (c == zOrderContact && c != null)
         {
             if (c.value != null)
@@ -116,6 +116,11 @@ class ToggleAtom extends Atom
             super.onContactChanged(c);
             return;
         }
+
+        if (_isScheduled) return;
+
+        var rstContact = getInput("rst");
+        var setContact = getInput("set");
         
         if (rstContact == null && setContact == null)
         {

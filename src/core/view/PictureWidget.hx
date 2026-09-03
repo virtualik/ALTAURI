@@ -755,7 +755,12 @@ class PictureWidget extends DeviceView
             _decodeTrace.push("D:threw:" + briefOf(e));
         }
 
-        // ── Path E: temp-file roundtrip (native only; no litter) ──
+        // ── Path E: temp-file roundtrip (sys targets only) ──
+        // Sys.* and sys.io.File are unavailable on html5/flash; on those
+        // targets Path E is skipped entirely and decode falls back to
+        // Path F (or returns null). Path E is the last-resort native
+        // codec roundtrip and only makes sense where a filesystem exists.
+        #if sys
         var tmpPath:String = tempPicturePath(kind);
         if (tmpPath == null)
         {
@@ -799,7 +804,9 @@ class PictureWidget extends DeviceView
                 _decodeTrace.push("E:threw:" + briefOf(e));
             }
         }
-
+        #else
+        _decodeTrace.push("E:skip:non-sys");
+        #end
         return null;
     }
 
@@ -835,63 +842,59 @@ class PictureWidget extends DeviceView
         return s;
     }
 
-    /**
-     * A temp path for the native file-roundtrip decode (Path E):
-     * <tmpdir>/altauri_picture_<atomId>.<ext>. kind picks the extension
-     * (cosmetic — lime sniffs the magic bytes, not the name).
-     */
-    private function tempPicturePath(kind:String):String
-    {
-        var dir:String = null;
-        try
-        {
-            dir = Sys.getEnv("TEMP");
-            if (dir == null) dir = Sys.getEnv("TMP");
-            if (dir == null) dir = Sys.getEnv("TMPDIR");
-        }
-        catch (e:Dynamic)
-        {
-            dir = null;
-        }
-        if (dir == null || dir == "") dir = "./";
-        if (!StringTools.endsWith(dir, "/") && !StringTools.endsWith(dir, "\\")) dir += "/";
+	/**
+	 * A temp path for the native file-roundtrip decode (Path E):
+	 * <tmpdir>/altauri_picture_<atomId>.<ext>. kind picks the extension
+	 * (cosmetic — lime sniffs the magic bytes, not the name).
+	 *
+	 * NOTE: Sys.* is available on sys targets (cpp/neko/php/python/hl/lua)
+	 * but NOT on html5 (js) or flash. On non-sys targets we return an empty
+	 * string: callers MUST guard Path E usage with #if sys so the roundtrip
+	 * is skipped entirely in the browser (use openfl.Assets / BitmapData
+	 * path instead — Path A/B/C, whichever the widget already supports).
+	 */
+	private function tempPicturePath(kind:String):String
+	{
+		var dir:String = "./";
 
-        var safeId:String = "x";
-        if (atom != null && atom.id != null)
-        {
-            safeId = "";
-            for (i in 0...atom.id.length)
-            {
-                var ch:String = atom.id.charAt(i);
-                var okCh:Bool = (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z")
-                    || (ch >= "0" && ch <= "9") || ch == "_" || ch == "-";
-                safeId += okCh ? ch : "_";
-            }
-        }
+		#if sys
+		try
+		{
+			var t:String = Sys.getEnv("TEMP");
+			if (t == null) t = Sys.getEnv("TMP");
+			if (t == null) t = Sys.getEnv("TMPDIR");
+			if (t != null && t != "") dir = t;
+		}
+		catch (e:Dynamic)
+		{
+			// keep dir = "./"
+		}
+		#end
 
-        var ext:String = switch (kind)
-        {
-            case "png": ".png";
-            case "jpeg": ".jpg";
-            case "bmp": ".bmp";
-            default: ".img";
-        }
-        return dir + "altauri_picture_" + safeId + ext;
-    }
+		if (!StringTools.endsWith(dir, "/") && !StringTools.endsWith(dir, "\\")) dir += "/";
 
-    /** Best-effort temp file removal (Path E hygiene — decode or not). */
-    private static function deleteQuietly(path:String):Void
-    {
-        try
-        {
-            var fs:Dynamic = Type.resolveClass("sys.FileSystem");
-            if (fs != null) Reflect.callMethod(fs, Reflect.field(fs, "deleteFile"), [path]);
-        }
-        catch (e:Dynamic)
-        {
-            // best effort — a stale temp file is not worth a fault
-        }
-    }
+		var safeId:String = "x";
+		if (atom != null && atom.id != null)
+		{
+			safeId = "";
+			for (i in 0...atom.id.length)
+			{
+				var ch:String = atom.id.charAt(i);
+				var okCh:Bool = (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z")
+					|| (ch >= "0" && ch <= "9") || ch == "_" || ch == "-";
+				safeId += okCh ? ch : "_";
+			}
+		}
+
+		var ext:String = switch (kind)
+		{
+			case "png": ".png";
+			case "jpeg": ".jpg";
+			case "bmp": ".bmp";
+			default: ".img";
+		}
+		return dir + "altauri_picture_" + safeId + ext;
+	}
 
     private function disposeBitmap():Void
     {
@@ -1040,23 +1043,36 @@ class PictureWidget extends DeviceView
         Reflect.setProperty(card, "x", _tPosX);
         Reflect.setProperty(card, "y", _tPosY);
 
+        // Apply zOrder only if changed (dedupe guard - Picture pattern)
         if (_tZOrder >= 1 && _tZOrder != _appliedZ)
         {
-            _appliedZ = _tZOrder;
             var panel:Dynamic = Reflect.getProperty(card, "parent");
-            if (panel != null && Reflect.hasField(panel, "setCardZOrder"))
+            // NOTE: Reflect.hasField() does NOT see class methods on the C++
+            // target — probe with Reflect.field() instead.
+            var setZ:Dynamic = panel != null ? Reflect.field(panel, "setCardZOrder") : null;
+            // Panel not ready yet (the card is attached after the widget's
+            // activation pass) — leave the guard unconsumed so the panel's
+            // refreshPlacement() hook can re-apply later.
+            if (setZ == null) return;
+
+            _appliedZ = _tZOrder;
+            try
             {
-                try
-                {
-                    Reflect.callMethod(panel, Reflect.field(panel, "setCardZOrder"), [card, _tZOrder]);
-                }
-                catch (e:Dynamic)
-                {
-                    // exotic owner (e.g. DeviceWindow without the z-system) —
-                    // honest no-op: the depth stays auto there
-                }
+                Reflect.callMethod(panel, setZ, [card, _tZOrder]);
+            }
+            catch (e:Dynamic)
+            {
+                // exotic owner (e.g. DeviceWindow without the z-system) —
+                // honest no-op: the depth stays auto there
             }
         }
+    }
+
+    // Panel calls this after the card is attached — the correctly-timed
+    // pass that onActivate() could not complete (see DeviceView hook).
+    override public function refreshPlacement():Void
+    {
+        applyCardPlacement();
     }
 
     // =========================================================================

@@ -99,7 +99,7 @@ class ToggleWidget extends DeviceView
         }
     }
 
-    override private function onActivate():Void 
+    override private function onActivate():Void
     {
         findContacts();
         // Activation reads the DATABANK (Picture pattern): restored zOrder
@@ -109,6 +109,8 @@ class ToggleWidget extends DeviceView
             _tZOrder = cast(atom, ToggleAtom).getZOrder();
         }
         syncTransformMirror(); // live contact value wins if already driven
+        var wz:Int = readWireZOrder();
+        if (wz >= 1) _tZOrder = wz; // wire source is the authority
         applyCardPlacement();
         updateVisual();
     }
@@ -267,23 +269,65 @@ class ToggleWidget extends DeviceView
         if (card == null || !Std.isOfType(card, DeviceCard)) return;
 
         // Apply zOrder only if changed (dedupe guard - Picture pattern)
-        if (_tZOrder >= 1 && _tZOrder != _appliedZ)
+        if (_tZOrder < 1 || _tZOrder == _appliedZ) return;
+
+        var panel:Dynamic = Reflect.getProperty(card, "parent");
+        // NOTE: Reflect.hasField() does NOT see class methods on the C++
+        // target — probe with Reflect.field() instead.
+        var setZ:Dynamic = panel != null ? Reflect.field(panel, "setCardZOrder") : null;
+        // Panel not ready yet (the card is attached after the widget's
+        // activation pass) — leave the guard unconsumed so the panel's
+        // refreshPlacement() hook can re-apply later.
+        if (setZ == null) return;
+
+        _appliedZ = _tZOrder;
+        try
         {
-            _appliedZ = _tZOrder;
-            var panel:Dynamic = Reflect.getProperty(card, "parent");
-            if (panel != null && Reflect.hasField(panel, "setCardZOrder"))
+            Reflect.callMethod(panel, setZ, [card, _tZOrder]);
+        }
+        catch (e:Dynamic)
+        {
+            // exotic owner (e.g. DeviceWindow without the z-system) -
+            // honest no-op: the depth stays auto there
+        }
+    }
+
+    // Panel calls this after the card is attached — the correctly-timed
+    // pass that onActivate() could not complete (see DeviceView hook).
+    override public function refreshPlacement():Void
+    {
+        // The wire source is the authoritative number: reconstruction may
+        // have zeroed the atom/contact mirrors with a stale initial push.
+        var wz:Int = readWireZOrder();
+        if (wz >= 1) _tZOrder = wz;
+        applyCardPlacement();
+    }
+
+    /**
+     * Read zOrder straight from the wire: the OUTPUT contacts linked to
+     * our zOrder input carry the source atom's current value (e.g. a
+     * TextInput driving zOrder). Falls back to our own contact value.
+     * Returns -1 when nothing usable is on the wire.
+     */
+    private function readWireZOrder():Int
+    {
+        if (_zOrderContact == null) return -1;
+        var lt:Array<Contact> = Reflect.field(_zOrderContact, "linkedTargets");
+        if (lt != null)
+        {
+            for (src in lt)
             {
-                try
-                {
-                    Reflect.callMethod(panel, Reflect.field(panel, "setCardZOrder"), [card, _tZOrder]);
-                }
-                catch (e:Dynamic)
-                {
-                    // exotic owner (e.g. DeviceWindow without the z-system) -
-                    // honest no-op: the depth stays auto there
-                }
+                if (src == null || src.isDisposed) continue;
+                var f:Float = Std.parseFloat(Std.string(src.value));
+                if (!Math.isNaN(f) && Math.isFinite(f) && f >= 1) return Math.round(f);
             }
         }
+        if (_zOrderContact.value != null)
+        {
+            var f2:Float = Std.parseFloat(Std.string(_zOrderContact.value));
+            if (!Math.isNaN(f2) && Math.isFinite(f2) && f2 >= 1) return Math.round(f2);
+        }
+        return -1;
     }
 
     private function isDeviceMode():Bool

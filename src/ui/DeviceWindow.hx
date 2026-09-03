@@ -325,6 +325,11 @@ class DeviceWindow {
             card.x = pos.x;
             card.y = pos.y;
         }
+        // Same reasoning as DevicePanel.addDevice: the widget's placement
+        // pass during activation ran before the card was attached — give it
+        // a correctly-timed retry. (DeviceWindow has no z-system; widgets
+        // with zOrder land an honest no-op here.)
+        card.refreshPlacement();
         trace('DeviceWindow: Added device "${atom.name}" at (${card.x}, ${card.y})');
     }
 
