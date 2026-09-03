@@ -810,6 +810,26 @@ class PictureWidget extends DeviceView
         return null;
     }
 
+	/**
+	 * Best-effort temp file removal (Path E hygiene — decode or not).
+	 *
+	 * Uses Type.resolveClass() so the body compiles unchanged on every
+	 * target. On non-sys platforms (html5/flash) resolveClass returns
+	 * null and the call is a no-op; no #if guard needed.
+	 */
+	private static function deleteQuietly(path:String):Void
+	{
+		try
+		{
+			var fs:Dynamic = Type.resolveClass("sys.FileSystem");
+			if (fs != null) Reflect.callMethod(fs, Reflect.field(fs, "deleteFile"), [path]);
+		}
+		catch (e:Dynamic)
+		{
+			// best effort — a stale temp file is not worth a fault
+		}
+	}
+	
     // ── Decode gateway helpers ───────────────────────────────────────────
 
     /** Call a codec entry point dynamically; a throw is the path's business. */
