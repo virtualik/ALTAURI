@@ -9,3 +9,6 @@ databank/fonts/
 # Lime cache
 .lime/
 ALTAURI.hxproj
+
+# Sensitive - local only, never commit (entire folder)
+databank/
