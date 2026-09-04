@@ -4,13 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ATOMICA — A Different Way to Think</title>
-	
-	<!-- No Cache this page -->
-	<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">	
 
-    <meta name="description" content="ALTAURI is an operating environment for executing computational graphs. The program is not written, it is assembled.">
+    <!-- No Cache this page -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+
+    <meta name="description" content="ALTAURI is an open-source execution environment for computational graphs. The program is not written — it is assembled. Available for Windows, Linux, Android, and HTML5.">
+    <meta name="keywords" content="ALTAURI, ATOMICA, visual programming, computational graph, open source, AGPLv3, NGI, NLnet, WebSocket Atom, distributed computing">
     <link rel="stylesheet" href="css/main.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -41,26 +42,450 @@
             position: relative;
             z-index: 1;
         }
-        .manifesto-quote span {
-            color: #818cf8;
-        }
-        .contrast-section {
-            background-color: #0f172a;
-            color: #e2e8f0;
-        }
+        .manifesto-quote span { color: #818cf8; }
+        .contrast-section { background-color: #0f172a; color: #e2e8f0; }
         .contrast-section .section-title,
-        .contrast-section .section-subtitle {
-            color: #f8fafc;
-        }
+        .contrast-section .section-subtitle { color: #f8fafc; }
         .contrast-card {
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
-        .contrast-card h3 {
-            color: #818cf8;
+        .contrast-card h3 { color: #818cf8; }
+        .contrast-card p { color: #cbd5e1; }
+
+        /* ====================================================================
+           ACCORDION (shared between download + nested demo modules)
+           ==================================================================== */
+        .accordion-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 2rem;
         }
-        .contrast-card p {
+        .accordion-item {
+            flex: 0 0 auto;
+            border-radius: var(--radius-lg, 12px);
+            background: var(--color-surface, #ffffff);
+            border: 1.5px solid var(--color-border, #e2e8f0);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            transition:
+                flex 0.55s cubic-bezier(0.25, 1, 0.5, 1),
+                box-shadow 0.35s ease,
+                border-color 0.35s ease;
+            will-change: flex;
+        }
+        .accordion-item:hover:not(.is-active) {
+            border-color: #c7d2fe;
+            box-shadow: 0 2px 8px rgba(79, 70, 229, 0.06);
+        }
+        .accordion-item.is-active {
+            border-color: var(--color-accent, #4f46e5);
+            box-shadow:
+                0 8px 24px rgba(79, 70, 229, 0.12),
+                0 2px 8px rgba(79, 70, 229, 0.06);
+        }
+
+        .accordion-header {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1.25rem 1.5rem;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            text-align: left;
+            font-family: inherit;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--color-text-primary, #0f172a);
+            gap: 1rem;
+            transition: color 0.3s ease;
+            scroll-margin-top: 100px;
+            width: 100%;
+        }
+        .accordion-header:hover { color: var(--color-accent, #4f46e5); }
+        .accordion-item.is-active .accordion-header { color: var(--color-accent, #4f46e5); }
+        .accordion-title {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .accordion-icon {
+            flex-shrink: 0;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background: var(--color-accent-light, #eef2ff);
+            color: var(--color-accent, #4f46e5);
+            font-size: 1.25rem;
+            font-weight: 300;
+            line-height: 1;
+            transition: transform 0.45s cubic-bezier(0.25, 1, 0.5, 1),
+                        background 0.3s ease;
+            user-select: none;
+        }
+        .accordion-item.is-active .accordion-icon {
+            transform: rotate(45deg);
+            background: var(--color-accent, #4f46e5);
+            color: #ffffff;
+        }
+        .accordion-content {
+            height: 0;
+            overflow: hidden;
+            opacity: 0;
+            padding: 0 1.5rem;
+            transform: translateY(-8px);
+            transition:
+                height 0.45s cubic-bezier(0.25, 1, 0.5, 1),
+                opacity 0.35s ease 0.08s,
+                transform 0.35s ease 0.08s,
+                padding 0.35s ease;
+            pointer-events: none;
+        }
+        .accordion-item.is-active .accordion-content {
+            height: auto;
+            flex: 1 1 0%;
+            min-height: 0;
+            opacity: 1;
+            transform: translateY(0);
+            padding: 0 1.5rem 1.5rem;
+            pointer-events: auto;
+        }
+        .accordion-inner {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ====================================================================
+           HERO — background image + SVG graph overlay + intro text
+           Structure (bottom-up):
+             Layer 0: Earth_EU_Dawn.png as CSS background-image (cover)
+             Layer 1: dot grid (subtle, GitHub-style)
+             Layer 2: SVG nodes + edges (decorative, breathing animation)
+             Layer 3: dark gradient overlay for text contrast
+             Layer 4: hero content (title, subtitle, buttons)
+           ==================================================================== */
+        .hero {
+            position: relative;
+            overflow: hidden;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 6rem 0;
+            text-align: center;
+            background-color: #0a0a14;
+            background-image: url('Earth_EU_Dawn.png');
+            background-size: cover;
+            background-position: center top;
+            background-repeat: no-repeat;
+        }
+        /* Dot grid layer — covers entire hero */
+        .hero-bg-dots {
+            position: absolute;
+            inset: 0;
+            background-image: radial-gradient(circle, rgba(165, 180, 252, 0.20) 1px, transparent 1.4px);
+            background-size: 32px 32px;
+            background-position: 0 0;
+            pointer-events: none;
+            z-index: 1;
+            /* Fade dots out at edges so center stays clean */
+            mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+            -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+        }
+        /* SVG graph layer — decorative atoms + edges */
+        .hero-bg-graph {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 2;
+            opacity: 1;
+        }
+        .hero-bg-graph .edge {
+            stroke: rgba(255, 255, 255, 0.75);
+            stroke-width: 1.6;
+            fill: none;
+            stroke-dasharray: 5 7;
+            animation: dash-flow 18s linear infinite;
+            filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.4));
+        }
+        .hero-bg-graph .node-major {
+            filter: drop-shadow(0 0 10px currentColor) drop-shadow(0 0 4px currentColor);
+            animation: node-pulse-major 5.5s ease-in-out infinite;
+            transform-origin: center;
+            transform-box: fill-box;
+        }
+        .hero-bg-graph .node-minor {
+            filter: drop-shadow(0 0 6px currentColor);
+            animation: node-pulse-minor 4s ease-in-out infinite;
+            transform-origin: center;
+            transform-box: fill-box;
+        }
+        .hero-bg-graph .node-tiny {
+            filter: drop-shadow(0 0 4px currentColor);
+            animation: node-pulse-tiny 3s ease-in-out infinite;
+            transform-origin: center;
+            transform-box: fill-box;
+        }
+        @keyframes dash-flow {
+            to { stroke-dashoffset: -200; }
+        }
+        @keyframes node-pulse-major {
+            0%, 100% { transform: scale(1); opacity: 0.95; }
+            50%      { transform: scale(1.22); opacity: 1; }
+        }
+        @keyframes node-pulse-minor {
+            0%, 100% { transform: scale(1); opacity: 0.85; }
+            50%      { transform: scale(1.15); opacity: 1; }
+        }
+        @keyframes node-pulse-tiny {
+            0%, 100% { transform: scale(1); opacity: 0.75; }
+            50%      { transform: scale(1.1); opacity: 1; }
+        }
+        /* Dark gradient overlay — reduced by ~50% so the Europe image
+           shines through. Only enough to keep the title legible. */
+        .hero-bg-veil {
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(180deg,
+                    rgba(10, 10, 20, 0.45) 0%,
+                    rgba(10, 10, 20, 0.20) 35%,
+                    rgba(10, 10, 20, 0.20) 65%,
+                    rgba(10, 10, 20, 0.45) 100%);
+            pointer-events: none;
+            z-index: 3;
+        }
+        /* Hero content sits on top of everything */
+        .hero .container {
+            position: relative;
+            z-index: 4;
+        }
+        /* Text colors flipped to light-on-dark */
+        .hero-title {
+            color: #f8fafc;
+            text-shadow: 0 2px 20px rgba(0, 0, 0, 0.6);
+        }
+        .hero-subtitle {
             color: #cbd5e1;
+            text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7);
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .hero-bg-graph .edge,
+            .hero-bg-graph .node-major,
+            .hero-bg-graph .node-minor,
+            .hero-bg-graph .node-tiny {
+                animation: none;
+            }
+        }
+        @media (max-width: 768px) {
+            .hero {
+                background-attachment: scroll;   /* fixed breaks on mobile */
+                padding: 4rem 0;
+            }
+            .hero-bg-graph { opacity: 0.5; }
+            .hero-bg-dots  { background-size: 24px 24px; }
+        }
+
+        /* ====================================================================
+           NESTED ACCORDION (demo modules inside HTML5 download item)
+           ==================================================================== */
+        .nested-accordion {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 1rem;
+            /* Fixed height so nested demo modules have vertical space to render
+               the OpenFL runtime canvas. Without this, clientHeight=0 and
+               lime.embed() cannot size the canvas. */
+            height: 70vh;
+            min-height: 500px;
+        }
+        .nested-accordion .accordion-item {
+            border-radius: var(--radius-md, 8px);
+            border-width: 1px;
+        }
+        .nested-accordion .accordion-header {
+            padding: 0.9rem 1.25rem;
+            font-size: 0.95rem;
+        }
+        .nested-accordion .accordion-icon {
+            width: 24px;
+            height: 24px;
+            font-size: 1.1rem;
+        }
+        .nested-accordion .accordion-content {
+            padding: 0 1.25rem;
+        }
+        .nested-accordion .accordion-item.is-active .accordion-content {
+            padding: 0 1.25rem 1.25rem;
+        }
+        .nested-accordion .accordion-item.is-active {
+            flex: 1 1 0%;   /* active demo takes remaining space inside nested-accordion */
+        }
+
+        /* ====================================================================
+           RUNTIME CONTAINER (inside nested demo modules)
+           ==================================================================== */
+        .runtime-container {
+            flex: 1 1 0%;
+            min-height: 0;
+            background: #1a1a2e;
+            border-radius: var(--radius-md, 8px);
+            overflow: hidden;
+            position: relative;
+        }
+        .runtime-container > div,
+        .runtime-container canvas {
+            width: 100% !important;
+            height: 100% !important;
+            max-width: 100% !important;
+            max-height: 100% !important;
+            display: block !important;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+        }
+        .runtime-container[data-initialized="false"]::after {
+            content: 'Runtime will initialize on first open';
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.35);
+            font-family: var(--font-main, 'Inter', sans-serif);
+        }
+
+        /* ====================================================================
+           DEMO DESCRIPTIONS + DOWNLOAD HINTS
+           ==================================================================== */
+        .demo-description {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            white-space: nowrap;
+            margin-bottom: 0.75rem;
+        }
+        .demo-description .download-block {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .demo-description .download-block a {
+            text-decoration: none;
+            font-size: 1.2rem;
+            transition: transform 0.2s;
+        }
+        .demo-description .download-block a:hover { transform: scale(1.2); }
+
+        .download-hint {
+            margin-top: 1.5rem;
+            padding: 1rem 1.25rem;
+            background: var(--color-accent-light);
+            border-radius: var(--radius-md);
+            border-left: 3px solid var(--color-accent);
+            font-size: 0.9rem;
+            color: var(--color-text-primary);
+            line-height: 1.6;
+        }
+        .download-hint a {
+            color: var(--color-accent);
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .download-hint a:hover { text-decoration: underline; }
+
+        /* ====================================================================
+           DOWNLOAD PLATFORM CARDS
+           ==================================================================== */
+        .platform-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+        .platform-card {
+            background: var(--color-bg);
+            border: 1.5px solid var(--color-border);
+            border-radius: var(--radius-lg);
+            padding: 1.5rem;
+            text-align: center;
+            transition: transform 0.3s, box-shadow 0.3s, border-color 0.3s;
+            text-decoration: none;
+            color: var(--color-text-primary);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .platform-card:hover {
+            transform: translateY(-5px);
+            box-shadow: var(--shadow-md);
+            border-color: var(--color-accent);
+        }
+        .platform-icon { font-size: 3rem; line-height: 1; }
+        .platform-name {
+            font-size: 1.125rem;
+            font-weight: 700;
+            color: var(--color-text-primary);
+        }
+        .platform-meta {
+            font-size: 0.85rem;
+            color: var(--color-text-secondary);
+        }
+        .platform-button {
+            margin-top: 0.5rem;
+            display: inline-block;
+            padding: 0.5rem 1.25rem;
+            background: var(--color-accent);
+            color: white;
+            border-radius: var(--radius-md);
+            font-size: 0.875rem;
+            font-weight: 600;
+            transition: background 0.2s;
+            text-decoration: none;
+        }
+        .platform-card:hover .platform-button,
+        .platform-button:hover { background: var(--color-accent-hover); }
+
+        /* ====================================================================
+           FOOTER UPDATES — license + source link
+           ==================================================================== */
+        .footer-license {
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--color-border);
+            font-size: 0.85rem;
+            color: var(--color-text-secondary);
+            line-height: 1.7;
+            max-width: 900px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .footer-license a {
+            color: var(--color-accent);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .footer-license a:hover { text-decoration: underline; }
+
+        @media (max-width: 768px) {
+            .accordion-container { gap: 8px; }
+            .accordion-header { padding: 1rem 1.25rem; font-size: 0.9rem; }
+            .accordion-item.is-active .accordion-content { padding: 0 1.25rem 1.25rem; }
+            .nested-accordion { height: 60vh; min-height: 400px; }
+            .platform-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -74,19 +499,7 @@
                 <a href="#features" class="nav-link">Architecture</a>
                 <a href="#distributed" class="nav-link">Distributed</a>
                 <a href="#audience" class="nav-link">For Whom</a>
-            </nav>
-            <nav class="language-switcher" aria-label="Language selection">
-              <ul class="language-list">
-                <li class="language-item">
-                  <a href="index.zh.html" hreflang="zh-CN" lang="zh-CN" class="language-link" title="中文">中文</a>
-                </li>
-                <li class="language-item">
-                  <a href="index.ru.html" hreflang="ru" lang="ru" class="language-link" title="Русский">РУ</a>
-                </li>
-                <li class="language-item">
-                  <a href="index.html" hreflang="en" lang="en" class="language-link active" title="English">EN</a>
-                </li>
-              </ul>
+                <a href="#download" class="nav-link">Download</a>
             </nav>
             <button class="menu-toggle" aria-label="Toggle menu" aria-expanded="false">
                 <span></span>
@@ -98,6 +511,56 @@
 
     <!-- Hero Section -->
     <section class="hero">
+        <!-- Layer 1: dot grid -->
+        <div class="hero-bg-dots" aria-hidden="true"></div>
+
+        <!-- Layer 2: SVG graph (decorative atoms + edges) -->
+        <svg class="hero-bg-graph" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <!-- Edges (drawn first so nodes sit on top) -->
+            <line class="edge" x1="180"  y1="180" x2="430"  y2="320"/>
+            <line class="edge" x1="430"  y1="320" x2="700"  y2="220"/>
+            <line class="edge" x1="700"  y1="220" x2="980"  y2="380"/>
+            <line class="edge" x1="980"  y1="380" x2="1240" y2="240"/>
+            <line class="edge" x1="180"  y1="180" x2="320"  y2="640"/>
+            <line class="edge" x1="320"  y1="640" x2="640"  y2="700"/>
+            <line class="edge" x1="640"  y1="700" x2="980"  y2="600"/>
+            <line class="edge" x1="980"  y1="600" x2="1240" y2="700"/>
+            <line class="edge" x1="430"  y1="320" x2="640"  y2="700"/>
+            <line class="edge" x1="700"  y1="220" x2="980"  y2="600"/>
+            <line class="edge" x1="640"  y1="700" x2="700"  y2="220"/>
+            <line class="edge" x1="980"  y1="380" x2="980"  y2="600"/>
+            <line class="edge" x1="180"  y1="180" x2="700"  y2="220"/>
+            <line class="edge" x1="1240" y1="240" x2="1240" y2="700"/>
+
+            <!-- Nodes — hexagons (6-sided, major), pentagons (5-sided, minor), diamonds (4-sided, tiny).
+                 Each node carries its own pastel fill + animation delay so they breathe out of sync. -->
+            <!-- Major nodes — hexagons (6-sided), r=14, with glow -->
+            <polygon class="node-major" points="194,180 187,192 173,192 166,180 173,168 187,168" fill="#ffb3ba" style="animation-delay: 0s"/>
+            <polygon class="node-major" points="714,220 707,232 693,232 686,220 693,208 707,208" fill="#bae1ff" style="animation-delay: -1.2s"/>
+            <polygon class="node-major" points="1254,240 1247,252 1233,252 1226,240 1233,228 1247,228" fill="#baffc9" style="animation-delay: -2.4s"/>
+            <polygon class="node-major" points="654,700 647,712 633,712 626,700 633,688 647,688" fill="#ffdfba" style="animation-delay: -0.8s"/>
+            <polygon class="node-major" points="1254,700 1247,712 1233,712 1226,700 1233,688 1247,688" fill="#e0bbff" style="animation-delay: -3.1s"/>
+
+            <!-- Minor nodes — pentagons (5-sided), r=10 -->
+            <polygon class="node-minor" points="430,310 440,317 436,328 424,328 420,317" fill="#ffffba" style="animation-delay: -0.5s"/>
+            <polygon class="node-minor" points="980,370 990,377 986,388 974,388 970,377" fill="#baffed" style="animation-delay: -1.7s"/>
+            <polygon class="node-minor" points="320,630 330,637 326,648 314,648 310,637" fill="#ffc9de" style="animation-delay: -2.3s"/>
+            <polygon class="node-minor" points="980,590 990,597 986,608 974,608 970,597" fill="#c9baff" style="animation-delay: -0.3s"/>
+
+            <!-- Tiny nodes — diamonds (4-sided), r=7 -->
+            <polygon class="node-tiny" points="250,423 257,430 250,437 243,430" fill="#fff3ba" style="animation-delay: -1.0s"/>
+            <polygon class="node-tiny" points="540,493 547,500 540,507 533,500" fill="#bafff9" style="animation-delay: -2.5s"/>
+            <polygon class="node-tiny" points="820,483 827,490 820,497 813,490" fill="#ffbaf0" style="animation-delay: -1.5s"/>
+            <polygon class="node-tiny" points="1110,483 1117,490 1110,497 1103,490" fill="#badcff" style="animation-delay: -2.0s"/>
+            <polygon class="node-tiny" points="500,813 507,820 500,827 493,820" fill="#baffba" style="animation-delay: -0.9s"/>
+            <polygon class="node-tiny" points="870,813 877,820 870,827 863,820" fill="#ffbaba" style="animation-delay: -2.8s"/>
+        </svg>
+
+        <!-- Layer 3: dark gradient veil keeps center text readable
+             over the busy background image -->
+        <div class="hero-bg-veil" aria-hidden="true"></div>
+
+        <!-- Layer 4: hero content -->
         <div class="container">
             <h1 class="hero-title" data-animate="fade-up">ALTAURI. A Different Way to Think.</h1>
             <p class="hero-subtitle" data-animate="fade-up" data-delay="100">
@@ -105,13 +568,14 @@
             </p>
             <div class="hero-buttons" data-animate="fade-up" data-delay="200">
                 <a href="#manifesto" class="btn btn-outline">Learn More</a>
+                <a href="#download" class="btn btn-primary" data-launch-demo>Launch Demonstration</a>
             </div>
         </div>
     </section>
 
-    <!-- ============================================================================
+    <!-- ====================================================================
          MANIFESTO SECTION
-         ============================================================================ -->
+         ==================================================================== -->
     <section class="section manifesto-dark" id="manifesto">
         <div class="container">
             <blockquote class="manifesto-quote" data-animate="fade-up">
@@ -133,7 +597,7 @@
                 <div class="feature-card contrast-card" data-animate="fade-up" data-delay="0">
                     <div class="feature-icon">⚛️</div>
                     <h3>Atoms as Actors</h3>
-                    <p>Inside each Atom is an independent actor. The connections between them are type-safe channels.</p>
+                    <p>Inside each atom is an independent actor. The connections between them are type-safe channels.</p>
                 </div>
                 <div class="feature-card contrast-card" data-animate="fade-up" data-delay="100">
                     <div class="feature-icon">⚡</div>
@@ -165,12 +629,12 @@
                 <div class="workflow-step" data-animate="fade-up" data-delay="0">
                     <div class="step-number">01</div>
                     <h3>For Engineers</h3>
-                    <p>3 sensors, a Kalman filter, a cloud DB. Drag 4 Atoms. The graph distributes itself across CPU cores.</p>
+                    <p>3 sensors, a Kalman filter, a cloud DB. Drag 4 atoms. The graph distributes itself across CPU cores.</p>
                 </div>
                 <div class="workflow-step" data-animate="fade-up" data-delay="100">
                     <div class="step-number">02</div>
                     <h3>For Kids</h3>
-                    <p>A button in the browser lights up an LED. 2 Atoms. No magic, just pure logic.</p>
+                    <p>A button in the browser lights up an LED. 2 atoms. No magic, just pure logic.</p>
                 </div>
                 <div class="workflow-step" data-animate="fade-up" data-delay="200">
                     <div class="step-number">03</div>
@@ -180,33 +644,33 @@
                 <div class="workflow-step" data-animate="fade-up" data-delay="300">
                     <div class="step-number">04</div>
                     <h3>Run</h3>
-                    <p>The reactive graph comes to life instantly. The environment executes logic directly, linking Edge devices and the cloud into a single compute fabric.</p>
+                    <p>The reactive graph comes to life instantly. The environment executes logic directly, linking edge devices and the cloud into a single compute fabric.</p>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- ============================================================================
-         ASCII-DIAGRAM: Distributed Graph Topology
-         ============================================================================ -->
+    <!-- ====================================================================
+         DISTRIBUTED SECTION
+         ==================================================================== -->
     <section class="section distributed-section" id="distributed">
         <div class="container">
             <div class="split-layout">
                 <div class="split-content" data-animate="fade-right">
                     <h2 class="section-title" style="text-align: left;">Transparent Distribution</h2>
                     <p class="lead-text">
-                        The main illusion of modern programming is that code lives on a single device. 
+                        The main illusion of modern programming is that code lives on a single device.
                         ALTAURI shatters this illusion at the paradigm level.
                     </p>
                     <ul class="feature-list">
-                        <li><strong>An Atom has no "residence".</strong> The runtime decides where to place the node: in local memory, on a neighboring CPU core, or in a cloud cluster.</li>
-                        <li><strong>Transactional channels.</strong> Connections between Atoms guarantee data delivery regardless of whether the signal passes through a PCIe bus or across an ocean via WebSocket.</li>
-                        <li><strong>Atomic Reconfiguration.</strong> Changing the graph at runtime occurs as an ACID transaction, eliminating data races at the topology level.</li>
+                        <li><strong>An atom has no "residence".</strong> The runtime decides where to place the node: in local memory, on a neighboring CPU core, or in a cloud cluster.</li>
+                        <li><strong>Transactional channels.</strong> Connections between atoms guarantee data delivery regardless of whether the signal passes through a PCIe bus or across an ocean via WebSocket.</li>
+                        <li><strong>Atomic reconfiguration.</strong> Changing the graph at runtime occurs as an ACID transaction, eliminating data races at the topology level.</li>
                     </ul>
                 </div>
                 <div class="split-visual" data-animate="fade-left">
 <pre class="ascii-art-block">┌──────────────┐          WebSocket           ┌─────────────────────────┐
-│   ALTAURI    │<---------------------------->│   ALTAURI               │
+│   ALTAURI    │&lt;----------------------------&gt;│   ALTAURI               │
 │  (Edge/RPI)  │          Atom-Atom           │    (Cloud/Server)       │
 │              │           protocol           │                         │
 │   [Sensor]───┼──►[WebSocket Out]────────────┼─►[WebSocket In]──►[DB]  │
@@ -246,77 +710,272 @@
         </div>
     </section>
 
-    <!-- Pricing Section (СКРЫТА) -->
-    <section class="section pricing-section" id="pricing" hidden>
+    <!-- ====================================================================
+         DOWNLOAD APPLICATION SECTION
+         Contains 4 platform accordions. The HTML5 accordion contains the
+         3 nested demo modules (the live ALTAURI runtime).
+         ==================================================================== -->
+    <section class="section" id="download" style="background: var(--color-surface);">
         <div class="container">
-            <h2 class="section-title" data-animate="fade-up">Flexible Plans for Any Task</h2>
-            <div class="pricing-grid">
-                <div class="pricing-card" data-animate="fade-up" data-delay="0">
-                    <h3>Personal</h3>
-                    <div class="price">Free</div>
-                    <ul class="pricing-features">
-                        <li>Browser editor</li>
-                        <li>Local Runtime</li>
-                        <li>Basic Atom Library</li>
-                        <li>Cloud project storage</li>
-                    </ul>
-                    <a href="demo.html" class="btn btn-outline">Try Demo</a>
+            <h2 class="section-title" data-animate="fade-up">Download Application</h2>
+            <p class="section-subtitle" data-animate="fade-up" data-delay="100">
+                ALTAURI is open source under AGPLv3. Native builds are published on GitHub Releases.
+                Click a platform to expand installation instructions. The HTML5 option runs live demos directly in your browser.
+            </p>
+
+            <div class="accordion-container">
+
+                <!-- Windows -->
+                <div class="accordion-item">
+                    <button class="accordion-header" aria-expanded="false" data-download-id="windows">
+                        <span class="accordion-title">🪟 Windows</span>
+                        <span class="accordion-icon">+</span>
+                    </button>
+                    <div class="accordion-content">
+                        <div class="accordion-inner">
+                            <p class="demo-description">
+                                Standalone .zip — no installer, no admin rights required.
+                                <span class="download-block">
+                                    <a href="https://github.com/virtualik/ATOMICA/releases/latest/download/ATOMICA-Windows_PUBLIC.zip" class="platform-button">Download .zip</a>
+                                </span>
+                            </p>
+                            <div class="platform-grid">
+                                <div class="platform-card">
+                                    <div class="platform-icon">1️⃣</div>
+                                    <div class="platform-name">Unzip</div>
+                                    <div class="platform-meta">Extract the .zip archive to any folder.</div>
+                                </div>
+                                <div class="platform-card">
+                                    <div class="platform-icon">2️⃣</div>
+                                    <div class="platform-name">Run</div>
+                                    <div class="platform-meta">Double-click <code>ATOMICA.exe</code>. No installation required.</div>
+                                </div>
+                                <div class="platform-card">
+                                    <div class="platform-icon">⚠️</div>
+                                    <div class="platform-name">SmartScreen</div>
+                                    <div class="platform-meta">If blocked: "More details" → "Run anyway".</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="pricing-card featured" data-animate="fade-up" data-delay="100">
-                    <div class="badge">Recommended</div>
-                    <h3>Team</h3>
-                    <div class="price">$20<span>/mo</span></div>
-                    <ul class="pricing-features">
-                        <li>Everything in Personal</li>
-                        <li>Cloud Runtime (ALTAURI Cloud)</li>
-                        <li>Collaborative graph editing</li>
-                        <li>Priority support</li>
-                    </ul>
-                    <a href="#contact" class="btn">Get Started</a>
+
+                <!-- Linux -->
+                <div class="accordion-item">
+                    <button class="accordion-header" aria-expanded="false" data-download-id="linux">
+                        <span class="accordion-title">🐧 Linux</span>
+                        <span class="accordion-icon">+</span>
+                    </button>
+                    <div class="accordion-content">
+                        <div class="accordion-inner">
+                            <p class="demo-description">
+                                Portable .tar.gz — run from any directory.
+                                <span class="download-block">
+                                    <a href="https://github.com/virtualik/ATOMICA/releases/latest/download/ATOMICA-Linux_PUBLIC.tar.gz" class="platform-button">Download .tar.gz</a>
+                                </span>
+                            </p>
+                            <div class="platform-grid">
+                                <div class="platform-card">
+                                    <div class="platform-icon">1️⃣</div>
+                                    <div class="platform-name">Extract</div>
+                                    <div class="platform-meta"><code>tar -xzf ATOMICA-Linux_PUBLIC.tar.gz</code></div>
+                                </div>
+                                <div class="platform-card">
+                                    <div class="platform-icon">2️⃣</div>
+                                    <div class="platform-name">Run</div>
+                                    <div class="platform-meta"><code>./ALTAURI_Linux</code></div>
+                                </div>
+                                <div class="platform-card">
+                                    <div class="platform-icon">ℹ️</div>
+                                    <div class="platform-name">Permissions</div>
+                                    <div class="platform-meta">If blocked: <code>chmod +x ALTAURI_Linux</code></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="pricing-card" data-animate="fade-up" data-delay="200">
-                    <h3>Enterprise</h3>
-                    <div class="price">$200<span>/mo</span></div>
-                    <ul class="pricing-features">
-                        <li>Everything in Team</li>
-                        <li>White-label Runtime embedding</li>
-                        <li>Dedicated clusters</li>
-                        <li>SLA and personal manager</li>
-                    </ul>
-                    <a href="#contact" class="btn btn-outline">Contact Us</a>
+
+                <!-- Android -->
+                <div class="accordion-item">
+                    <button class="accordion-header" aria-expanded="false" data-download-id="android">
+                        <span class="accordion-title">🤖 Android</span>
+                        <span class="accordion-icon">+</span>
+                    </button>
+                    <div class="accordion-content">
+                        <div class="accordion-inner">
+                            <p class="demo-description">
+                                Direct .apk installation — no Play Store required.
+                                <span class="download-block">
+                                    <a href="https://github.com/virtualik/ATOMICA/releases/latest/download/ATOMICA-Android_PUBLIC.apk" class="platform-button">Download .apk</a>
+                                </span>
+                            </p>
+                            <div class="platform-grid">
+                                <div class="platform-card">
+                                    <div class="platform-icon">1️⃣</div>
+                                    <div class="platform-name">Allow</div>
+                                    <div class="platform-meta">Enable "Install from unknown sources" in Settings.</div>
+                                </div>
+                                <div class="platform-card">
+                                    <div class="platform-icon">2️⃣</div>
+                                    <div class="platform-name">Install</div>
+                                    <div class="platform-meta">Open the .apk file and confirm installation.</div>
+                                </div>
+                                <div class="platform-card">
+                                    <div class="platform-icon">⚠️</div>
+                                    <div class="platform-name">Play Protect</div>
+                                    <div class="platform-meta">If blocked: "Install anyway".</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+
+                <!-- HTML5 — Run in Browser (CONTAINS NESTED DEMO MODULES) -->
+                <div class="accordion-item">
+                    <button class="accordion-header" aria-expanded="false" data-download-id="html5">
+                        <span class="accordion-title">🌐 HTML5 — Run in Browser</span>
+                        <span class="accordion-icon">+</span>
+                    </button>
+                    <div class="accordion-content">
+                        <div class="accordion-inner">
+                            <p class="demo-description">
+                                No download — runs directly in your browser via WebAssembly.
+                                Click any module title below to open its live runtime and try ALTAURI in action.
+                            </p>
+
+                            <!-- NESTED ACCORDION — the 3 demo modules live here -->
+                            <div class="nested-accordion">
+
+                                <!-- Demo Module 1 -->
+                                <div class="accordion-item">
+                                    <button class="accordion-header" aria-expanded="false" data-demo-id="1">
+                                        <span class="accordion-title">Module 1: Signal Routing</span>
+                                        <span class="accordion-icon">+</span>
+                                    </button>
+                                    <div class="accordion-content">
+                                        <div class="accordion-inner">
+                                            <p class="demo-description">
+                                                Direct control with visual feedback elements.
+                                                <span class="download-block">
+                                                    Download
+                                                    <a href="https://github.com/virtualik/ATOMICA/releases/latest/download/ATOMICA-Windows_PUBLIC.zip" title="Windows">🪟</a>
+                                                    <a href="https://github.com/virtualik/ATOMICA/releases/latest/download/ATOMICA-Android_PUBLIC.apk" title="Android">🤖</a>
+                                                    <a href="https://github.com/virtualik/ATOMICA/releases/latest/download/ATOMICA-Linux_PUBLIC.tar.gz" title="Linux">🐧</a>
+                                                </span>
+                                            </p>
+                                            <div id="demo-runtime-1" class="runtime-container" data-initialized="false" data-blueprint="blueprints/ButtonAndLED.atom"></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Demo Module 2 -->
+                                <div class="accordion-item">
+                                    <button class="accordion-header" aria-expanded="false" data-demo-id="2">
+                                        <span class="accordion-title">Module 2: COM Port Management with File Logging</span>
+                                        <span class="accordion-icon">+</span>
+                                    </button>
+                                    <div class="accordion-content">
+                                        <div class="accordion-inner">
+                                            <p class="demo-description">
+                                                Direct, low-latency access to standard serial communication interfaces with real-time telemetry.
+                                                <span class="download-block">
+                                                    Download
+                                                    <a href="https://github.com/virtualik/ATOMICA/releases/latest/download/ATOMICA-Windows_PUBLIC.zip" title="Windows">🪟</a>
+                                                    <a href="https://github.com/virtualik/ATOMICA/releases/latest/download/ATOMICA-Android_PUBLIC.apk" title="Android">🤖</a>
+                                                    <a href="https://github.com/virtualik/ATOMICA/releases/latest/download/ATOMICA-Linux_PUBLIC.tar.gz" title="Linux">🐧</a>
+                                                </span>
+                                            </p>
+                                            <div id="demo-runtime-2" class="runtime-container" data-initialized="false" data-blueprint="blueprints/SerialTerminal.atom"></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Demo Module 3 -->
+                                <div class="accordion-item">
+                                    <button class="accordion-header" aria-expanded="false" data-demo-id="3">
+                                        <span class="accordion-title">Module 3: Multi-Device Signal Routing</span>
+                                        <span class="accordion-icon">+</span>
+                                    </button>
+                                    <div class="accordion-content">
+                                        <div class="accordion-inner">
+                                            <p class="demo-description">
+                                                Demonstration of switch control across multiple coordinated devices.
+                                                <span class="download-block">
+                                                    Download
+                                                    <a href="https://github.com/virtualik/ATOMICA/releases/latest/download/ATOMICA-Windows_PUBLIC.zip" title="Windows">🪟</a>
+                                                    <a href="https://github.com/virtualik/ATOMICA/releases/latest/download/ATOMICA-Android_PUBLIC.apk" title="Android">🤖</a>
+                                                    <a href="https://github.com/virtualik/ATOMICA/releases/latest/download/ATOMICA-Linux_PUBLIC.tar.gz" title="Linux">🐧</a>
+                                                </span>
+                                            </p>
+                                            <div id="demo-runtime-3" class="runtime-container" data-initialized="false" data-blueprint="blueprints/ToggleSwitch.atom"></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+                            <!-- /NESTED ACCORDION -->
+                        </div>
+                    </div>
+                </div>
+                <!-- /HTML5 accordion item -->
+
+            </div>
+
+            <div class="download-hint">
+                <strong>Source code:</strong>
+                <a href="https://github.com/virtualik/ALTAURI" target="_blank" rel="noopener">github.com/virtualik/ALTAURI</a>
+                — licensed under AGPLv3. Build from source for any platform, including microcontrollers
+                (ESP32, STM, RP2040 ports in progress).
             </div>
         </div>
     </section>
 
     <!-- CTA Section -->
-    <section class="cta-section id="demo">
+    <section class="cta-section">
         <div class="container">
             <h2 class="cta-title" data-animate="fade-up">The Future is Being Assembled</h2>
             <p class="cta-subtitle" data-animate="fade-up" data-delay="100">
-                Open your browser. Add Atoms. Connect them. Your logic starts working instantly.
+                Open your browser. Add atoms. Connect them. Your logic starts working instantly.
             </p>
-            <a href="demo.html" class="btn btn-primary" data-animate="fade-up" data-delay="200">Launch Demonstration Page</a>
+            <a href="#download" class="btn btn-primary" data-launch-demo data-animate="fade-up" data-delay="200">Launch Demonstration</a>
         </div>
     </section>
 
     <!-- Footer -->
     <footer class="footer">
         <div class="container">
-			<p class="footer-text" style="margin-top: 1.5rem; max-width: 900px; margin-left: auto; margin-right: auto;">
-				ALTAURI is a unique computing environment with no direct architectural analogs on the market. 
-				We are open to collaboration and invite like-minded individuals to join the project's development. 
-				We welcome any form of support: sharing ideas, contributing to development, or investment partnership.
-				<br><br>
-				If you are interested in custom system integration (including White-label solutions), 
-				building proprietary products, or strategic acquisition of the platform, please contact us: 
-				<a href="mailto:altauri.impulsys@gmail.com">altauri.impulsys@gmail.com</a>
-			</p>
-			
-            <p>&copy; 2019--2026 <b>ATOMICA</b>. Get everything from A to Z.</p>
+            <p class="footer-text" style="margin-top: 1.5rem; max-width: 900px; margin-left: auto; margin-right: auto;">
+                ALTAURI is a unique computing environment with no direct architectural analogs on the market.
+                We are open to collaboration and invite like-minded individuals to join the project's development.
+                We welcome any form of support: sharing ideas, contributing to development, or investment partnership.
+                <br><br>
+                If you are interested in custom system integration (including white-label solutions),
+                building proprietary products, or strategic acquisition of the platform, please contact us:
+                <a href="mailto:altauri.impulsys@gmail.com">altauri.impulsys@gmail.com</a>
+            </p>
+
+            <div class="footer-license">
+                <strong>License:</strong> ALTAURI source code is licensed under
+                <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener">GNU Affero General Public License v3.0 (AGPLv3)</a>
+                — free to use, modify, and distribute, with copyleft protections for network services.
+                <br>
+                <strong>Source:</strong>
+                <a href="https://github.com/virtualik/ALTAURI" target="_blank" rel="noopener">github.com/virtualik/ALTAURI</a>
+                · <strong>Releases:</strong>
+                <a href="https://github.com/virtualik/ATOMICA/releases" target="_blank" rel="noopener">github.com/virtualik/ATOMICA/releases</a>
+                <br>
+                <strong>Project:</strong> BiOCYBER LAB · Lviv, Ukraine · 2026 ·
+                <a href="#manifesto">Manifesto</a> ·
+                <a href="#download">Download</a>
+            </div>
+
+            <p style="margin-top: 1.5rem; font-size: 0.875rem; opacity: 0.8;">
+                &copy; 2019–2026 <b>ATOMICA</b>. Get everything from A to Z.
+            </p>
         </div>
     </footer>
 
+    <script src="ALTAURI_Web.js"></script>
     <script src="js/main.js"></script>
 </body>
 </html>
