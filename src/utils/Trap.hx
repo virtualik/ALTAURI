@@ -311,17 +311,17 @@ class Trap
                                         }
                                         SetUnhandledExceptionFilter(_altauri_trap_seh_filter);
                                 }
-                                #else
-                                {
-                                        int _trap_fd = open("stderr_capture.log",
-                                                O_CREAT | O_WRONLY | O_APPEND, 0644);
-                                        if (_trap_fd >= 0)
-                                        {
-                                                dup2(_trap_fd, 2);
-                                                if (_trap_fd != 2) close(_trap_fd);
-                                        }
-                                }
-                                #endif
+								#else
+								{
+									int _trap_fd = open("stderr_capture.log",
+										O_CREAT | O_WRONLY | O_APPEND, 0644);
+									if (_trap_fd >= 0)
+									{
+										dup2(_trap_fd, 2);
+										if (_trap_fd != 2) ::close(_trap_fd);
+									}
+								}
+								#endif
                         ');
                         log("TRAP", "v1.6 boot: stderr -> stderr_capture.log, native SEH sentinel armed (Windows), DATA=" + (DATA ? "ON" : "off") + ", ROTATE=" + ROTATE_MB + "MB");
                 }

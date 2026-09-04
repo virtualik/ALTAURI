@@ -10,13 +10,13 @@
 	<!-- ========================================================================= -->
 	<!-- APPLICATION ENTRY POINTS 🐧🤖🪟🌐                                          -->
 	<!-- ========================================================================= -->
-	<!-- Используем единый класс Main для разных платформ -->
+	<!-- Use a single Main class for different platforms -->
 	<app main="Main" file="ALTAURI_Windows"  path="bin" if="windows" />
 	<app main="Main" file="ALTAURI_Android"  path="bin" if="android" />
 	<app main="Main" file="ALTAURI_Linux"    path="bin" if="linux" />
 	<app main="Main" file="ALTAURI_Web"      path="bin" if="html5" />
 	
-	<!-- Для Android явно указываем тип вывода -->
+	<!-- For Android, explicitly specify the output type -->
 	<!-- <output type="Application" mainClass="Main" /> -->
 	
 	
@@ -24,10 +24,10 @@
 	<!-- ========================================================================= -->
 	<!-- WINDOW SETTINGS                                                           -->
 	<!-- ========================================================================= -->
-	<!-- Общие настройки для всех платформ -->
+	<!-- General settings for all platforms -->
 	<window hardware="true" vsync="true" allow-shaders="true" antialiasing="0" fps="60" />
 	
-	<!-- Специфичные настройки для Windows / C++ -->
+	<!-- Windows / C++ Specific Settings -->
 	<window if="cpp"
         visible="false"
         borderless="true"
@@ -39,11 +39,11 @@
         transparent="true"
         render="webgl" hardware="true" vsync="true" />
 	
-	<!-- Специфичные настройки для HTML5 -->
-	<!-- СЛУЧАЙ 1 НА ВЕСЬ БРАУЗЕР: Не задаём width и height, чтобы браузер сам подогнал canvas 1:1 -->
+	<!-- Specific settings for HTML5 -->
+	<!-- CASE 1 FOR THE ENTIRE BROWSER: Don't set the width and height so the browser automatically adjusts the canvas to 1:1 -->
 	<!-- window if="html5" background="#FFFFFF"	allow-high-dpi="false" -->
 
-	<!-- СЛУЧАЙ 2 ДЛЯ ОБЛАСТИ DIV:Фиксированный размер для демо-виджета, например 800x400 -->
+	<!-- CASE 2 FOR DIV AREA: Fixed size for demo widget, eg 800x400 -->
 	<window if="html5" width="1024" height="600" background="#1E1E1E" />
 	<window if="html5" render="webgl" hardware="true" vsync="true" />
 
@@ -64,15 +64,15 @@
 	<haxelib name="openfl" />
 	<haxelib name="hxcpp" if="cpp" />
 	<haxedef name="utf8" />
-
+	
         <!-- ══════════════════════════════════════════════════════════════
-             ЧЁРНЫЙ ЯЩИК ALTAURI (utils.Trap): crash_trap.log,
-             stderr_capture.log + нативный SEH-страж.
-             ПО УМОЛЧАНИЮ ВКЛЮЧЁН (обе строки ниже закомментированы).
-             ТИХАЯ сборка, без файлов логов: раскомментируй строку 1.
-             Тихие только release (debug остаётся говорливым): строку 2. -->
-        <!-- <haxedef name="ALTAURI_TRAP_OFF" /> -->
-        <!-- <haxedef name="ALTAURI_TRAP_OFF" if="release" /> -->
+			ALTAURI BLACK BOX (utils.Trap): crash_trap.log,
+			stderr_capture.log + native SEH guard.
+			ENABLED BY DEFAULT (both lines below are commented out).
+			SILENT build, without log files: uncomment line 1.
+			Quiet only release (debug remains chatty): line 2. -->
+        <haxedef name="ALTAURI_TRAP_OFF" />
+		<haxedef name="ALTAURI_TRAP_OFF" if="release" />
 	
 	<assets path="assets" embed="true" />
 	<assets path="assets/icons/atoms" rename="assets/icons/atoms" recursive="true" embed="true"/> -->
@@ -87,21 +87,21 @@
 		<!-- INTERNET permission (для WebSocket) -->
 		<android permission="android.permission.INTERNET" />
 		
-		<!-- Подключаем распакованный classes.jar из .aar файла (для ComPort) -->
+		<!-- Include the unpacked classes.jar from the .aar file (for ComPort) -->
 		<java path="libs/android/java/usb-serial-extracted/classes.jar" />
 		
-		<!-- Подключаем Java-WebSocket библиотеку (для WebSocket) -->
+		<!-- Connecting the Java-WebSocket library (for WebSocket) -->
 		<java path="libs/Java-WebSocket-1.5.6.jar" />
 		
-	    <!-- ЗАВИСИМОСТИ SLF4J (обязательны для Java-WebSocket) -->
+	    <!-- SLF4J DEPENDENCIES (required for Java-WebSocket) -->
 		<java path="libs/slf4j-api-1.7.36.jar" />
 		<java path="libs/slf4j-nop-1.7.36.jar" />
 		
-		<!-- Указывает Lime, где лежат исходники Java -->
+		<!-- Tells Lime where the Java sources are located -->
 		<java path="libs/android/java/src/" />
 	</section>
 	
-	<!-- Запускаем синхронизацию только для HTML5 и только локально (на CI скрипт не запустится) -->
+	<!-- We run synchronization only for HTML5 and only locally (the script will not run on CI) -->
 	<postbuild if="html5" unless="CI" command="powershell -ExecutionPolicy Bypass -File sync-to-atelier.ps1"/>
 
 </project>
