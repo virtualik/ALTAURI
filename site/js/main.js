@@ -12,6 +12,10 @@
  *      lazy-loads OpenFL runtime via lime.embed()
  *
  * Changelog:
+ * [2026-09-05] v1.3.1 - FIXED: querySelectorAll selector was corrupted
+ *                        ('aref^="#"]' → 'a[href^="#"]'). This single typo
+ *                        threw DOMException at script load, killing every
+ *                        event handler below it.
  * [2026-09-04] v1.3.0 - Demo modules nested inside HTML5 download accordion item
  *                      - Added [data-launch-demo] button trigger
  *                      - Demo accordion is now nested; uses .nested-accordion scope

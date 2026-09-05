@@ -239,9 +239,9 @@ class FileReaderAtom extends Atom implements system.managers.Driver
                     reader.onload = function(ev) {
                         var buf = ev.target.result;
                         var text = new TextDecoder('utf-8').decode(buf);
-                        {0}(text, buf, f.size, f.name);
+                        ({0})(text, buf, f.size, f.name);
                     };
-                    reader.onerror = function(ev) { {1}('Legacy read error'); };
+                    reader.onerror = function(ev) { ({1})('Legacy read error'); };
                     reader.readAsArrayBuffer(f);
                 }
             };

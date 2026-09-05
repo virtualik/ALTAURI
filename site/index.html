@@ -297,17 +297,22 @@
 
         /* ====================================================================
            NESTED ACCORDION (demo modules inside HTML5 download item)
+           Mirrors the original demo.html architecture: a fixed-height flex
+           container that propagates its height down to .runtime-container
+           through .accordion-content (height:auto, flex:1) → .accordion-inner
+           (height:100%, flex column) → .runtime-container (flex:1).
            ==================================================================== */
         .nested-accordion {
             display: flex;
             flex-direction: column;
             gap: 8px;
             margin-top: 1rem;
-            /* Fixed height so nested demo modules have vertical space to render
-               the OpenFL runtime canvas. Without this, clientHeight=0 and
-               lime.embed() cannot size the canvas. */
-            height: 70vh;
-            min-height: 500px;
+            /* Fixed height — this is the source of all vertical space for the
+               nested demo modules and their canvas. Without this, clientHeight=0
+               at lazy-load time and lime.embed() creates an invisible canvas. */
+            height: 85vh;
+            min-height: 600px;
+            max-height: 1100px;
         }
         .nested-accordion .accordion-item {
             border-radius: var(--radius-md, 8px);
@@ -327,9 +332,23 @@
         }
         .nested-accordion .accordion-item.is-active .accordion-content {
             padding: 0 1.25rem 1.25rem;
+            height: auto;
+            flex: 1 1 0%;
+            min-height: 0;
         }
         .nested-accordion .accordion-item.is-active {
-            flex: 1 1 0%;   /* active demo takes remaining space inside nested-accordion */
+            flex: 1 1 0%;
+        }
+        /* Inner wrapper fills the whole content area so .runtime-container
+           (a flex:1 child below) receives the right height. */
+        .nested-accordion .accordion-inner {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        .nested-accordion .accordion-inner .demo-description {
+            margin-bottom: 1rem;
+            flex-shrink: 0;
         }
 
         /* ====================================================================
@@ -341,7 +360,7 @@
             background: #1a1a2e;
             border-radius: var(--radius-md, 8px);
             overflow: hidden;
-            position: relative;
+            position: relative; /* critical for absolutely-positioned canvas */
         }
         .runtime-container > div,
         .runtime-container canvas {
@@ -484,7 +503,7 @@
             .accordion-container { gap: 8px; }
             .accordion-header { padding: 1rem 1.25rem; font-size: 0.9rem; }
             .accordion-item.is-active .accordion-content { padding: 0 1.25rem 1.25rem; }
-            .nested-accordion { height: 60vh; min-height: 400px; }
+            .nested-accordion { height: 85vh; min-height: 500px; }
             .platform-grid { grid-template-columns: 1fr; }
         }
     </style>
@@ -871,7 +890,7 @@
                                 <!-- Demo Module 2 -->
                                 <div class="accordion-item">
                                     <button class="accordion-header" aria-expanded="false" data-demo-id="2">
-                                        <span class="accordion-title">Module 2: COM Port Management with File Logging</span>
+                                        <span class="accordion-title">Module 2: COM Port Management with Logging to File on local client machine</span>
                                         <span class="accordion-icon">+</span>
                                     </button>
                                     <div class="accordion-content">
@@ -924,8 +943,7 @@
             <div class="download-hint">
                 <strong>Source code:</strong>
                 <a href="https://github.com/virtualik/ALTAURI" target="_blank" rel="noopener">github.com/virtualik/ALTAURI</a>
-                — licensed under AGPLv3. Build from source for any platform, including microcontrollers
-                (ESP32, STM, RP2040 ports in progress).
+                — licensed under AGPLv3. Build from source for any platform.
             </div>
         </div>
     </section>

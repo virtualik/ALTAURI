@@ -80,42 +80,16 @@ if (Test-Path $html5BinPath) {
         Copy-Item -Path "$sitePath\index.html" -Destination "$html5BinPath\index.html" -Force
         Write-Host "     ✓ site/index.html copied to bin/" -ForegroundColor Gray
     }
+    # -------------------------------------------------------------------------
 
     # -------------------------------------------------------------------------
-    # этот блок я вставил что бы копировать index.ru.html в build папку 
-    if (Test-Path "$sitePath\index.ru.html") {
-        Copy-Item -Path "$sitePath\index.ru.html" -Destination "$html5BinPath\index.ru.html" -Force
-        Write-Host "     ✓ site/index.ru.html copied to bin/" -ForegroundColor Gray
+    # этот блок я вставил что бы копировать Earth_EU_Dawn.png в build папку 
+    if (Test-Path "$sitePath\Earth_EU_Dawn.png") {
+        Copy-Item -Path "$sitePath\Earth_EU_Dawn.png" -Destination "$html5BinPath\Earth_EU_Dawn.png" -Force
+        Write-Host "     ✓ site/Earth_EU_Dawn.png copied to bin/" -ForegroundColor Gray
     }
+    # -------------------------------------------------------------------------
 
-    # -------------------------------------------------------------------------
-    # этот блок я вставил что бы копировать index.zh.html в build папку 
-    if (Test-Path "$sitePath\index.zh.html") {
-        Copy-Item -Path "$sitePath\index.zh.html" -Destination "$html5BinPath\index.zh.html" -Force
-        Write-Host "     ✓ site/index.zh.html copied to bin/" -ForegroundColor Gray
-    }
-
-    # -------------------------------------------------------------------------
-    # этот блок я вставил что бы копировать demo.zh.html в build папку 
-    if (Test-Path "$sitePath\demo.zh.html") {
-        Copy-Item -Path "$sitePath\demo.zh.html" -Destination "$html5BinPath\demo.zh.html" -Force
-        Write-Host "     ✓ site/demo.zh.html copied to bin/" -ForegroundColor Gray
-    }
-    # -------------------------------------------------------------------------
-    # -------------------------------------------------------------------------
-    # этот блок я вставил что бы копировать demo.ru.html в build папку 
-    if (Test-Path "$sitePath\demo.ru.html") {
-        Copy-Item -Path "$sitePath\demo.ru.html" -Destination "$html5BinPath\demo.ru.html" -Force
-        Write-Host "     ✓ site/demo.ru.html copied to bin/" -ForegroundColor Gray
-    }
-    # -------------------------------------------------------------------------
-    # -------------------------------------------------------------------------
-    # этот блок я вставил что бы копировать demo.html в build папку 
-    if (Test-Path "$sitePath\demo.html") {
-        Copy-Item -Path "$sitePath\demo.html" -Destination "$html5BinPath\demo.html" -Force
-        Write-Host "     ✓ site/demo.html copied to bin/" -ForegroundColor Gray
-    }
-    # -------------------------------------------------------------------------
     # --- Копирование папки css -------------------------------------------
     if (Test-Path "$sitePath\css") {
         if (-Not (Test-Path "$html5BinPath\css")) {
