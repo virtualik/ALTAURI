@@ -125,6 +125,10 @@ project.xml   OpenFL/Lime build configuration
 templates/    Blueprint templates
 ```
 
+## A note on AI-assisted development
+
+ALTAURI is human-led: the architecture, design decisions and priorities are the author's. Generative language models are used as disciplined assistants — code comments, boilerplate, English translation of documentation, and stress-testing of ideas. Every line is human-reviewed before commit, and strategic decisions follow a documented three-voice practice: AI analysis → the author's judgment → a frozen written record. Where assistance is substantive, it is disclosed in the commit history.
+
 ## License and naming
 
 * All code is released under the **GNU Affero General Public License v3** (see [LICENSE](LICENSE)). The AGPL network clause is chosen deliberately: the runtime is distributed by nature, and the license keeps cloud forks open.
