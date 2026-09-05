@@ -336,6 +336,17 @@
             flex: 1 1 0%;
             min-height: 0;
         }
+        /* CRITICAL: the top-level rule `.accordion-item.is-active .accordion-content
+           { height: auto; flex: 1 1 0% }` leaks into the nested accordion (the demo
+           items live inside the active HTML5 item), so closed nested items would
+           stay expanded. This reset forces them to collapse. */
+        .nested-accordion .accordion-item:not(.is-active) .accordion-content {
+            height: 0 !important;
+            flex: 0 0 auto !important;
+            min-height: 0 !important;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+        }
         .nested-accordion .accordion-item.is-active {
             flex: 1 1 0%;
         }
@@ -356,7 +367,7 @@
            ==================================================================== */
         .runtime-container {
             flex: 1 1 0%;
-            min-height: 0;
+            min-height: 360px; /* keep the editor canvas readable: atoms render at a visible size */
             background: #1a1a2e;
             border-radius: var(--radius-md, 8px);
             overflow: hidden;
@@ -364,14 +375,19 @@
         }
         .runtime-container > div,
         .runtime-container canvas {
-            width: 100% !important;
-            height: 100% !important;
+            /* Proportional fit, centered: the canvas keeps its own width:height
+               ratio on any page resize and never stretches non-uniformly.
+               (lime sizes the canvas to the container at embed time; this CSS
+               letterboxes it inside the container afterwards.) */
+            width: auto !important;
+            height: auto !important;
             max-width: 100% !important;
             max-height: 100% !important;
             display: block !important;
             position: absolute !important;
-            top: 0 !important;
-            left: 0 !important;
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;
         }
         .runtime-container[data-initialized="false"]::after {
             content: 'Runtime will initialize on first open';
@@ -882,7 +898,7 @@
                                                     <a href="https://github.com/virtualik/ATOMICA/releases/latest/download/ATOMICA-Linux_PUBLIC.tar.gz" title="Linux">🐧</a>
                                                 </span>
                                             </p>
-                                            <div id="demo-runtime-1" class="runtime-container" data-initialized="false" data-blueprint="blueprints/ButtonAndLED.atom"></div>
+                                            <div id="demo-runtime-1" class="runtime-container" resizable="true" data-initialized="false" data-blueprint="blueprints/ButtonAndLED.atom"></div>
                                         </div>
                                     </div>
                                 </div>
@@ -904,7 +920,7 @@
                                                     <a href="https://github.com/virtualik/ATOMICA/releases/latest/download/ATOMICA-Linux_PUBLIC.tar.gz" title="Linux">🐧</a>
                                                 </span>
                                             </p>
-                                            <div id="demo-runtime-2" class="runtime-container" data-initialized="false" data-blueprint="blueprints/SerialTerminal.atom"></div>
+                                            <div id="demo-runtime-2" class="runtime-container" resizable="true" data-initialized="false" data-blueprint="blueprints/SerialTerminal.atom"></div>
                                         </div>
                                     </div>
                                 </div>
@@ -926,7 +942,7 @@
                                                     <a href="https://github.com/virtualik/ATOMICA/releases/latest/download/ATOMICA-Linux_PUBLIC.tar.gz" title="Linux">🐧</a>
                                                 </span>
                                             </p>
-                                            <div id="demo-runtime-3" class="runtime-container" data-initialized="false" data-blueprint="blueprints/ToggleSwitch.atom"></div>
+                                            <div id="demo-runtime-3" class="runtime-container" resizable="true" data-initialized="false" data-blueprint="blueprints/ToggleSwitch.atom"></div>
                                         </div>
                                     </div>
                                 </div>

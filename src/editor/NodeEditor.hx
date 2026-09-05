@@ -1097,15 +1097,15 @@ class NodeEditor extends Sprite
                         // ═══════════════════════════════════════════════════════════════
                         // v3.9 FIX: Apply visualMode after creating view
                         // ═══════════════════════════════════════════════════════════════
-                        if (modeToRestore != null && modeToRestore != "MEDIUM")
+                        if (modeToRestore != null)
                         {
                                 trace('createViewForAtom: applying visualMode "$modeToRestore" to view');
                                 view.setVisualModeFromString(modeToRestore);
                         }
                         else
                         {
-                                trace('createViewForAtom: using default MEDIUM mode');
-                                view.setVisualMode(NodeVisualMode.MEDIUM);
+                                trace('createViewForAtom: using default HEAVY mode');
+                                view.setVisualMode(NodeVisualMode.HEAVY);
                         }
                         
                         _canvas.addChild(view);
@@ -1964,32 +1964,15 @@ class NodeEditor extends Sprite
                         var y = view.y;
 
                         // Include port positions (extend bounding box)
+                        // NOTE: the localToGlobal -> globalToLocal roundtrip returns
+                        // stale coordinates after DeviceView re-parenting (device-mode
+                        // cache restore), inflating the bounds and throwing the view
+                        // off-center. Ports sit on the node edges anyway — the node
+                        // rectangle is the reliable measure.
                         var nodeMinX = x;
                         var nodeMinY = y;
                         var nodeMaxX = x + size.width;
                         var nodeMaxY = y + size.height;
-
-                        // Also check input/output port positions (they may extend beyond node bounds)
-                        for (port in view.inputPorts)
-                        {
-                                if (port == null) continue;
-                                var globalPos = port.localToGlobal(new openfl.geom.Point(0, 0));
-                                var localPos = _canvas.globalToLocal(globalPos);
-                                if (localPos.x < nodeMinX) nodeMinX = localPos.x;
-                                if (localPos.y < nodeMinY) nodeMinY = localPos.y;
-                                if (localPos.x > nodeMaxX) nodeMaxX = localPos.x;
-                                if (localPos.y > nodeMaxY) nodeMaxY = localPos.y;
-                        }
-                        for (port in view.outputPorts)
-                        {
-                                if (port == null) continue;
-                                var globalPos = port.localToGlobal(new openfl.geom.Point(0, 0));
-                                var localPos = _canvas.globalToLocal(globalPos);
-                                if (localPos.x < nodeMinX) nodeMinX = localPos.x;
-                                if (localPos.y < nodeMinY) nodeMinY = localPos.y;
-                                if (localPos.x > nodeMaxX) nodeMaxX = localPos.x;
-                                if (localPos.y > nodeMaxY) nodeMaxY = localPos.y;
-                        }
 
                         if (!hasNodes)
                         {
@@ -2011,7 +1994,15 @@ class NodeEditor extends Sprite
                 if (_frame != null)
                 {
                         var frameBounds = _frame.getBounds(_canvas);
-                        if (frameBounds != null && frameBounds.width > 0 && frameBounds.height > 0)
+                        // Sanity guard: when DeviceViews with device-panel transforms are
+                        // temporarily cached under the frame (device-mode cache), getBounds
+                        // reports panel-space coordinates far larger than the node bounds,
+                        // which would zoom the editor out and throw the schematic off-screen.
+                        var frameIsSane = frameBounds != null && frameBounds.width > 0 && frameBounds.height > 0
+                                && (!hasNodes
+                                        || (frameBounds.width <= (maxX - minX) * 1.4 + 100
+                                                && frameBounds.height <= (maxY - minY) * 1.4 + 100));
+                        if (frameIsSane)
                         {
                                 if (!hasNodes)
                                 {

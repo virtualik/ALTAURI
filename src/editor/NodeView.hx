@@ -242,7 +242,7 @@ class NodeView extends Sprite
          * v2.0: Current visualization detail level.
          * Controls whether the widget is hidden, scaled, or shown at full size.
          */
-        public var visualMode:NodeVisualMode = NodeVisualMode.LIGHT;
+        public var visualMode:NodeVisualMode = NodeVisualMode.HEAVY;
 
 // =========================================================================
 // DINAMIC SWICHING CACHEASBITMAP

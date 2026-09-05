@@ -563,6 +563,15 @@ class Main extends Sprite
                         }
                 }, 1);
 
+// 3b. Second pass: re-center once boot layout (window, panels, mode toggles) has fully settled
+                haxe.Timer.delay(function()
+                {
+                        if (_editorContext.currentEditor != null && !_editorContext.currentEditor.isDisposed)
+                        {
+                                _editorContext.currentEditor.centerOnContent();
+                        }
+                }, 500);
+
 // 4. Setup Device Panel & Toggle View
                 haxe.Timer.delay(function()
                 {
@@ -910,6 +919,15 @@ class Main extends Sprite
                 _editorContext.currentEditor.centerOnContent();
             }
         }, 100);
+
+        // Second pass: re-center once the window/layout has fully settled
+        haxe.Timer.delay(function()
+        {
+            if (_editorContext.currentEditor != null)
+            {
+                _editorContext.currentEditor.centerOnContent();
+            }
+        }, 450);
 
        // if (json.deviceWindow != null && json.deviceWindow.isOpen)
         {

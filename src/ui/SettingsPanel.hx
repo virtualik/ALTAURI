@@ -67,7 +67,7 @@ class SettingsPanel extends Sprite
     private var _contextMenuRadioButtons:Array<RadioButton> = [];
 
     public var nodeVisualMode(get, set):NodeVisualMode;
-    private var _nodeVisualMode:NodeVisualMode = NodeVisualMode.MEDIUM;
+    private var _nodeVisualMode:NodeVisualMode = NodeVisualMode.HEAVY;
     private var _visualModeButtons:Array<RadioButton> = [];
 
     private function get_nodeVisualMode():NodeVisualMode {

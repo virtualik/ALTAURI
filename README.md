@@ -127,7 +127,7 @@ templates/    Blueprint templates
 
 ## A note on AI-assisted development
 
-ALTAURI is human-led: the architecture, design decisions and priorities are the author's. Generative language models are used as disciplined assistants — code comments, boilerplate, English translation of documentation, and stress-testing of ideas. Every line is human-reviewed before commit, and strategic decisions follow a documented three-voice practice: AI analysis → the author's judgment → a frozen written record. Where assistance is substantive, it is disclosed in the commit history.
+ALTAURI is human-led: the architecture, design decisions and priorities are the author's. Generative language models are used in a deliberately defined role — a **secretary and language referent**: translation, error correction, stylistic cleanup, boilerplate, and stress-testing of ideas. Every line is human-reviewed before commit, and strategic decisions follow a documented three-voice practice: AI analysis → the author's judgment → a frozen written record. Where assistance is substantive, it is disclosed in the commit history.
 
 ## License and naming
 

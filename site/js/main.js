@@ -205,10 +205,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     setTimeout(function () {
                         console.log('[ALTAURI] Initializing Runtime for Demo ' + demoId + '...');
 
-                        const targetWidth  = runtimeContainer.clientWidth;
-                        const targetHeight = runtimeContainer.clientHeight;
-
-                        lime.embed('ALTAURI_Web', 'demo-runtime-' + demoId, targetWidth, targetHeight);
+                        // No explicit width/height: lime reads them from the container
+                        // and, with resizable="true" on the container, keeps the canvas
+                        // in sync with it on every page resize (no frozen/deformed frame).
+                        lime.embed('ALTAURI_Web', 'demo-runtime-' + demoId);
 
                         // Capture mouse events on the canvas so the page
                         // doesn't scroll weirdly while the user interacts.

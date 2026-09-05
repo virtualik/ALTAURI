@@ -44,7 +44,7 @@
 	<!-- window if="html5" background="#FFFFFF"	allow-high-dpi="false" -->
 
 	<!-- CASE 2 FOR DIV AREA: Fixed size for demo widget, eg 800x400 -->
-	<window if="html5" width="1024" height="600" background="#1E1E1E" />
+	<window if="html5" width="1024" height="600" background="#1E1E1E" resizable="true" />
 	<window if="html5" render="webgl" hardware="true" vsync="true" />
 
 	<config:android sdk="C:\AndroidSDK" ndk="C:\AndroidSDK\ndk\21.4.7075529" />
