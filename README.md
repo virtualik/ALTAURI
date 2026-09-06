@@ -24,7 +24,7 @@ The browser demos run the same ALTAURI runtime, compiled to HTML5. Module 2 is t
 
 ## Building from source
 
-The codebase is written in [Haxe](https://haxe.org/) on top of [OpenFL/Lime](https://openfl.org/) and compiles to native desktop/mobile targets and to HTML5 — from one codebase, without forking the logic.
+The codebase is written in [Haxe](https://haxe.org/) on top of [OpenFL/Lime](https://openfl.org/) and compiles to native desktop/mobile targets and to HTML5 — from one codebase, without forking the logic. **Haxe** is a reliable open source technology and is free to use.
 
 ```bash
 # prerequisites: Haxe 4.x, OpenFL and Lime installed via haxelib
@@ -56,6 +56,8 @@ Build artifacts are placed in `bin/` (see `project.xml` for target configuration
 
 **Distribution.** The WebSocket atom makes a remote atom indistinguishable from a local one: the runtime does not know that a contact's peer is across the network. The graph topology abstracts distribution.
 
+📐 **Full architecture map:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — every class mapped onto a domain → layer → pack hierarchy (153 classes, 7 domains). Design patterns and principles: [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md). Russian editions: [ARCHITECTURE_RU.md](docs/ARCHITECTURE_RU.md) · [ARCHITECTURE_PATTERNS_RU.md](docs/ARCHITECTURE_PATTERNS_RU.md).
+
 ### The atom library today
 
 Logic and UI: `Button`, `Led`, `Toggle`, `TextInput`, `TextArea`, `Relay`, `PassThrough`, `Buffering`, `Picture`, `DataStorage`
@@ -64,13 +66,13 @@ Composition: `Assembly` (a composite atom built from other atoms)
 
 ## What makes it different
 
-| | Typical no-code tools | ALTAURI |
-|---|---|---|
-| What the graph does | Generates or configures code | **Is executed directly, deterministically** |
-| Runtime model | Event-driven, hidden | Fixed 60 Hz tick engine, observable |
-| Editing ↔ runtime | Two modes, a rebuild step | **One blueprint, two synchronized views** |
-| Target | Web pages or a single platform | One codebase → native desktop, mobile and browser |
-| Distribution | Separate infrastructure | A WebSocket atom — remote contacts look local |
+|                     | Typical no-code tools          | ALTAURI                                            |
+| ------------------- | ------------------------------ | -------------------------------------------------- |
+| What the graph does | Generates or configures code   | **Is executed directly, deterministically**  |
+| Runtime model       | Event-driven, hidden           | Fixed 60 Hz tick engine, observable                |
+| Editing ↔ runtime  | Two modes, a rebuild step      | **One blueprint, two synchronized views**    |
+| Target              | Web pages or a single platform | One codebase → native desktop, mobile and browser |
+| Distribution        | Separate infrastructure        | A WebSocket atom — remote contacts look local     |
 
 Existing efforts compared honestly: **Node-RED** executes JavaScript functions rather than the graph itself; **Unreal Blueprints** are locked to the engine; **Max/MSP** is closed-source and desktop-only; **LabVIEW** is proprietary and licensed per seat. ALTAURI takes the visual-graph idea and executes it as a first-class runtime.
 
