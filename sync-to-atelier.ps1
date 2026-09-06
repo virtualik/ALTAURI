@@ -4,11 +4,11 @@
 
 Write-Host "Synchronizing ALTAURI -> ATELIER..." -ForegroundColor Green
 
-# 1. Синхронизация project.xml
+# 1. Synchronizing the project.xml
 Write-Host "  -> Copying project.xml..." -ForegroundColor Cyan
 Copy-Item -Path "$rootSource\project.xml" -Destination "$rootTarget\project.xml" -Force
 
-# 2. Синхронизация папки assets
+# 2. Synchronizing the assets folder
 Write-Host "  -> Copying Assets folder..." -ForegroundColor Cyan
 if (Test-Path "$rootSource\assets") {
     robocopy "$rootSource\assets" "$rootTarget\Assets" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
@@ -19,7 +19,7 @@ if (Test-Path "$rootSource\assets") {
     }
 }
 
-# 2.5. Синхронизация папки libs/usb-serial-extracted (usb-serial драйвера для Android сборки)
+# 2.5. Synchronizing the libs/usb-serial-extracted folder (usb-serial drivers for Android build)
 Write-Host "  -> Copying libs/usb-serial-extracted folder..." -ForegroundColor Cyan
 if (Test-Path "$rootSource\libs\usb-serial-extracted") {
     robocopy "$rootSource\libs\usb-serial-extracted" "$rootTarget\libs\usb-serial-extracted" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
@@ -27,7 +27,7 @@ if (Test-Path "$rootSource\libs\usb-serial-extracted") {
     Write-Host "     Warning: libs/usb-serial-extracted folder not found in ALTAURI root." -ForegroundColor Yellow
 }
 
-# 2.6. Синхронизация папки libs/ (Java-WebSocket (для WebSocket) драйвера для Android сборки)
+# 2.6. Synchronizing the libs/ (Java-WebSocket (for WebSocket) driver for Android build)
 Write-Host "  -> Copying libs/ folder..." -ForegroundColor Cyan
 if (Test-Path "$rootSource\libs\") {
     robocopy "$rootSource\libs\" "$rootTarget\libs\" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
@@ -35,7 +35,7 @@ if (Test-Path "$rootSource\libs\") {
     Write-Host "     Warning: libs/ folder not found in ALTAURI root." -ForegroundColor Yellow
 }
 
-# 2.7. Синхронизация папки templates
+# 2.7. Synchronizing the templates folder 
 #Write-Host "  -> Copying templates folder..." -ForegroundColor Cyan
 #if (Test-Path "$rootSource\templates") {
 #    robocopy "$rootSource\templates" "$rootTarget\templates" /MIR /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
@@ -47,7 +47,7 @@ if (Test-Path "$rootSource\libs\") {
 #}
 
 # =========================================================================
-# Синхронизация папки site (главная страница + стили)
+# Synchronizing site folder (main page + styles)
 # =========================================================================
 Write-Host "  -> Copying site folder..." -ForegroundColor Cyan
 if (Test-Path "$rootSource\site") {
@@ -59,14 +59,14 @@ if (Test-Path "$rootSource\site") {
     }
 }
 
-# 3. Синхронизация папки src
+# 3. Synchronizing src folder
  $sourceSrc = "$rootSource\src"
  $targetSrc = "$rootTarget\src"
 Write-Host "  -> Copying src folder..." -ForegroundColor Cyan
 robocopy $sourceSrc $targetSrc /MIR /XD .git bin obj Export /XF *.cpp *.h /NFL /NDL /NJH /NJS /nc /ns /np
 
 # =========================================================================
-# 4. Копирование главной страницы в локальную папку bin/ (для локальной сборки)
+# 4. Copying the main page to the local bin/ folder (for local assembly)
 # =========================================================================
  $html5BinPath = "$rootSource\bin\html5\bin"
  $sitePath = "$rootSource\site"
@@ -75,7 +75,7 @@ Write-Host "  -> Copying website landing page to local HTML5 output..." -Foregro
 
 if (Test-Path $html5BinPath) {
     # -------------------------------------------------------------------------
-    # этот блок я вставил что бы копировать index.html в build папку 
+    # I inserted this block to copy index.html into the build folder.
     if (Test-Path "$sitePath\index.html") {
         Copy-Item -Path "$sitePath\index.html" -Destination "$html5BinPath\index.html" -Force
         Write-Host "     ✓ site/index.html copied to bin/" -ForegroundColor Gray
@@ -83,14 +83,14 @@ if (Test-Path $html5BinPath) {
     # -------------------------------------------------------------------------
 
     # -------------------------------------------------------------------------
-    # этот блок я вставил что бы копировать Earth_EU_Dawn.png в build папку 
+    # I inserted this block to copy Earth_EU_Dawn.png into the build folder 
     if (Test-Path "$sitePath\Earth_EU_Dawn.png") {
         Copy-Item -Path "$sitePath\Earth_EU_Dawn.png" -Destination "$html5BinPath\Earth_EU_Dawn.png" -Force
         Write-Host "     ✓ site/Earth_EU_Dawn.png copied to bin/" -ForegroundColor Gray
     }
     # -------------------------------------------------------------------------
 
-    # --- Копирование папки css -------------------------------------------
+    # --- Copying css folder ----------------------------------------------
     if (Test-Path "$sitePath\css") {
         if (-Not (Test-Path "$html5BinPath\css")) {
         New-Item -ItemType Directory -Path "$html5BinPath\css" -Force | Out-Null
@@ -99,7 +99,7 @@ if (Test-Path $html5BinPath) {
         Write-Host "     ✓ site/css/ copied to bin/" -ForegroundColor Gray
     }
     # ---------------------------------------------------------------------
-    # --- Копирование папки blueprints ------------------------------------
+    # --- Copying blueprints folder ---------------------------------------
     if (Test-Path "$sitePath\blueprints") {
         if (-Not (Test-Path "$html5BinPath\blueprints")) {
             New-Item -ItemType Directory -Path "$html5BinPath\blueprints" -Force | Out-Null
@@ -108,7 +108,7 @@ if (Test-Path $html5BinPath) {
         Write-Host "     ✓ site/blueprints/ copied to bin/" -ForegroundColor Gray
     }
     # ---------------------------------------------------------------------
-       # --- Копирование папки js --------------------------------------------
+       # --- Copying js folder --------------------------------------------
     if (Test-Path "$sitePath\js") {
         if (-Not (Test-Path "$html5BinPath\js")) {
             New-Item -ItemType Directory -Path "$html5BinPath\js" -Force | Out-Null
@@ -120,7 +120,7 @@ if (Test-Path $html5BinPath) {
     Write-Host "     Note: HTML5 build folder not found. Skipping local copy." -ForegroundColor Gray
 }
 
-# Проверка результата
+# Checking the result
 if ($LASTEXITCODE -le 3) {
     Write-Host "✓ Sync completed successfully" -ForegroundColor Green
 } else {
