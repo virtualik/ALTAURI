@@ -10,8 +10,8 @@ import core.base.Contact;
 
 /**
  * DATA STORAGE WIDGET v1.0
- * Interactive control panel for DataStorageAtom (зеркало FileReaderWidget).
- * Этап 4a-2, Task 145. Spec: SPEC_STAGE4A_DATASTORAGE.md §3.
+ * An interactive control panel for DataStorageAtom (a mirror of FileReaderWidget).
+ * Stage 4a-2, Task 145. Spec: SPEC_STAGE4A_DATASTORAGE.md §3.
  *
  * Architecture: "ATOM IS DATABANK & COMPUTE CORE"
  *
@@ -34,11 +34,11 @@ import core.base.Contact;
  * │   Widget READS state from atom's contacts (Databank)                    │
  * │   Widget WRITES to atom's contacts on user interaction                  │
  * │                                                                         │
- * │   Отличия от Читателя: нет [Select] и диалогов вовсе — Хранилищу нечего │
- * │   выбирать на диске (весь ввод приходит по проводам); третья кнопка —   │
- * │   [ARM]/[LOCK]: впускной гейт [enabled] (default false — «карман        │
- * │   застёгнут», решение автора). Кнопка показывает действие: LOCK когда    │
- * │   гейт открыт, ARM когда закрыт.                                        │
+ * │   Differences from the Reader: no [Select] and no dialogs at all - Storage has nothing │
+ * │   to select on disk (all input arrives over wires); the third button -   │
+ * │   [ARM]/[LOCK]: the inlet gate [enabled] (default false - the pocket        │
+ * │   is buttoned up, the author decision). The button shows the action: LOCK when    │
+ * │   the gate is open, ARM when it is closed.                                        │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
 class DataStorageWidget extends DeviceView
@@ -53,12 +53,12 @@ class DataStorageWidget extends DeviceView
     private var _statusGlow:Sprite;
 
     private var _nameLabel:TextField;
-    private var _nameDisplay:TextField;       // только показ (выход fileName)
+    private var _nameDisplay:TextField;       // display only (the fileName output)
 
     private var _readBtn:Sprite;
     private var _clearBtn:Sprite;
     private var _armBtn:Sprite;
-    private var _armBtnLabel:TextField;       // ARM / LOCK — динамическая метка
+    private var _armBtnLabel:TextField;       // ARM / LOCK - a dynamic label
 
     private var _statsLabel:TextField;
     private var _errorLabel:TextField;
@@ -67,7 +67,7 @@ class DataStorageWidget extends DeviceView
     // CONTACTS
     // =========================================================================
     private var _enabledContact:Contact;
-    private var _dataContact:Contact;         // не рисуется: тяжёлый груз (П2)
+    private var _dataContact:Contact;         // not drawn: heavy cargo (P2)
     private var _isBytesContact:Contact;
     private var _clearContact:Contact;
     private var _readContact:Contact;
@@ -83,7 +83,7 @@ class DataStorageWidget extends DeviceView
     private var _errorTickContact:Contact;
 
     // =========================================================================
-    // STATE (только UI-зеркало; истина — в банке атома)
+    // STATE (a UI mirror only; the truth is in the atom bank)
     // =========================================================================
     private var _hasData:Bool = false;
     private var _kind:String = "empty";
@@ -180,7 +180,7 @@ class DataStorageWidget extends DeviceView
         _titleLabel.mouseEnabled = false;
         _header.addChild(_titleLabel);
 
-        // Status LED (зелёный = банк непустой)
+        // Status LED (green = the bank is non-empty)
         _statusGlow = new Sprite();
         _statusGlow.graphics.beginFill(_colorDanger, 0.2);
         _statusGlow.graphics.drawCircle(0, 0, 12);
@@ -200,7 +200,7 @@ class DataStorageWidget extends DeviceView
 
         yPos += 32;
 
-        // === NAME (только показ — это ВЫХОД атома, из Cargo) ===
+        // === NAME (display only - it is the atom OUTPUT, from Cargo) ===
         _nameLabel = createLabel("Name:");
         _nameLabel.y = yPos;
         addChild(_nameLabel);
@@ -212,8 +212,8 @@ class DataStorageWidget extends DeviceView
 
         yPos += 34;
 
-        // === CONTROL BUTTONS (все — через контакты: диалогов нет,
-        //     зависимости от user gesture нет) ===
+        // === CONTROL BUTTONS (all via contacts: no dialogs,
+        //     no user gesture dependency) ===
         _readBtn = createActionButton("READ", 0x225533, onReadClick);
         _readBtn.x = 10;
         _readBtn.y = yPos;
@@ -290,7 +290,7 @@ class DataStorageWidget extends DeviceView
         return tf;
     }
 
-    /** Поле-показ: выглядит как поле ввода, но не редактируется. */
+    /** A display field: looks like an input field but is not editable. */
     private function createDisplayField(defaultText:String, width:Int):TextField
     {
         var tf = new TextField();
@@ -329,7 +329,7 @@ class DataStorageWidget extends DeviceView
         return btn;
     }
 
-    /** Кнопка-гейт: LOCK (гейт открыт — нажатие застегнёт) / ARM (закрыт). */
+    /** The gate button: LOCK (the gate is open - pressing closes it) / ARM (closed). */
     private function updateArmButton():Void
     {
         if (_armBtn == null) return;
@@ -405,7 +405,7 @@ class DataStorageWidget extends DeviceView
     {
         if (isDisposed) return;
 
-        // data/isBytes — не рисуются: тяжёлый груз и настройка трактовки
+        // data/isBytes - not drawn: heavy cargo and the interpretation setting
         if (contact == _hasDataContact)
         {
             _hasData = (newValue == true);
@@ -503,7 +503,7 @@ class DataStorageWidget extends DeviceView
     }
 
     // =========================================================================
-    // EVENT HANDLERS (все — через контакты: диалогов и user-gesture нет)
+    // EVENT HANDLERS (all via contacts: no dialogs and no user gesture)
     // =========================================================================
     private function onReadClick(e:MouseEvent):Void
     {
@@ -530,7 +530,7 @@ class DataStorageWidget extends DeviceView
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // FLOAT FORMATTING HELPER (копия FileReaderWidget — идентичное поведение)
+    // A FLOAT FORMATTING HELPER (a copy of FileReaderWidget - identical behavior)
     // ═══════════════════════════════════════════════════════════════════════════
     private static function _toFixed(value:Float, decimals:Int = 1):String
     {

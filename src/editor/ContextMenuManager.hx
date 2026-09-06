@@ -238,8 +238,8 @@ class ContextMenuManager
                         var prefix = "   ";
                         
                         // ═══════════════════════════════════════════════════════════════
-                        // Используем push() вместо unshift()
-                        // push() добавляет элементы в КОНЕЦ массива
+                        // Using push() instead of unshift()
+                        // push() adds elements to the END of the array
                         // ═══════════════════════════════════════════════════════════════
                         editorEntries.push(MenuEntry.createCommand(
                                 "SET_NODE_VISUAL_MODE",
@@ -396,7 +396,7 @@ class ContextMenuManager
         private function onMenuAction(impulse:Impulse):Void
         {
                 // ═══════════════════════════════════════════════════════════════
-                // БЕЗОПАСНЫЙ TRACE #1: Проверяем, вызывается ли метод
+                // SAFE TRACE #1: Checking whether the method is called
                 // ═══════════════════════════════════════════════════════════════
                 trace('=== onMenuAction CALLED ===');
                 
@@ -410,8 +410,8 @@ class ContextMenuManager
                 var y = impulse.data.y;
                 
                 // ═══════════════════════════════════════════════════════════════
-                // БЕЗОПАСНЫЙ TRACE #2: Показываем, какое действие пришло
-                // Используем Std.string() для безопасного вывода
+                // SAFE TRACE #2: Showing which action arrived
+                // Using Std.string() for safe output
                 // ═══════════════════════════════════════════════════════════════
                 trace('  📌 action: ' + action);
                 trace('  📌 data: ' + Std.string(data));
@@ -437,7 +437,7 @@ class ContextMenuManager
                                 
                                 if (isGroup == true)
                                 {
-                                        // Применяем режим ко ВСЕМ выделенным атомам
+                                        // Applying the mode to ALL selected atoms
                                         var selectedIds = _editor.getSelectedNodeIds();
                                         for (id in selectedIds)
                                         {
@@ -450,7 +450,7 @@ class ContextMenuManager
                                 }
                                 else if (nodeId != null && mode != null)
                                 {
-                                        // Применяем к одному атому
+                                        // Applying to one atom
                                         var view = _editor.getNodeViewById(Std.string(nodeId));
                                         if (view != null)
                                         {
@@ -497,7 +497,7 @@ class ContextMenuManager
                                 return;
                                 
                         case "DELETE_WIRES":
-                                // Используем Reflect для ids
+                                // Using Reflect for ids
                                 var ids = Reflect.field(data, "ids");
                                 if (ids != null)
                                 {
@@ -513,7 +513,7 @@ class ContextMenuManager
                                 return;
                                 
                         case "ADD_PORT":
-                                // Используем Reflect для type
+                                // Using Reflect for type
                                 var portType = Reflect.field(data, "type");
                                 if (portType != null)
                                 {
@@ -523,7 +523,7 @@ class ContextMenuManager
                                 return;
                                 
                         case "MOVE_PORT":
-                                // v3.3 (Episod G-1): Reflect для name и up
+                                // v3.3 (Episod G-1): Reflect for name and up
                                 var moveName = Reflect.field(data, "name");
                                 var moveUp = Reflect.field(data, "up");
 // v3.3 (Episod G-2): target assembly travels WITH the entry data
@@ -538,7 +538,7 @@ class ContextMenuManager
                                 return;
 
                         case "REMOVE_PORT":
-                                // Используем Reflect для name
+                                // Using Reflect for name
                                 var portName = Reflect.field(data, "name");
 // v3.3 (Episod G-2): target assembly travels WITH the entry data
                                 var delAsm:Assembly = Reflect.field(data, "assembly");
@@ -562,7 +562,7 @@ class ContextMenuManager
                         if (typeId != null)
                         {
                                 // ═══════════════════════════════════════════════════════════
-                                // FIX: Приводим x и y к Float
+                                // FIX: Casting x and y to Float
                                 // ═══════════════════════════════════════════════════════════
                                 var posX:Float = Std.parseFloat(Std.string(x));
                                 var posY:Float = Std.parseFloat(Std.string(y));

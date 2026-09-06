@@ -314,8 +314,8 @@ class AtomRegistry
                 ], null, "filewriter", true, true, "filewriter");
 
         // =========================================================================
-        // FILE READER — mirror of File Writer (Этап 4a-1, Task 140)
-        // Spec: SPEC_STAGE4A_FILEREADER.md (контакты и семантика §2)
+        // FILE READER - a mirror of File Writer (Stage 4a-1, Task 140)
+        // Spec: SPEC_STAGE4A_FILEREADER.md (contacts and semantics §2)
         // =========================================================================
         reg("FileReaderAtom", "File Reader", [
                 {name: "open",      type: INPUT,  dataType: "bool",   priority: CRITICAL,  label: "Open"},
@@ -334,8 +334,8 @@ class AtomRegistry
         ], null, "filereader", true, true, "filereader");
         
         // =========================================================================
-        // DATA STORAGE — атом-хранилище данных (Этап 4a-2, Task 145)
-        // Spec: SPEC_STAGE4A_DATASTORAGE.md (контакты и семантика §2)
+        // DATA STORAGE - a runtime data storage (Stage 4a-2, Task 145)
+        // Spec: SPEC_STAGE4A_DATASTORAGE.md (contacts and semantics §2)
         // =========================================================================
         reg("DataStorageAtom", "Data Storage", [
                         {name: "enabled",    type: INPUT,  defaultValue: false, dataType: "bool",   priority: CRITICAL,  label: "Enabled"},
@@ -357,8 +357,8 @@ class AtomRegistry
                 ], null, "datastorage", true, true, "datastorage");
 
         // =========================================================================
-        // PICTURE — atom-portrait, consumer of the binary pipe (Этап 4a-3, Task 155)
-        // Spec: SPEC_STAGE4A_PICTURE.md (контакты и семантика §2-§4)
+        // PICTURE - atom-portrait, consumer of the binary pipe (Stage 4a-3, Task 155)
+        // Spec: SPEC_STAGE4A_PICTURE.md (contacts and semantics §2-§4)
         // =========================================================================
         reg("PictureAtom", "Picture", [
                         {name: "image",     type: INPUT,  dataType: "string", priority: CRITICAL,  label: "Image"},
@@ -468,7 +468,7 @@ class AtomRegistry
         // =================================================================
         // LOGIC & PASSIVE
         // =================================================================
-        // !!! FIX: Аргументы были сдвинуты. Добавлен `null` для `logic` и `iconId` в конец.
+        // !!! FIX: The arguments were shifted. A `null` was added for `logic` and `iconId` at the end.
         reg("PassThrough", "Pass Through", [
             {name: "in",      type: INPUT,  dataType: "any",   priority: CRITICAL},
             {name: "out",     type: OUTPUT, dataType: "any",   priority: CRITICAL},
@@ -586,10 +586,10 @@ class AtomRegistry
     }
 
     /**
-    * Этап 2 (Task 135): разбор и регистрация .atom-контента из ПАМЯТИ —
-    * источник хвоста прибора (TailStartup). Тело разбора перенесено из
-    * loadAtomFile без изменений; файловая io-обёртка осталась наверху.
-    * @param sourceLabel имя источника для диагностики (entry хвоста / путь)
+    * Stage 2 (Task 135): parsing and registering .atom content from MEMORY -
+    * the source of the instrument tail (TailStartup). The parsing body was moved from
+    * loadAtomFile unchanged; the file io wrapper stayed on top.
+    * @param sourceLabel the source name for diagnostics (a tail entry / a path)
     */
     public static function loadAtomContent(content:String, sourceLabel:String):Bool
     {

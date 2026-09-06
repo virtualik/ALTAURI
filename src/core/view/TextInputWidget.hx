@@ -119,7 +119,7 @@ class TextInputWidget extends DeviceView
     // =========================================================================
         override private function onActivate():Void 
     {
-        // ЖЕЛЕЗОБЕТОННО: При активации виджета всегда перечитываем значение из атома.
+        // ROCK-SOLID: On widget activation, always re-read the value from the atom.
         if (_outputContact != null && _outputContact.value != null) 
         {
             _inputField.text = Std.string(_outputContact.value);
@@ -163,12 +163,12 @@ class TextInputWidget extends DeviceView
                 {
                         var txt = _inputField.text;
                         
-                        // СТРОГАЯ ПРОВЕРКА: Вся строка целиком должна быть числом
+                        // STRICT CHECK: The entire string must be a number
                         var isPureNumber = ~/^\s*-?\d+(\.\d+)?\s*$/.match(txt);
                         
                         if (isPureNumber)
                         {
-                                // Если в строке есть точка — передаем как Float
+                                // If the string contains a dot — pass as Float
                                 if (txt.indexOf(".") != -1)
                                 {
                                         var f = Std.parseFloat(txt);
@@ -178,7 +178,7 @@ class TextInputWidget extends DeviceView
                                                 return;
                                         }
                                 }
-                                // Если точки нет — передаем как Int
+                                // If there is no dot — pass as Int
                                 else
                                 {
                                         var i = Std.parseInt(txt);
@@ -190,7 +190,7 @@ class TextInputWidget extends DeviceView
                                 }
                         }
                         
-                        // Во всех остальных случаях (буквы, смешанные данные) — передаем как String
+                        // In all other cases (letters, mixed data) — pass as String
                         _outputContact.value = txt;
                 }
         }

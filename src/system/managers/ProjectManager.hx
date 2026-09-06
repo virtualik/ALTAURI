@@ -160,8 +160,8 @@ class ProjectManager
                 AtomRegistry.customLibraryPath = libraryPath;
 
                 // Scan library for custom atoms
-                // Этап 2 (Task 135): у прибора библиотека — из его хвоста
-                // (детерминизм: прибор несёт свой мир); иначе — папка, как раньше.
+                // Stage 2 (Task 135): for the instrument the library comes from its tail
+                // (determinism: the instrument carries its own world); otherwise - the folder, as before.
                 if (core.io.TailStartup.hasTailLibrary()) core.io.TailStartup.loadLibraryToRegistry();
                 else AtomRegistry.scanFolder(libraryPath);
                 #else
@@ -360,9 +360,9 @@ class ProjectManager
         }
         {
                 #if sys
-                // Этап 2 (Task 135): приоритет источника схемы — argv > хвост >
-                // Selfrun.atom. TailStartup.readSchemeContent() даёт контент только
-                // при argv-файле или валидном хвосте; null = диск, как раньше.
+                // Stage 2 (Task 135): the schematic source priority - argv > tail >
+                // Selfrun.atom. TailStartup.readSchemeContent() gives the content only
+                // for an argv file or a valid tail; null = disk, as before.
                 var content:String = core.io.TailStartup.readSchemeContent();
                 if (content == null)
                 {
@@ -443,14 +443,14 @@ class ProjectManager
                                 };
                         }
 // ══════════════════════════════════════════════════════════════════
-// Этап 2.1 (hotfix T-S2.6): ПРИБОР ПОКАЗЫВАЕТ ЛИЦО. Схема из
-// собственного хвоста («scheme source: tail») — старт прошивки
-// прибора: Device-панель обязана открыться при каждом запуске.
-// Флаг isOpen, замороженный в хвосте, писала сессия РЕДАКТОРА в
-// момент упаковки — к прибору он отношения не имеет. Выход прибора
-// по-прежнему честно пишет isOpen на диск (Documents/ALTAURI), но
-// приборному старту диск не указ — хвост главнее. argv-загрузка и
-// обычный редактор семантику isOpen НЕ меняют (контроли Z-стенда:
+// Stage 2.1 (hotfix T-S2.6): THE INSTRUMENT SHOWS ITS FACE. A schematic from
+// its own tail (scheme source: tail) - the firmware start
+// of the instrument: the Device panel must open on every launch.
+// The isOpen flag frozen in the tail was written by the EDITOR session at
+// the packing moment - it has nothing to do with the instrument. The instrument exit
+// still honestly writes isOpen to disk (Documents/ALTAURI), but
+// for the instrument start the disk is not the authority - the tail rules. An argv load and
+// a regular editor do NOT change the isOpen semantics (Z-bench controls:
 // s9_face_tail / s9_face_disk / s9_face_argv).
 // ══════════════════════════════════════════════════════════════════
                         if (core.io.TailStartup.schemeSource() == "tail") isOpen = true;
@@ -490,8 +490,8 @@ class ProjectManager
         public function loadMainWindowStateEarly():Null<{x:Float, y:Float, width:Float, height:Float, screen:Int, maximized:Bool}>
         {
                 #if sys
-                // Этап 2 (Task 135): тот же приоритет argv > хвост > Selfrun —
-                // состояние окна прибора лежит в ЕГО схеме (в хвосте).
+                // Stage 2 (Task 135): the same priority argv > tail > Selfrun -
+                // the instrument window state lives in ITS schematic (in the tail).
                 var earlyContent:String = core.io.TailStartup.readSchemeContent();
                 if (earlyContent == null)
                 {

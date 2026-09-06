@@ -143,21 +143,21 @@ class AssemblyFactory
                                                                         normalizedTypeId = "FileWriterAtom";
 
                                                                         // ─────────────────────────────────────────────────────────────
-                                                                        // FILE READER ATOM — mirror of File Writer (Этап 4a-1, Task 140)
+                                                                        // FILE READER ATOM - a mirror of File Writer (Stage 4a-1, Task 140)
                                                                         // ─────────────────────────────────────────────────────────────
                                                                 case "FILEREADERATOM":
                                                                 case "FILEREADER":
                                                                 case "FILE READER":
                                                                 normalizedTypeId = "FileReaderAtom";
                                                                 // ─────────────────────────────────────────────────────────────
-                                                                // DATA STORAGE ATOM — runtime-хранилище данных (Этап 4a-2, Task 145)
+                                                                // DATA STORAGE ATOM - a runtime data storage (Stage 4a-2, Task 145)
                                                                 // ─────────────────────────────────────────────────────────────
                                                                 case "DATASTORAGEATOM":
                                                                 case "DATASTORAGE":
                                                                 case "DATA STORAGE":
                                                                 normalizedTypeId = "DataStorageAtom";
 // ─────────────────────────────────────────────────────────────
-// PICTURE — atom-portrait, consumer of the binary pipe (Этап 4a-3, Task 155)
+// PICTURE - atom-portrait, consumer of the binary pipe (Stage 4a-3, Task 155)
 // ─────────────────────────────────────────────────────────────
                                                                 case "PICTUREATOM":
                                                                 case "PICTURE":
@@ -439,7 +439,7 @@ class AssemblyFactory
 // "Custom Assembly_2" (unique among blueprints), then the instance got
 // "Custom Assembly_3" (bumped from parsed num 2). Result: node label in the
 // parent said "Custom Assembly_3" while the editor title (blueprint.name)
-// said "Custom Assembly_2" — "мы внутри Custom Assembly_3, но индицируется
+// said "Custom Assembly_2" — "we are inside Custom Assembly_3, but the label says
 // Custom Assembly_2". The paste flow (isPaste=true) still forces a bump in
 // the branch above and is NOT affected by this change.
                         if (!isNameTaken(baseName))

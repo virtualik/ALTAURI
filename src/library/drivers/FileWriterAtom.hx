@@ -9,7 +9,7 @@ import system.managers.DriverManager;
 import haxe.io.Bytes;
 import StringBuf;
 
-// Платформо-зависимые импорты
+// Platform-dependent imports
 #if html5
 import js.Syntax;
 #else
@@ -20,17 +20,17 @@ import core.io.NativeDialog;
 #end
 
 /**
- * FILE WRITER ATOM v1.3 (Этап 4a-4, Task 146)
+ *  * FILE WRITER ATOM v1.3 (Stage 4a-4, Task 146)
  * ============================================================================
- * Двуязычные порции: [write]/[append] принимают String | Bytes | Cargo.
- *   · String — прежняя текстовая семантика (writeString, легаси);
- *   · Bytes  — сырые байты: writeFullBytes, байт-в-байт (md5 1:1);
- *   · Cargo  — распаковка по kind (bytes → сырые байты; text → UTF-8 строка).
- * Провод FileReader.bytes → FileWriter.write пишет бинарные файлы без
- * единой конверсии — закрывает полевой баг-репорт Alik (fft.png калечился
- * текстовой трубой: магия PNG → C9 90 4E 47, U+FFFD по всему телу).
- * Семантика режимов НЕ тронута: Write = снапшот последней порции,
- * Append = дописывание в конец (FIX B..G, Task 140 живы).
+ *  * Bilingual portions: [write]/[append] accept String | Bytes | Cargo.
+ *  *   - String - the legacy text semantics (writeString, legacy);
+ *  *   - Bytes  - raw bytes: writeFullBytes, byte-by-byte (md5 1:1);
+ *  *   - Cargo  - unpacking by kind (bytes -> raw bytes; text -> a UTF-8 string).
+ *  * The FileReader.bytes -> FileWriter.write wire writes binary files without
+ *  * a single conversion - it closes the field bug report Alik (fft.png was mangled
+ *  * by the text pipe: the PNG magic -> C9 90 4E 47, U+FFFD all over the body).
+ *  * The mode semantics are untouched: Write = a snapshot of the last portion,
+ *  * Append = appending to the end (FIX B..G, Task 141 alive).
  * ============================================================================
  */
 class FileWriterAtom extends Atom implements system.managers.Driver
@@ -53,7 +53,7 @@ class FileWriterAtom extends Atom implements system.managers.Driver
     private var _isFallbackMode:Bool = false;
     private var _fallbackBuffer:StringBuf = null;
     #if html5
-    /** v1.3: байтовые порции fallback-режима (Blob из частей при скачивании). */
+    /** v1.3: byte portions of the fallback mode (a Blob from parts when downloading). */
     private var _fallbackByteParts:Array<Bytes> = null;
     #end
 
@@ -61,7 +61,7 @@ class FileWriterAtom extends Atom implements system.managers.Driver
     // FILE SYSTEM ACCESS API FIELDS
     private var _fileHandle:Dynamic = null;
     private var _stream:Dynamic = null;
-    private var _appendBaseSize:Int = 0;   // v1.2: размер файла до открытия (Append)
+    private var _appendBaseSize:Int = 0;   //     private var _appendBaseSize:Int = 0;   // v1.2: the file size before opening (Append)
     #else
     // NATIVE FILE SYSTEM FIELDS
     private var _filePath:String = null;
@@ -106,7 +106,7 @@ class FileWriterAtom extends Atom implements system.managers.Driver
     {
         trace('FileWriterAtom: Initialized (Main Thread)');
                 
-        // Регистрируем атом, чтобы DriverManager вызывал update(dt) и readInputs()
+        // Register the atom so DriverManager calls update(dt) and readInputs()
         DriverManager.getInstance().register(this);
     }
 
@@ -137,7 +137,7 @@ class FileWriterAtom extends Atom implements system.managers.Driver
     /**
      * Show file picker dialog.
      * HTML5: Uses File System Access API.
-     * Native: core.io.NativeDialog — наш comdlg32-мост (Этап 3; Task 141).
+     *      * Native: core.io.NativeDialog - our comdlg32 bridge (Stage 3; Task 141).
      */
     public function showFilePicker(?suggestedName:String = null):Void
     {
@@ -169,17 +169,17 @@ class FileWriterAtom extends Atom implements system.managers.Driver
                 self.initFallbackMode(name);
             }
         }
-                /*#else // если использую указанный прямой путь к файлу
+                                /*#else // if I use the specified direct file path
         // NATIVE TARGET (Windows / Android)
         var self = this;
         
-        // 1. КРИТИЧНО: Используем абсолютный путь, чтобы избежать проблем с правами доступа 
-        // и скрытой записи в папку с exe-файлом или системные директории.
+        // 1. CRITICAL: use an absolute path to avoid permission problems
+        // and hidden writes into the exe folder or system directories.
         #if sys
         self._filePath = sys.FileSystem.absolutePath(name);
         
-        // 2. Гарантируем, что родительская папка существует (избегаем ошибок "Path not found")
-        // ИСПРАВЛЕНО: используем haxe.io.Path.directory вместо sys.FileSystem.directory
+        // 2. Ensure the parent folder exists (avoiding "Path not found" errors)
+        // FIXED: use haxe.io.Path.directory instead of sys.FileSystem.directory
         var dir:String = haxe.io.Path.directory(self._filePath);
         if (dir != null && dir != "" && !sys.FileSystem.exists(dir)) {
             try {
@@ -194,13 +194,13 @@ class FileWriterAtom extends Atom implements system.managers.Driver
         #end
 
         try {
-            // 3. КРИТИЧНО: Учитываем режим! false = перезапись (Write), true = добавление (Append)
+            // 3. CRITICAL: mind the mode! false = overwrite (Write), true = append (Append)
             var shouldAppend = (self._mode == MODE_APPEND);
             self._stream = File.write(self._filePath, shouldAppend);
             
             self._isOpenFlag = true;
             
-            // Если открыли в режиме добавления, синхронизируем размер с реальным положением курсора
+            // If opened in append mode, sync the size with the real cursor position
             if (shouldAppend) {
                 self._fileSize = self._stream.tell();
             } else {
@@ -216,16 +216,16 @@ class FileWriterAtom extends Atom implements system.managers.Driver
             self.setError('Native file error: $e. Path: ${self._filePath}');
         }
         #end*/
-                #else // если использую File Picker Dialog
+                #else //                 #else // if using the File Picker Dialog
         // NATIVE TARGET (Windows / Linux / Android)
         var self = this;
         
-        // v1.2.1 (Task 141): диалог — на нашем мосту core.io.NativeDialog
-        // (comdlg32, Этап 3), НЕ на lime-диалог: в реальной библиотеке
-        // Станции нет browse-методов (выдуманы в Task 140, пойманы
-        // компилятором Super A), а её onOpen типизирован lime.utils.Resource.
-        // Мост возвращает ТОЛЬКО путь (семантика FIX A жива) и, в отличие от
-        // выдуманного browse-метода, ПРЕДЗАПОЛНЯЕТ имя файла (аргумент name).
+        // v1.2.1 (Task 141): the dialog is on our bridge core.io.NativeDialog
+        // (comdlg32, Stage 3), NOT on the lime dialog: the real Station
+        // library has no browse methods (invented in Task 140, caught
+        // by the Super A compiler), and its onOpen is typed lime.utils.Resource.
+        // The bridge returns ONLY the path (the FIX A semantics alive) and, unlike
+        // the invented browse method, PRE-FILLS the file name (the name argument).
         if (!NativeDialog.isSupported())
         {
             self.setError('Native file dialog is not supported on this target');
@@ -246,14 +246,14 @@ class FileWriterAtom extends Atom implements system.managers.Driver
         }
         
         self._filePath = pickedPath;
-        self._suggestedFileName = haxe.io.Path.withoutDirectory(pickedPath); // Оставляем только имя файла
+        self._suggestedFileName = haxe.io.Path.withoutDirectory(pickedPath); //         self._suggestedFileName = haxe.io.Path.withoutDirectory(pickedPath); // Keep only the file name
         
         try {
             var shouldAppend = (self._mode == MODE_APPEND);
-            // v1.2 FIX B (Task 140): File.write(path, binary) — второй аргумент
-            // это БИНАРНЫЙ флаг, а НЕ «дописывать»! Передача shouldAppend
-            // открывала файл с ОБРЕЗКОЙ (fopen "wb") — Append терял
-            // содержимое. Для дописывания — File.append (fopen "ab").
+            // v1.2 FIX B (Task 140): File.write(path, binary) - the second argument
+            // is the BINARY flag, NOT "append"! Passing shouldAppend
+            // opened the file with TRUNCATION (fopen "wb") - Append lost
+            // content. For appending - File.append (fopen "ab").
             if (shouldAppend) {
                 self._stream = sys.io.File.append(self._filePath, true);
                 self._stream.seek(0, SeekEnd);
@@ -278,7 +278,7 @@ class FileWriterAtom extends Atom implements system.managers.Driver
     {
         _isFallbackMode = true;
         _fallbackBuffer = new StringBuf();
-        _fallbackByteParts = [];   // v1.3: параллельный байтовый буфер
+        _fallbackByteParts = [];   //         _fallbackByteParts = [];   // v1.3: a parallel byte buffer
         _isOpenFlag = true;
         _fileSize = 0;
         _writeCount = 0;
@@ -291,9 +291,9 @@ class FileWriterAtom extends Atom implements system.managers.Driver
         if (_isDisposed) return;
         _fileHandle = handle;
         var self = this;
-        // v1.2 FIX E (Task 140): createWritable() по умолчанию ОБРЕЗАЕТ файл —
-        // тот же класс бага, что File.write(path, binary) в нативной ветке.
-        // Append-режим: keepExistingData=true + база размера для seek.
+        // v1.2 FIX E (Task 140): createWritable() by default TRUNCATES the file -
+        // the same bug class as File.write(path, binary) in the native branch.
+        // Append mode: keepExistingData=true + a base size for seek.
         var opts:Dynamic = (_mode == MODE_APPEND) ? { keepExistingData: true } : { };
         untyped handle.createWritable(opts).then(function(stream:Dynamic) {
             if (self._mode == MODE_APPEND) {
@@ -316,7 +316,7 @@ class FileWriterAtom extends Atom implements system.managers.Driver
         if (_isDisposed) return;
         _stream = stream;
         _isOpenFlag = true;
-        // v1.2 FIX F (Task 140): Append-режим начинает с существующего размера.
+        // v1.2 FIX F (Task 140): Append mode starts from the existing size.
         _fileSize = (_mode == MODE_APPEND) ? _appendBaseSize : 0;
         _writeCount = 0;
         updateOutputs();
@@ -342,8 +342,8 @@ class FileWriterAtom extends Atom implements system.managers.Driver
         if (!_isFallbackMode) return;
         var fileName = _suggestedFileName;
         #if html5
-        // v1.3: если копились байтовые порции — скачиваем бинарным Blob'ом;
-        // иначе — прежний текстовый путь (легаси).
+        // v1.3: if byte portions were collected - download as a binary Blob;
+        // otherwise - the legacy text path.
         if (_fallbackByteParts != null && _fallbackByteParts.length > 0)
         {
             var parts:Array<Dynamic> = [for (b in _fallbackByteParts) b.getData()];
@@ -388,7 +388,7 @@ class FileWriterAtom extends Atom implements system.managers.Driver
                 _fallbackBuffer = new StringBuf();
                 _fallbackBuffer.add(data);
                 _fileSize = data.length;
-                _fallbackByteParts = [];   // v1.3: снапшот чистит и байтовый буфер
+                _fallbackByteParts = [];   //                 _fallbackByteParts = [];   // v1.3: the snapshot clears the byte buffer too
             }
             else
             {
@@ -426,10 +426,10 @@ class FileWriterAtom extends Atom implements system.managers.Driver
         if (_stream == null) return;
         try {
             if (_mode == MODE_WRITE) {
-                // В режиме WRITE каждая запись заменяет файл (снапшот последней записи).
-                // v1.2 FIX C (Task 140): File.write(path, false) открывал файл в ТЕКСТОВОМ
-                // режиме (второй аргумент — binary, не «перезапись»): на Windows "\n"
-                // молча превращался в "\r\n". Теперь честный binary — байты 1:1.
+                // In WRITE mode every write replaces the file (a snapshot of the last write).
+                // v1.2 FIX C (Task 140): File.write(path, false) opened the file in TEXT
+                // mode (the second argument is binary, not "overwrite"): on Windows "\n"
+                // silently turned into "\r\n". Now honest binary - bytes 1:1.
                 _stream.close();
                 _stream = File.write(_filePath, true);
                 _fileSize = 0;
@@ -446,9 +446,9 @@ class FileWriterAtom extends Atom implements system.managers.Driver
     }
 
     /**
-     * v1.3 (Этап 4a-4): записать СЫРЫЕ БАЙТЫ — writeFullBytes, никакой строковой
-     * конверсии. Зеркало writeData по семантике режимов: Write = снапшот
-     * (переоткрытие с обрезкой), Append = строго в конец (SeekEnd).
+     *      * v1.3 (Stage 4a-4): write RAW BYTES - writeFullBytes, no string
+     *      * conversion. A mirror of writeData by mode semantics: Write = a snapshot
+     *      * (reopen with truncation), Append = strictly to the end (SeekEnd).
      */
     private function writeBytesData(data:Bytes):Void
     {
@@ -460,7 +460,7 @@ class FileWriterAtom extends Atom implements system.managers.Driver
             if (_mode == MODE_WRITE)
             {
                 _fallbackByteParts = [];
-                _fallbackBuffer = new StringBuf();   // байтовый снапшот вытесняет текст
+                _fallbackBuffer = new StringBuf();   //                 _fallbackBuffer = new StringBuf();   // the byte snapshot displaces text
             }
             _fallbackByteParts.push(data);
             _fileSize += data.length;
@@ -496,7 +496,7 @@ class FileWriterAtom extends Atom implements system.managers.Driver
         if (_stream == null) return;
         try {
             if (_mode == MODE_WRITE) {
-                // Снапшот последней порции — зеркало writeData (FIX C: binary=true)
+                // The snapshot of the last portion - a mirror of writeData (FIX C: binary=true)
                 _stream.close();
                 _stream = File.write(_filePath, true);
                 _fileSize = 0;
@@ -536,16 +536,16 @@ class FileWriterAtom extends Atom implements system.managers.Driver
         #else
         if (_stream == null) return;
         try {
-            // КРИТИЧНО: SeekEnd гарантирует, что мы пишем строго в конец файла, 
-            // независимо от того, что хранится в переменной _fileSize.
+            // CRITICAL: SeekEnd guarantees we write strictly to the end of the file,
+            // regardless of what the _fileSize variable stores.
             _stream.seek(0, SeekEnd);
             _stream.writeString(data);
             
-            // Обновляем размер после записи
+            // Update the size after writing
             _fileSize = _stream.tell();
             onWriteComplete(data.length);
             
-            // КРИТИЧНО: Принудительно сбрасываем буфер на диск
+            // CRITICAL: Force-flush the buffer to disk
             _stream.flush();
         } catch(e:Dynamic) {
             onWriteError(e);
@@ -553,7 +553,7 @@ class FileWriterAtom extends Atom implements system.managers.Driver
         #end
     }
 
-    /** v1.3 (Этап 4a-4): дописать СЫРЫЕ БАЙТЫ в конец (зеркало appendData). */
+    /** v1.3 (Stage 4a-4): append RAW BYTES to the end (a mirror of appendData). */
     private function appendBytesData(data:Bytes):Void
     {
         if (_isDisposed || !_isOpenFlag || data == null || data.length == 0) return;
@@ -579,14 +579,14 @@ class FileWriterAtom extends Atom implements system.managers.Driver
         #else
         if (_stream == null) return;
         try {
-            // КРИТИЧНО: SeekEnd гарантирует запись строго в конец файла
+            // CRITICAL: SeekEnd guarantees writing strictly to the end of the file
             _stream.seek(0, SeekEnd);
             _stream.writeFullBytes(data, 0, data.length);
 
             _fileSize = _stream.tell();
             onWriteComplete(data.length);
 
-            // КРИТИЧНО: Принудительно сбрасываем буфер на диск
+            // CRITICAL: Force-flush the buffer to disk
             _stream.flush();
         } catch(e:Dynamic) {
             onWriteError(e);
@@ -595,10 +595,10 @@ class FileWriterAtom extends Atom implements system.managers.Driver
     }
 
     /**
-     * v1.3 (Этап 4a-4): ДВУЯЗЫЧНОЕ потребление порции на [write]/[append].
-     * Cargo распаковывается по kind; голые Bytes пишутся как есть; String —
-     * прежняя текстовая семантика (легаси). Возвращает true, если порция
-     * потреблена (вход следует очистить — идиома П1 «принял — очисти»).
+     *      * v1.3 (Stage 4a-4): BILINGUAL consumption of the portion on [write]/[append].
+     *      * Cargo is unpacked by kind; bare Bytes are written as is; String -
+     *      * the legacy text semantics (legacy). Returns true if the portion
+     *      * was consumed (the input should be cleared - the P1 idiom "accepted - clear").
      */
     private function consumePortion(portion:Dynamic, append:Bool):Bool
     {
@@ -674,7 +674,7 @@ class FileWriterAtom extends Atom implements system.managers.Driver
         if (_isFallbackMode)
         {
             _fallbackBuffer = new StringBuf();
-            _fallbackByteParts = [];   // v1.3: чистим и байтовый буфер
+            _fallbackByteParts = [];   //             _fallbackByteParts = [];   // v1.3: we clear the byte buffer too
             _fileSize = 0;
             _writeCount = 0;
             updateOutputs();
@@ -697,13 +697,13 @@ class FileWriterAtom extends Atom implements system.managers.Driver
         if (_stream == null) return;
         try {
             _stream.close();
-            // v1.2 FIX D (Task 140): binary=true — единый байтовый режим (см. writeData).
+            // v1.2 FIX D (Task 140): binary=true - a unified byte mode (see writeData).
             _stream = File.write(_filePath, true); // Truncates file
             _fileSize = 0;
             _writeCount = 0;
             updateOutputs();
             
-            // КРИТИЧНО: Сбрасываем очистку на диск немедленно
+            // CRITICAL: Flush the clearing to disk immediately
             _stream.flush();
             trace('FileWriterAtom: Native file cleared');
         } catch(e:Dynamic) {
@@ -814,9 +814,9 @@ class FileWriterAtom extends Atom implements system.managers.Driver
         var writeC = getInput("write");
         if (writeC != null && writeC.value != null)
         {
-            // v1.3 (Этап 4a-4): вход двуязычен — String | Bytes | Cargo.
-            // КРИТИЧНО: Очищаем контакт после потребления, чтобы порция
-            // записалась только один раз (иначе 60 Гц-спам записью).
+            // v1.3 (Stage 4a-4): the input is bilingual - String | Bytes | Cargo.
+            // CRITICAL: Clear the contact after consumption so the portion
+            // is written only once (otherwise 60 Hz write spam).
             if (consumePortion(writeC.value, false))
             {
                 writeC.setValueSilent(null);

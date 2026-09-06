@@ -691,7 +691,7 @@ class GroupAtomsCommand extends Command
 // NEW runtime ID and map (Runtime ID -> New Runtime ID), corrupting
 // the _idMap and causing resolveContact to fail.
                 var newAtomDef:AtomDef = {
-                        instanceId: newTypeId, // <--- ИСПРАВЛЕНО: было newInstance.id
+                        instanceId: newTypeId, // <--- FIXED: was newInstance.id
                         typeId: newTypeId,
                         x: centerPos.x,
                         y: centerPos.y
@@ -784,7 +784,7 @@ class GroupAtomsCommand extends Command
                         }
                 }
 
-// === FIX: Синхронизируем родительскую сборку после добавления связей с SELF новой сборки ===
+// === FIX: Syncing the parent assembly after adding links to the SELF ports of the new assembly ===
                 _assembly.rebuildInternalConnections();
 
 // Notify parent assembly that its ports have changed

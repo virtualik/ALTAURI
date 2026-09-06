@@ -144,9 +144,9 @@ class TextInputAtom extends Atom
             if (outContact != null)
             {
                 outContact.value = state.value;
-				// КРИТИЧЕСКИ ВАЖНО ДЛЯ HTML5:
-                // Принудительно уведомляем Виджет(ы), чтобы они перерисовали TextField,
-                // даже если Виджет был создан и добавлен на сцену ДО загрузки состояния.
+				// CRITICALLY IMPORTANT FOR HTML5:
+                // We force-notify the Widget(s) so they redraw the TextField,
+                // even if the Widget was created and added to the stage BEFORE the state was loaded.
                 super.onContactChanged(outContact);
             }
         }

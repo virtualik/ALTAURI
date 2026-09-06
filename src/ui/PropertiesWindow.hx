@@ -435,7 +435,7 @@ class PropertiesWindow extends Sprite
             }
             yPos += 10; // Extra spacing after shape selector
 			
-		    // === Секция: Frame Rate Control ===
+		    // === Section: Frame Rate Control ===
 			var frLabel = new TextField();
 			frLabel.text = "Frame Rate (FPS):";
 			frLabel.width = 250;
@@ -452,7 +452,7 @@ class PropertiesWindow extends Sprite
 			_widgets.push(frInput);
 			yPos += 40;
 			
-			// === Секция: Decimation ===
+			// === Section: Decimation ===
 			var decLabel = new TextField();
 			decLabel.text = "Sample Decimation:";
 			decLabel.width = 250;

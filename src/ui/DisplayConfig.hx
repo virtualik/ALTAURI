@@ -162,7 +162,7 @@ import core.logic.EventType;
 *  │       │     └── _devicePanel.setMaximizedState(isFullscreen)        │
 *  │       │          └── Icon changes [□] → [◱]                         │
 *  │       │                                                             │
-*  │       └── (другие подписчики, если появятся)                        │
+*  │       └── (other subscribers, if any appear)                        │
 *  └─────────────────────────────────────────────────────────────────────┘
 *
 * ═══════════════════════════════════════════════════════════════════════════
@@ -659,7 +659,7 @@ class DisplayConfig
 */
 class EditorButtons
 {
-	// Явный конструктор для исправления ошибки компиляции
+	// An explicit constructor to fix a compilation error
 	public function new() {}
 
 	/** [<] Back button — visible when nested (stack > 1) */
@@ -696,7 +696,7 @@ class EditorButtons
 */
 class DeviceButtons
 {
-	// Явный конструктор для исправления ошибки компиляции
+	// An explicit constructor to fix a compilation error
 	public function new() {}
 
 	/** [E] Return to Editor button */

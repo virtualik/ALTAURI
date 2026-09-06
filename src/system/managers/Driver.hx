@@ -11,16 +11,16 @@ package system.managers;
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │   Driver extends Atom                                                   │
  * │                                                                         │
- * │   А) COMPUTE MODULE:                                                    │
+ * │   A) COMPUTE MODULE:                                                    │
  * │      - update(dt) is called every frame by DriverManager                │
  * │      - Performs time-based calculations                                 │
  * │      - Example: SignalGenerator calculates next sample                  │
  * │                                                                         │
- * │   Б) DATABANK:                                                          │
+ * │   B) DATABANK:                                                          │
  * │      - Stores generated data (frequency, phase, buffer)                 │
  * │      - getPersistentState() saves the state                             │
  * │                                                                         │
- * │   В) FACE:                                                              │
+ * │   C) FACE:                                                              │
  * │      - DeviceView shows the generator's output                          │
  * │      - DeviceViewRegistry manages the single instance                   │
  * └─────────────────────────────────────────────────────────────────────────┘

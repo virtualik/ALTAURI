@@ -20,19 +20,19 @@ using StringTools;
 * ║                     ASSEMBLY v2.10                                        ║
 * ║  (Full Integrity + Template ID Serialization + Clean Gateway Topology     ║
 * ║   + Load-Symmetric Blueprint Sync + Atom Mapping Registration             ║
-* ║   + Inline Value Persistence + Crash Traps + Conn Traps                    ║
-* ║   + Ghost AtomDef Self-Heal on Load)                                       ║
+* ║   + Inline Value Persistence + Crash Traps + Conn Traps                   ║
+* ║   + Ghost AtomDef Self-Heal on Load)                                      ║
 * ╠═══════════════════════════════════════════════════════════════════════════╣
 * ║                                                                           ║
 * ║  v2.10 CHANGES (Ghost AtomDef Self-Heal — Wide View v1.1):                ║
-* ║   _createInternalInstances(): an AtomDef whose typeId cannot be            ║
-* ║   resolved (blueprint absent from AtomRegistry — e.g. an assembly          ║
-* ║   deleted by an undone grouping in a pre-v3.18 build, or a missing         ║
+* ║   _createInternalInstances(): an AtomDef whose typeId cannot be           ║
+* ║   resolved (blueprint absent from AtomRegistry — e.g. an assembly         ║
+* ║   deleted by an undone grouping in a pre-v3.18 build, or a missing        ║
 * ║   library file) is now DROPPED from the blueprint at load time,           ║
-* ║   together with its dangling _idMap entry. Before, the dead entry          ║
+* ║   together with its dangling _idMap entry. Before, the dead entry         ║
 * ║   produced "ERROR: Blueprint not found" on every load and was             ║
 * ║   re-serialized by every save, polluting the project file forever.        ║
-* ║   Self-heals saves already carrying such ghosts (field case: the           ║
+* ║   Self-heals saves already carrying such ghosts (field case: the          ║
 * ║   CustomAssembly_e5a3 entry left in Selfrun.atom by final test T5).       ║
 * ║                                                                           ║
 * ║  Universal base class for ALL nodes in the system.                        ║
@@ -1000,8 +1000,8 @@ class Assembly extends Atom
         }
 
         /**
-         * Разрывает все существующие связи между внутренними атомами и портами.
-         * Вызывается перед пересозданием связей в _restoreInternalPortLinks().
+         * Tears down all existing connections between internal atoms and ports.
+         * Called before re-creating the connections in _restoreInternalPortLinks().
          */
         private function _clearInternalPortLinks():Void
         {
@@ -1017,18 +1017,18 @@ class Assembly extends Atom
                                 var atom:Atom = cast internalAtoms.get(runtimeId);
                                 if (atom == null) continue;
 
-                                // Проверяем все контакты атома
+                                // Checking all atom contacts
                                 var allContacts = atom.getInputs().concat(atom.getOutputs());
                                 for (contact in allContacts)
                                 {
                                         if (contact != null && !contact.isDisposed && contact.hasLink(internalContact))
                                         {
-                                                trace('Удаляем связь: ${contact.name} <-> ${internalContact.name}');
+                                                //trace('Remove Link: ${contact.name} <-> ${internalContact.name}');
                                                 contact.unlink(internalContact);
                                         }
                                 }
 
-                                // Проверяем все входы и выходы атома
+                                // Checking all atom inputs and outputs
                                 var inputs = atom.getInputs();
                                 if (inputs != null)
                                 {
@@ -1036,12 +1036,12 @@ class Assembly extends Atom
                                         {
                                                 if (contact != null && !contact.isDisposed)
                                                 {
-                                                        // Связь от порта к атому (port.internal -> contact)
+                                                        // A link from the port to the atom (port.internal -> contact)
                                                         if (internalContact.hasLink(contact))
                                                         {
                                                                 internalContact.unlink(contact);
                                                         }
-                                                        // Связь от атома к порту (contact -> port.internal)
+                                                        // A link from the atom to the port (contact -> port.internal)
                                                         if (contact.hasLink(internalContact))
                                                         {
                                                                 contact.unlink(internalContact);
@@ -1140,7 +1140,7 @@ class Assembly extends Atom
                                 if (currentCount < max)
                                 {
 // ═══════════════════════════════════════════════════════
-// FIX: Сохраняем Dual Naming при горячей перезагрузке!
+// FIX: Preserving Dual Naming on hot reload!
 // ═══════════════════════════════════════════════════════
                                         var extName = pin.name;
                                         var extDyn = Reflect.field(pin, "externalName");
@@ -1154,7 +1154,7 @@ class Assembly extends Atom
                                                 newPort.label = Std.string(lblDyn);
                                         }
 
-                                        ports.set(pin.name, newPort); // Ключ мапы - всегда internalName
+                                        ports.set(pin.name, newPort); // The map key is always internalName
                                         if (pin.type == INPUT)
                                         {
                                                 _inputs.push(newPort.external);
@@ -1174,11 +1174,11 @@ class Assembly extends Atom
                 _updatePortLinks();
 
 // ═══════════════════════════════════════════════════════════════════
-// FIX: Удаляем все старые связи между атомами и портами
+// FIX: Removing all old links between atoms and ports
 // ═══════════════════════════════════════════════════════════════════
                 _clearInternalPortLinks();
 
-                // Теперь восстанавливаем связи заново
+                // Now restoring the links anew
                 _restoreInternalPortLinks();
                 rebuildInternalConnections();
                 reconnectExternalLinks();
@@ -1196,8 +1196,8 @@ class Assembly extends Atom
 // ═══════════════════════════════════════════════════════════════════
 // v2.1 FIX: Reconnect external links after hot-reload
 // ═══════════════════════════════════════════════════════════════════
-                //_initializeLogicState();   // Устанавливает значения по умолчанию
-                //_processPendingSignals();  // Запускает активные драйверы (MiniAudioAtom)
+                //_initializeLogicState();   // Sets the default values
+                //_processPendingSignals();  // Starts the active drivers (MiniAudioAtom)
                 reconnectExternalLinks();
 
                 // v2.9: aliases must point at the FRESH port objects
@@ -1627,8 +1627,8 @@ class Assembly extends Atom
 //    to the LOWEST new internal port, then connect an atom to the port
 //    above it — the second rename pushed its external contact to the end
 //    and displaced the button's contact one slot UP on the parent-side
-//    node ("не самый нижний контакт принимает иное название, а тот что
-//    выше над самым последним").
+//    node ("the bottommost contact takes a different name, while the one
+//    above the very last one does not").
                 var extIdx:Int = -1;
                 if (portType == INPUT)
                 {
@@ -1716,17 +1716,17 @@ class Assembly extends Atom
                                 if (port == null) continue;
 
                                 // ═══════════════════════════════════════════════════════
-                                // FIX: Ищем атом напрямую по Runtime ID в internalAtoms
+                                // FIX: Looking up the atom directly by Runtime ID in internalAtoms
                                 // ═══════════════════════════════════════════════════════
                                 var atom:Atom = null;
-                                // Сначала пробуем найти по Runtime ID (если atomId уже Runtime)
+                                // First trying to find by Runtime ID (if atomId is already Runtime)
                                 if (internalAtoms.exists(atomId))
                                 {
                                         atom = cast internalAtoms.get(atomId);
                                 }
                                 else
                                 {
-                                        // Иначе пробуем найти по Template ID через idMap
+                                        // Otherwise trying to find by Template ID via idMap
                                         var runtimeId = _idMap.get(atomId);
                                         if (runtimeId != null && internalAtoms.exists(runtimeId))
                                         {
@@ -1757,7 +1757,7 @@ class Assembly extends Atom
                                 if (port == null) continue;
 
                                 // ═══════════════════════════════════════════════════════
-                                // FIX: Ищем атом напрямую по Runtime ID в internalAtoms
+                                // FIX: Looking up the atom directly by Runtime ID in internalAtoms
                                 // ═══════════════════════════════════════════════════════
                                 var atom:Atom = null;
                                 if (internalAtoms.exists(atomId))
@@ -2097,8 +2097,8 @@ class Assembly extends Atom
                 return;
 
                 /*
-                // Весь старый код метода отсюда и ниже можно оставить или удалить,
-                // он никогда не выполнится из-за return; выше
+                // The entire old method body from here down can be kept or deleted,
+                // it never executes because of the return; above
                 if (internalAtoms == null) return;
                 var port = ports.get(portName);
                 if (port == null) return;
@@ -2799,13 +2799,13 @@ utils.Trap.log("ASM-DISPOSE", "dispose enter: id=" + this.id);
                         utils.Trap.log("ASM-DISPOSE", "super.dispose done");
                         
                         utils.Trap.log("ASM-DISPOSE", "teardown OK -> resume");
-                        // Если всё прошло успешно, возобновляем генератор
+                        // If everything succeeded, resuming the generator
                         TickGenerator.getInstance().resume();
                 } catch (e:Dynamic) {
-                        // Если произошла ошибка, ВСЁ РАВНО возобновляем генератор
+                        // If an error occurred, STILL resuming the generator
                         utils.Trap.log("ASM-DISPOSE", "EXCEPTION in dispose: " + e);
                         TickGenerator.getInstance().resume();
-                        // Пробрасываем ошибку дальше, чтобы симуляция знала о сбое
+                        // Re-throwing the error so the simulation knows about the failure
                         throw e;
                 }
         }

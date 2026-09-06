@@ -3,60 +3,60 @@ package core.types;
 import haxe.io.Bytes;
 
 /**
- * CARGO v1.0 (Этап 4a-2, Task 145)
+ * CARGO v1.0 (Stage 4a-2, Task 145)
  * ============================================================================
- * Договор ПОРЦИОННЫХ перевозок по контактной сети ALTAURI.
+ * The contract of PORTION transportation over the ALTAURI contact network.
  *
- * ДОКТРИНА ПРОВОДОВ (решение автора, Task 143-144):
- *   Слой 1 «ЭЛЕКТРИЧЕСТВО» — голые Bool/Int/Float/String: дедуп по значению,
- *     inline-прозрачность, ~95% контактов. Существующая библиотека НЕ трогается.
- *   Слой 2 «КАРГО-РЕЙСЫ» — этот класс: тяжёлые/самодекватные порции данных
- *     (содержимое файла, будущие изображения/аудио-чанки) едут в ЯВНОМ
- *     контейнере, несущем о себе всё: вид данных, имя, размер, mime.
- *   Слой 3 «СОБЫТИЯ» — шина Impulsys (payload-объекты, вне графовой сети).
+ * THE WIRE DOCTRINE (the author decision, Task 143-144):
+ *   Layer 1 ELECTRICITY - bare Bool/Int/Float/String: value dedup,
+ *     inline transparency, ~95% of contacts. The existing library is NOT touched.
+ *   Layer 2 CARGO RUNS - this class: heavy/self-contained data portions
+ *     (file contents, future image/audio chunks) ride in an EXPLICIT
+ *     container carrying everything about itself: the data kind, name, size, mime.
+ *   Layer 3 EVENTS - the Impulsys bus (payload objects, outside the graph network).
  *
- * Принцип: «карго — для порций, электричество — для состояний».
+ * The principle: cargo for portions, electricity for states.
  *
- * ЗАЧЕМ КОНТЕЙНЕР, ЕСЛИ Dynamic УЖЕ НЕСЁТ ССЫЛКУ (без сериализации)?
- *   · kind ЯВЕН: приёмник не гадает, текст это или байты (никакого
- *     type-sniffing на приёме);
- *   · fileName/mime едут БЕСПЛАТНО (FileReader v1.1 подарит Хранилищу имя);
- *   · toString() читаем в трассах и логах (не «[object Object]»);
- *   · конструирование только через фабрики text()/bytes() — size считается
- *     сам и не может соврать.
+ * WHY A CONTAINER IF Dynamic ALREADY CARRIES A REFERENCE (without serialization)?
+ *   · the kind is EXPLICIT: the receiver does not guess whether it is text or bytes (no
+ *     type-sniffing on reception);
+ *   · fileName/mime ride for FREE (FileReader v1.1 gifts the name to Storage);
+ *   · toString() is readable in traces and logs (not [object Object]);
+ *   · construction only via the text()/bytes() factories - the size is computed
+ *     itself and cannot lie.
  *
- * ПРАВИЛА ГИГИИНЫ ТЯЖЁЛОГО ГРУЗА (П1-П4, SPEC_STAGE4A_DATASTORAGE §5):
- *   П1 поглотитель очищает вход после принятия;
- *   П2 источник держит последнюю порцию на выходе (RAM: один экземпляр);
- *   П3 по проводам — ссылки; копия лишь при повторной выдаче (Bytes.copy);
- *   П4 сериализация — только осознанно (getPersistentState + CAP).
+ * HEAVY CARGO HYGIENE RULES (P1-P4, SPEC_STAGE4A_DATASTORAGE §5):
+ *   P1 the consumer clears the input after accepting;
+ *   P2 the source keeps the last portion on the output (RAM: one instance);
+ *   P3 over wires - references; a copy only on re-issue (Bytes.copy);
+ *   P4 serialization - only deliberately (getPersistentState + CAP).
  *
- * Уроки, зашитые в дизайн: TextArea v1.3 «Memory exhausted» (неограниченный
- * рост — враг; здесь порция НЕНАРАСТАЮЩАЯ по построению), Contact v5.14
- * (лимитов размера в проводе нет — дисциплина на совести поглотителей).
+ * Lessons wired into the design: TextArea v1.3 Memory exhausted (unlimited
+ * growth is the enemy; here the portion is NON-GROWING by construction), Contact v5.14
+ * (there are no size limits on the wire - the discipline is the consumers' responsibility).
  * ============================================================================
  */
 class Cargo
 {
-    /** Вид груза: текстовая порция (data:String). */
+    /** The cargo kind: a text portion (data:String). */
     public static inline var KIND_TEXT:String = "text";
-    /** Вид груза: байтовая порция (data:haxe.io.Bytes). */
+    /** The cargo kind: a byte portion (data:haxe.io.Bytes). */
     public static inline var KIND_BYTES:String = "bytes";
 
-    /** Вид груза: KIND_TEXT | KIND_BYTES. */
+    /** The cargo kind: KIND_TEXT | KIND_BYTES. */
     public var kind(default, null):String;
-    /** Тело груза: String (text) | haxe.io.Bytes (bytes). По проводам — ссылка. */
+    /** The cargo body: String (text) | haxe.io.Bytes (bytes). Over wires - a reference. */
     public var data(default, null):Dynamic;
-    /** Имя, если порция родом из файла (FileReader v1.1+); "" — безымянная. */
+    /** The name if the portion came from a file (FileReader v1.1+); "" - unnamed. */
     public var fileName(default, null):String;
-    /** Честный размер тела: длина UTF-8 (text) или длина байтов (bytes). */
+    /** The honest body size: the UTF-8 length (text) or the byte length (bytes). */
     public var size(default, null):Int;
-    /** Опциональный mime («image/png», «text/plain»...); "" — не указан. */
+    /** An optional mime (image/png, text/plain...); "" - not specified. */
     public var mime(default, null):String;
 
     /**
-     * Приватный конструктор: карго рождается только фабриками text()/bytes(),
-     * чтобы size всегда соответствовал телу (нельзя «создать» рассинхрон).
+     * A private constructor: cargo is born only via the text()/bytes() factories,
+     * so the size always matches the body (you cannot create a desync).
      */
     private function new(kind:String, data:Dynamic, fileName:String, size:Int, mime:String)
     {
@@ -67,27 +67,27 @@ class Cargo
         this.mime = (mime != null) ? mime : "";
     }
 
-    /** Текстовая порция. size = длина UTF-8 (байты, не кодовые единицы). */
+    /** A text portion. size = the UTF-8 length (bytes, not code units). */
     public static function text(s:String, ?fileName:String = "", ?mime:String = ""):Cargo
     {
         if (s == null) s = "";
         return new Cargo(KIND_TEXT, s, fileName, Bytes.ofString(s).length, mime);
     }
 
-    /** Байтовая порция. size = длина тела. */
+    /** A byte portion. size = the body length. */
     public static function bytes(b:Bytes, ?fileName:String = "", ?mime:String = ""):Cargo
     {
         if (b == null) b = Bytes.alloc(0);
         return new Cargo(KIND_BYTES, b, fileName, b.length, mime);
     }
 
-    /** Это карго? (приёмники двуязычны: карго распаковывается, голое — по флагу). */
+    /** Is this cargo? (the receivers are bilingual: cargo is unpacked, bare goes by the flag). */
     public static function isCargo(v:Dynamic):Bool
     {
         return v != null && Std.isOfType(v, Cargo);
     }
 
-    /** Читаемая трасса: «Cargo(bytes, 20480, 'photo.png')». */
+    /** A readable trace: Cargo(bytes, 20480, photo.png). */
     public function toString():String
     {
         var namePart:String = (fileName != null && fileName != "") ? ", '" + fileName + "'" : "";

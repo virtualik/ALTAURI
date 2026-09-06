@@ -32,12 +32,12 @@ class ButtonComponent extends Sprite {
     private var _textField: TextField;
     private var _action: ButtonAction;
 
-    /** Минимальный размер (для одно-символьных кнопок сохраняем 40×40) */
+    /** Minimum size (keeping 40x40 for single-character buttons) */
     private static inline var MIN_SIZE:Float = 33;
-    /** Боковой padding для длинных подписей */
+    /** Side padding for long labels */
     private static inline var H_PADDING:Float = 14;
 
-    /** Финальная ширина кнопки. Устанавливается в applyLabel() */
+    /** The final button width. Set in applyLabel() */
     private var _btnWidth:Float = MIN_SIZE;
 
     public function new(label: String, action: ButtonAction) {

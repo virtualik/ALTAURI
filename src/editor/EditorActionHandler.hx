@@ -133,8 +133,8 @@ class EditorActionHandler
     }
 
         /**
-        * Создает атом с заранее известным ID.
-        * Это необходимо для программного скриптинга, чтобы мы могли сразу соединить атомы.
+        * Creates an atom with a pre-known ID.
+        * This is needed for programmatic scripting so we can connect the atoms right away.
         */
         public function createAtomWithId(typeId:String, instanceId:String, x:Float, y:Float):Void
         {
@@ -142,7 +142,7 @@ class EditorActionHandler
                         _blueprint,
                         _assembly,
                         typeId,
-                        instanceId, // Передаем наш сгенерированный ID
+                        instanceId, // Passing our generated ID
                         x,
                         y,
                         _isNameTakenGlobally,

@@ -198,7 +198,7 @@ class Main extends Sprite
         private var _btnSettings:ButtonComponent;
         private var _btnDelete:ButtonComponent;
         private var _btnClose:ButtonComponent;
-// Этап 3 (Task 137): [P] Export — упаковка прибора мышкой (= --pack + диалог путей)
+// Stage 3 (Task 137): [P] Export - packing the instrument with a mouse click (= --pack + a path dialog)
         private var _btnExport:ButtonComponent;
 
 // --- State ---
@@ -248,24 +248,30 @@ class Main extends Sprite
                                 // v1.4 (Episod H-1): black box FIRST — stderr capture + native SEH sentinel
                                 utils.Trap.boot();
                 #if sys
-                // Этап 1 (Task 132, PayloadTail): лабораторный CLI (--pack /
-                // --inspect) — до любой инициализации редактора. true = команда
-                // обработана: немедленный выход с кодом LabCLI.exitCode, UI не создаём.
+                // Stage 1 (Task 132, PayloadTail): the lab CLI (--pack /
+                // --inspect) - before any editor initialization. true = the command
+                // was processed: an immediate exit with the LabCLI.exitCode code, no UI is created.
                 if (core.io.LabCLI.maybeHandle()) Sys.exit(core.io.LabCLI.exitCode);
                 #end
 
                 #if sys
-                // Этап 2 (Task 135, TailStartup): источник старта — argv > хвост >
-                // Selfrun. После LabCLI (CLI-команды уже вышли; --pack читает
-                // Documents напрямую) и ДО ProjectManager.init() (решение
-                // о библиотеке: хвост прибора или скан папки).
+                // Stage 2 (Task 135, TailStartup): the startup source - argv > tail >
+                // Selfrun. After LabCLI (the CLI commands have already exited; --pack reads
+                // Documents directly) and BEFORE ProjectManager.init() (the decision
+                // about the library: the instrument tail or a folder scan).
                 core.io.TailStartup.install();
                 #end
                                 
                 _theme = EditorTheme.getInstance();
 
                 #if html5
-                var canvas:js.html.CanvasElement = cast js.Browser.document.getElementById("openfl-content");
+                // FIX (multi-instance): with several app instances on one page
+                // (site Modules 1-3) document-wide lookups always return the
+                // FIRST canvas in the DOM — Module 1's. Each instance must bind
+                // to its OWN stage canvas.
+                var canvas:js.html.CanvasElement = null;
+                if (Lib.current != null && Lib.current.stage != null) canvas = untyped Lib.current.stage.__canvas;
+                if (canvas == null) canvas = cast js.Browser.document.getElementById("openfl-content");
                 if (canvas == null) canvas = cast js.Browser.document.querySelector("canvas");
                 if (canvas != null) canvas.oncontextmenu = function(e) { e.preventDefault(); return false; };
                 #end
@@ -291,26 +297,32 @@ class Main extends Sprite
         private function init(e:Event = null):Void
         {
                 #if html5
-                var canvas:js.html.CanvasElement = cast js.Browser.document.getElementById("openfl-content");
+                // FIX (multi-instance): with several app instances on one page
+                // (site Modules 1-3) document-wide lookups always return the
+                // FIRST canvas in the DOM — Module 1's. Each instance must bind
+                // to its OWN stage canvas.
+                var canvas:js.html.CanvasElement = null;
+                if (Lib.current != null && Lib.current.stage != null) canvas = untyped Lib.current.stage.__canvas;
+                if (canvas == null) canvas = cast js.Browser.document.getElementById("openfl-content");
                 if (canvas == null) canvas = cast js.Browser.document.querySelector("canvas");
                 if (canvas != null)
                 {
-                        // Блокировка контекстного меню (уже есть)
+                        // Blocking the context menu (already present)
                         canvas.oncontextmenu = function(e:js.html.Event) { e.preventDefault(); return false; };
                         
                         // ═══════════════════════════════════════════════════════════════
-                        // Жёсткий запрет на браузерную обработку тач-событий
-                        // Предотвращает рассинхрон между JS-потоком и Compositor Thread Chrome
+                        // A hard ban on browser touch-event processing
+                        // Prevents desync between the JS thread and the Chrome Compositor Thread
                         // ═══════════════════════════════════════════════════════════════
                         untyped canvas.style.touchAction = "none";
                         
                         // ═══════════════════════════════════════════════════════════════
-                        // Блокировка браузерного autoscroll на средней кнопке мыши
+                        // Blocking the browser autoscroll on the middle mouse button
                         // ═══════════════════════════════════════════════════════════════
-                        // Браузер активирует autoscroll mode на нативном mousedown event
-                        // с button === 1 ДО того, как OpenFL получит MIDDLE_MOUSE_DOWN.
-                        // preventDefault() на canvas останавливает браузерный autoscroll,
-                        // позволяя OpenFL/ViewportManager обработать pan самостоятельно.
+                        // The browser activates autoscroll mode on the native mousedown event
+                        // with button === 1 BEFORE OpenFL receives MIDDLE_MOUSE_DOWN.
+                        // preventDefault() on the canvas stops the browser autoscroll,
+                        // letting OpenFL/ViewportManager handle the pan itself.
                         canvas.addEventListener("mousedown", function(e:js.html.MouseEvent) {
                                 if (e.button == 1) {
                                         e.preventDefault();
@@ -318,7 +330,7 @@ class Main extends Sprite
                                 }
                         });
                         
-                        // Дополнительно: блокируем auxclick (срабатывает при отпускании средней кнопки)
+                        // Additionally: blocking auxclick (fires on middle-button release)
                         canvas.addEventListener("auxclick", function(e:js.html.MouseEvent) {
                                 if (e.button == 1) {
                                         e.preventDefault();
@@ -327,15 +339,21 @@ class Main extends Sprite
                 }
                 #end
                 #if html5
-                var canvas:js.html.CanvasElement = cast js.Browser.document.getElementById("openfl-content");
+                // FIX (multi-instance): with several app instances on one page
+                // (site Modules 1-3) document-wide lookups always return the
+                // FIRST canvas in the DOM — Module 1's. Each instance must bind
+                // to its OWN stage canvas.
+                var canvas:js.html.CanvasElement = null;
+                if (Lib.current != null && Lib.current.stage != null) canvas = untyped Lib.current.stage.__canvas;
+                if (canvas == null) canvas = cast js.Browser.document.getElementById("openfl-content");
                 if (canvas == null) canvas = cast js.Browser.document.querySelector("canvas");
                 if (canvas != null)
                 {
-                        // Блокировка контекстного меню
+                        // Disabling the context menu
                         canvas.oncontextmenu = function(e:js.html.Event) { e.preventDefault(); return false; };
                         
                         // ═══════════════════════════════════════════════════════════════
-                        // Блокировка браузерного autoscroll на средней кнопке мыши
+                        // Blocking the browser autoscroll on the middle mouse button
                         // ═══════════════════════════════════════════════════════════════
                         canvas.addEventListener("mousedown", function(e:js.html.MouseEvent) {
                                 if (e.button == 1) {
@@ -351,20 +369,20 @@ class Main extends Sprite
                         });
                         
                         // ═══════════════════════════════════════════════════════════════
-                        // Блокировка прокрутки страницы при колесе мыши над canvas
+                        // Blocking page scrolling on mouse wheel over the canvas
                         // ═══════════════════════════════════════════════════════════════
-                        // Браузерное событие wheel срабатывает ДО того, как OpenFL получит
-                        // MouseEvent.MOUSE_WHEEL. Без preventDefault() браузер прокручивает
-                        // страницу одновременно с тем, как OpenFL обрабатывает zoom.
+                        // The browser wheel event fires BEFORE OpenFL receives
+                        // MouseEvent.MOUSE_WHEEL. Without preventDefault() the browser scrolls
+                        // the page while OpenFL is processing the zoom.
                         //
-                        // {passive: false} — критически важен! По умолчанию современные
-                        // браузеры (Chrome, Firefox) делают wheel event passive, что
-                        // запрещает вызов preventDefault(). Явное указание passive: false
-                        // позволяет блокировать прокрутку страницы.
+                        // {passive: false} — is critically important! By default modern
+                        // browsers (Chrome, Firefox) make the wheel event passive, which
+                        // forbids calling preventDefault(). Explicitly setting passive: false
+                        // allows blocking page scrolling.
                         //
-                        // OpenFL всё равно получит свой MOUSE_WHEEL (его обработчики
-                        // зарегистрированы внутри canvas и не зависят от preventDefault
-                        // на уровне DOM), поэтому zoom продолжит работать как обычно.
+                        // OpenFL will still receive its MOUSE_WHEEL (its handlers
+                        // are registered inside the canvas and do not depend on preventDefault
+                        // at the DOM level), so zoom continues to work as usual.
                         // ═══════════════════════════════════════════════════════════════
                         canvas.addEventListener("wheel", function(e:js.html.WheelEvent) {
                                 e.preventDefault();
@@ -624,11 +642,11 @@ class Main extends Sprite
                 updateNavigationUI();
                 updateButtonStates();
                 
-                //Видимость кнопок Button Visibility
+                //Button visibility
                 var cfg = DisplayConfig.getInstance();
-                cfg.deviceButtons.showClose = false;     // Скрыть [X] с Device панели
+                cfg.deviceButtons.showClose = false;     // Hide [X] from the Device panel
                 
-                // v3.0: Switch to Editor mode ПРОВЕРИТЬ ПОЧЕМУ НЕ ПЕРЕКЛЮЧАЕТСЯ В РЕДАКТОР?
+                // v3.0: Switch to Editor mode TODO: WHY DOES IT NOT SWITCH TO THE EDITOR?
                         if (!DisplayConfig.getInstance().isEditorMode())
                         {
                                 DisplayConfig.getInstance().currentMode = DisplayMode.EDITOR;
@@ -820,10 +838,10 @@ class Main extends Sprite
         #if html5
         var blueprintUrl:String = null;
 
-        // Получаем канвас текущего OpenFL-инстанса
+        // Getting the canvas of the current OpenFL instance
         var canvas:js.html.CanvasElement = untyped openfl.Lib.current.stage.window.element;
         
-        // Поднимаемся вверх по DOM-дереву, пока не найдем data-blueprint
+        // Walking up the DOM tree until we find data-blueprint
         var el:js.html.Element = canvas;
         while (el != null && blueprintUrl == null)
         {
@@ -835,7 +853,7 @@ class Main extends Sprite
         {
             log("Loading HTML5 blueprint: " + blueprintUrl);
             
-            // Защита от кэша
+            // Cache protection
             var http = new haxe.Http(blueprintUrl + "?t=" + Date.now().getTime());
             
             http.onData = function(data:String)
@@ -874,7 +892,7 @@ class Main extends Sprite
     {
         var rawBp = json.blueprint;
         
-        // Используем наш новый публичный метод из ProjectIO
+        // Using our new public method from ProjectIO
         var bp = system.io.ProjectIO.parseBlueprint(rawBp);
         
         core.logic.NamingService.clearInstanceNames();
@@ -883,7 +901,7 @@ class Main extends Sprite
 
         _cachedDeviceWindowState = [];
 
-        // Парсим устройства
+        // Parsing the devices
         if (json.deviceWindow != null && json.deviceWindow.devices != null)
         {
             for (d in (json.deviceWindow.devices : Array<Dynamic>))
@@ -900,7 +918,7 @@ class Main extends Sprite
             }
         }
 
-        // Парсим состояние вьюпорта
+        // Parsing the viewport state
         var viewState = { x: 0.0, y: 0.0, zoom: 1.0 };
         if (json.editor != null)
         {
@@ -910,7 +928,7 @@ class Main extends Sprite
         }
         _editorContext.currentEditor.setViewState(viewState);
 
-        // Принудительная перерисовка
+        // Forcing a redraw
         haxe.Timer.delay(function()
         {
             if (_editorContext.currentEditor != null)
@@ -1619,8 +1637,8 @@ class Main extends Sprite
 				_btnBack.x = _btnClose.x - btnSize - btnPadding; _btnBack.y = startY;
 				_titleBar.addControlButton(_btnBack);
 
-				// ⚠️ [E] = Delete current assembly. Не переименован — оставлен как есть.
-				//     Если хочешь, можно сделать "DELETE" — скажи, и я подправлю.
+				// ⚠️ [E] = Delete current assembly. Not renamed — left as is.
+				//     Could be renamed to "DELETE" if desired — just say the word.
 				_btnDelete = new ButtonComponent("E", onDeleteCurrentAssembly);
 				_btnDelete.x = _btnBack.x - btnSize - btnPadding; _btnDelete.y = startY;
 				_titleBar.addControlButton(_btnDelete);
@@ -1641,9 +1659,9 @@ class Main extends Sprite
 				_btnSettings.x = _btnReset.x - btnSize - btnPadding; _btnSettings.y = startY;
 				_titleBar.addControlButton(_btnSettings);
 
-				// Этап 3 (Task 137): [EXPORT] — клепает Device.exe из текущей схемы и библиотеки.
-				// Ряд: [EXPORT][SETTINGS][RESET][ASSEMBLY][DEVICE][E][<]
-				// v2: убран +20 по Y — кнопка теперь в одном ряду с остальными, ширина авто.
+				// Stage 3 (Task 137): [EXPORT] — stamps out a Device.exe from the current scheme and library.
+				// Row: [EXPORT][SETTINGS][RESET][ASSEMBLY][DEVICE][E][<]
+				// v2: the +20 Y offset is gone — the button now sits in one row with the rest, auto width.
 				_btnExport = new ButtonComponent("EXPORT", onExportClick);
 				_btnExport.x = _btnSettings.x - btnSize - btnPadding;
 				_btnExport.y = startY;
@@ -2151,8 +2169,8 @@ class Main extends Sprite
                 _btnBack.visible = !isRoot;
                 _btnDelete.visible = !isRoot;
                 _btnNew.visible = _settingsPanel.allowAssembly;
-// Этап 3 (Task 137): экспорт — только из корня (схема прибора = корень);
-// кнопка молчит, пока пользователь внутри вложенной сборки
+// Stage 3 (Task 137): export — from the root only (the device scheme = root);
+// the button stays silent while the user is inside a nested assembly
                 _btnExport.visible = isRoot;
         }
 
@@ -2170,8 +2188,8 @@ class Main extends Sprite
                         // user sees on the assembly node in the parent schema. blueprint.name
                         // is the library-level identity and only syncs to displayName inside
                         // prepareCurrentAssemblyForSave() (on pop/exit), so it lags behind
-                        // while the user is INSIDE the assembly ("внутри Custom Assembly_3,
-                        // заголовок Custom Assembly_2").
+                        // while the user is INSIDE the assembly ("inside Custom Assembly_3,
+                        // yet the title reads Custom Assembly_2").
                         var titleAsm = _editorContext.currentAssembly;
                         _nameField.text = (titleAsm.displayName != null && titleAsm.displayName != "")
                                 ? titleAsm.displayName
@@ -2741,23 +2759,23 @@ class Main extends Sprite
         }
 
         /**
-        * Этап 3 (Task 137): [P] Export clicked — упаковка прибора мышкой.
+        * Stage 3 (Task 137): [P] Export clicked — packaging the device with a mouse click.
         *
-        * КОНВЕЙЕР:
-        *   1) только из корня (вложенные правки живут в библиотеке .atom,
-        *      но Device-семантика = корневая схема);
-        *   2) нативный диалог сохранения (ui.NativeDialog, GetSaveFileNameW)
-        *      — модальный, БЕЗ побочных эффектов при отмене: диалог ДО
-        *      сохранения;
-        *   3) сохранение текущей схемы — то же, что S/выход: прибор несёт
-        *      то, что видит пользователь (prepare + saveCurrentContext);
-        *   4) core.io.DeviceExporter.export(): base = работающий exe
-        *      (старый хвост усечён — анти-матрёшка), библиотека =
-        *      хвост ∪ диск (диск приоритетен), guard'ы канонические;
-        *   5) итог — в поле лога (5 сек) и в консоль (ASCII, формат --pack).
+        * CONVEYOR:
+        *   1) from the root only (nested edits live in the .atom library,
+        *      but the Device semantics = the root scheme);
+        *   2) native save dialog (ui.NativeDialog, GetSaveFileNameW)
+        *      — modal, NO side effects on cancel: the dialog runs BEFORE
+        *      the saving;
+        *   3) saving the current scheme — same as S/exit: the device carries
+        *      exactly what the user sees (prepare + saveCurrentContext);
+        *   4) core.io.DeviceExporter.export(): base = the running exe
+        *      (old tail truncated — anti-matryoshka), library =
+        *      tail ∪ disk (disk wins), canonical guards;
+        *   5) the result goes to the log field (5 s) and to the console (ASCII, --pack format).
         *
-        * Пауза рендера на время диалога — осознанная v1-мера (аудио играет:
-        * драйверы на нативных потоках).
+        * Pausing the renderer during the dialog is a deliberate v1 measure (audio keeps playing:
+        * the drivers run on native threads).
         */
         private function onExportClick():Void
         {
@@ -2773,16 +2791,16 @@ class Main extends Sprite
                         return;
                 }
 
-// Диалог ДО сохранения: отмена не оставляет побочных эффектов.
-// Стартовый каталог — папка работающего редактора (там живут Device*.exe).
+// Dialog BEFORE saving: cancel leaves no side effects.
+// Start directory — the running editor folder (that is where Device*.exe live).
                 var initialDir:String = core.io.PathCanon.dirname(Sys.programPath());
                 var outPath:String = NativeDialog.saveFile(
                         "Export ALTAURI device", "Device.exe", initialDir);
-                if (outPath == null) return; // отмена — молчание
+                if (outPath == null) return; // cancel — stay silent
                 utils.Trap.log("EXPORT", "target: " + outPath);
 
-// Сохраняем текущую схему (то же, что S/выход): Selfrun.atom + вложенные
-// сборки в библиотеку — прибор несёт состояние экрана.
+// Save the current scheme (same as S/exit): Selfrun.atom + nested
+// assemblies into the library — the device carries the screen state.
                 _editorContext.prepareCurrentAssemblyForSave();
                 saveCurrentContext();
                 utils.Trap.log("EXPORT", "scheme saved");

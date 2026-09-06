@@ -117,7 +117,7 @@ class ConnectCommand extends Command {
             _blueprint.internalConnections.push(_createdLink);
             cOut.link(cIn);
             
-            // === FIX: Синхронизация рантайма, если затронут порт сборки ===
+            // === FIX: Runtime sync if an assembly port was affected ===
             if (_fromId == "SELF" || _toId == "SELF") {
                 _assembly.rebuildInternalConnections();
 

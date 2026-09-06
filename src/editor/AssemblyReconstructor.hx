@@ -217,8 +217,8 @@ class AssemblyReconstructor
                                         //
                                         // The first time createPorts() runs after a mode switch,
                                         // atom.getInputs() returns null and no ports are created,
-                                        // manifesting as "графика контактов и названия контактов
-                                        // пропадают" after Editor → Device Panel → Editor.
+                                        // manifesting as "contact graphics and contact names
+                                        // disappearing" after Editor -> Device Panel -> Editor.
                                         //
                                         // reattachNodeView swaps the atom reference, releases the
                                         // old DeviceView, acquires a fresh one, and rebuilds layout.

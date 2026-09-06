@@ -458,7 +458,7 @@ class Atom implements IDisposable implements Driver
 			core.logic.NamingService.unregisterInstanceName(_displayName);
 		}
 		
-		// v3.9: Clear visualMode (не обязательно, но чисто)
+		// v3.9: Clear visualMode (not required, but clean)
 		_visualMode = null;
 	
 // old record:

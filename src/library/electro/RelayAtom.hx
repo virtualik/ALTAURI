@@ -26,6 +26,14 @@ import core.types.ContactType;
  * - Fixed getPersistentState() to merge with super result
  * - Fixed restoreState() to call super.restoreState() first
  * - _calculate() reads from contacts directly (not from stale cache)
+ *
+ * v1.5 Changes:
+ * - FIX (dead relay): the constructor passed null as _process, but the
+ *   base scheduler has the guard `if (_process != null)` — in both
+ *   Atom.onContactChanged() and the constructor. _calculate() was never
+ *   scheduled, so [signal] never reached [out]. A dummy process function
+ *   now enables the base scheduling machinery; the real logic stays in
+ *   the _calculate() override (virtual dispatch resolves to it).
  */
 class RelayAtom extends Atom
 {
@@ -57,7 +65,13 @@ class RelayAtom extends Atom
             [
                 new Contact(null, OUTPUT, "out")
             ],
-            null,
+            // v1.5 FIX (dead relay): the base class schedules _calculate()
+            // only when _process is non-null (guard in Atom.onContactChanged
+            // and in the constructor). With null here the relay was silent
+            // forever — _calculate() existed but was never scheduled. The
+            // dummy below only enables the base scheduler; the real logic
+            // lives in the _calculate() override (virtual dispatch wins).
+            function(_inputs:Array<Dynamic>):Array<Dynamic> { return []; },
             id,
             "Relay"
         );

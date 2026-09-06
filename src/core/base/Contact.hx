@@ -79,7 +79,7 @@ private var _isScheduled:Bool = false;
 /** Is this contact disposed? */
 public var isDisposed(default, null):Bool = false;
 /** windows for frame */
-private var _windowStart:Float = 0.0;  // новое поле
+private var _windowStart:Float = 0.0;  // a new field
 // ========================================================================
 // OSCILLATION PROTECTION
 // ========================================================================
@@ -343,7 +343,7 @@ if (!forwardRepeats && _value == newValue && !Std.isOfType(newValue, Array)) ret
 // Oscillation detection
 var currentTime = haxe.Timer.stamp();
 
-// Заблокированы? Ждём полной секунды тишины
+// Blocked? Waiting for a full second of silence
 if (_oscillationBlocked) {
     if (currentTime - _lastChangeTime >= OSCILLATION_WINDOW) {
         _oscillationBlocked = false;
@@ -354,7 +354,7 @@ if (_oscillationBlocked) {
     }
 }
 
-// Катим фиксированное окно
+// Rolling a fixed window
 if (currentTime - _windowStart >= OSCILLATION_WINDOW) {
     _windowStart = currentTime;
     _changeCount = 0;

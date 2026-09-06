@@ -85,7 +85,7 @@ class DeleteWiresCommand extends Command {
 			}
 		}
 		
-		// === FIX: Синхронизация рантайма, если удалялись связи с портами сборки ===
+		// === FIX: Runtime sync when wires to assembly ports were deleted ===
 		if (involvesSelf) {
 			_assembly.rebuildInternalConnections();
 		}

@@ -192,7 +192,7 @@ class ProjectIO {
             var json:Dynamic = Json.parse(data);
             var rawBp:Dynamic = json.blueprint;
             
-            // Делегируем парсинг графа нашему новому единому методу
+            // Delegating the graph parsing to our new unified method
             var bp = parseBlueprint(rawBp);
             
             // FIX: Safe editor state parsing

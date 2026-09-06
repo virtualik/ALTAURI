@@ -28,7 +28,7 @@ import core.logic.Impulse;
 * ║  Checkbox = auto-connect on next app start (persistence stub)             ║
 * ║  Click device = select + immediate connect                                ║
 * ╚═══════════════════════════════════════════════════════════════════════════╝
-*  * ComPortWidget - это ЛИЦО (Face) для ComPortAtom.
+*  * ComPortWidget is the FACE for ComPortAtom.
 *
 * ┌─────────────────────────────────────────────────────────────────────────┐
 * │   ComPortWidget                                                         │

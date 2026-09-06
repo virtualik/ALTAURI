@@ -313,8 +313,8 @@ import core.logic.TickGenerator;
 *
 *  The first time createPorts() ran after a mode switch (Editor → Device →
 *  Editor forces updateLayout → createPorts), atom.getInputs() returned
-*  null and no ports were created. Symptom: "графика контактов и названия
-*  контактов пропадают".
+*  null and no ports were created. Symptom: "contact graphics and node
+*  names disappearing".
 *
 *  SOLUTION B:
 *  After replacing the atom in currentAssembly.internalAtoms, call:
@@ -651,9 +651,9 @@ class EditorContext
                         container.addChild(editor);
 
                 // =========================================================================
-                // v1.4 FIX: Двойной принудительный реблд для гарантии
+                // v1.4 FIX: A double forced rebuild for reliability
                 // =========================================================================
-                // Сначала сразу после добавления, потом через 100 мс.
+                // First right after adding, then after 100 ms.
                 editor.forceFullRedraw();
                 haxe.Timer.delay(() -> {
                         if (editor != null && !editor.isDisposed)
@@ -768,7 +768,7 @@ class EditorContext
                         currentAssembly = prev.assembly;
 
                         // =========================================================================
-                        // v1.4 FIX: Двойной реблд родительского редактора
+                        // v1.4 FIX: A double rebuild of the parent editor
                         // =========================================================================
                         prev.editor.forceFullRedraw();
                         haxe.Timer.delay(() -> {

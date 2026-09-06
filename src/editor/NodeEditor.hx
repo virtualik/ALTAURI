@@ -433,7 +433,7 @@ class NodeEditor extends Sprite
         // =========================================================================
         // LIFECYCLE FLAG (v4.3)
         // =========================================================================
-        /** Флаг, указывающий, что редактор уничтожен (для безопасных отложенных вызовов). */
+        /** A flag indicating the editor is disposed (for safe deferred calls). */
         public var isDisposed(default, null):Bool = false;
 
         // =========================================================================
@@ -902,10 +902,10 @@ class NodeEditor extends Sprite
                         _selection.setWires(ids);
                         _wireRenderer.rebuildAll();
                 });
-                // ===== v4.4: Двойная перерисовка для гарантии =====
+                // ===== v4.4: A double redraw for reliability =====
                 _wireRenderer.rebuildAll();
                 updateVisibility();
-                // Дополнительный вызов через кадр для надёжности
+                // An extra call a frame later for reliability
                 haxe.Timer.delay(() -> {
                         if (!isDisposed)
                         {
@@ -1142,8 +1142,8 @@ class NodeEditor extends Sprite
         * Without this, the existing NodeView would keep holding a reference
         * to the disposed Assembly. The first time createPorts() ran after a
         * mode switch (Editor → Device → Editor), atom.getInputs() returned
-        * null and no ports were created, manifesting as "графика контактов
-        * и названия контактов пропадают".
+        * null and no ports were created, manifesting as contact graphics
+        * and contact names disappearing.
         *
         * @param atomId  Runtime ID of the atom (unchanged by reconstruction)
         * @param newAtom The freshly constructed Atom instance
@@ -1920,8 +1920,8 @@ class NodeEditor extends Sprite
                 if (isDisposed || !isActive) return;
                 utils.Trap.log("ZOOM", "wheel: delta=" + e.delta + " canvas.scaleX=" + _canvas.scaleX);
                 _viewport.handleZoom(e.delta, e.stageX, e.stageY, this);
-                // НЕ вызываем _wireRenderer.rebuildAll(); здесь — провода масштабируются 
-                // автоматически вместе с canvas. Перерисуем после зума.
+                // We do NOT call _wireRenderer.rebuildAll() here - the wires scale 
+                // automatically with the canvas. We redraw after the zoom.
                 updateVisibility();
         }
 

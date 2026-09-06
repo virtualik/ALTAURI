@@ -11,8 +11,8 @@ import core.base.Contact;
 
 /**
  * FILE READER WIDGET v1.0
- * Interactive control panel for FileReaderAtom (зеркало FileWriterWidget).
- * Этап 4a-1, Task 140. Spec: SPEC_STAGE4A_FILEREADER.md §3.
+ * An interactive control panel for FileReaderAtom (a mirror of FileWriterWidget).
+ * Stage 4a-1, Task 140. Spec: SPEC_STAGE4A_FILEREADER.md §3.
  *
  * Architecture: "ATOM IS DATABANK & COMPUTE CORE"
  *
@@ -36,8 +36,8 @@ import core.base.Contact;
  * │   Widget READS state from atom's contacts (Databank)                    │
  * │   Widget WRITES to atom's contacts on user interaction                  │
  * │                                                                         │
- * │   Отличия от Писателя: имя файла — ТОЛЬКО показ (это ВЫХОД атома,       │
- * │   не поле ввода); нет mode-кнопки — Читателю нечего настраивать.        │
+ * │   Differences from the Writer: the file name is DISPLAY ONLY (it is the atom OUTPUT,       │
+ * │   not an input field); no mode button - the Reader has nothing to configure.        │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
 class FileReaderWidget extends DeviceView
@@ -52,7 +52,7 @@ class FileReaderWidget extends DeviceView
     private var _statusGlow:Sprite;
 
     private var _fileNameLabel:TextField;
-    private var _fileNameDisplay:TextField;   // только показ (выход атома)
+    private var _fileNameDisplay:TextField;   // display only (the atom output)
     private var _selectBtn:Sprite;
 
     private var _readBtn:Sprite;
@@ -190,7 +190,7 @@ class FileReaderWidget extends DeviceView
 
         yPos += 32;
 
-        // === FILE NAME (только показ — это ВЫХОД атома) ===
+        // === FILE NAME (display only — this is the atom OUTPUT) ===
         _fileNameLabel = createLabel("File:");
         _fileNameLabel.y = yPos;
         addChild(_fileNameLabel);
@@ -278,7 +278,7 @@ class FileReaderWidget extends DeviceView
         return tf;
     }
 
-    /** Поле-показ: выглядит как поле ввода Писателя, но не редактируется. */
+    /** A display field: looks like the Writer's input field but is not editable. */
     private function createDisplayField(defaultText:String, width:Int):TextField
     {
         var tf = new TextField();
@@ -377,7 +377,7 @@ class FileReaderWidget extends DeviceView
         }
         else if (contact == _fileNameContact)
         {
-            // fileName — ВЫХОД атома: показываем только имя (без каталога)
+            // fileName - the atom OUTPUT: showing only the name (without the directory)
             if (newValue != null) updateNameDisplay(Std.string(newValue));
         }
         else if (contact == _errorContact)
@@ -400,7 +400,7 @@ class FileReaderWidget extends DeviceView
     // =========================================================================
     private function updateNameDisplay(fullPath:String):Void
     {
-        // Виджет показывает только имя файла; полный путь живёт в контакте
+        // The widget shows only the file name; the full path lives in the contact
         var name:String = haxe.io.Path.withoutDirectory(fullPath);
         if (name == "") name = "—";
         if (_fileNameDisplay != null && _fileNameDisplay.text != name)
@@ -455,7 +455,7 @@ class FileReaderWidget extends DeviceView
     {
         // CRITICAL: Direct synchronous call to preserve user gesture context.
         // Do NOT use _openContact.value = true — that loses the gesture
-        // (идиома FileWriterWidget.onOpenClick).
+        // (the FileWriterWidget.onOpenClick idiom).
         if (atom != null && Std.isOfType(atom, library.drivers.FileReaderAtom))
         {
             var readerAtom:library.drivers.FileReaderAtom = cast atom;
@@ -469,8 +469,8 @@ class FileReaderWidget extends DeviceView
 
     private function onReadClick(e:MouseEvent):Void
     {
-        // Перечитать файл с диска: диалога нет → зависимость от user gesture
-        // отсутствует, прямой синхронный вызов (идиома Писателя).
+        // Re-read the file from disk: there is no dialog -> no user gesture dependency,
+        // a direct synchronous call (the Writer idiom).
         if (atom != null && Std.isOfType(atom, library.drivers.FileReaderAtom))
         {
             var readerAtom:library.drivers.FileReaderAtom = cast atom;
@@ -491,7 +491,7 @@ class FileReaderWidget extends DeviceView
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // FLOAT FORMATTING HELPER (копия FileWriterWidget — идентичное поведение)
+    // A FLOAT FORMATTING HELPER (a copy of FileWriterWidget - identical behavior)
     // ═══════════════════════════════════════════════════════════════════════════
     private static function _toFixed(value:Float, decimals:Int = 1):String
     {

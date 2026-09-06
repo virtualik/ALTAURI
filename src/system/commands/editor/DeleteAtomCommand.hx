@@ -116,7 +116,7 @@ class DeleteAtomCommand extends Command {
                         _assembly.internalAtoms.remove(_atomId);
                 }
                 
-                // === FIX: Синхронизация рантайма, если удаляемый атом был связан с портами сборки ===
+                // === FIX: Runtime sync if the deleted atom was linked to assembly ports ===
                 if (involvesSelf) {
                         _assembly.rebuildInternalConnections();
                 }

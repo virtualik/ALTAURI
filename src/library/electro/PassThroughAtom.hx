@@ -8,8 +8,8 @@ import core.types.ContactType.*;
 /**
  * PASS-THROUGH ATOM v1.4 (Link-Based + Active Timer)
  * 
- * Мгновенно транслирует значение с входа на выход через link().
- * Генерирует импульс changed (50ms) через subscribe + update timer.
+ * Instantly translates a value from the input to the output via link().
+ * Generates a changed impulse (50 ms) via subscribe + an update timer.
  * 
  * ──────────────────────────────────────────────────────┐
  * │  in ──[LINK]──► out                                  │
@@ -19,10 +19,10 @@ import core.types.ContactType.*;
  */
 class PassThroughAtom extends Atom
 {
-    /** Длительность импульса changed в секундах */
+    /** The duration of the changed impulse in seconds */
     private static inline var PULSE_DURATION:Float = 0.05;
     
-    /** Таймер обратного отсчёта для сброса changed */
+    /** A countdown timer for resetting changed */
     private var _changedTimer:Float = 0.0;
 
     public function new(id:String)
@@ -45,15 +45,15 @@ class PassThroughAtom extends Atom
         
         if (input != null && output != null)
         {
-            // Прямая трансляция значений (без _calculate, без рекурсии)
+            // A direct value broadcast (no _calculate, no recursion)
             input.link(output);
             
-            // Подписка на изменения для генерации импульса changed
+            // Subscribing to changes to generate the changed impulse
 			input.subscribe(function(v:Dynamic) {
 				if (changed != null && changed.value == false)
 				{
 					changed.value = true;
-					// Сброс через 3 кадра (~50ms при 60 FPS)
+					// A reset after 3 frames (~50 ms at 60 FPS)
 					TickGenerator.getInstance().scheduleNextTick(function() {
 						TickGenerator.getInstance().scheduleNextTick(function() {
 							TickGenerator.getInstance().scheduleNextTick(function() {
@@ -69,8 +69,8 @@ class PassThroughAtom extends Atom
     }
     
     /**
-     * Вызывается DriverManager каждый кадр (isActive = true).
-     * Единственная задача — сбросить changed по истечении таймера.
+     * Called by DriverManager every frame (isActive = true).
+     * The only task is to reset changed when the timer expires.
      */
     override public function update(dt:Float):Void
     {

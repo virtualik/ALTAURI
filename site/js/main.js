@@ -232,6 +232,15 @@ document.addEventListener('DOMContentLoaded', () => {
                                     e.stopPropagation();
                                 }
                             }, { passive: false });
+
+                            // Suppress the browser context menu on right-click:
+                            // the app draws its own. Module 1 was covered by the
+                            // app-side canvas setup, Modules 2/3 were not (the
+                            // app-side lookup always hit the first DOM canvas).
+                            canvas.addEventListener('contextmenu', function (e) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                            }, { passive: false });
                         }
 
                         runtimeContainer.setAttribute('data-initialized', 'true');

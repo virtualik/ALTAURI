@@ -324,17 +324,17 @@ class FFTWidget extends DeviceView
 			if (normalized < 0) normalized = 0;
 			if (normalized > 1) normalized = 1;
 /**/
-			// 2. === ВИЗУАЛЬНЫЙ ПОДЪЕМ ВЫСОКИХ ЧАСТОТ (Tilt) для утехи глаз ===
-			// freqStart - это текущая частота бина. Делим на 1000 (1 кГц) как на опорную точку.
+			// 2. === A VISUAL LIFT OF HIGH FREQUENCIES (Tilt) for the eye ===
+			// freqStart is the current bin frequency. Dividing by 1000 (1 kHz) as a reference point.
 			var tiltMultiplier = Math.pow(freqStart / 1000.0, 0.5);
 
-			// Ограничиваем множитель, чтобы не улететь в бесконечность
+			// Clamping the multiplier so it does not fly off to infinity
 			if (tiltMultiplier < 0.5) tiltMultiplier = 0.5;
 			if (tiltMultiplier > 1.5) tiltMultiplier = 1.5;
 
 			normalized *= tiltMultiplier;
 		
-			// Дополнительная защита от выхода за 1.0 после умножения
+			// Additional protection against going over 1.0 after the multiplication
 			if (normalized > 1.0) normalized = 1.0;
 
 			// 3. Power compression (makes mid-level volumes visually taller)

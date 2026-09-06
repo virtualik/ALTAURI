@@ -100,7 +100,7 @@ import ui.NodeVisualMode;
 *   atom), acquires a fresh DeviceView, and rebuilds layout + ports +
 *   inline editors against the new atom. Without this, NodeView kept
 *   pointing at the disposed Assembly whose _inputs/_outputs were null,
-*   causing "графика контактов пропадают" after Editor ↔ Device Panel.
+*   causing "contact graphics disappearing" after Editor <-> Device Panel.
 * - CHANGED: atom field is now (get, set) instead of (default, null).
 *   Setter is private — only reattachToAtom() should use it, to keep the
 *   DeviceView lifecycle in sync with the atom reference.
@@ -197,7 +197,7 @@ class NodeView extends Sprite
         *
         * When createPorts() later called atom.getInputs() it got null,
         * inputCount became 0, and NO ports were created — which manifested
-        * as "графика контактов и названия контактов пропадают" after
+        * as "contact graphics and contact names disappearing" after
         * Editor → Device Panel → Editor mode switch.
         *
         * The setter is private — only NodeView.reattachToAtom() should
@@ -250,7 +250,7 @@ class NodeView extends Sprite
         public function setCacheAsBitmapState(enabled:Bool):Void
         {
                 // ═══════════════════════════════════════════════════════════════
-                // v3.9 / ЭТАП 2 (BUGS_FIXING_SCENARIO v4.4): HARD RESET of the
+                // v3.9 / STAGE 2 (BUGS_FIXING_SCENARIO v4.4): HARD RESET of the
                 // bitmap cache. Toggling cacheAsBitmap alone can REUSE a stale
                 // raster snapshot captured at the previous scale: the container
                 // keeps drawing the old bitmap through the new transform
@@ -357,8 +357,8 @@ class NodeView extends Sprite
                 
                 // ═══════════════════════════════════════════════════════════════
                 // Turning off cacheAsBitmap for HTML5
-                // Предотвращает дикие спайки GC и перевыделение canvas-буфера 
-                // при каждом изменении scaleX/scaleY родительского контейнера.
+                // Prevents wild GC spikes and canvas buffer reallocation 
+                // on every scaleX/scaleY change of the parent container.
                 // ═══════════════════════════════════════════════════════════════
                 this.cacheAsBitmap = false;
                 
@@ -424,8 +424,8 @@ class NodeView extends Sprite
         *
         * The first time createPorts() ran after a mode switch (which forces
         * updateLayout → createPorts), atom.getInputs() returned null, no
-        * ports were created, and the user saw "графика контактов и названия
-        * контактов пропадают".
+        * ports were created, and the user saw "contact graphics and contact
+        * names disappearing".
         *
         * This method:
         *   1. Releases the old DeviceView (deactivate + clearContainer) so
@@ -504,7 +504,7 @@ class NodeView extends Sprite
                                 var scaledH = ws.height * PREVIEW_SCALE;
                                 bodyWidth = Math.max(bodyWidth, scaledW + WIDGET_PADDING * 2);
                                 
-                                // отступы сверху и снизу:
+                                // top and bottom padding:
                                 widgetHeight = scaledH + (WIDGET_PADDING * 2);
                         }
                         
@@ -732,16 +732,16 @@ private function centerPreviewContainer():Void
     var scaledH = ws.height * PREVIEW_SCALE;
     var bodyWidth = _nodeWidth;
     
-    // === ИСПРАВЛЕНО: widgetHeight рассчитываем локально ===
+    // === FIXED: widgetHeight is computed locally ===
     var widgetHeight = scaledH + (WIDGET_PADDING * 2) * PREVIEW_SCALE;
     
-    // Горизонтальное центрирование
+    // Horizontal centering
     _previewContainer.x = (bodyWidth / 2) - (scaledW / 2) * PREVIEW_SCALE;
     
         //  + (_nodeHeight - (_nodeHeight - widgetHeight) / 2) + ((widgetHeight / 2) * PREVIEW_SCALE)
         // Separator Y = (_nodeHeight - widgetHeight)
         // Widget Y center = (widgetHeight / 2)
-    // Вертикальное центрирование в widget area
+    // Vertical centering in the widget area
         var separatorYPos = _nodeHeight - widgetHeight;
         var widgetPlaceHeight = _nodeHeight - separatorYPos;
     _previewContainer.y = (separatorYPos + WIDGET_PADDING / 2) + (widgetPlaceHeight / 2) - (widgetHeight / 2); 
@@ -834,7 +834,7 @@ private function centerPreviewContainer():Void
                         var ws = deviceView.getWidgetSize();
                         var scaledH = ws.height * PREVIEW_SCALE;
                         //var separatorY = _nodeHeight - scaledH - (WIDGET_PADDING * 2) - 5;
-                        // Separator на границе между ports и widget area
+                        // A separator on the boundary between the ports and the widget area
                                                 var widgetHeight = scaledH + (WIDGET_PADDING * 2);
                                                 var separatorY = _nodeHeight - widgetHeight;
                                         
@@ -2125,9 +2125,9 @@ private function centerPreviewContainer():Void
                 // Apply displayName to Atom
                 atom.displayName = finalName;
 
-                // Для Assembly также обновляем blueprint.name, чтобы заголовок
-                // редактора и .atom файл отражали переименование.
-                // blueprint.id остаётся стабильным идентификатором.
+                // For an Assembly we also update blueprint.name so that the editor
+                // title and the .atom file reflect the rename.
+                // blueprint.id remains the stable identifier.
                 if (Std.isOfType(atom, Assembly))
                 {
                         var asm:Assembly = cast(atom, Assembly);

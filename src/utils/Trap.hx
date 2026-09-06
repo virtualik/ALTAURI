@@ -378,7 +378,7 @@ class Trap
         */
         public static function log(tag:String, msg:String = ""):Void
         {
-                        // Блокиратор ловушки лога
+                        // The log trap blocker
                         //return;
 #if (cpp && !ALTAURI_TRAP_OFF)
                 if (!ENABLE) return;

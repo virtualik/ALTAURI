@@ -41,7 +41,7 @@ import core.base.Contact;
  * │                                                                         │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
- * Внёс извещение:
+ * Compatibility notice:
  * FileWriter Web API in Chrome Desktop on Android systems needs Chrome 130–132+ and Android 10+ (recommended)
  * 
  */
@@ -263,7 +263,7 @@ class FileWriterWidget extends DeviceView
         _closeBtn.y = yPos;
         addChild(_closeBtn);
         
-                // FLUSH в html5 не нужен (не будет)
+                // FLUSH is not needed on html5 (and will not be)
         #if !html5
         _flushBtn = createActionButton("FLUSH", 0x334455, onFlushClick);
         _flushBtn.x = 140;
