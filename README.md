@@ -56,7 +56,7 @@ Build artifacts are placed in `bin/` (see `project.xml` for target configuration
 
 **Distribution.** The WebSocket atom makes a remote atom indistinguishable from a local one: the runtime does not know that a contact's peer is across the network. The graph topology abstracts distribution.
 
-📐 **Full architecture map:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — every class mapped onto a domain → layer → pack hierarchy (153 classes, 7 domains). Design patterns and principles: [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md). Russian editions: [ARCHITECTURE_RU.md](docs/ARCHITECTURE_RU.md) · [ARCHITECTURE_PATTERNS_RU.md](docs/ARCHITECTURE_PATTERNS_RU.md).
+📐 **Full architecture map:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — every class mapped onto a domain → layer → pack hierarchy (153 classes, 7 domains). Design patterns and principles: [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md).
 
 ### The atom library today
 
