@@ -68,11 +68,11 @@ Composition: `Assembly` (a composite atom built from other atoms)
 
 |                     | Typical no-code tools          | ALTAURI                                            |
 | ------------------- | ------------------------------ | -------------------------------------------------- |
-| What the graph does | Generates or configures code   | **Is executed directly, deterministically**  |
+| What the graph does | Generates or configures code   | **Is executed directly, deterministically**        |
 | Runtime model       | Event-driven, hidden           | Fixed 60 Hz tick engine, observable                |
-| Editing ↔ runtime  | Two modes, a rebuild step      | **One blueprint, two synchronized views**    |
-| Target              | Web pages or a single platform | One codebase → native desktop, mobile and browser |
-| Distribution        | Separate infrastructure        | A WebSocket atom — remote contacts look local     |
+| Editing ↔ runtime   | Two modes, a rebuild step      | **One blueprint, two synchronized views**          |
+| Target              | Web pages or a single platform | One codebase → native desktop, mobile and browser  |
+| Distribution        | Separate infrastructure        | A WebSocket atom — remote contacts look local      |
 
 Existing efforts compared honestly: **Node-RED** executes JavaScript functions rather than the graph itself; **Unreal Blueprints** are locked to the engine; **Max/MSP** is closed-source and desktop-only; **LabVIEW** is proprietary and licensed per seat. ALTAURI takes the visual-graph idea and executes it as a first-class runtime.
 
@@ -80,7 +80,7 @@ Existing efforts compared honestly: **Node-RED** executes JavaScript functions r
 
 * Data flows from contact to contact across the graph.
 * Atoms are created on the schematic; widgets appear in the device panel.
-* Save/load of projects (`.altauri`), Undo/Redo (Command pattern), reusable `.atom` blueprints.
+* Save/load of projects, Export `app.exe`, Undo/Redo (Command pattern), reusable `.atom` blueprints.
 * Export to a standalone selfrun application.
 * Build targets configured for **Windows, Linux, Android and HTML5**; the runtime is field-tested on Windows and in the browser.
 
@@ -143,4 +143,4 @@ ALTAURI is human-led: the architecture, design decisions and priorities are the 
 
 ---
 
-*BiOCYBER LAB · Lviv · 2026 · ALTAURI is looking for financial support to continue development — the work described above is ongoing.*
+*Albert Lapinsky · Lviv · 2026 · ALTAURI is looking for financial support to continue development — the work described above is ongoing.*
