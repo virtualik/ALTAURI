@@ -80,7 +80,7 @@ Existing efforts compared honestly: **Node-RED** executes JavaScript functions r
 
 * Data flows from contact to contact across the graph.
 * Atoms are created on the schematic; widgets appear in the device panel.
-* Save/load of projects, Export `app.exe`, Undo/Redo (Command pattern), reusable `.atom` blueprints.
+* Save/load of projects, Export `Device.exe`, Undo/Redo (Command pattern), reusable `.atom` blueprints.
 * Export to a standalone selfrun application.
 * Build targets configured for **Windows, Linux, Android and HTML5**; the runtime is field-tested on Windows and in the browser.
 
@@ -143,4 +143,4 @@ ALTAURI is human-led: the architecture, design decisions and priorities are the 
 
 ---
 
-*Albert Lapinsky · Lviv · 2026 · ALTAURI is looking for financial support to continue development — the work described above is ongoing.*
+*Albert Lapinskyi · Lviv · 2026 · ALTAURI is looking for financial support to continue development — the work described above is ongoing.*
