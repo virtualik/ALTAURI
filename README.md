@@ -15,10 +15,11 @@ The project exists because for decades the bridge between an idea and a running 
 ## Try it now
 
 - **Live demo in the browser (no installation):** https://virtualik.github.io/ATOMICA/
-  - *Module 1 — Signal Routing:* direct control with visual feedback.
-  - *Module 2 — COM Port Management with logging:* a working editor with a serial-port atom, text area and file writer.
-  - *Module 3 — Multi-Device Signal Routing:* buttons, a toggle and an LED wired together.
-- **Downloads** (Windows / Linux / Android): https://github.com/virtualik/ATOMICA/releases
+  - _Module 1 — Signal Routing:_ direct control with visual feedback.
+  - _Module 2 — COM Port Management with logging:_ a working editor with a serial-port atom, text area and file writer.
+  - _Module 3 — Multi-Device Signal Routing:_ buttons, a toggle and an LED wired together.
+- **Binary releases and demo builds** are published in the companion repository [virtualik/ATOMICA](https://github.com/virtualik/ATOMICA), which packages the ALTAURI runtime for end users:
+  - **Downloads** (Windows / Linux / Android): https://github.com/virtualik/ATOMICA/releases
 
 The browser demos run the same ALTAURI runtime, compiled to HTML5. Module 2 is the most complete demonstration today; Modules 1 and 3 are minimal sketches that will grow.
 
