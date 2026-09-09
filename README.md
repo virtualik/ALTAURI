@@ -1,14 +1,48 @@
 # ALTAURI
 
-**A visual environment for assembling working programs — without writing code.**
+### The executable is the graph.
 
-*A program is not written. It is assembled.*
+ALTAURI is an open-source runtime and file format built on one proposition: **a computational graph can be the program itself — not a picture of a program.**
+
+Place typed **Atoms** on a schematic. Connect their contacts with wires. Press **Export**.
+
+The result is not a workflow, not a script, and not a project that requires another programming environment. **It is the application: a standalone executable produced from the graph.** The graph is not transpiled into source code — the exported executable carries the graph and runs it directly.
+
+Today the same graph model targets **Windows, Linux, Android and HTML5** from one codebase, and the same composition model crosses a network: through a **WebSocket Atom** a remote contact is indistinguishable from a local one — the runtime does not know where its peer lives.
+
+**This is not a mockup. Verify it now — the same runtime, no installation:**
+
+- **Live browser demo:** https://virtualik.github.io/ATOMICA/ — the ALTAURI runtime compiled to HTML5
+- **Standalone binaries — Windows / Linux / Android:** https://github.com/virtualik/ATOMICA/releases
+- **Already works today:** deterministic 60 Hz tick engine · typed atoms · dual view (editor ↔ device panel) · save/load · undo/redo · export of standalone executables · network-transparent WebSocket atoms
+
+> **Can a computational graph itself be the portable executable artifact — rather than merely a visual representation of code?**
+
+**Why this is still an open question.** Visual dataflow has a decades-long lineage — LabVIEW G, Max/MSP, Pure Data, Node-RED, Unreal Blueprints — and those systems each solve parts of the problem. What we have not found in any existing open system is a **single typed graph format that serves five roles at once**:
+
+1. **the editing representation** — what the user assembles;
+2. **the live runtime** — what the machine executes, deterministically;
+3. **the export artifact** — a standalone executable, not a project file;
+4. **the portable target** — desktop, mobile and browser from one graph;
+5. **the distributed topology** — the graph extends across the network.
+
+The hard part is that these roles pull in different directions: executability favors compilation, portability favors interpretation, network transparency favors a protocol, and the editor favors a human-readable serialized form. **ALTAURI is the experiment that tests whether these parts can be unified** — one executable, typed, portable and distributable graph abstraction, in the open.
+
+**The proposed next phase — submitted for grant funding — is an experiment, not a product pitch:**
+
+- **Protocol layer:** HTTP/HTTPS, MQTT and CoAP atoms, each validated on at least two physical devices, with tests and CI;
+- **Public Internet demonstration:** sensor → ALTAURI graph → WebSocket → browser panel;
+- **Accessibility:** non-programmers assemble working instruments; the published metric is *time-to-first-working-instrument*.
+
+The longer trajectory is **Graph → Application → Machine**: the same abstraction carried down to single-board computers and microcontrollers, where the MCU plays the role that assembly language plays for source code.
+
+The user does not program a runtime. **The user constructs the runtime artifact.**
+
+All code is released under the **GNU AGPL-3.0** — chosen deliberately: the runtime is distributed by nature, and the license keeps network forks open.
+
+**Why this project exists.** For decades the bridge between an idea and a running program has been source code — syntax, brackets, debugging. For an engineer that is routine; for a creator it is a wall. ALTAURI returns programming to its physical essence: blocks, connections, cause and effect — so that a person without a programming background can build a working instrument with their own hands.
 
 > **Status: work in progress.** ALTAURI is under active development. The core works and runs real tasks today, but the project is far from its final version — the application, the atom library, the website and the documentation all have known gaps that are being fixed. This is natural for the stage the project is at, and it is stated here on purpose.
-
-ALTAURI is an open-source execution environment for computational graphs. Instead of writing source code, you place typed blocks — **Atoms** — on a schematic, connect their contacts with wires, and run the graph directly. The same schematic can be turned into a **device panel** — a ready-to-use instrument built from live widgets.
-
-The project exists because for decades the bridge between an idea and a running program has been source code — syntax, brackets, debugging. For an engineer that is routine; for a creator it is a wall. ALTAURI returns programming to its physical essence: blocks, connections, cause and effect.
 
 ---
 
@@ -62,7 +96,9 @@ Build artifacts are placed in `bin/` (see `project.xml` for target configuration
 ### The atom library today
 
 Logic and UI: `Button`, `Led`, `Toggle`, `TextInput`, `TextArea`, `Relay`, `PassThrough`, `Buffering`, `Picture`, `DataStorage`
+
 Measurement and I/O: `Oscilloscope`, `SignalGenerator` (SIN/SQR/SAW/TRI/NOI), `MiniAudio`, `SystemVUMeter`, `FFT`, `URLAudioStreamPlayer`, `ComPort`, `FileReader`, `FileWriter`
+
 Composition: `Assembly` (a composite atom built from other atoms)
 
 ## What makes it different
@@ -116,6 +152,27 @@ This list is kept on purpose — the project does not pretend to be finished:
 
 * Headless runtime for CLI execution.
 * The same graph running unchanged from desktop to single-board computers and microcontrollers.
+* Research direction — the network atom. The WebSocket atom already makes a remote contact indistinguishable from a local one. The research question inverts this: can the network connection itself be an atom — a typed, first-class graph element whose body is the wire between two machines?
+
+<pre style="line-height: 1.0; font-family: monospace;">
+                 [ GRAPH ]
+                     │
+       ┌─────────────┼─────────────┐
+       ▼             ▼             ▼
+   [ logic ]       [ UI ]     [ device ]
+       │             │             │
+       └─────────────┼─────────────┘
+                     │
+                     ▼
+              [ network atom ]
+                     │
+                     │
+             ┌───────┴───────┐
+             ▼               ▼
+        [ machine A ]   [ machine B ]
+</pre>
+
+If that principle holds under composition, typing, timing, failure, portability and security, distribution stops being a runtime feature and becomes an act of composition: the graph is not a program that uses a network — it is a program that is distributed by construction. Each of the six conditions is open research: timing alone contains the central tension — the local runtime is a deterministic 60 Hz tick engine, and a public network is neither deterministic nor 60 Hz.
 
 ## Repository layout
 
@@ -144,4 +201,4 @@ ALTAURI is human-led: the architecture, design decisions and priorities are the 
 
 ---
 
-*Albert Lapinskyi · Lviv · 2026 · ALTAURI is looking for financial support to continue development — the work described above is ongoing.*
+*Albert Lapinskyi · Lviv · September 2026 · ALTAURI is looking for financial support to continue development — the work described above is ongoing.*
