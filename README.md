@@ -8,20 +8,22 @@ Place typed **Atoms** on a schematic. Connect their contacts with wires. Press *
 
 The result is not a workflow, not a script, and not a project that requires another programming environment. **It is the application: a standalone executable produced from the graph.** The graph is not transpiled into source code — the exported executable carries the graph and runs it directly.
 
+The exported file is not a compiled snapshot of a graph. It is the graph, still alive: it runs as an application, it can be rewired as an editor, and after that it is a different application — no toolchain, no IDE and no license on the receiving side. Run it — it is an instrument. Open the schematic — it is the environment. Rewire the graph — it is already another application. To hand it to someone else, export again.
+
 Today the same graph model targets **Windows, Linux, Android and HTML5** from one codebase, and the same composition model crosses a network: through a **WebSocket Atom** a remote contact is indistinguishable from a local one — the runtime does not know where its peer lives.
 
 **This is not a mockup. Verify it now — the same runtime, no installation:**
 
 - **Live browser demo:** https://virtualik.github.io/ATOMICA/ — the ALTAURI runtime compiled to HTML5
 - **Standalone binaries — Windows / Linux / Android:** https://github.com/virtualik/ATOMICA/releases
-- **Already works today:** deterministic 60 Hz tick engine · typed atoms · dual view (editor ↔ device panel) · save/load · undo/redo · export of standalone executables · network-transparent WebSocket atoms
+- **Already works today:** fixed-timestep 60 Hz tick engine · typed atoms · dual view (editor ↔ device panel) · save/load · undo/redo · export of standalone executables · network-transparent WebSocket atoms
 
 > **Can a computational graph itself be the portable executable artifact — rather than merely a visual representation of code?**
 
 **Why this is still an open question.** Visual dataflow has a decades-long lineage — LabVIEW G, Max/MSP, Pure Data, Node-RED, Unreal Blueprints — and those systems each solve parts of the problem. What we have not found in any existing open system is a **single typed graph format that serves five roles at once**:
 
 1. **the editing representation** — what the user assembles;
-2. **the live runtime** — what the machine executes, deterministically;
+2. **the live runtime** — what the machine executes on a fixed timestep;
 3. **the export artifact** — a standalone executable, not a project file;
 4. **the portable target** — desktop, mobile and browser from one graph;
 5. **the distributed topology** — the graph extends across the network.
@@ -81,7 +83,7 @@ Build artifacts are placed in `bin/` (see `project.xml` for target configuration
 
 **Atoms.** An atom is a self-contained typed component with three parts: a *databank* (its data contacts), a *compute core* (its behavior) and a *face* (its widget in the device panel). Everything — a button, an oscilloscope, a serial port — is an atom.
 
-**Contacts and wires.** Atoms communicate through **contacts**: when a contact's value changes, the change propagates along wires to every connected input. The runtime is a deterministic 60 Hz tick engine with a prioritized scheduler (user input → logic → UI), so propagation never blocks the interface.
+**Contacts and wires.** Atoms communicate through **contacts**: when a contact's value changes, the change propagates along wires to every connected input. The runtime is a fixed-timestep 60 Hz tick engine with a prioritized scheduler (user input → logic → UI), so propagation never blocks the interface.
 
 **Blueprints.** A schematic is a *blueprint* — a JSON structure that is the single source of truth for what the program is. Projects are saved as `.altauri` files; reusable schematics are loaded from `.atom` files. Composite atoms (**Assemblies**) nest other atoms inside themselves, so a tested fragment becomes a new building block.
 
@@ -105,13 +107,13 @@ Composition: `Assembly` (a composite atom built from other atoms)
 
 |                     | Typical no-code tools          | ALTAURI                                            |
 | ------------------- | ------------------------------ | -------------------------------------------------- |
-| What the graph does | Generates or configures code   | **Is executed directly, deterministically**        |
+| What the graph does | Generates or configures code   | **Is executed directly (fixed-timestep, observable)** |
 | Runtime model       | Event-driven, hidden           | Fixed 60 Hz tick engine, observable                |
 | Editing ↔ runtime   | Two modes, a rebuild step      | **One blueprint, two synchronized views**          |
 | Target              | Web pages or a single platform | One codebase → native desktop, mobile and browser  |
 | Distribution        | Separate infrastructure        | A WebSocket atom — remote contacts look local      |
 
-Existing efforts compared honestly: **Node-RED** executes JavaScript functions rather than the graph itself; **Unreal Blueprints** are locked to the engine; **Max/MSP** is closed-source and desktop-only; **LabVIEW** is proprietary and licensed per seat. ALTAURI takes the visual-graph idea and executes it as a first-class runtime.
+Existing efforts compared honestly: **Node-RED** executes JavaScript functions rather than the graph itself, and its flows live on a server; **Unreal Blueprints** are locked to the engine; **Max/MSP** is closed-source and desktop-only. ALTAURI takes the visual-graph idea and executes it as a first-class runtime — and the unit of distribution is a self-sufficient, editable executable.
 
 ## Status — what works today
 
