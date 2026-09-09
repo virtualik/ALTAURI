@@ -16,6 +16,7 @@ Today the same graph model targets **Windows, Linux, Android and HTML5** from on
 
 - **Live browser demo:** https://virtualik.github.io/ATOMICA/ — the ALTAURI runtime compiled to HTML5
 - **Standalone binaries — Windows / Linux / Android:** https://github.com/virtualik/ATOMICA/releases
+- **Standalone binary demo for Windows target platform WebRadio Device:** - [WebRadioDevice.zip](https://github.com/virtualik/ALTAURI/blob/experimental/demo/WebRadioDevice.zip)
 - **Already works today:** fixed-timestep 60 Hz tick engine · typed atoms · dual view (editor ↔ device panel) · save/load · undo/redo · export of standalone executables · network-transparent WebSocket atoms
 
 > **Can a computational graph itself be the portable executable artifact — rather than merely a visual representation of code?**
